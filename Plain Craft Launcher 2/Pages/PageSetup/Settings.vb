@@ -1,6 +1,272 @@
-Imports System.Security.Cryptography
+﻿Imports System.Security.Cryptography
 
 Public Class Settings
+
+    '已有 PCL 文件夹时复用兼容配置；新目录沿用正常初始化流程。
+    Friend Shared Property UseExistingPclConfiguration As Boolean
+
+    '账号数据单独迁移并重新加密，避免把官方密文直接交给当前设备标识解密。
+    Friend Shared Function IsPclAccountSetting(Entry As Setting) As Boolean
+        If Entry.Source <> Sources.Registry Then Return False
+        If Entry.Key = "LoginType" Then Return True
+        Return Entry.Encrypted AndAlso (Entry.Key.StartsWith("Login", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("CacheMs", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("CacheNide", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("CacheAuth", StringComparison.Ordinal))
+    End Function
+
+    Friend Shared Function GetPclSourceIdentify(HardwareConfig As String, Seed As String) As String
+        If String.IsNullOrEmpty(Seed) OrElse Seed.Length < 3 Then Return Nothing
+        Dim Hardware = If(HardwareConfig, "Unknown").ToUpperInvariant().Trim("{"c, "}"c)
+        Dim Hash = (Hardware & Seed).GetStableHashCode().ToString("X").PadLeft(16, "7"c)
+        Return Hash.Substring(4, 4) & "-" & Hash.Substring(12, 4) & "-" & Hash.Substring(0, 4) & "-" & Hash.Substring(8, 4)
+    End Function
+
+    Private Shared Function DecodePclAccountValue(Entry As Setting, RawValue As String, DeviceIdentify As String) As String
+        Try
+            Dim Value = If(Entry.Encrypted, DesDecrypt(RawValue, "PCL" & DeviceIdentify), RawValue)
+            If Entry.Encrypted AndAlso DesEncrypt(Value, "PCL" & DeviceIdentify) <> Convert.ToBase64String(Convert.FromBase64String(RawValue)) Then Return Nothing
+            Dim CheckedValue = CTypeDynamic(Value, Entry.Type)
+            If Entry.Type.IsEnum AndAlso Not [Enum].IsDefined(Entry.Type, CheckedValue) Then Return Nothing
+            If Entry.Key = "LoginMsJson" Then
+                Dim Accounts = JObject.Parse(Value)
+                If Accounts.Properties().Any(Function(Item) Item.Value.Type <> JTokenType.String) Then Return Nothing
+            ElseIf Entry.Key.EndsWith("ProfileJson", StringComparison.Ordinal) AndAlso Value <> "" Then
+                JObject.Parse(Value)
+            End If
+            Return Value
+        Catch
+            '密文、令牌、账号名及解析异常均不得写入日志。
+            Return Nothing
+        End Try
+    End Function
+
+    '账号和设备种子使用官方位置；主题、次数、版本状态仍保持分支隔离。
+    Private Shared Function RegistryFolderFor(Entry As Setting) As String
+        Return If(IsPclAccountSetting(Entry) OrElse Entry.Key = "Identify", "PCL", RegFolder)
+    End Function
+
+    Friend Shared Function PclIdentifyCandidates(Seed As String) As List(Of String)
+        Dim Result As New List(Of String)
+        Using Hardware = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("SYSTEM\HardwareConfig", False)
+            Dim Current = GetPclSourceIdentify(Convert.ToString(Hardware?.GetValue("LastConfig", "Unknown"), Globalization.CultureInfo.InvariantCulture), Seed)
+            If Current IsNot Nothing Then Result.Add(Current)
+            If Hardware IsNot Nothing Then
+                For Each Name In Hardware.GetSubKeyNames()
+                    Dim HardwareGuid As Guid
+                    If Not Guid.TryParse(Name, HardwareGuid) Then Continue For
+                    Dim Historical = GetPclSourceIdentify(Name, Seed)
+                    If Historical IsNot Nothing AndAlso Not Result.Contains(Historical) Then Result.Add(Historical)
+                Next
+            End If
+        End Using
+        Return Result
+    End Function
+
+    Private Shared Function DecodePclAccountWithKeys(Entry As Setting, RawValue As String, Keys As IEnumerable(Of String)) As String
+        For Each Key In Keys.Distinct(StringComparer.Ordinal)
+            Dim Value = DecodePclAccountValue(Entry, RawValue, Key)
+            If Value IsNot Nothing Then Return Value
+        Next
+        Return Nothing
+    End Function
+
+    Private Shared Function AccountGroup(Key As String) As String
+        Return {"CacheMsV2", "CacheMs", "CacheNide", "CacheAuth", "LoginNide", "LoginAuth"}.
+            FirstOrDefault(Function(Prefix) Key.StartsWith(Prefix, StringComparison.Ordinal))
+    End Function
+
+    Friend Class PclAccountMigrationPlan
+        Public Values As New Dictionary(Of String, String)(StringComparer.Ordinal)
+        Public DeleteLegacy As New List(Of String)
+        Public CurrentIdentify As String
+    End Class
+
+    ''' <summary>
+    ''' 将两边账号统一为官方位置、官方当前设备密钥；旧密钥只用于本次转换。
+    ''' </summary>
+    Friend Shared Function PlanPclAccountMigration(Official As IDictionary(Of String, String), Legacy As IDictionary(Of String, String),
+                                                  OfficialKeys As IEnumerable(Of String), LegacyKeys As IEnumerable(Of String), CurrentIdentify As String) As PclAccountMigrationPlan
+        Dim Plan As New PclAccountMigrationPlan With {.CurrentIdentify = CurrentIdentify}
+        Dim NativePlain As New Dictionary(Of String, String)(StringComparer.Ordinal)
+        Dim LegacyPlain As New Dictionary(Of String, String)(StringComparer.Ordinal)
+        For Each Entry In Entries.Values.Where(AddressOf IsPclAccountSetting)
+            If Official.ContainsKey(Entry.Key) Then
+                Dim Value = DecodePclAccountWithKeys(Entry, Official(Entry.Key), OfficialKeys)
+                If Value IsNot Nothing Then NativePlain(Entry.Key) = Value
+            End If
+            If Legacy.ContainsKey(Entry.Key) Then
+                Dim Value = DecodePclAccountWithKeys(Entry, Legacy(Entry.Key), LegacyKeys)
+                If Value IsNot Nothing Then LegacyPlain(Entry.Key) = Value
+            End If
+        Next
+        '本地缓存整组转换；某个字段无法验证时保留整组原数据，不拼接不同账号。
+        For Each Group In {"CacheMsV2", "CacheMs", "CacheNide", "CacheAuth", "LoginNide", "LoginAuth"}
+            Dim GroupKeys = Legacy.Keys.Where(Function(Key) AccountGroup(Key) = Group AndAlso Entries.ContainsKey(Key) AndAlso IsPclAccountSetting(Entries(Key))).ToList()
+            If Not GroupKeys.Any() Then Continue For
+            If GroupKeys.Any(Function(Key) Not LegacyPlain.ContainsKey(Key)) Then
+                For Each Key In GroupKeys
+                    LegacyPlain.Remove(Key)
+                Next
+                Continue For
+            End If
+            For Each Entry In Entries.Values.Where(Function(Item) IsPclAccountSetting(Item) AndAlso AccountGroup(Item.Key) = Group)
+                NativePlain(Entry.Key) = If(LegacyPlain.ContainsKey(Entry.Key), LegacyPlain(Entry.Key), Convert.ToString(Entry.DefaultValue, Globalization.CultureInfo.InvariantCulture))
+            Next
+        Next
+        For Each Item In LegacyPlain.ToList()
+            If AccountGroup(Item.Key) IsNot Nothing Then Continue For
+            If Official.ContainsKey(Item.Key) AndAlso Not NativePlain.ContainsKey(Item.Key) Then
+                LegacyPlain.Remove(Item.Key)
+                Continue For
+            End If
+            Dim Value = Item.Value
+            If NativePlain.ContainsKey(Item.Key) AndAlso Item.Key = "LoginMsJson" Then
+                Dim Accounts = JObject.Parse(Value)
+                For Each Account In JObject.Parse(NativePlain(Item.Key)).Properties()
+                    If Accounts.Property(Account.Name, StringComparison.OrdinalIgnoreCase) Is Nothing Then Accounts.Add(Account.Name, Account.Value.DeepClone())
+                Next
+                Value = Accounts.ToString(Newtonsoft.Json.Formatting.None)
+            ElseIf NativePlain.ContainsKey(Item.Key) AndAlso Item.Key = "LoginLegacyName" Then
+                Value = String.Join("¨", (Value & "¨" & NativePlain(Item.Key)).Split("¨"c).Where(Function(Name) Name <> "").Distinct(StringComparer.OrdinalIgnoreCase))
+            End If
+            NativePlain(Item.Key) = Value
+        Next
+        For Each Item In NativePlain
+            Dim Entry = Entries(Item.Key)
+            Dim RawValue = If(Entry.Encrypted, DesEncrypt(Item.Value, "PCL" & CurrentIdentify), Item.Value)
+            If Not Official.ContainsKey(Item.Key) OrElse Official(Item.Key) <> RawValue Then Plan.Values(Item.Key) = RawValue
+        Next
+        Plan.DeleteLegacy.AddRange(LegacyPlain.Keys)
+        Return Plan
+    End Function
+
+    Friend Shared Sub ApplyPclAccountMigration(Plan As PclAccountMigrationPlan, Official As Microsoft.Win32.RegistryKey, Legacy As Microsoft.Win32.RegistryKey)
+        '事务期间只在内存中保留回滚内容；成功后不留下旧密文文件或备用格式。
+        Dim Original As New Dictionary(Of String, Object)(StringComparer.Ordinal)
+        Dim OriginalKinds As New Dictionary(Of String, Microsoft.Win32.RegistryValueKind)(StringComparer.Ordinal)
+        Dim Old As New Dictionary(Of String, Object)(StringComparer.Ordinal)
+        Dim OldKinds As New Dictionary(Of String, Microsoft.Win32.RegistryValueKind)(StringComparer.Ordinal)
+        For Each Key In Plan.Values.Keys
+            Original(Key) = Official.GetValue(Key, Nothing)
+            If Original(Key) IsNot Nothing Then OriginalKinds(Key) = Official.GetValueKind(Key)
+        Next
+        For Each Key In Plan.DeleteLegacy
+            Old(Key) = Legacy?.GetValue(Key, Nothing)
+            If Old(Key) IsNot Nothing Then OldKinds(Key) = Legacy.GetValueKind(Key)
+        Next
+        Try
+            For Each Item In Plan.Values
+                Official.SetValue(Item.Key, Item.Value, Microsoft.Win32.RegistryValueKind.String)
+                If Convert.ToString(Official.GetValue(Item.Key), Globalization.CultureInfo.InvariantCulture) <> Item.Value OrElse
+                    DecodePclAccountValue(Entries(Item.Key), Item.Value, Plan.CurrentIdentify) Is Nothing Then Throw New InvalidOperationException("账号格式转换校验失败")
+            Next
+            For Each Key In Plan.DeleteLegacy
+                If Legacy IsNot Nothing Then
+                    Legacy.DeleteValue(Key, False)
+                    If Legacy.GetValue(Key, Nothing) IsNot Nothing Then Throw New InvalidOperationException("旧账号数据清理失败")
+                End If
+            Next
+            For Each Key In Plan.Values.Keys.Concat(Plan.DeleteLegacy).Distinct()
+                Entries(Key).ValueCache.Clear()
+            Next
+        Catch
+            For Each Item In Original
+                If Item.Value Is Nothing Then
+                    Official.DeleteValue(Item.Key, False)
+                Else
+                    Official.SetValue(Item.Key, Item.Value, OriginalKinds(Item.Key))
+                End If
+            Next
+            If Legacy IsNot Nothing Then
+                For Each Item In Old
+                    If Item.Value IsNot Nothing Then Legacy.SetValue(Item.Key, Item.Value, OldKinds(Item.Key))
+                Next
+            End If
+            Throw
+        End Try
+    End Sub
+
+    Friend Shared Sub ImportCompatiblePclAccounts()
+        If RegFolder = "PCL" Then Return
+        Try
+            Dim Native As New Dictionary(Of String, String)(StringComparer.Ordinal)
+            Dim Old As New Dictionary(Of String, String)(StringComparer.Ordinal)
+            Using Official = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\PCL"),
+                  Legacy = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\" & RegFolder, True)
+                For Each Entry In Entries.Values.Where(Function(Item) IsPclAccountSetting(Item) OrElse Item.Key = "Identify")
+                    Dim Value = Official.GetValue(Entry.Key, Nothing)
+                    If Value IsNot Nothing Then Native(Entry.Key) = Convert.ToString(Value, Globalization.CultureInfo.InvariantCulture)
+                    Value = Legacy?.GetValue(Entry.Key, Nothing)
+                    If Value IsNot Nothing Then Old(Entry.Key) = Convert.ToString(Value, Globalization.CultureInfo.InvariantCulture)
+                Next
+                If Not Native.ContainsKey("Identify") Then Return
+                Dim OfficialKeys = PclIdentifyCandidates(Native("Identify"))
+                Dim LegacyKeys = If(Old.ContainsKey("Identify"), PclIdentifyCandidates(Old("Identify")), New List(Of String))
+                LegacyKeys.AddRange(OfficialKeys)
+                LegacyKeys.Add("0000-0000-0000-0000")
+                Dim Plan = PlanPclAccountMigration(Native, Old, OfficialKeys, LegacyKeys, Identify)
+                ApplyPclAccountMigration(Plan, Official, Legacy)
+                If Plan.Values.Any() OrElse Plan.DeleteLegacy.Any() Then Logger.Info($"已转换 {Plan.Values.Count} 项官方格式账号数据，并清理 {Plan.DeleteLegacy.Count} 项旧账号数据。")
+            End Using
+        Catch
+            Logger.Warn("账号格式转换未完成，未通过校验的数据保持原样。")
+        End Try
+    End Sub
+
+    Friend Shared Function IsCompatiblePclSetting(Entry As Setting) As Boolean
+        If Entry.Source <> Sources.Registry OrElse Entry.Encrypted Then Return False
+        If Entry.Key = "ToolUpdateReleaseLast" OrElse Entry.Key = "ToolUpdateSnapshotLast" Then Return False
+        Return Entry.Key.StartsWith("Launch", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("Tool", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("Ui", StringComparison.Ordinal) OrElse
+            Entry.Key.StartsWith("SystemDebug", StringComparison.Ordinal) OrElse
+            Entry.Key = "SystemSystemCache" OrElse Entry.Key = "SystemSystemTelemetry"
+    End Function
+
+    ''' <summary>
+    ''' 合并文件夹时按路径去重，优先保留 LivingPCL 中的名称和顺序。
+    ''' </summary>
+    Friend Shared Function MergePclFolders(CurrentValue As String, PclValue As String) As String
+        Dim Folders As New List(Of String)
+        Dim PathsSeen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        For Each Item In (If(CurrentValue, "") & "|" & If(PclValue, "")).Split("|"c)
+            Dim Separator = Item.IndexOf(">"c)
+            If Separator <= 0 OrElse Separator = Item.Length - 1 Then Continue For
+            Dim FolderPath = Item.Substring(Separator + 1).Replace("/", "\")
+            '无效或相对路径不能在不同启动目录间可靠迁移。
+            If Not System.Text.RegularExpressions.Regex.IsMatch(FolderPath, "\A(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+(?:\\|$))") Then Continue For
+            Try
+                FolderPath = System.IO.Path.GetFullPath(FolderPath).TrimEnd("\"c) & "\"
+                If PathsSeen.Add(FolderPath) Then Folders.Add(Item.Substring(0, Separator) & ">" & FolderPath)
+            Catch ex As ArgumentException
+                '仅跳过损坏的列表项，其余目录仍然可用。
+            Catch ex As NotSupportedException
+            Catch ex As PathTooLongException
+            End Try
+        Next
+        Return String.Join("|", Folders)
+    End Function
+
+    Private Shared Function ReadRegistrySetting(Entry As Setting, DefaultValue As String) As String
+        Dim CurrentValue As String = RegistryUtils.TryRead($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Entry.Key, Nothing)
+        If Not UseExistingPclConfiguration OrElse RegFolder = "PCL" OrElse Not IsCompatiblePclSetting(Entry) Then Return If(CurrentValue, DefaultValue)
+        Try
+            '普通偏好只读继承；账号另行解密迁移，设备标识、主题授权和更新状态不共享。
+            Using Source = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\PCL", False)
+                Dim RawValue = Source?.GetValue(Entry.Key, Nothing, Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames)
+                If RawValue Is Nothing Then Return If(CurrentValue, DefaultValue)
+                Dim SourceValue = Convert.ToString(RawValue, Globalization.CultureInfo.InvariantCulture)
+                '先验证类型，旧版或损坏设置不得覆盖当前有效值。
+                Dim CheckedValue = CTypeDynamic(SourceValue, Entry.Type)
+                If Entry.Key = "LaunchFolders" Then Return MergePclFolders(CurrentValue, SourceValue)
+                Return If(CurrentValue, SourceValue)
+            End Using
+        Catch ex As Exception
+            Logger.Warn($"跳过不兼容的 PCL 设置：{Entry.Key}")
+            Return If(CurrentValue, DefaultValue)
+        End Try
+    End Function
 
     Public Shared ReadOnly Entries As Dictionary(Of String, Setting) = (New List(Of Setting) From {
         New Setting("Identify", "", Source:=Sources.Registry),
@@ -123,6 +389,7 @@ Public Class Settings
         New Setting("ToolDownloadCert", False, Source:=Sources.Registry, OnChanged:=AddressOf ModNet.ShouldValidateSslCertificateOnLogin),
         New Setting("ToolDownloadMod", 2, Source:=Sources.Registry),
         New Setting("ToolModLocalNameStyle", 0, Source:=Sources.Registry),
+        New Setting("ToolLauncherUpdateLastNotified", "", Source:=Sources.Registry),
         New Setting("ToolUpdateRelease", False, Source:=Sources.Registry),
         New Setting("ToolUpdateSnapshot", False, Source:=Sources.Registry),
         New Setting("ToolUpdateReleaseLast", "", Source:=Sources.Registry),
@@ -262,7 +529,7 @@ Public Class Settings
                     WriteIni("Setup", Key, Value)
                 Case Sources.Registry
                     Try
-                        RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegFolder}", Key, Value)
+                        RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Me)}", Key, Value)
                     Catch ex As Exception
                         Logger.Warn(ex, $"写入注册表失败（{Key} → {Value}）", LogBehavior.Toast)
                     End Try
@@ -331,7 +598,7 @@ Public Class Settings
                 Case Sources.Normal
                     GotValue = ReadIni("Setup", Key, DefaultValue)
                 Case Sources.Registry
-                    GotValue = RegistryUtils.TryRead($"HKEY_CURRENT_USER\Software\{RegFolder}", Key, DefaultValue)
+                    GotValue = ReadRegistrySetting(Entry, DefaultValue)
                 Case Sources.Instance
                     If Instance Is Nothing Then
                         Throw New Exception($"读取版本设置 {Key} 时未提供目标版本")
@@ -345,11 +612,9 @@ Public Class Settings
                 Else
                     Try
                         GotValue = DesDecrypt(GotValue, "PCL" & Identify)
-                    Catch ex As Exception
-                        Logger.Warn(ex, $"解密设置失败：{Key}")
+                    Catch
+                        Logger.Warn($"解密设置失败，保留原始密文：{Key}")
                         GotValue = Entry.DefaultValue
-                        Entry.Set(Entry.DefaultValue, Instance)
-                        Entry.Save(Instance)
                     End Try
                 End If
             End If
@@ -391,7 +656,7 @@ Public Class Settings
                     DeleteIniKey("Setup", Key)
                 Case Sources.Registry
                     Try
-                        RegistryUtils.Delete($"HKEY_CURRENT_USER\Software\{RegFolder}", Key)
+                        RegistryUtils.Delete($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Key)
                     Catch ex As Exception
                         Logger.Warn(ex, $"删除注册表失败（{Key}）", LogBehavior.Toast)
                     End Try
@@ -423,7 +688,8 @@ Public Class Settings
                 Return HasIniKey("Setup", Key)
             Case Sources.Registry
                 Try
-                    Return RegistryUtils.Has($"HKEY_CURRENT_USER\Software\{RegFolder}", Key)
+                    If RegistryUtils.Has($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entries(Key))}", Key) Then Return True
+                    Return ReadRegistrySetting(Entries(Key), Nothing) IsNot Nothing
                 Catch ex As Exception
                     Logger.Warn(ex, $"判断注册表 {Key} 是否存在时出错")
                     Return False

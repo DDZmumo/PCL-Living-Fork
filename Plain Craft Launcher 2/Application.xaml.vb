@@ -1,4 +1,4 @@
-Imports System.Reflection
+﻿Imports System.Reflection
 Imports System.Windows.Threading
 
 Public Class Application
@@ -6,12 +6,16 @@ Public Class Application
     '开始
     Private Sub Application_Startup(sender As Object, e As StartupEventArgs) Handles Me.Startup
         Try
+            If ModLauncherUpdate.HandleUpdateCommand(e.Args) Then Return
+            '在日志或配置初始化创建目录前，判断是否需要兼容已有 PCL 配置。
+            Settings.UseExistingPclConfiguration = Directory.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PCL"))
             '核心初始化
             MeloongCore.Main.Init("PCL")
             MeloongCore.Wpf.Main.Init()
             If Not (e.Args.Contains("--update") OrElse e.Args.Contains("--gpu") OrElse e.Args.Contains("--memory")) Then '若是通过命令行调用，则不检查单例、不轮换日志（#9137）
                 WaitingMutex(e)
                 Logger.Instance = New PclLogger With {.logFolder = Paths.BaseThenName, .MinLevel = If(ModeDebug, LogLevel.Trace, LogLevel.Info)}
+                Settings.ImportCompatiblePclAccounts()
             End If
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest

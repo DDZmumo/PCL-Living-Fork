@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -442,8 +442,9 @@ Public Class FormMain
             Telemetry("启动")
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"LivingPCL2-Re 是基于 PCL 2.14.0.0 的第三方修改版，原作者为龙腾猫跃及原项目贡献者；原作版权归成都瓜皮龙科技有限公司，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，可在设置中检查更新{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……", "LivingPCL 版本说明")
+                MyMsgBox($"LivingPCL2-Re 是基于 PCL 2.14.0.0 的第三方修改版，原作者为龙腾猫跃及原项目贡献者；原作版权归成都瓜皮龙科技有限公司，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，启动时自动检查，可下载并更新，失败时可前往发布页{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……", "LivingPCL 版本说明")
             End If
+            ModLauncherUpdate.CheckForUpdates(True)
         End Sub, "初始化", ThreadPriority.Lowest)
 
         Logger.Info($"第三阶段加载用时：{GetTimeMs() - ApplicationStartTick} ms")

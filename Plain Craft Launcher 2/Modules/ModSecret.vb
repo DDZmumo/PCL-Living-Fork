@@ -144,52 +144,8 @@ Friend Module ModSecret
 
 #Region "更新"
 
-    Private Const UpdateRepository As String = "DDZmumo/LivingPCL2-Re"
-    Private Const UpdateReleasePage As String = "https://github.com/" & UpdateRepository & "/releases"
-    Private UpdateCheckRunning As Integer
-
     Friend Sub UpdateCheckByButton()
-        If Interlocked.CompareExchange(UpdateCheckRunning, 1, 0) <> 0 Then
-            Hint("正在检查更新，请稍候……")
-            Return
-        End If
-        Hint("正在检查 LivingPCL 的 GitHub Releases……")
-        RunInNewThread(
-        Sub()
-            Try
-                Dim ReleaseInfo As JObject = NetRequestByClientRetry(
-                    $"https://api.github.com/repos/{UpdateRepository}/releases/latest",
-                    Accept:="application/vnd.github+json", RequireJson:=True).DeserializeJson()
-                Dim ReleaseTag As String = ReleaseInfo("tag_name")?.ToString()
-                If String.IsNullOrWhiteSpace(ReleaseTag) Then Throw New Exception("GitHub 返回的发布信息缺少版本标签。")
-
-                Dim LatestVersion As System.Version = Nothing
-                Dim CurrentVersion As System.Version = Nothing
-                If System.Version.TryParse(ReleaseTag.TrimStart("v"c, "V"c), LatestVersion) AndAlso
-                   System.Version.TryParse(VersionBaseName, CurrentVersion) AndAlso LatestVersion.CompareTo(CurrentVersion) <= 0 Then
-                    MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}仓库最新正式发布：{ReleaseTag}{vbCrLf}{vbCrLf}当前没有更新的正式版本。", "LivingPCL 更新")
-                    Return
-                End If
-
-                If MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}仓库正式发布：{ReleaseTag}{vbCrLf}{vbCrLf}前往本项目的 GitHub Releases 查看说明并下载更新。", "LivingPCL 更新", "打开发布页", "取消") = 1 Then
-                    OpenWebsite(UpdateReleasePage & "/latest")
-                End If
-            Catch ex As HttpRequestCodeException
-                If ex.StatusCode = HttpStatusCode.NotFound Then
-                    MyMsgBox($"更新源：{UpdateRepository}{vbCrLf}{vbCrLf}仓库尚未发布可用的正式 Release。发布首个正式版本后，即可在这里检查更新。", "LivingPCL 更新")
-                ElseIf ex.StatusCode = HttpStatusCode.Forbidden OrElse CInt(ex.StatusCode) = 429 Then
-                    If MyMsgBox("GitHub 暂时拒绝了更新检查，可能已达到访问频率限制。请稍后重试，或直接查看本项目的发布页面。", "LivingPCL 更新", "打开发布页", "取消") = 1 Then
-                        OpenWebsite(UpdateReleasePage)
-                    End If
-                Else
-                    Logger.Warn(ex, "检查 LivingPCL GitHub 更新失败", LogBehavior.Toast)
-                End If
-            Catch ex As Exception
-                Logger.Warn(ex, "检查 LivingPCL GitHub 更新失败", LogBehavior.Toast)
-            Finally
-                Interlocked.Exchange(UpdateCheckRunning, 0)
-            End Try
-        End Sub, "LivingPCL 更新检查", ThreadPriority.BelowNormal)
+        ModLauncherUpdate.CheckForUpdates(False)
     End Sub
 
     ''' <summary>
@@ -232,7 +188,23 @@ Friend Module ModSecret
     ''' 获取设备识别码。
     ''' </summary>
     Friend Function GetIdentify() As String
-        Return "0000-0000-0000-0000"
+        Try
+            If ApplicationStartTick < 1 Then Return "0000-0000-0000-0000"
+            Dim Hardware As String = "Unknown"
+            Try
+                Hardware = Convert.ToString(RegistryUtils.TryRead("HKEY_LOCAL_MACHINE\SYSTEM\HardwareConfig", "LastConfig", "Unknown"), Globalization.CultureInfo.InvariantCulture)
+            Catch
+            End Try
+            Dim Seed = Settings.Get(Of String)("Identify")
+            If Seed.Length < 3 Then
+                Seed = CStr(GetTimeMs()) & CStr(My.Computer.Info.AvailablePhysicalMemory)
+                Settings.Set("Identify", Seed)
+            End If
+            Return Settings.GetPclSourceIdentify(Hardware, Seed)
+        Catch
+            Logger.Warn("无法读取官方 PCL 设备标识。")
+            Return "0000-0000-0000-0000"
+        End Try
     End Function
 
 #End Region

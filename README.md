@@ -2,7 +2,7 @@
 
 **LivingPCL**，完整名称为 **PCL LivingPCL（第三方修改版）**，是第三方基于 Plain Craft Launcher（PCL）独立修改的 Minecraft 启动器，不是原作者或 PCL 团队发布的官方版本。
 
-当前发布版本：**1.0.0**。Windows 64 位系统需要 .NET Framework 4.8；下载发布包后解压运行 `LivingPCL.exe`。
+当前发布版本：**1.0.1**。Windows 64 位系统需要 .NET Framework 4.8；下载发布包后解压运行 `LivingPCL.exe`。
 
 **CurseForge API Key 临时可用，不代表永久有效，后续可能失效或更换。正式 API Key 仍在申请。** 本次发布按维护者确认包含当前临时 Key；请勿将其可用性视为长期保证。
 
@@ -25,9 +25,9 @@
 
 本分支基于 `5ef81e490ae46b1100d61e33d0183094c7a80ca8`（2.14.0.0 正式版），即新增 Minecraft 下载限制之前的版本，包含对应的 MeloongCore 子模块。
 
-本地编译的启动器已禁用上游 PCL 官方更新，不加载其更新配置或比较其版本缓存，并拒绝 `--update` 文件替换命令。检查更新按钮改为查询本仓库 `DDZmumo/LivingPCL2-Re` 的 GitHub Releases；发现新版本后可打开发布页，由用户选择下载。当前不自动下载或替换启动器。Minecraft 下载、整合包安装和游戏资源更新保持此基线的实现。
+本地编译的启动器已禁用上游 PCL 官方更新，不加载其更新配置或比较其版本缓存，并拒绝 `--update` 文件替换命令。启动时和检查更新按钮均查询本仓库 `DDZmumo/LivingPCL2-Re` 的 GitHub Releases。新正式版按版本提醒一次，可选择“下载并更新”；校验 SHA256 后运行新 EXE 完成替换和重启，替换失败保留或恢复旧 EXE，并提供发布页入口。无新版或启动检查遇到网络错误时保持安静。Minecraft 下载、整合包安装和游戏资源更新保持此基线的实现。
 
-更新检查使用 GitHub 的最新正式 Release 接口，草稿和预发布不作为正式更新。发布标签建议使用 `v1.0.1` 这样的数字版本，并在发布新构建时同步更新 `VersionBaseName`；若标签不能解析为数字版本，启动器会提供发布页供手动核对。仓库没有正式 Release 时会显示相应提示。CurseForge 下载临时可用，正在等待正式 API Key 下发；临时 Key 不代表永久有效。
+更新检查使用 GitHub 的最新正式 Release 接口，草稿和预发布不作为正式更新。发布标签建议使用 `v1.0.2` 这样的数字版本，并在发布新构建时同步更新 `VersionBaseName`；若仓库没有正式 Release、标签不能解析为数字版本或更新失败，手动检查会提供发布页供核对。CurseForge 下载临时可用，正在等待正式 API Key 下发；临时 Key 不代表永久有效。
 
 编译需要 Windows、Visual Studio 2022 的“.NET 桌面开发”工作负载、.NET Framework 4.8 SDK/Targeting Pack，以及支持 C# 13 的 .NET SDK（本机使用 9.0.302）。在 VS 2022 Developer PowerShell 中执行：
 
@@ -43,6 +43,10 @@ msbuild ".\Plain Craft Launcher 2\LivingPCL2-Re.vbproj" -p:Configuration=Release
 
 当前本机复用龙腾猫跃 Client ID 后，已由用户实测完成正版登录；版本说明弹窗已同步这一状态。源码通过 `PCL_MS_CLIENT_ID` 环境变量配置 Client ID。
 
+将程序放到目标文件夹即可使用：没有 `PCL` 文件夹时自动创建；已有时复用 `PCL\Setup.ini`、自定义素材及游戏版本配置，并只读继承官方 PCL 注册表中兼容的启动、Java、下载和界面偏好。LivingPCL 已保存的全局设置优先，游戏文件夹列表按路径合并去重，重启后读取 PCL 的新增设置。账号、令牌、第三方登录凭据及玩家资料统一使用官方 PCL 的注册表位置和加密规则（硬件标识、本地种子、稳定哈希及 DES）。首次启动会将旧 LivingPCL 账号和历史硬件密文转换为当前官方格式，校验后删除 `PCLDebug` 中已转换的账号项，不保留旧密文备份。微软和离线账号列表合并，同名账号优先保留 LivingPCL；登录缓存按整组转换，避免混用账号。转换后两个启动器共用账号存储，在一边修改或移除账号会影响另一边。无法验证的数据原样保留，避免丢失。主题解锁、使用次数、历史版本及彩蛋状态不迁移。
+
+旧 PCL 配置和版本列表缓存中的内嵌图标地址会在读取时兼容到当前程序集，帮助包及自定义主页也支持旧程序集名、URL 编码和大小写变体；无需删除缓存或重设自定义图片。
+
 “更多”保留帮助与关于，移除了百宝箱、反馈和新功能投票入口及对应的功能隐藏选项；旧页面编号会回到关于页。“关于”新增维护者 DDZmumo，头像取自其 GitHub 公开头像并随程序打包。
 
 默认视觉采用用户提供的人设：蓝白水晶风格角色背景加入草方块；当前图标选用第二版六边形角色头像，右眼下方为蓝色实心小倒三角。背景、窗口图标、程序 ICO、可选启动画面和关于页图标均随程序内嵌，原 PCL 图标资源保留。“打开启动器时显示 PCL 图标”默认关闭，用户已有设置保留。`PCL\Pictures` 中存在自定义图片时仍优先使用自定义背景，清空后恢复内置背景；可在设置中调整默认背景的透明度、模糊和适应方式。设计素材与生成说明见 `Plain Craft Launcher 2/Images/Branding/DESIGN.md`。
@@ -53,3 +57,7 @@ msbuild ".\Plain Craft Launcher 2\LivingPCL2-Re.vbproj" -p:Configuration=Release
 - [PCL 下载](https://meloong.com/pcl)：下载可免费使用的正式版 PCL！
 - [PCL 功能投票](https://github.com/Meloong-Git/PCL/discussions/2)：来参加投票吧，开发者会优先处理票数较高的项目！
 - [帮助文档库](https://github.com/LTCatt/PCL2Help)：PCL 内置帮助文档的存储库
+
+### 发布验证
+
+构建后可运行 `powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"`。检查仅使用虚构账号和临时测试目录，验证账号合并、重加密、旧项清理、失败回滚、版本比较和 EXE 替换；不读取真实账号，也不打开启动器界面。

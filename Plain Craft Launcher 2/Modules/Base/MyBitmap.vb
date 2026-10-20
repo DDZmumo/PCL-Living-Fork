@@ -1,3 +1,4 @@
+﻿Imports System.Text.RegularExpressions
 '一个万能的自动图片类型转换工具类
 
 Imports System.Drawing.Imaging
@@ -55,13 +56,27 @@ Public Class MyBitmap
         Return New ImageBrush(New MyBitmap(Image.Pic))
     End Operator
 
+    ''' <summary>
+    ''' 兼容旧配置中的 PCL 资源地址，统一为当前程序集的 pack URI。
+    ''' 本地文件、网络图片和资源键保持原样。
+    ''' </summary>
+    Public Shared Function NormalizeResourceUri(Value As String) As String
+        If String.IsNullOrEmpty(Value) Then Return Value
+        Dim ResourceRoot = "pack://application:,,,/" & GetType(MyBitmap).Assembly.GetName().Name & ";component/"
+        Dim Options = RegexOptions.IgnoreCase Or RegexOptions.CultureInvariant
+        Value = Regex.Replace(Value,
+            "\A(?:pack://application:,,,/|/)(?:Plain(?: |%20)Craft(?: |%20)Launcher(?: |%20)2|LivingPCL);component/",
+            ResourceRoot, Options)
+        Return Regex.Replace(Value, "\Apack://application:,,,/images/", ResourceRoot & "Images/", Options)
+    End Function
+
     '构造函数
     Public Sub New()
     End Sub
     Public Sub New(FilePathOrResourceName As String)
         Try
-            FilePathOrResourceName = FilePathOrResourceName.Replace("pack://application:,,,/images/", PathImage)
-            If FilePathOrResourceName.StartsWithF(PathImage) Then
+            FilePathOrResourceName = NormalizeResourceUri(FilePathOrResourceName)
+            If FilePathOrResourceName.StartsWithF("pack://application:,,,/", True) Then
                 '使用缓存
                 Static Cache As New Concurrent.ConcurrentDictionary(Of String, MyBitmap)
                 If Cache.ContainsKey(FilePathOrResourceName) Then

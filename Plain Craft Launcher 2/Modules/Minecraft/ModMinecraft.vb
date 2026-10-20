@@ -1,4 +1,4 @@
-Public Module ModMinecraft
+﻿Public Module ModMinecraft
 
 #Region "文件夹"
 
@@ -301,7 +301,15 @@ Public Module ModMinecraft
         ''' <summary>
         ''' 显示的版本图标。
         ''' </summary>
-        Public Logo As String
+        Public Property Logo As String
+            Get
+                Return _Logo
+            End Get
+            Set(value As String)
+                _Logo = MyBitmap.NormalizeResourceUri(value)
+            End Set
+        End Property
+        Private _Logo As String
         ''' <summary>
         ''' 是否为收藏的版本。
         ''' </summary>
