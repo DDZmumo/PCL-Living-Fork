@@ -2,9 +2,6 @@
 
 Partial Public Class Settings
 
-    '已有 PCL 文件夹时复用兼容配置；新目录沿用正常初始化流程。
-    Friend Shared Property UseExistingPclConfiguration As Boolean
-
     '账号数据单独迁移并重新加密，避免把官方密文直接交给当前设备标识解密。
     Friend Shared Function IsPclAccountSetting(Entry As Setting) As Boolean
         If Entry.Source <> Sources.Registry Then Return False
@@ -41,9 +38,9 @@ Partial Public Class Settings
         End Try
     End Function
 
-    '账号和设备种子使用官方位置；主题、次数、版本状态仍保持分支隔离。
+    '兼容的全局偏好与账号直接共用官方注册表；加密/分支专用状态仍隔离。
     Private Shared Function RegistryFolderFor(Entry As Setting) As String
-        Return If(IsPclAccountSetting(Entry) OrElse Entry.Key = "Identify", "PCL", RegFolder)
+        Return If(IsPclAccountSetting(Entry) OrElse Entry.Key = "Identify" OrElse IsCompatiblePclSetting(Entry), "PCL", RegFolder)
     End Function
 
     Friend Shared Function PclIdentifyCandidates(Seed As String) As List(Of String)
@@ -222,6 +219,8 @@ Partial Public Class Settings
 
     Friend Shared Function IsCompatiblePclSetting(Entry As Setting) As Boolean
         If Entry.Source <> Sources.Registry OrElse Entry.Encrypted Then Return False
+        '本分支 GitHub 更新器的忽略标记不能与官方 PCL 的更新状态混用。
+        If Entry.Key = "ToolLauncherUpdateIgnoredTag" Then Return False
         Return Entry.Key.StartsWith("Launch", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("Tool", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("Ui", StringComparison.Ordinal) OrElse
@@ -229,53 +228,9 @@ Partial Public Class Settings
             Entry.Key = "SystemSystemCache"
     End Function
 
-    ''' <summary>
-    ''' 合并文件夹时按路径去重，优先保留 LivingPCL 中的名称和顺序。
-    ''' </summary>
-    Friend Shared Function MergePclFolders(CurrentValue As String, PclValue As String) As String
-        Dim Folders As New List(Of String)
-        Dim PathsSeen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-        For Each Item In (If(CurrentValue, "") & "|" & If(PclValue, "")).Split("|"c)
-            Dim Separator = Item.IndexOf(">"c)
-            If Separator <= 0 OrElse Separator = Item.Length - 1 Then Continue For
-            Dim FolderPath = Item.Substring(Separator + 1).Replace("/", "\")
-            '无效或相对路径不能在不同启动目录间可靠迁移。
-            If Not System.Text.RegularExpressions.Regex.IsMatch(FolderPath, "\A(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+(?:\\|$))") Then Continue For
-            Try
-                FolderPath = System.IO.Path.GetFullPath(FolderPath).TrimEnd("\"c) & "\"
-                If PathsSeen.Add(FolderPath) Then Folders.Add(Item.Substring(0, Separator) & ">" & FolderPath)
-            Catch ex As ArgumentException
-                '仅跳过损坏的列表项，其余目录仍然可用。
-            Catch ex As NotSupportedException
-            Catch ex As PathTooLongException
-            End Try
-        Next
-        Return String.Join("|", Folders)
-    End Function
-
+    '兼容偏好直接读取官方 PCL 注册表，不再使用本地优先/首次导入机制。
     Private Shared Function ReadRegistrySetting(Entry As Setting, DefaultValue As String) As String
-        Dim CurrentValue As String = RegistryUtils.TryRead($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Entry.Key, Nothing)
-        If Not UseExistingPclConfiguration OrElse RegFolder = "PCL" OrElse Not IsCompatiblePclSetting(Entry) Then Return If(CurrentValue, DefaultValue)
-        Try
-            If Entry.Key = "LaunchFolders" Then
-                Using Local = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\" & RegFolder),
-                      Source = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\PCL", False)
-                    Return ImportFoldersOnce(Local, Convert.ToString(Source?.GetValue(Entry.Key, Nothing), Globalization.CultureInfo.InvariantCulture))
-                End Using
-            End If
-            '普通偏好只读继承；账号另行解密迁移，设备标识、主题授权和更新状态不共享。
-            Using Source = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\PCL", False)
-                Dim RawValue = Source?.GetValue(Entry.Key, Nothing, Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames)
-                If RawValue Is Nothing Then Return If(CurrentValue, DefaultValue)
-                Dim SourceValue = Convert.ToString(RawValue, Globalization.CultureInfo.InvariantCulture)
-                '先验证类型，旧版或损坏设置不得覆盖当前有效值。
-                Dim CheckedValue = CTypeDynamic(SourceValue, Entry.Type)
-                Return If(CurrentValue, SourceValue)
-            End Using
-        Catch ex As Exception
-            Logger.Warn($"跳过不兼容的 PCL 设置：{Entry.Key}")
-            Return If(CurrentValue, DefaultValue)
-        End Try
+        Return If(RegistryUtils.TryRead($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Entry.Key, Nothing), DefaultValue)
     End Function
 
     Public Shared ReadOnly Entries As Dictionary(Of String, Setting) = (New List(Of Setting) From {
@@ -535,7 +490,6 @@ Partial Public Class Settings
                 Case Sources.Registry
                     Try
                         RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Me)}", Key, Value)
-                        If Key = "LaunchFolders" Then RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegFolder}", FolderImportMarker, Boolean.TrueString)
                     Catch ex As Exception
                         Logger.Warn(ex, $"写入注册表失败（{Key} → {Value}）", LogBehavior.Toast)
                     End Try
