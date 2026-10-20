@@ -9,8 +9,8 @@ Public Class Application
             If ModLauncherUpdate.HandleUpdateCommand(e.Args) Then Return
             Dim UtilityCommand = e.Args.Length > 0 AndAlso {"--update", "--gpu", "--memory"}.Contains(e.Args(0))
             If Not UtilityCommand Then WaitingMutex(e)
-            '在日志或配置初始化创建目录前，判断是否需要兼容已有 PCL 配置。
-            Settings.UseExistingPclConfiguration = Directory.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PCL"))
+            '先迁移旧分支的兼容偏好，再初始化配置缓存；之后与官方 PCL 直接共用存储。
+            Settings.ImportLegacyPclPreferences()
             '核心初始化
             MeloongCore.Main.Init("PCL")
             MeloongCore.Wpf.Main.Init()
