@@ -163,7 +163,23 @@ RetryCacheCheck:
             Dim Timeout = If(e.Args.Length > 0 AndAlso e.Args(0) = "--wait", 10000, 0)
             SessionLease = LauncherSessionLock.TryAcquire({"PCL_SingletonMutex", "LivingPCL_SingletonMutex"}, Timeout)
             If SessionLease IsNot Nothing Then Return
-            System.Windows.MessageBox.Show("PCL 或 LivingPCL 已在运行。两个启动器共用账号，请先退出另一个启动器。", "启动器正在运行", MessageBoxButton.OK, MessageBoxImage.Information)
+            '与原版 PCL 一致：已有实例时优先唤醒窗口，不创建第二个实例。
+            '启动过程可能尚未创建主窗口，短暂重试以避免并发启动时找不到窗口。
+            Dim WindowHwnd As IntPtr = IntPtr.Zero
+            For Attempt As Integer = 0 To 9
+                For Each Caption As String In {"LivingPCL　", "Plain Craft Launcher　", "Plain Craft Launcher 2　"}
+                    WindowHwnd = FindWindow(Nothing, Caption)
+                    If WindowHwnd <> IntPtr.Zero Then Exit For
+                Next
+                If WindowHwnd <> IntPtr.Zero Then Exit For
+                If Attempt < 9 Then System.Threading.Thread.Sleep(200)
+            Next
+            If WindowHwnd <> IntPtr.Zero Then
+                ShowWindowToTop(WindowHwnd)
+                Microsoft.VisualBasic.Interaction.Beep()
+            Else
+                System.Windows.MessageBox.Show("PCL 或 LivingPCL 已在运行，但未找到其窗口。请切换到正在运行的启动器，或退出后重试。", "启动器正在运行", MessageBoxButton.OK, MessageBoxImage.Information)
+            End If
         Catch
             System.Windows.MessageBox.Show("无法确认启动器的运行状态。为保护共享账号，本次启动已停止。", "无法启动", MessageBoxButton.OK, MessageBoxImage.Warning)
         End Try
