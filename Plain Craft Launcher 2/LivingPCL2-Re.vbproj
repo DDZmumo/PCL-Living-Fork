@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <TargetCulture>zh-CN</TargetCulture>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.0.1.0</ApplicationVersion>
+    <ApplicationVersion>1.0.2.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <Deterministic>true</Deterministic>
@@ -258,6 +258,10 @@
     <Compile Include="Modules\Minecraft\ModWatcher.vb" />
     <Compile Include="Modules\ModSecret.vb" />
     <Compile Include="Modules\ModLauncherUpdate.vb" />
+    <Compile Include="Modules\LauncherSessionLock.vb" />
+    <Compile Include="Modules\Base\LoginCertificatePolicy.vb" />
+    <Compile Include="Pages\PageSetup\Settings.Accounts.vb" />
+    <Compile Include="Pages\PageSetup\Settings.Compatibility.vb" />
     <Compile Include="Pages\PageDownload\Resource\PageResource.xaml.vb">
       <DependentUpon>PageResource.xaml</DependentUpon>
     </Compile>

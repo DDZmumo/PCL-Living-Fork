@@ -919,9 +919,6 @@ NextStack:
         End Select
         '上报
         If IsManualAnalyze Then Return
-        Telemetry("Minecraft 崩溃",
-                  "Version", If(TargetInstance Is Nothing, "null", TargetInstance.VersionDisplayName),
-                  "Detail", FilterUserName(Detail, "*"))
     End Sub
     ''' <summary>
     ''' 获取崩溃分析的结果描述。

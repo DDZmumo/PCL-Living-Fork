@@ -1,4 +1,4 @@
-Public Module ModLaunch
+﻿Public Module ModLaunch
 
 #Region "开始"
 
@@ -162,9 +162,6 @@ Public Module ModLaunch
                     Hint(McInstanceSelected.Name & " 启动成功！", HintType.Green)
                     '上报
                     If Not IsSavingBatch Then
-                        Telemetry("Minecraft 启动成功",
-                              "Version", McInstanceSelected.VersionDisplayName,
-                              "LoginType", Settings.Get(Of McLoginType)("LoginType").ToString)
                     End If
                 Case LoadState.Canceled
                     If CanceledHint Is Nothing Then
@@ -195,10 +192,6 @@ NextInner:
                 Logger.Error(ex, If(IsSavingBatch, "导出启动脚本失败", "Minecraft 启动失败"), LogBehavior.Alert)
                 '上报
                 If Not IsSavingBatch Then
-                    Telemetry("Minecraft 启动失败",
-                              "Version", McInstanceSelected.VersionDisplayName,
-                              "LoginType", Settings.Get(Of McLoginType)("LoginType").ToString,
-                              "Exception", FilterUserName(FilterAccessToken(ex.GetDisplay(True), "*"), "*"))
                 End If
                 Throw
             End If
@@ -545,16 +538,17 @@ NextInner:
         McLaunchLog("登录方式：正版（" & If(LogUsername = "", "尚未登录", LogUsername) & "）")
         Data.Progress = 0.05
         '检查是否已经登录完成
-        Dim ExpiresAt = Settings.Get(Of Long)("CacheMsV2Expires")
+        Dim Cached = Settings.AccountSnapshot("CacheMsV2")
+        Dim ExpiresAt = CLng(Cached("CacheMsV2Expires"))
         If Not Data.IsForceRestarting AndAlso '不要求强行重启
            ExpiresAt > 0 AndAlso ExpiresAt > ToUnixTimestampUtc(Date.UtcNow) AndAlso 'AccessToken 尚未过期
-           Input.UserName = Settings.Get(Of String)("CacheMsV2Name") Then
+           Input.UserName = CStr(Cached("CacheMsV2Name")) Then
             Data.Output = New McLoginResult With {
                 .Name = Input.UserName, .Type = "Microsoft",
-                .AccessToken = Settings.Get(Of String)("CacheMsV2Access"),
-                .Uuid = Settings.Get(Of String)("CacheMsV2Uuid"),
-                .ClientToken = Settings.Get(Of String)("CacheMsV2Uuid"),
-                .ProfileJson = Settings.Get(Of String)("CacheMsV2ProfileJson")
+                .AccessToken = CStr(Cached("CacheMsV2Access")),
+                .Uuid = CStr(Cached("CacheMsV2Uuid")),
+                .ClientToken = CStr(Cached("CacheMsV2Uuid")),
+                .ProfileJson = CStr(Cached("CacheMsV2ProfileJson"))
             }
             McLaunchLog("无需登录，AccessToken 尚未过期")
             GoTo SkipLogin
@@ -591,16 +585,10 @@ Relogin:
         Dim Result = MsLoginStep6(LoginResult.AccessToken)
         Data.Progress = 0.98
         '输出登录结果
-        Settings.Set("CacheMsV2OAuthRefresh", OAuthRefreshToken)
-        Settings.Set("CacheMsV2Access", LoginResult.AccessToken)
-        Settings.Set("CacheMsV2Uuid", Result.UUID)
-        Settings.Set("CacheMsV2Name", Result.UserName)
-        Settings.Set("CacheMsV2ProfileJson", Result.ProfileJson)
-        Settings.Set("CacheMsV2Expires", LoginResult.ExpiresAt)
-        Dim MsJson As JObject = Settings.Get(Of String)("LoginMsJson").DeserializeJson()
-        MsJson.Remove(Input.UserName) '如果更改了玩家名……
-        MsJson(Result.UserName) = OAuthRefreshToken
-        Settings.Set("LoginMsJson", MsJson.ToString(Newtonsoft.Json.Formatting.None))
+        Settings.SaveMicrosoftSession(New Dictionary(Of String, Object) From {
+            {"CacheMsV2OAuthRefresh", OAuthRefreshToken}, {"CacheMsV2Access", LoginResult.AccessToken},
+            {"CacheMsV2Uuid", Result.UUID}, {"CacheMsV2Name", Result.UserName},
+            {"CacheMsV2ProfileJson", Result.ProfileJson}, {"CacheMsV2Expires", LoginResult.ExpiresAt}}, Input.UserName, Function() Data.IsCanceled)
         Data.Output = New McLoginResult With {.AccessToken = LoginResult.AccessToken, .Name = Result.UserName, .Uuid = Result.UUID, .Type = "Microsoft", .ClientToken = Result.UUID, .ProfileJson = Result.ProfileJson}
         '结束
 SkipLogin:
@@ -614,13 +602,14 @@ SkipLogin:
         McLaunchLog("登录方式：" & Input.Description)
         Data.Progress = 0.05
         '尝试登录
+        Dim Cached = Settings.AccountSnapshot("Cache" & Input.Token)
         If (Not Data.Input.ForceReselectProfile) AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Username") = Data.Input.UserName AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Pass") = Data.Input.Password AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Access") <> "" AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Client") <> "" AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Uuid") <> "" AndAlso
-            Settings.Get(Of String)("Cache" & Input.Token & "Name") <> "" Then
+            CStr(Cached("Cache" & Input.Token & "Username")) = Data.Input.UserName AndAlso
+            CStr(Cached("Cache" & Input.Token & "Pass")) = Data.Input.Password AndAlso
+            CStr(Cached("Cache" & Input.Token & "Access")) <> "" AndAlso
+            CStr(Cached("Cache" & Input.Token & "Client")) <> "" AndAlso
+            CStr(Cached("Cache" & Input.Token & "Uuid")) <> "" AndAlso
+            CStr(Cached("Cache" & Input.Token & "Name")) <> "" Then
             '尝试验证登录
             Try
                 If Data.IsCanceled Then Throw New OperationCanceledException
@@ -660,26 +649,10 @@ Refresh:
 LoginFinish:
         Data.Progress = 0.95
         '保存启动记录
-        Dim Dict As New Dictionary(Of String, String)
-        Dim Emails As New List(Of String)
-        Dim Passwords As New List(Of String)
         Try
-            If Not Settings.Get(Of String)("Login" & Input.Token & "Email") = "" Then Emails.AddRange(Settings.Get(Of String)("Login" & Input.Token & "Email").Split("¨"))
-            If Not Settings.Get(Of String)("Login" & Input.Token & "Pass") = "" Then Passwords.AddRange(Settings.Get(Of String)("Login" & Input.Token & "Pass").Split("¨"))
-            For i = 0 To Emails.Count - 1
-                Dict.Add(Emails(i), Passwords(i))
-            Next
-            Dict.Remove(Input.UserName)
-            Emails = New List(Of String)(Dict.Keys)
-            Emails.Insert(0, Input.UserName)
-            Passwords = New List(Of String)(Dict.Values)
-            Passwords.Insert(0, Input.Password)
-            Settings.Set("Login" & Input.Token & "Email", Emails.Join("¨"c))
-            Settings.Set("Login" & Input.Token & "Pass", Passwords.Join("¨"c))
-        Catch ex As Exception
-            Logger.Error(ex, "保存启动记录失败", LogBehavior.Toast)
-            Settings.Set("Login" & Input.Token & "Email", "")
-            Settings.Set("Login" & Input.Token & "Pass", "")
+            Settings.UpdateServerAccounts(Input.Token, Input.UserName, Input.Password, False)
+        Catch
+            Logger.Error("保存第三方账号记录失败，原有记录已保留。", LogBehavior.Toast)
         End Try
     End Sub
     Private Sub McLoginLegacyStart(Data As LoaderTask(Of McLoginLegacy, McLoginResult))
@@ -695,21 +668,21 @@ LoginFinish:
         Data.Output.AccessToken = Data.Output.Uuid
         Data.Output.ClientToken = Data.Output.Uuid
         '保存启动记录
-        Dim Names As New List(Of String)
-        If Not Settings.Get(Of String)("LoginLegacyName") = "" Then Names.AddRange(Settings.Get(Of String)("LoginLegacyName").ToString.Split("¨"))
-        Names.Remove(Input.UserName)
-        Names.Insert(0, Input.UserName)
-        Settings.Set("LoginLegacyName", Names.Join("¨"c))
+        Settings.UpdateLegacyNames(Sub(Names)
+            Names.RemoveAll(Function(Name) Name.Equals(Input.UserName, StringComparison.OrdinalIgnoreCase))
+            Names.Insert(0, Input.UserName)
+        End Sub)
     End Sub
 
     'Server 登录：三种验证方式的请求
     Private Sub McLoginRequestValidate(ByRef Data As LoaderTask(Of McLoginServer, McLoginResult))
         McLaunchLog("验证登录开始（Validate, " & Data.Input.Token & "）")
         '提前缓存信息，否则如果在登录请求过程中退出登录，设置项目会被清空，导致输出存在空值
-        Dim AccessToken As String = Settings.Get(Of String)("Cache" & Data.Input.Token & "Access")
-        Dim ClientToken As String = Settings.Get(Of String)("Cache" & Data.Input.Token & "Client")
-        Dim Uuid As String = Settings.Get(Of String)("Cache" & Data.Input.Token & "Uuid")
-        Dim Name As String = Settings.Get(Of String)("Cache" & Data.Input.Token & "Name")
+        Dim Cached = Settings.AccountSnapshot("Cache" & Data.Input.Token)
+        Dim AccessToken As String = CStr(Cached("Cache" & Data.Input.Token & "Access"))
+        Dim ClientToken As String = CStr(Cached("Cache" & Data.Input.Token & "Client"))
+        Dim Uuid As String = CStr(Cached("Cache" & Data.Input.Token & "Uuid"))
+        Dim Name As String = CStr(Cached("Cache" & Data.Input.Token & "Name"))
         '发送登录请求
         Dim RequestData As New JObject(
             New JProperty("accessToken", AccessToken), New JProperty("clientToken", ClientToken), New JProperty("requestUser", True))
@@ -729,32 +702,32 @@ LoginFinish:
     End Sub
     Private Sub McLoginRequestRefresh(ByRef Data As LoaderTask(Of McLoginServer, McLoginResult), RequestUser As Boolean)
         McLaunchLog("刷新登录开始（Refresh, " & Data.Input.Token & "）")
+        Dim Cached = Settings.AccountSnapshot("Cache" & Data.Input.Token)
         Dim LoginJson As JObject = NetRequestByClientRetry(
                Data.Input.BaseUrl & "/refresh", HttpMethod.Post,
                Content:=New JObject(
                    New JProperty("selectedProfile", New JObject(
-                       New JProperty("name", Settings.Get(Of String)($"Cache{Data.Input.Token}Name")),
-                       New JProperty("id", Settings.Get(Of String)($"Cache{Data.Input.Token}Uuid"))
+                       New JProperty("name", CStr(Cached("Cache" & Data.Input.Token & "Name"))),
+                       New JProperty("id", CStr(Cached("Cache" & Data.Input.Token & "Uuid")))
                    )),
-                   New JProperty("accessToken", Settings.Get(Of String)($"Cache{Data.Input.Token}Access")),
+                   New JProperty("accessToken", CStr(Cached("Cache" & Data.Input.Token & "Access"))),
                    New JProperty("requestUser", True)
                ).ToString(Newtonsoft.Json.Formatting.None),
                Headers:={{"Accept-Language", "zh-CN"}},
                ContentType:="application/json; charset=utf-8", RequireJson:=True).DeserializeJson()
         '将登录结果输出
-        If LoginJson("selectedProfile") Is Nothing Then Throw New Exception("选择的角色 " & Settings.Get(Of String)("Cache" & Data.Input.Token & "Name") & " 无效！")
+        If LoginJson("selectedProfile") Is Nothing Then Throw New Exception("选择的角色 " & CStr(Cached("Cache" & Data.Input.Token & "Name")) & " 无效！")
         Data.Output.AccessToken = LoginJson("accessToken").ToString
         Data.Output.ClientToken = LoginJson("clientToken").ToString
         Data.Output.Uuid = LoginJson("selectedProfile")("id").ToString
         Data.Output.Name = LoginJson("selectedProfile")("name").ToString
         Data.Output.Type = Data.Input.Token
         '保存缓存
-        Settings.Set("Cache" & Data.Input.Token & "Access", Data.Output.AccessToken)
-        Settings.Set("Cache" & Data.Input.Token & "Client", Data.Output.ClientToken)
-        Settings.Set("Cache" & Data.Input.Token & "Uuid", Data.Output.Uuid)
-        Settings.Set("Cache" & Data.Input.Token & "Name", Data.Output.Name)
-        Settings.Set("Cache" & Data.Input.Token & "Username", Data.Input.UserName)
-        Settings.Set("Cache" & Data.Input.Token & "Pass", Data.Input.Password)
+        Dim CancellationSource = Data
+        Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {
+            {"Cache" & Data.Input.Token & "Access", Data.Output.AccessToken}, {"Cache" & Data.Input.Token & "Client", Data.Output.ClientToken},
+            {"Cache" & Data.Input.Token & "Uuid", Data.Output.Uuid}, {"Cache" & Data.Input.Token & "Name", Data.Output.Name},
+            {"Cache" & Data.Input.Token & "Username", Data.Input.UserName}, {"Cache" & Data.Input.Token & "Pass", Data.Input.Password}}, Function() CancellationSource.IsCanceled)
         McLaunchLog("刷新登录成功（Refresh, " & Data.Input.Token & "）")
     End Sub
     Private Function McLoginRequestLogin(ByRef Data As LoaderTask(Of McLoginServer, McLoginResult)) As Boolean
@@ -819,12 +792,11 @@ LoginFinish:
             Data.Output.Uuid = SelectedId
             Data.Output.Type = Data.Input.Token
             '保存缓存
-            Settings.Set("Cache" & Data.Input.Token & "Access", Data.Output.AccessToken)
-            Settings.Set("Cache" & Data.Input.Token & "Client", Data.Output.ClientToken)
-            Settings.Set("Cache" & Data.Input.Token & "Uuid", Data.Output.Uuid)
-            Settings.Set("Cache" & Data.Input.Token & "Name", Data.Output.Name)
-            Settings.Set("Cache" & Data.Input.Token & "Username", Data.Input.UserName)
-            Settings.Set("Cache" & Data.Input.Token & "Pass", Data.Input.Password)
+            Dim CancellationSource = Data
+            Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {
+                {"Cache" & Data.Input.Token & "Access", Data.Output.AccessToken}, {"Cache" & Data.Input.Token & "Client", Data.Output.ClientToken},
+                {"Cache" & Data.Input.Token & "Uuid", Data.Output.Uuid}, {"Cache" & Data.Input.Token & "Name", Data.Output.Name},
+                {"Cache" & Data.Input.Token & "Username", Data.Input.UserName}, {"Cache" & Data.Input.Token & "Pass", Data.Input.Password}}, Function() CancellationSource.IsCanceled)
             McLaunchLog("登录成功（Login, " & Data.Input.Token & "）")
             Return NeedRefresh
         Catch ex As Exception

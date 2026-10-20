@@ -48,7 +48,6 @@ Public Class PclLogger
                 FormMain.EndProgramForce(ProcessReturnValues.Exception)
         End Select
         '遥测
-        If Behavior >= LogBehavior.Toast Then Telemetry("错误日志", "Exception", DetailText)
     End Sub
 
 End Class

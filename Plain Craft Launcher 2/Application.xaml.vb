@@ -7,15 +7,21 @@ Public Class Application
     Private Sub Application_Startup(sender As Object, e As StartupEventArgs) Handles Me.Startup
         Try
             If ModLauncherUpdate.HandleUpdateCommand(e.Args) Then Return
+            Dim UtilityCommand = e.Args.Length > 0 AndAlso {"--update", "--gpu", "--memory"}.Contains(e.Args(0))
+            If Not UtilityCommand Then WaitingMutex(e)
             '在日志或配置初始化创建目录前，判断是否需要兼容已有 PCL 配置。
             Settings.UseExistingPclConfiguration = Directory.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PCL"))
             '核心初始化
             MeloongCore.Main.Init("PCL")
             MeloongCore.Wpf.Main.Init()
             If Not (e.Args.Contains("--update") OrElse e.Args.Contains("--gpu") OrElse e.Args.Contains("--memory")) Then '若是通过命令行调用，则不检查单例、不轮换日志（#9137）
-                WaitingMutex(e)
                 Logger.Instance = New PclLogger With {.logFolder = Paths.BaseThenName, .MinLevel = If(ModeDebug, LogLevel.Trace, LogLevel.Info)}
                 Settings.ImportCompatiblePclAccounts()
+                Try
+                    Settings.EnsureMicrosoftCacheUpgrade()
+                Catch
+                    Logger.Warn("旧版微软缓存升级未完成，原有数据已保留。")
+                End Try
             End If
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest
@@ -153,31 +159,17 @@ RetryCacheCheck:
     ''' 如果已在运行，则将其窗口拖出来并播放提示音，然后结束当前进程。
     ''' </summary>
     Private Shared Sub WaitingMutex(e As StartupEventArgs)
-        If BuildType = BuildTypes.Debug Then Return
         Try
-            Dim MutexCreatedNew As Boolean
-            PclMutex = New Mutex(True, "LivingPCL_SingletonMutex", MutexCreatedNew)
-            If MutexCreatedNew Then Return
-            Logger.Warn("已有一个 PCL 实例正在运行")
-            '等待已有的 PCL 退出
-            If e.Args.Length > 0 AndAlso e.Args(0) = "--wait" Then
-                Try
-                    If PclMutex.WaitOne(10000) Then Return '等待至多 10 秒
-                Catch Ignored As AbandonedMutexException
-                    Return '已有实例异常退出，继续启动
-                End Try
-            End If
-            '将已有的 PCL 窗口拖出来
-            Dim WindowHwnd As IntPtr = FindWindow(Nothing, "LivingPCL　")
-            If WindowHwnd <> IntPtr.Zero Then ShowWindowToTop(WindowHwnd)
-            '播放提示音并退出
-            Beep()
-            Environment.[Exit](ProcessReturnValues.Cancel)
-        Catch ex As Exception
-            Logger.Warn(ex, "单例检查失败")
+            Dim Timeout = If(e.Args.Length > 0 AndAlso e.Args(0) = "--wait", 10000, 0)
+            SessionLease = LauncherSessionLock.TryAcquire({"PCL_SingletonMutex", "LivingPCL_SingletonMutex"}, Timeout)
+            If SessionLease IsNot Nothing Then Return
+            System.Windows.MessageBox.Show("PCL 或 LivingPCL 已在运行。两个启动器共用账号，请先退出另一个启动器。", "启动器正在运行", MessageBoxButton.OK, MessageBoxImage.Information)
+        Catch
+            System.Windows.MessageBox.Show("无法确认启动器的运行状态。为保护共享账号，本次启动已停止。", "无法启动", MessageBoxButton.OK, MessageBoxImage.Warning)
         End Try
+        Environment.Exit(2)
     End Sub
-    Private Shared PclMutex As Mutex
+    Private Shared SessionLease As LauncherSessionLock
 
     '结束
     Private Sub Application_SessionEnding(sender As Object, e As SessionEndingCancelEventArgs) Handles Me.SessionEnding
@@ -246,47 +238,38 @@ RetryCacheCheck:
 
     '控件模板事件
     Private Sub MyIconButton_Click(sender As Object, e As EventArgs)
-        Select Case Settings.Get(Of McLoginType)("LoginType")
-            Case McLoginType.Ms
-                '微软
-                Dim MsJson As JObject = Settings.Get(Of String)("LoginMsJson").DeserializeJson()
-                MsJson.Remove(sender.Tag)
-                Settings.Set("LoginMsJson", MsJson.ToString(Newtonsoft.Json.Formatting.None))
-                If FrmLoginMs.ComboAccounts.SelectedItem Is sender.Parent Then FrmLoginMs.ComboAccounts.SelectedIndex = 0
-                FrmLoginMs.ComboAccounts.Items.Remove(sender.Parent)
-            Case McLoginType.Legacy
-                '离线
-                Dim Names As New List(Of String)
-                Names.AddRange(Settings.Get(Of String)("LoginLegacyName").ToString.Split("¨"))
-                Names.Remove(sender.Tag)
-                Settings.Set("LoginLegacyName", Names.Join("¨"c))
-                FrmLoginLegacy.ComboName.ItemsSource = Names
-                FrmLoginLegacy.ComboName.Text = If(Names.Any, Names(0), "")
-            Case Else
-                '第三方
-                Dim Token As String = Settings.Get(Of McLoginType)("LoginType").ToString()
-                Dim Dict As New Dictionary(Of String, String)
-                Dim Names As New List(Of String)
-                Dim Passs As New List(Of String)
-                If Not Settings.Get(Of String)("Login" & Token & "Email") = "" Then Names.AddRange(Settings.Get(Of String)("Login" & Token & "Email").Split("¨"))
-                If Not Settings.Get(Of String)("Login" & Token & "Pass") = "" Then Passs.AddRange(Settings.Get(Of String)("Login" & Token & "Pass").Split("¨"))
-                For i = 0 To Names.Count - 1
-                    Dict.Add(Names(i), Passs(i))
-                Next
-                Dict.Remove(sender.Tag)
-                Settings.Set("Login" & Token & "Email", Dict.Keys.Join("¨"c))
-                Settings.Set("Login" & Token & "Pass", Dict.Values.Join("¨"c))
-                Select Case Token
-                    Case "Nide"
-                        FrmLoginNide.ComboName.ItemsSource = Dict.Keys
-                        FrmLoginNide.ComboName.Text = If(Dict.Keys.Any, Dict.Keys(0), "")
-                        FrmLoginNide.TextPass.Password = If(Dict.Values.Any, Dict.Values(0), "")
-                    Case "Auth"
-                        FrmLoginAuth.ComboName.ItemsSource = Dict.Keys
-                        FrmLoginAuth.ComboName.Text = If(Dict.Keys.Any, Dict.Keys(0), "")
-                        FrmLoginAuth.TextPass.Password = If(Dict.Values.Any, Dict.Values(0), "")
-                End Select
-        End Select
+        Try
+            Select Case Settings.Get(Of McLoginType)("LoginType")
+                Case McLoginType.Ms
+                    '微软
+                    Settings.UpdateMicrosoftAccounts(Sub(Accounts)
+                        Accounts.Property(CStr(sender.Tag), StringComparison.OrdinalIgnoreCase)?.Remove()
+                    End Sub)
+                    If FrmLoginMs.ComboAccounts.SelectedItem Is sender.Parent Then FrmLoginMs.ComboAccounts.SelectedIndex = 0
+                    FrmLoginMs.ComboAccounts.Items.Remove(sender.Parent)
+                Case McLoginType.Legacy
+                    '离线
+                    Dim Names = Settings.UpdateLegacyNames(Sub(Items) Items.RemoveAll(Function(Name) Name.Equals(CStr(sender.Tag), StringComparison.OrdinalIgnoreCase)))
+                    FrmLoginLegacy.ComboName.ItemsSource = Names
+                    FrmLoginLegacy.ComboName.Text = If(Names.Any, Names(0), "")
+                Case Else
+                    '第三方
+                    Dim Token As String = Settings.Get(Of McLoginType)("LoginType").ToString()
+                    Dim Dict = Settings.UpdateServerAccounts(Token, CStr(sender.Tag), "", True)
+                    Select Case Token
+                        Case "Nide"
+                            FrmLoginNide.ComboName.ItemsSource = Dict.Keys
+                            FrmLoginNide.ComboName.Text = If(Dict.Keys.Any, Dict.Keys(0), "")
+                            FrmLoginNide.TextPass.Password = If(Dict.Values.Any, Dict.Values(0), "")
+                        Case "Auth"
+                            FrmLoginAuth.ComboName.ItemsSource = Dict.Keys
+                            FrmLoginAuth.ComboName.Text = If(Dict.Keys.Any, Dict.Keys(0), "")
+                            FrmLoginAuth.TextPass.Password = If(Dict.Values.Any, Dict.Values(0), "")
+                    End Select
+            End Select
+        Catch
+            Logger.Error("账号记录未能保存，原有记录已保留。请稍后重试。", LogBehavior.Toast)
+        End Try
     End Sub
 
 End Class

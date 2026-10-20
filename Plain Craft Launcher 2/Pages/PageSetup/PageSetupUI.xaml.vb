@@ -3,20 +3,6 @@ Public Class PageSetupUI
     Private Sub PageSetupUI_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         '重复加载部分
         PanBack.ScrollToHome()
-        ThemeCheckAll(True)
-        If ThemeDontClick <> 0 Then
-            Dim NewText As String = Nothing
-            Select Case ThemeDontClick
-                Case 1
-                    NewText = "眼瞎白"
-                Case 2
-                    NewText = "真·滑稽彩"
-            End Select
-            For Each Control In PanLauncherTheme.Children
-                If (TypeOf Control Is MyRadioBox) AndAlso CType(Control, MyRadioBox).IsEnabled Then CType(Control, MyRadioBox).Text = NewText
-            Next
-        End If
-
         AniControlEnabled += 1
         Refresh() '#4826
         AniControlEnabled -= 1
@@ -28,19 +14,12 @@ Public Class PageSetupUI
 
         SliderLoad()
 
-        If BuildType = BuildTypes.Release Then PanLauncherHide.Visibility = Visibility.Visible
-
-        '设置解锁
-        If Not RadioLauncherTheme8.IsEnabled Then LabLauncherTheme8Copy.ToolTip = $"累积赞助达到 ¥23.33 后，在爱发电私信发送【土豆 {Identify}】以解锁。" & vbCrLf & "右键打开赞助页面，如果觉得 PCL 做得还不错就支持一下吧 =w=！"
-        RadioLauncherTheme8.ToolTip = $"累积赞助达到 ¥23.33 后，在爱发电私信发送【土豆 {Identify}】以解锁"
-        If Not RadioLauncherTheme9.IsEnabled Then LabLauncherTheme9Copy.ToolTip = "原 PCL 的贡献者纪念主题"
-        RadioLauncherTheme9.ToolTip = "原 PCL 的贡献者纪念主题"
-        '极客蓝的处理在 ThemeCheck 中
-
     End Sub
     Public Sub Refresh()
         Try
             SettingService.RefreshSettings(Me)
+            CheckLauncherCustomTheme.Checked = Settings.Get(Of Integer)("UiLauncherTheme") = 14
+            RefreshCustomThemeControls()
             BackgroundRefresh(False, False)
 
             '标题栏
@@ -63,6 +42,7 @@ Public Class PageSetupUI
     Public Sub Reset()
         Try
             SettingService.ResetSettings(Me)
+            Settings.Reset("UiLauncherTheme")
             Logger.Info("已初始化个性化设置！")
             Hint("已初始化个性化设置", HintType.Green, False)
         Catch ex As Exception
@@ -348,60 +328,17 @@ Refresh:
         End If
     End Sub
 
-    '主题
-    Private Sub LabLauncherTheme5Unlock_MouseLeftButtonUp(sender As Object, e As MouseButtonEventArgs) Handles LabLauncherTheme5Unlock.MouseLeftButtonUp
-        RadioLauncherTheme5Gray.Opacity -= 0.7
-        RadioLauncherTheme5.Opacity += 0.7
-        AniStart({
-            AaOpacity(RadioLauncherTheme5Gray, 1, 1000 * AniSpeed, 500 * AniSpeed, New AniEaseInFluent),
-            AaOpacity(RadioLauncherTheme5, -1, 1000 * AniSpeed, 500 * AniSpeed, New AniEaseInFluent)
-        }, "ThemeUnlock")
-        If RadioLauncherTheme5Gray.Opacity < 0.02 Then
-            ThemeUnlock(5, UnlockHint:="隐藏主题 玄素黑 已解锁！")
-            AniStop("ThemeUnlock")
-            RadioLauncherTheme5.Checked = True
-        End If
+    '保留旧自定义主题编号，兼容已有参数；界面只提供默认/自定义复选框。
+    Private Sub CheckLauncherCustomTheme_Change(sender As Object, user As Boolean) Handles CheckLauncherCustomTheme.Change
+        If user AndAlso AniControlEnabled = 0 Then Settings.Set("UiLauncherTheme", If(CheckLauncherCustomTheme.Checked, 14, 0))
+        RefreshCustomThemeControls()
     End Sub
-    Private Sub LabLauncherTheme11Click_MouseLeftButtonUp() Handles LabLauncherTheme11Click.MouseLeftButtonUp, RadioLauncherTheme11.MouseRightButtonUp
-        If LabLauncherTheme11Click.Visibility = Visibility.Collapsed OrElse If(LabLauncherTheme11Click.ToolTip, "").ToString.Contains("点击") Then
-            If MyMsgBox(
-                "1. 不爬取或攻击相关服务或网站，不盗取相关账号，没有谜题可以或需要以此来解决。" & vbCrLf &
-                "2. 不得篡改或损毁相关公开信息，请尽量让它们保持原状。" & vbCrLf &
-                "3. 在你感到迷茫的时候，看看回声洞可能会给你带来惊喜。" & vbCrLf & vbCrLf &
-                "若违规，可能会被从任意相关群中踢出！",
-                "解密游戏的基本规则", "我知道了", "恕我拒绝") = 1 Then
-                MyMsgBox("你需要用自己的智慧来找到下一步的线索……" & vbCrLf &
-                         "初始线索：gnp.dorC61\60\20\0202\moc.x1xa.2s\\:sp" & "T".Lower & "th", "解密游戏") '防止触发病毒检测规则
-            End If
-        End If
-    End Sub
-    Private Sub LabLauncherTheme8Copy_MouseRightButtonUp() Handles LabLauncherTheme8Copy.MouseRightButtonUp, RadioLauncherTheme8.MouseRightButtonUp
-        OpenWebsite("https://meloong.com/afd/a/LTCat")
-    End Sub
-
-    '主题自定义
-    Private Sub RadioLauncherTheme14_Change(sender As Object, e As RouteEventArgs) Handles RadioLauncherTheme14.Changed
-        If RadioLauncherTheme14.Checked Then
-            If LabLauncherHue.Visibility = Visibility.Visible Then Return
-            LabLauncherHue.Visibility = Visibility.Visible
-            SliderLauncherHue.Visibility = Visibility.Visible
-            LabLauncherSat.Visibility = Visibility.Visible
-            SliderLauncherSat.Visibility = Visibility.Visible
-            LabLauncherDelta.Visibility = Visibility.Visible
-            SliderLauncherDelta.Visibility = Visibility.Visible
-            LabLauncherLight.Visibility = Visibility.Visible
-            SliderLauncherLight.Visibility = Visibility.Visible
-        Else
-            If LabLauncherHue.Visibility = Visibility.Collapsed Then Return
-            LabLauncherHue.Visibility = Visibility.Collapsed
-            SliderLauncherHue.Visibility = Visibility.Collapsed
-            LabLauncherSat.Visibility = Visibility.Collapsed
-            SliderLauncherSat.Visibility = Visibility.Collapsed
-            LabLauncherDelta.Visibility = Visibility.Collapsed
-            SliderLauncherDelta.Visibility = Visibility.Collapsed
-            LabLauncherLight.Visibility = Visibility.Collapsed
-            SliderLauncherLight.Visibility = Visibility.Collapsed
-        End If
+    Private Sub RefreshCustomThemeControls()
+        Dim State = If(CheckLauncherCustomTheme.Checked, Visibility.Visible, Visibility.Collapsed)
+        For Each Control As FrameworkElement In {LabLauncherHue, SliderLauncherHue, LabLauncherSat, SliderLauncherSat,
+                                               LabLauncherDelta, SliderLauncherDelta, LabLauncherLight, SliderLauncherLight}
+            Control.Visibility = State
+        Next
         CardLauncher.TriggerForceResize()
     End Sub
     Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change, SliderLauncherDelta.Change

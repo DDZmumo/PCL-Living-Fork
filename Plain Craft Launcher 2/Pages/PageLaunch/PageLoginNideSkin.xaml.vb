@@ -1,4 +1,4 @@
-Public Class PageLoginNideSkin
+﻿Public Class PageLoginNideSkin
 
     Public Sub New()
         InitializeComponent()
@@ -21,8 +21,9 @@ Public Class PageLoginNideSkin
     ''' 获取当前页面的登录信息。
     ''' </summary>
     Public Shared Function GetLoginData() As McLoginServer
-        Dim Server As String = If(IsNothing(McInstanceSelected), Settings.Get(Of String)("CacheNideServer"), Settings.Get(Of String)("VersionServerNide", Instance:=McInstanceSelected))
-        Return New McLoginServer(McLoginType.Nide) With {.Token = "Nide", .UserName = Settings.Get(Of String)("CacheNideUsername"), .Password = Settings.Get(Of String)("CacheNidePass"), .Description = "统一通行证", .Type = McLoginType.Nide, .BaseUrl = "https://auth.mc-user.com:233/" & Server & "/authserver"}
+        Dim Cached = Settings.AccountSnapshot("CacheNide")
+        Dim Server As String = If(IsNothing(McInstanceSelected), CStr(Cached("CacheNideServer")), Settings.Get(Of String)("VersionServerNide", Instance:=McInstanceSelected))
+        Return New McLoginServer(McLoginType.Nide) With {.Token = "Nide", .UserName = CStr(Cached("CacheNideUsername")), .Password = CStr(Cached("CacheNidePass")), .Description = "统一通行证", .Type = McLoginType.Nide, .BaseUrl = "https://auth.mc-user.com:233/" & Server & "/authserver"}
     End Function
 
     Private Sub PageLoginNideSkin_MouseEnter(sender As Object, e As MouseEventArgs) Handles PanData.MouseEnter
@@ -45,9 +46,14 @@ Public Class PageLoginNideSkin
     End Sub
 
     Public Shared Sub ExitLogin() Handles BtnExit.Click
-        Settings.Set("CacheNideAccess", "")
-        McLoginNideLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
-        FrmLaunchLeft.RefreshPage(False, True)
+        Try
+            McLoginNideLoader.Cancel()
+            Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {{"CacheNideAccess", ""}})
+            McLoginNideLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
+            FrmLaunchLeft.RefreshPage(False, True)
+        Catch
+            Logger.Error("退出登录未能保存，原有账号状态已保留。请稍后重试。", LogBehavior.Toast)
+        End Try
     End Sub
 
     Private Sub Skin_Click(sender As Object, e As MouseButtonEventArgs) Handles Skin.Click

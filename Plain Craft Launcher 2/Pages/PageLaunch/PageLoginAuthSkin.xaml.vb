@@ -1,4 +1,4 @@
-Public Class PageLoginAuthSkin
+﻿Public Class PageLoginAuthSkin
 
     Public Sub New()
         InitializeComponent()
@@ -21,8 +21,9 @@ Public Class PageLoginAuthSkin
     ''' 获取当前页面的登录信息。
     ''' </summary>
     Public Shared Function GetLoginData() As McLoginServer
-        Dim Server As String = If(IsNothing(McInstanceSelected), Settings.Get(Of String)("CacheAuthServerServer"), Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)) & "/authserver"
-        Return New McLoginServer(McLoginType.Auth) With {.Token = "Auth", .BaseUrl = Server, .UserName = Settings.Get(Of String)("CacheAuthUsername"), .Password = Settings.Get(Of String)("CacheAuthPass"), .Description = "Authlib-Injector", .Type = McLoginType.Auth}
+        Dim Cached = Settings.AccountSnapshot("CacheAuth")
+        Dim Server As String = If(IsNothing(McInstanceSelected), CStr(Cached("CacheAuthServerServer")), Settings.Get(Of String)("VersionServerAuthServer", Instance:=McInstanceSelected)) & "/authserver"
+        Return New McLoginServer(McLoginType.Auth) With {.Token = "Auth", .BaseUrl = Server, .UserName = CStr(Cached("CacheAuthUsername")), .Password = CStr(Cached("CacheAuthPass")), .Description = "Authlib-Injector", .Type = McLoginType.Auth}
     End Function
 
     Private Sub PageLoginAuthSkin_MouseEnter(sender As Object, e As MouseEventArgs) Handles PanData.MouseEnter
@@ -55,8 +56,12 @@ Public Class PageLoginAuthSkin
             Return
         End If
         Hint("正在尝试更换，请稍候！")
-        Settings.Set("CacheAuthUuid", "") '清空选择缓存
-        Settings.Set("CacheAuthName", "")
+        Try
+            Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {{"CacheAuthUuid", ""}, {"CacheAuthName", ""}})
+        Catch
+            Logger.Error("角色选择状态未能保存，原有状态已保留。", LogBehavior.Toast)
+            Return
+        End Try
         RunInThread(
         Sub()
             Try
@@ -70,11 +75,14 @@ Public Class PageLoginAuthSkin
         End Sub)
     End Sub
     Public Shared Sub ExitLogin() Handles BtnExit.Click
-        Settings.Set("CacheAuthAccess", "")
-        Settings.Set("CacheAuthUuid", "")
-        Settings.Set("CacheAuthName", "")
-        McLoginAuthLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
-        FrmLaunchLeft.RefreshPage(False, True)
+        Try
+            McLoginAuthLoader.Cancel()
+            Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {{"CacheAuthAccess", ""}, {"CacheAuthUuid", ""}, {"CacheAuthName", ""}})
+            McLoginAuthLoader.Input = Nothing '防止因为输入的用户名密码相同，直接使用了上次登录的加载器结果
+            FrmLaunchLeft.RefreshPage(False, True)
+        Catch
+            Logger.Error("退出登录未能保存，原有账号状态已保留。请稍后重试。", LogBehavior.Toast)
+        End Try
     End Sub
 
     Private Sub Skin_Click(sender As Object, e As MouseButtonEventArgs) Handles Skin.Click

@@ -1,6 +1,6 @@
 ﻿Imports System.Security.Cryptography
 
-Public Class Settings
+Partial Public Class Settings
 
     '已有 PCL 文件夹时复用兼容配置；新目录沿用正常初始化流程。
     Friend Shared Property UseExistingPclConfiguration As Boolean
@@ -8,7 +8,7 @@ Public Class Settings
     '账号数据单独迁移并重新加密，避免把官方密文直接交给当前设备标识解密。
     Friend Shared Function IsPclAccountSetting(Entry As Setting) As Boolean
         If Entry.Source <> Sources.Registry Then Return False
-        If Entry.Key = "LoginType" Then Return True
+        If Entry.Key = "LoginType" OrElse Entry.Key = "CacheMsV2Migrated" Then Return True
         Return Entry.Encrypted AndAlso (Entry.Key.StartsWith("Login", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("CacheMs", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("CacheNide", StringComparison.Ordinal) OrElse
@@ -72,6 +72,7 @@ Public Class Settings
     End Function
 
     Private Shared Function AccountGroup(Key As String) As String
+        If Key = "CacheMsV2Migrated" Then Return Nothing
         Return {"CacheMsV2", "CacheMs", "CacheNide", "CacheAuth", "LoginNide", "LoginAuth"}.
             FirstOrDefault(Function(Prefix) Key.StartsWith(Prefix, StringComparison.Ordinal))
     End Function
@@ -156,7 +157,7 @@ Public Class Settings
             If Old(Key) IsNot Nothing Then OldKinds(Key) = Legacy.GetValueKind(Key)
         Next
         Try
-            For Each Item In Plan.Values
+            For Each Item In Plan.Values.OrderBy(Function(Value) If(Value.Key = "CacheMsV2Migrated", 1, 0))
                 Official.SetValue(Item.Key, Item.Value, Microsoft.Win32.RegistryValueKind.String)
                 If Convert.ToString(Official.GetValue(Item.Key), Globalization.CultureInfo.InvariantCulture) <> Item.Value OrElse
                     DecodePclAccountValue(Entries(Item.Key), Item.Value, Plan.CurrentIdentify) Is Nothing Then Throw New InvalidOperationException("账号格式转换校验失败")
@@ -188,6 +189,11 @@ Public Class Settings
     End Sub
 
     Friend Shared Sub ImportCompatiblePclAccounts()
+        SyncLock SharedAccountSync
+            ImportCompatiblePclAccountsCore()
+        End SyncLock
+    End Sub
+    Private Shared Sub ImportCompatiblePclAccountsCore()
         If RegFolder = "PCL" Then Return
         Try
             Dim Native As New Dictionary(Of String, String)(StringComparer.Ordinal)
@@ -216,12 +222,11 @@ Public Class Settings
 
     Friend Shared Function IsCompatiblePclSetting(Entry As Setting) As Boolean
         If Entry.Source <> Sources.Registry OrElse Entry.Encrypted Then Return False
-        If Entry.Key = "ToolUpdateReleaseLast" OrElse Entry.Key = "ToolUpdateSnapshotLast" Then Return False
         Return Entry.Key.StartsWith("Launch", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("Tool", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("Ui", StringComparison.Ordinal) OrElse
             Entry.Key.StartsWith("SystemDebug", StringComparison.Ordinal) OrElse
-            Entry.Key = "SystemSystemCache" OrElse Entry.Key = "SystemSystemTelemetry"
+            Entry.Key = "SystemSystemCache"
     End Function
 
     ''' <summary>
@@ -252,6 +257,12 @@ Public Class Settings
         Dim CurrentValue As String = RegistryUtils.TryRead($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Entry.Key, Nothing)
         If Not UseExistingPclConfiguration OrElse RegFolder = "PCL" OrElse Not IsCompatiblePclSetting(Entry) Then Return If(CurrentValue, DefaultValue)
         Try
+            If Entry.Key = "LaunchFolders" Then
+                Using Local = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\" & RegFolder),
+                      Source = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\PCL", False)
+                    Return ImportFoldersOnce(Local, Convert.ToString(Source?.GetValue(Entry.Key, Nothing), Globalization.CultureInfo.InvariantCulture))
+                End Using
+            End If
             '普通偏好只读继承；账号另行解密迁移，设备标识、主题授权和更新状态不共享。
             Using Source = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Software\PCL", False)
                 Dim RawValue = Source?.GetValue(Entry.Key, Nothing, Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames)
@@ -259,7 +270,6 @@ Public Class Settings
                 Dim SourceValue = Convert.ToString(RawValue, Globalization.CultureInfo.InvariantCulture)
                 '先验证类型，旧版或损坏设置不得覆盖当前有效值。
                 Dim CheckedValue = CTypeDynamic(SourceValue, Entry.Type)
-                If Entry.Key = "LaunchFolders" Then Return MergePclFolders(CurrentValue, SourceValue)
                 Return If(CurrentValue, SourceValue)
             End Using
         Catch ex As Exception
@@ -303,7 +313,6 @@ Public Class Settings
         New Setting("SystemSystemCache", "", Source:=Sources.Registry),
         New Setting("SystemSystemUpdate", 3), '兼容旧配置键；本版本不提供官方更新入口。
         New Setting("SystemSystemActivity", 0),
-        New Setting("SystemSystemTelemetry", True, Source:=Sources.Registry),
         New Setting("CacheDrops", "", Source:=Sources.Registry),
         New Setting("CacheConfig", 0, Source:=Sources.Registry),
         New Setting("CacheExportConfig", "", Source:=Sources.Registry),
@@ -389,23 +398,19 @@ Public Class Settings
         New Setting("ToolDownloadCert", False, Source:=Sources.Registry, OnChanged:=AddressOf ModNet.ShouldValidateSslCertificateOnLogin),
         New Setting("ToolDownloadMod", 2, Source:=Sources.Registry),
         New Setting("ToolModLocalNameStyle", 0, Source:=Sources.Registry),
-        New Setting("ToolLauncherUpdateLastNotified", "", Source:=Sources.Registry),
-        New Setting("ToolUpdateRelease", False, Source:=Sources.Registry),
-        New Setting("ToolUpdateSnapshot", False, Source:=Sources.Registry),
-        New Setting("ToolUpdateReleaseLast", "", Source:=Sources.Registry),
-        New Setting("ToolUpdateSnapshotLast", "", Source:=Sources.Registry),
+        New Setting("ToolLauncherUpdateIgnoredTag", "", Source:=Sources.Registry),
         New Setting("UiLauncherTransparent", 600, OnChanged:=Sub(Value As Integer) If FrmMain IsNot Nothing Then FrmMain.Opacity = Value / 1000 + 0.4), '避免与 PCL1 设置冲突（UiLauncherOpacity）
-        New Setting("UiLauncherHue", 180),
-        New Setting("UiLauncherSat", 80),
-        New Setting("UiLauncherDelta", 90),
-        New Setting("UiLauncherLight", 20),
+        New Setting("UiLauncherHue", DefaultThemeHue),
+        New Setting("UiLauncherSat", DefaultThemeSat),
+        New Setting("UiLauncherDelta", DefaultThemeDelta),
+        New Setting("UiLauncherLight", DefaultThemeLight),
         New Setting("UiLauncherTheme", 0, OnChanged:=AddressOf ThemeRefresh),
         New Setting("UiLauncherThemeHide", "0|1|2|3|4", Source:=Sources.Registry, Encrypted:=True),
         New Setting("UiLauncherThemeHide2", "0|1|2|3|4", Source:=Sources.Registry, Encrypted:=True),
         New Setting("UiLauncherLogo", False),
         New Setting("UiLauncherEmail", False),
         New Setting("UiBackgroundColorful", True, OnChanged:=Sub() ThemeRefresh()), '不传入参数
-        New Setting("UiBackgroundOpacity", 1000, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
+        New Setting("UiBackgroundOpacity", DefaultBackgroundOpacity, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
         New Setting("UiBackgroundBlur", 0, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
         New Setting("UiBackgroundSuit", 0, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
         New Setting("UiCustomType", 0, OnChanged:=AddressOf PageSetupUI.OnMainPageTypeChanged),
@@ -515,7 +520,7 @@ Public Class Settings
         ''' </summary>
         Public Sub Save(Optional Instance As McInstance = Nothing)
             Dim Value As String = GetCache(Instance)
-            Logger.Trace($"保存设置：{Key} {If(Encrypted, "", "= " & Value)}{If(Instance Is Nothing, "", $"（实例：{Instance?.PathVersion}）")}")
+            Logger.Trace($"保存设置：{Key} {If(Encrypted OrElse Key = "Identify", "", "= " & Value)}{If(Instance Is Nothing, "", $"（实例：{Instance?.PathVersion}）")}")
             If Encrypted Then
                 Try
                     If Value Is Nothing Then Value = ""
@@ -530,6 +535,7 @@ Public Class Settings
                 Case Sources.Registry
                     Try
                         RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Me)}", Key, Value)
+                        If Key = "LaunchFolders" Then RegistryUtils.Write($"HKEY_CURRENT_USER\Software\{RegFolder}", FolderImportMarker, Boolean.TrueString)
                     Catch ex As Exception
                         Logger.Warn(ex, $"写入注册表失败（{Key} → {Value}）", LogBehavior.Toast)
                     End Try
@@ -545,6 +551,17 @@ Public Class Settings
     ''' 改变某个设置项的值。
     ''' </summary>
     Public Shared Sub [Set](Key As String, Value As Object, Optional Instance As McInstance = Nothing)
+        If Entries.ContainsKey(Key) AndAlso IsPclAccountSetting(Entries(Key)) Then
+            Try
+                WriteAccountValues(New Dictionary(Of String, Object) From {{Key, Value}})
+            Catch
+                Logger.Error("保存账号设置失败，原有数据已保留。", LogBehavior.Toast)
+            End Try
+            Return
+        End If
+        SetCore(Key, Value, Instance)
+    End Sub
+    Private Shared Sub SetCore(Key As String, Value As Object, Instance As McInstance)
         Dim Entry As Setting = Nothing
         If Not Entries.TryGetValue(Key, Entry) Then Throw New KeyNotFoundException("未找到设置项：" & Key)
         Try
@@ -558,7 +575,7 @@ Public Class Settings
             '触发改变事件（必须在保存之后，以保证 VersionServerLogin 之类的在事件中读取到的是最新的值）
             If Entry.OnChanged IsNot Nothing Then Entry.OnChanged.Invoke(Value)
         Catch ex As Exception
-            Logger.Error(ex, $"设置设置项时出错（{Key}, {Value}）")
+            Logger.Error(ex, $"设置设置项时出错（{Key}）")
         End Try
     End Sub
     ''' <summary>
@@ -576,10 +593,18 @@ Public Class Settings
     ''' 获取某个设置项的值。
     ''' </summary>
     Public Shared Function [Get](Key As String, Optional Instance As McInstance = Nothing)
+        If Entries.ContainsKey(Key) AndAlso IsPclAccountSetting(Entries(Key)) Then
+            SyncLock SharedAccountSync
+                Return GetCore(Key, Instance)
+            End SyncLock
+        End If
+        Return GetCore(Key, Instance)
+    End Function
+    Private Shared Function GetCore(Key As String, Instance As McInstance, Optional ReadRaw As Func(Of Setting, String) = Nothing, Optional DeviceIdentify As String = Nothing) As Object
         Dim Entry As Setting = Nothing
         If Not Entries.TryGetValue(Key, Entry) Then Throw New KeyNotFoundException("未找到设置项：" & Key)
         Dim Value = Entry.GetCache(Instance)
-        If Value IsNot Nothing Then Return Value
+        If Value IsNot Nothing AndAlso Not IsPclAccountSetting(Entry) Then Return Value
         '对部分设置强制赋值
         Static ForcedSettings As New Dictionary(Of String, Object) From {
             {"UiHiddenPageLink", True},
@@ -593,25 +618,30 @@ Public Class Settings
         '正常读取
         Try
             Dim GotValue As String = Nothing '先用 String 储存，避免类型转换
-            Dim DefaultValue As String = If(Entry.Encrypted, DesEncrypt(Entry.DefaultValue, "PCL" & Identify), Entry.DefaultValue)
-            Select Case Entry.Source
-                Case Sources.Normal
-                    GotValue = ReadIni("Setup", Key, DefaultValue)
-                Case Sources.Registry
-                    GotValue = ReadRegistrySetting(Entry, DefaultValue)
-                Case Sources.Instance
-                    If Instance Is Nothing Then
-                        Throw New Exception($"读取版本设置 {Key} 时未提供目标版本")
-                    Else
-                        GotValue = ReadIni(Instance.PathVersion & "PCL\Setup.ini", Key, DefaultValue)
-                    End If
-            End Select
+            Dim EncryptionIdentify = If(DeviceIdentify, Identify)
+            Dim DefaultValue As String = If(Entry.Encrypted, DesEncrypt(Entry.DefaultValue, "PCL" & EncryptionIdentify), Entry.DefaultValue)
+            If ReadRaw IsNot Nothing Then
+                GotValue = If(ReadRaw(Entry), DefaultValue)
+            Else
+                Select Case Entry.Source
+                    Case Sources.Normal
+                        GotValue = ReadIni("Setup", Key, DefaultValue)
+                    Case Sources.Registry
+                        GotValue = ReadRegistrySetting(Entry, DefaultValue)
+                    Case Sources.Instance
+                        If Instance Is Nothing Then
+                            Throw New Exception($"读取版本设置 {Key} 时未提供目标版本")
+                        Else
+                            GotValue = ReadIni(Instance.PathVersion & "PCL\Setup.ini", Key, DefaultValue)
+                        End If
+                End Select
+            End If
             If Entry.Encrypted Then
                 If GotValue = DefaultValue Then
                     GotValue = Entry.DefaultValue
                 Else
                     Try
-                        GotValue = DesDecrypt(GotValue, "PCL" & Identify)
+                        GotValue = DesDecrypt(GotValue, "PCL" & EncryptionIdentify)
                     Catch
                         Logger.Warn($"解密设置失败，保留原始密文：{Key}")
                         GotValue = Entry.DefaultValue
@@ -643,23 +673,28 @@ Public Class Settings
     ''' 初始化某个设置项的值。
     ''' </summary>
     Public Shared Sub Reset(Key As String, Optional Instance As McInstance = Nothing)
+        If Entries.ContainsKey(Key) AndAlso IsPclAccountSetting(Entries(Key)) Then
+            WriteAccountValues(New Dictionary(Of String, Object) From {{Key, Entries(Key).DefaultValue}})
+            Return
+        End If
+        ResetCore(Key, Instance)
+    End Sub
+    Private Shared Sub ResetCore(Key As String, Instance As McInstance)
         Dim Entry As Setting = Nothing
         If Not Entries.TryGetValue(Key, Entry) Then Throw New KeyNotFoundException("未找到设置项：" & Key)
         Try
             '判断是否一致
             If Entry.GetCache(Instance) Is Nothing Then [Get](Key, Instance)
-            If Entry.GetCache(Instance) = Entry.DefaultValue Then Return
+            If Entry.GetCache(Instance) = Entry.DefaultValue AndAlso Not (Entry.Source = Sources.Registry AndAlso IsCompatiblePclSetting(Entry)) Then Return
             '设置新值
             Entry.Set(Entry.DefaultValue, Instance)
             Select Case Entry.Source
                 Case Sources.Normal
                     DeleteIniKey("Setup", Key)
                 Case Sources.Registry
-                    Try
-                        RegistryUtils.Delete($"HKEY_CURRENT_USER\Software\{RegistryFolderFor(Entry)}", Key)
-                    Catch ex As Exception
-                        Logger.Warn(ex, $"删除注册表失败（{Key}）", LogBehavior.Toast)
-                    End Try
+                    Using Store = Microsoft.Win32.Registry.CurrentUser.CreateSubKey("Software\" & RegistryFolderFor(Entry))
+                        ResetRegistryPreference(Store, Entry)
+                    End Using
                 Case Sources.Instance
                     If Instance Is Nothing Then Throw New Exception($"重置版本设置 {Key} 时未提供目标版本")
                     DeleteIniKey(Instance.PathVersion & "PCL\Setup.ini", Key)
@@ -667,6 +702,7 @@ Public Class Settings
             '触发改变事件
             If Entry.OnChanged IsNot Nothing Then Entry.OnChanged.Invoke(Entry.DefaultValue)
         Catch ex As Exception
+            Entry.ValueCache.Clear()
             Logger.Error(ex, $"重置设置项时出错（{Key}）")
         End Try
     End Sub

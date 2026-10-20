@@ -967,7 +967,7 @@ ExitDataLoad:
             Dim FolderList As New List(Of String)
             If DirectoryUtils.Exists(PathMc & "versions") Then '不要使用 CheckPermission，会导致写入时间改变，从而使得文件夹被强制刷新
                 Try
-                    For Each Folder As DirectoryInfo In DirectoryUtils.GetInfo(PathMc & "versions").GetDirectories
+                    For Each Folder As DirectoryInfo In McInstanceDirectoryScanner.GetDirectories(PathMc & "versions")
                         FolderList.Add(Folder.Name)
                     Next
                 Catch ex As Exception
@@ -1048,6 +1048,7 @@ OnLoaded:
                 For Each VersionName As String In ReadIni(Folder & "PCL.ini", "CardValue" & (i + 1), ":").Split(":")
                     If VersionName = "" Then Continue For
                     Dim FolderVersions As String = $"{Folder}versions\{VersionName}\"
+                    If Not McInstanceDirectoryScanner.HasFiles(DirectoryUtils.GetInfo(FolderVersions)) Then Continue For
                     If FileUtils.Exists(FolderVersions & ".pclignore") Then
                         If IsFirstMcInstanceListLoad Then
                             Logger.Info($"清理残留的忽略项目：{FolderVersions}") '#2781
@@ -1146,9 +1147,9 @@ OnLoaded:
         Dim InstanceList As New List(Of McInstance)
 
 #Region "循环加载每个版本的信息"
-        For Each VersionFolderInfo As DirectoryInfo In DirectoryUtils.GetInfo(Folder & "versions").GetDirectories
-            If Not VersionFolderInfo.Exists OrElse Not VersionFolderInfo.EnumerateFiles.Any Then
-                Logger.Info($"跳过空文件夹：{VersionFolderInfo.FullName}")
+        For Each VersionFolderInfo As DirectoryInfo In McInstanceDirectoryScanner.GetDirectories(Folder & "versions")
+            If Not McInstanceDirectoryScanner.HasFiles(VersionFolderInfo) Then
+                Logger.Info($"跳过空文件夹或已清理的版本：{VersionFolderInfo.FullName}")
                 Continue For
             End If
             If (VersionFolderInfo.Name = "cache" OrElse VersionFolderInfo.Name = "BLClient" OrElse VersionFolderInfo.Name = "PCL") AndAlso
@@ -2159,3 +2160,26 @@ OnLoaded:
     End Function
 
 End Module
+
+'安装取消会并发删除版本目录；目录快照和 Exists 结果不能保证随后仍能枚举。
+Friend NotInheritable Class McInstanceDirectoryScanner
+    Private Sub New()
+    End Sub
+
+    Friend Shared Function GetDirectories(Folder As String) As DirectoryInfo()
+        Try
+            Return DirectoryUtils.GetInfo(Folder).GetDirectories()
+        Catch ex As DirectoryNotFoundException
+            Return New DirectoryInfo() {}
+        End Try
+    End Function
+
+    Friend Shared Function HasFiles(Folder As DirectoryInfo) As Boolean
+        Try
+            'Any 必须在 Try 内求值，异常也可能发生在枚举器开始读取时。
+            Return Folder.EnumerateFiles().Any()
+        Catch ex As DirectoryNotFoundException
+            Return False
+        End Try
+    End Function
+End Class

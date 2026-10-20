@@ -1,4 +1,4 @@
-Public Class PageLoginMsSkin
+﻿Public Class PageLoginMsSkin
 
     Public Sub New()
         InitializeComponent()
@@ -19,10 +19,11 @@ Public Class PageLoginMsSkin
     ''' 获取当前页面的登录信息。
     ''' </summary>
     Public Shared Function GetLoginData() As McLoginMs
+        Dim Cached = Settings.AccountSnapshot("CacheMsV2")
         If McLoginMsLoader.State = LoadState.Finished Then
-            Return New McLoginMs With {.OAuthRefreshToken = Settings.Get(Of String)("CacheMsV2OAuthRefresh"), .UserName = Settings.Get(Of String)("CacheMsV2Name"), .AccessToken = Settings.Get(Of String)("CacheMsV2Access"), .Uuid = Settings.Get(Of String)("CacheMsV2Uuid"), .ProfileJson = Settings.Get(Of String)("CacheMsV2ProfileJson")}
+            Return New McLoginMs With {.OAuthRefreshToken = CStr(Cached("CacheMsV2OAuthRefresh")), .UserName = CStr(Cached("CacheMsV2Name")), .AccessToken = CStr(Cached("CacheMsV2Access")), .Uuid = CStr(Cached("CacheMsV2Uuid")), .ProfileJson = CStr(Cached("CacheMsV2ProfileJson"))}
         Else
-            Return New McLoginMs With {.OAuthRefreshToken = Settings.Get(Of String)("CacheMsV2OAuthRefresh"), .UserName = Settings.Get(Of String)("CacheMsV2Name")}
+            Return New McLoginMs With {.OAuthRefreshToken = CStr(Cached("CacheMsV2OAuthRefresh")), .UserName = CStr(Cached("CacheMsV2Name"))}
         End If
     End Function
 
@@ -44,14 +45,15 @@ Public Class PageLoginMsSkin
 
     '退出登录
     Private Sub BtnExit_Click() Handles BtnExit.Click
-        Settings.Set("CacheMsV2OAuthRefresh", "")
-        Settings.Set("CacheMsV2Access", "")
-        Settings.Set("CacheMsV2ProfileJson", "")
-        Settings.Set("CacheMsV2Uuid", "")
-        Settings.Set("CacheMsV2Name", "")
-        Settings.Set("CacheMsV2Expires", 0L)
-        McLoginMsLoader.Cancel()
-        FrmLaunchLeft.RefreshPage(False, True)
+        Try
+            McLoginMsLoader.Cancel()
+            Settings.SaveAccountGroup(New Dictionary(Of String, Object) From {
+                {"CacheMsV2OAuthRefresh", ""}, {"CacheMsV2Access", ""}, {"CacheMsV2ProfileJson", ""},
+                {"CacheMsV2Uuid", ""}, {"CacheMsV2Name", ""}, {"CacheMsV2Expires", 0L}, {"CacheMsV2Migrated", True}})
+            FrmLaunchLeft.RefreshPage(False, True)
+        Catch
+            Logger.Error("退出登录未能保存，原有账号状态已保留。请稍后重试。", LogBehavior.Toast)
+        End Try
     End Sub
 
 #End Region

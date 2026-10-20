@@ -438,11 +438,9 @@ Public Class FormMain
             Catch ex As Exception
                 Logger.Warn(ex, "清理自动更新文件失败")
             End Try
-            '上报
-            Telemetry("启动")
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"LivingPCL2-Re 是基于 PCL 2.14.0.0 的第三方修改版，原作者为龙腾猫跃及原项目贡献者；原作版权归成都瓜皮龙科技有限公司，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，启动时自动检查，可下载并更新，失败时可前往发布页{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……", "LivingPCL 版本说明")
+                MyMsgBox($"LivingPCL2-Re 是基于 PCL 2.14.0.0 的第三方修改版，原作者为龙腾猫跃及原项目贡献者；原作版权归成都瓜皮龙科技有限公司，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，启动时自动检查，可下载并更新，失败时可前往发布页{vbCrLf}- 自定义主题：在 设置 → 个性化 中勾选自定义主题并调整颜色", "LivingPCL 版本说明")
             End If
             ModLauncherUpdate.CheckForUpdates(True)
         End Sub, "初始化", ThreadPriority.Lowest)
@@ -517,16 +515,6 @@ Public Class FormMain
         If LastVersionCode <= 205 Then
             Settings.Set("UiHiddenOtherHelp", False)
             Logger.Info("已解除帮助页面的隐藏")
-        End If
-        '单向迁移微软登录结果（#4836）
-        If Not Settings.Get(Of Boolean)("CacheMsV2Migrated") Then
-            Settings.Set("CacheMsV2Migrated", True)
-            Settings.Set("CacheMsV2OAuthRefresh", Settings.Get(Of String)("CacheMsOAuthRefresh"))
-            Settings.Set("CacheMsV2Access", Settings.Get(Of String)("CacheMsAccess"))
-            Settings.Set("CacheMsV2ProfileJson", Settings.Get(Of String)("CacheMsProfileJson"))
-            Settings.Set("CacheMsV2Uuid", Settings.Get(Of String)("CacheMsUuid"))
-            Settings.Set("CacheMsV2Name", Settings.Get(Of String)("CacheMsName"))
-            Logger.Info("已从老版本迁移微软登录结果")
         End If
         'Mod 命名设置迁移
         If Settings.HasSaved("ToolDownloadTranslate") AndAlso Not Settings.HasSaved("ToolDownloadTranslateV2") Then

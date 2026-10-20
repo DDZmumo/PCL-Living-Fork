@@ -1,4 +1,4 @@
-Public Class PageLoginMs
+﻿Public Class PageLoginMs
 
     ''' <summary>
     ''' 刷新页面显示的所有信息。
@@ -9,7 +9,7 @@ Public Class PageLoginMs
         ComboAccounts.Items.Clear()
         ComboAccounts.Items.Add(New MyComboBoxItem With {.Content = "添加新账号"})
         Try
-            Dim MsJson As JObject = Settings.Get(Of String)("LoginMsJson").DeserializeJson()
+            Dim MsJson As JObject = JObject.Parse(Settings.Get(Of String)("LoginMsJson"))
             For Each Account In MsJson
                 Dim Item As MyListItem = CType(FindResource("ComboBoxItemTemplateWithDelete"), DataTemplate).LoadContent()
                 Item.Tag = Account.Value.ToString
@@ -18,8 +18,7 @@ Public Class PageLoginMs
                 ComboAccounts.Items.Add(Item)
             Next
         Catch ex As Exception
-            Logger.Error(ex, $"微软登录信息出错，登录信息已被重置", LogBehavior.Toast)
-            Settings.Set("LoginMsJson", "{}")
+            Logger.Error("微软账号列表暂时无法读取，原始数据已保留。", LogBehavior.Toast)
         End Try
         '如果不保留输入，刷新列表后自动选择第一项
         ComboAccounts.SelectedIndex = If(KeepInput, Math.Max(0, IndexBefore), 0)

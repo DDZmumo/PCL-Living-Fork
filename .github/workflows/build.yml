@@ -73,6 +73,12 @@ jobs:
     - name: Verify account migration and updater
       run: powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
 
+    - name: Verify cancelled version scanning
+      run: powershell -NoProfile -STA -File scripts/Test-VersionListCancellation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
+    - name: Verify audit regressions
+      run: powershell -NoProfile -STA -File scripts/Test-AuditFixes.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
       with:

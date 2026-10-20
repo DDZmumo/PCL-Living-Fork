@@ -20,6 +20,16 @@ Public Module ModLauncherUpdate
             Url.AbsolutePath.StartsWith("/" & Repository & "/releases/download/", StringComparison.OrdinalIgnoreCase) AndAlso Url.UserInfo = "" AndAlso Url.IsDefaultPort
     End Function
 
+    Friend Function ShouldPromptForUpdate(Tag As String, Current As String, IgnoredTag As String) As Boolean
+        Return NewerRelease(Tag, Current) AndAlso Not String.Equals(Tag, IgnoredTag, StringComparison.Ordinal)
+    End Function
+
+    Friend Function IgnoreTagAfterChoice(IgnoredTag As String, Tag As String, Choice As Integer) As String
+        If Choice = 2 Then Return Tag
+        If Choice = 1 AndAlso String.Equals(IgnoredTag, Tag, StringComparison.Ordinal) Then Return ""
+        Return IgnoredTag
+    End Function
+
     Friend Function ReleaseExecutable(Info As JObject) As JObject
         Dim Assets = TryCast(Info("assets"), JArray)
         If Assets Is Nothing Then Throw New Exception("发布中没有下载附件。")
@@ -57,9 +67,15 @@ Public Module ModLauncherUpdate
                     If Not Startup Then MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}当前没有更新的正式版本。", "LivingPCL 更新")
                     Return
                 End If
-                If Startup AndAlso Settings.Get(Of String)("ToolLauncherUpdateLastNotified") = Tag Then Return
-                If Startup Then Settings.Set("ToolLauncherUpdateLastNotified", Tag)
-                If MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}下载并校验更新后，启动器将自动替换并重新启动。", "发现 LivingPCL 新版本", "下载并更新", "暂不更新") = 1 Then DownloadAndUpdate(Info)
+                Dim IgnoredTag = Settings.Get(Of String)("ToolLauncherUpdateIgnoredTag")
+                If Startup AndAlso Not ShouldPromptForUpdate(Tag, VersionBaseName, IgnoredTag) Then Return
+                Dim Choice = MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}下载并校验更新后，启动器将自动替换并重新启动。", "发现 LivingPCL 新版本", "下载并更新", "暂不更新")
+                If Choice = 1 Then
+                    Settings.Set("ToolLauncherUpdateIgnoredTag", IgnoreTagAfterChoice(IgnoredTag, Tag, Choice))
+                    DownloadAndUpdate(Info)
+                ElseIf Choice = 2 Then
+                    Settings.Set("ToolLauncherUpdateIgnoredTag", IgnoreTagAfterChoice(IgnoredTag, Tag, Choice))
+                End If
             Catch ex As Exception
                 If Startup Then
                     Logger.Info("启动更新检查未完成，将在下次启动时重试。")
@@ -85,10 +101,12 @@ Public Module ModLauncherUpdate
             Hint("正在下载 LivingPCL 更新……")
             NetDownloadByLoader(Asset("browser_download_url").ToString(), Staged, Check:=New FileChecker With {.Hash = ExpectedHash, .ActualSize = CLng(Asset("size"))})
             ValidateExecutable(Staged, ExpectedHash)
+            If HasDownloadingTask() Then Throw New Exception("仍有下载任务正在进行。请等待任务结束后重试更新。")
             Dim Target = Process.GetCurrentProcess().MainModule.FileName
             Dim Arguments = $"--livingpcl-update {Process.GetCurrentProcess().Id} ""{System.IO.Path.GetFileName(Target)}"" {ExpectedHash}"
             Dim Helper = Process.Start(New ProcessStartInfo(Staged, Arguments) With {.UseShellExecute = False, .CreateNoWindow = True, .WindowStyle = ProcessWindowStyle.Hidden, .WorkingDirectory = Folder})
             If Helper Is Nothing Then Throw New Exception("无法启动更新替换程序。")
+            If Helper.WaitForExit(500) Then Throw New Exception("更新替换程序未能正常启动。")
             RunInUi(Sub() FrmMain.EndProgram(SendWarning:=False))
         Catch ex As Exception
             UpdateFailure(ex.Message)

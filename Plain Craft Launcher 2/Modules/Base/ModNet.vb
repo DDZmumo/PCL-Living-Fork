@@ -1,4 +1,4 @@
-Imports System.Net.Sockets
+﻿Imports System.Net.Sockets
 
 Public Module ModNet
 
@@ -1603,9 +1603,6 @@ FinishExCatch:
                     [Error] = New Exception("文件下载失败：" & File.LocalPath & vbCrLf &
                                             "各下载源的错误如下：" & vbCrLf & Detail, [Error])
                     '上报
-                    Telemetry("文件下载失败",
-                              "FileName", File.LocalName,
-                              "Exception", Detail)
                     Exit For
                 Next
                 '在设置 Error 对象后再更改为失败，避免 WaitForExit 无法捕获错误
@@ -1916,18 +1913,10 @@ FinishExCatch:
     Public Sub ShouldValidateSslCertificateOnLogin(Enabled As Boolean)
         ServicePointManager.ServerCertificateValidationCallback =
         Function(Sender, Certificate, Chain, Failure)
-            Dim Request As HttpWebRequest = TryCast(Sender, HttpWebRequest)
-            If Failure = Net.Security.SslPolicyErrors.None Then Return True '已通过验证
-            '基于 #3018 和 #5879，只在访问正版登录 API 时跳过证书验证
-            Logger.Warn($"未通过 SSL 证书验证（{Failure}），提供的证书为 {Certificate?.Subject}，URL：{Request?.Address}")
-            If Request Is Nothing Then
-                Return Not Enabled
-            ElseIf Request.Address.Host.Contains("xboxlive") OrElse Request.Address.Host.Contains("minecraftservices") Then
-                Return Not Enabled '根据设置决定是否忽略错误
-            Else
-                Return False
-            End If
+            Return LoginCertificatePolicy.Accept(Sender, Failure, Enabled)
         End Function
     End Sub
+
+
 
 End Module

@@ -10,8 +10,6 @@ Friend Module ModSecret
     Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
     'CurseForge API Key
     Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
-    '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
-    Public Const ClsBaseUrl As String = ""
 
 #Region "网络鉴权"
 
@@ -40,6 +38,13 @@ Friend Module ModSecret
 
 #Region "主题"
 
+    '默认外观取自当前使用的配色，关闭自定义主题后固定回到这组参数。
+    Public Const DefaultThemeHue As Integer = 225
+    Public Const DefaultThemeSat As Integer = 100
+    Public Const DefaultThemeDelta As Integer = 115
+    Public Const DefaultThemeLight As Integer = 40
+    Public Const DefaultBackgroundOpacity As Integer = 748
+
     Public Color1 As New MyColor(52, 61, 74)
     Public Color2 As New MyColor(11, 91, 203)
     Public Color3 As New MyColor(19, 112, 243)
@@ -61,13 +66,24 @@ Friend Module ModSecret
     Public ColorSemiTransparent As New MyColor(1, Color8)
 
     Public ThemeNow As Integer = -1
-    Public ColorHue As Integer = 210, ColorSat As Integer = 85, ColorLightAdjust As Integer = 0, ColorHueTopbarDelta As OneOf(Of Integer, Integer()) = 0
+    Public ColorHue As Integer = DefaultThemeHue, ColorSat As Integer = DefaultThemeSat, ColorLightAdjust As Integer = DefaultThemeLight - 20, ColorHueTopbarDelta As OneOf(Of Integer, Integer()) = DefaultThemeDelta - 90
     Public ThemeDontClick As Integer = 0
 
     Public Sub ThemeRefresh(Optional NewTheme As Integer = -1)
         Try
-            If ThemeNow = NewTheme AndAlso NewTheme >= 0 Then Return
-            If NewTheme >= 0 Then ThemeNow = NewTheme
+            Dim SelectedTheme = If(NewTheme >= 0, NewTheme, Settings.Get(Of Integer)("UiLauncherTheme"))
+            ThemeNow = If(SelectedTheme = 14, 14, 0)
+            If ThemeNow = 14 Then
+                ColorHue = Math.Max(0, Math.Min(360, Settings.Get(Of Integer)("UiLauncherHue")))
+                ColorSat = Math.Max(0, Math.Min(100, Settings.Get(Of Integer)("UiLauncherSat")))
+                ColorLightAdjust = Math.Max(0, Math.Min(40, Settings.Get(Of Integer)("UiLauncherLight"))) - 20
+                ColorHueTopbarDelta = Math.Max(0, Math.Min(180, Settings.Get(Of Integer)("UiLauncherDelta"))) - 90
+            Else
+                ColorHue = DefaultThemeHue
+                ColorSat = DefaultThemeSat
+                ColorLightAdjust = DefaultThemeLight - 20
+                ColorHueTopbarDelta = DefaultThemeDelta - 90
+            End If
 
             Color1 = New MyColor().FromHSL2(ColorHue, ColorSat * 0.2, 25 + ColorLightAdjust * 0.3)
             Color2 = New MyColor().FromHSL2(ColorHue, ColorSat, 45 + ColorLightAdjust)
@@ -109,7 +125,7 @@ Friend Module ModSecret
     Public Sub ThemeRefreshMain()
         RunInUi(
         Sub()
-            If Not FrmMain.IsLoaded Then Return
+            If FrmMain Is Nothing OrElse Not FrmMain.IsLoaded Then Return
             '顶部条背景
             Dim Brush = New LinearGradientBrush With {.EndPoint = New Point(1, 0), .StartPoint = New Point(0, 0)}
             Dim Deltas = ColorHueTopbarDelta.Switch(Function(d) New Integer() {-d, 0, d}, Function(d) d)
