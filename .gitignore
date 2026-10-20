@@ -342,3 +342,6 @@ ASALocalRun/
 healthchecksdb
 
 MaskFiles/
+
+# Local release packaging output
+/dist/

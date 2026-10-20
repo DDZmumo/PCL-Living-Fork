@@ -6,7 +6,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "2.14.0.0" '显示用版本名
+    Public Const VersionBaseName As String = "1.0.0" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版
@@ -43,7 +43,7 @@ Public Module ModBase
     ''' <summary>
     ''' 程序内嵌图片文件夹路径，以 / 结尾。
     ''' </summary>
-    Public PathImage As String = "pack://application:,,,/Plain Craft Launcher 2;component/Images/"
+    Public PathImage As String = "pack://application:,,,/LivingPCL;component/Images/"
     ''' <summary>
     ''' 程序的缓存文件夹路径，以 \ 结尾。
     ''' </summary>
@@ -1112,6 +1112,9 @@ Public Module ModBase
     ''' 注意：性能较差，不应大量使用。
     ''' </summary>
     Public Function GetObjectFromXML(Str As String) As Object
+        '兼容原 PCL 帮助包和自定义主页中的程序集限定名。
+        Str = Str.Replace("assembly=Plain Craft Launcher 2", "assembly=LivingPCL").
+            Replace("/Plain Craft Launcher 2;component/", "/LivingPCL;component/")
         Str = Str. '兼容旧版自定义事件写法
             Replace("EventType=""", "local:CustomEventService.EventType=""").
             Replace("EventData=""", "local:CustomEventService.EventData=""").

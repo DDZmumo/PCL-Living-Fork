@@ -12,6 +12,7 @@
                         <RowDefinition Height="45" />
                         <RowDefinition Height="45" />
                         <RowDefinition Height="45" />
+                        <RowDefinition Height="45" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="40" />
@@ -20,27 +21,46 @@
                     </Grid.ColumnDefinitions>
                     <local:MyListItem IsHitTestVisible="False" Title="龙腾猫跃" Margin="-5,0,15,0" Info="Plain Craft Launcher 的开发者！" Grid.Row="0" Grid.Column="1" />
                     <local:MyListItem IsHitTestVisible="False" Title="HerobrineXia" Margin="-5,0,15,0" Info="Plain Craft Launcher 的协力开发者！" Grid.Row="1" Grid.Column="1" />
-                    <local:MyListItem IsHitTestVisible="False" Title="Plain Craft Launcher 2" Margin="-5,0,15,0" Info="当前版本：%VERSION%（%VERSIONCODE%.%BRANCH%）" Grid.Row="2" Grid.Column="1" x:Name="ItemAboutPcl" />
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/LTCat.jpg" Grid.Row="0" Margin="3">
+                    <local:MyListItem IsHitTestVisible="False" Title="DDZmumo" Margin="-5,0,15,0" Info="LivingPCL2-Re 的维护者，负责功能维护与体验改进。" Grid.Row="2" Grid.Column="1" />
+                    <local:MyListItem IsHitTestVisible="False" Title="LivingPCL · 第三方修改版" Margin="-5,0,15,0" Info="当前版本：%VERSION%（%VERSIONCODE%.%BRANCH%）" Grid.Row="3" Grid.Column="1" x:Name="ItemAboutPcl" />
+                    <Image Source="/LivingPCL;component/Images/Heads/LTCat.jpg" Grid.Row="0" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/HerobrineXia.png" Grid.Row="1" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/HerobrineXia.png" Grid.Row="1" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/Logo.png" Grid.Row="2" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/DDZmumo.png" Grid.Row="2" Margin="3">
+                        <Image.Clip>
+                            <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
+                        </Image.Clip>
+                    </Image>
+                    <Image Source="/LivingPCL;component/Images/Branding/LivingPCL-256.png" Grid.Row="3" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
                     <local:MyButton Text="赞助 PCL !" Grid.Column="2" Grid.Row="0" Height="35" ColorType="Highlight"
                                     local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://meloong.com/afd/a/LTCat" />
-                    <local:MyButton Text="检查更新" Grid.Column="2" Grid.Row="2" Height="35" 
+                    <local:MyButton Text="GitHub 主页" Grid.Column="2" Grid.Row="2" Height="35"
+                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo" />
+                    <local:MyButton Text="检查更新" Grid.Column="2" Grid.Row="3" Height="35"
                                     x:Name="BtnAboutUpdate" />
                 </Grid>
+            </local:MyCard>
+            <local:MyCard Margin="0,0,0,15" Title="LivingPCL · 来源与版权">
+                <StackPanel Margin="25,40,25,20">
+                    <TextBlock Text="项目：LivingPCL2-Re；完整名称：PCL LivingPCL（第三方修改版）。本项目由第三方独立修改，不是龙腾猫跃或原 PCL 团队发布的官方版本。" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="原作：Plain Craft Launcher（PCL），作者龙腾猫跃及原项目贡献者。原作版权：Copyright © 成都瓜皮龙科技有限公司；第三方组件、图标及其他资源的版权归各自权利人所有。更名不改变原有版权归属，原许可与署名继续保留。" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="上游原仓库：https://github.com/Meloong-Git/PCL&#xa;本分支仓库：https://github.com/DDZmumo/LivingPCL2-Re（原 DDZmumo/PCL）&#xa;代码基线：5ef81e490ae46b1100d61e33d0183094c7a80ca8（PCL 2.14.0.0）。" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <WrapPanel>
+                        <local:MyButton Text="PCL 原仓库" Width="130" Margin="0,0,10,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
+                        <local:MyButton Text="LivingPCL 仓库" Width="130" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo/LivingPCL2-Re" />
+                    </WrapPanel>
+                </StackPanel>
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="特别鸣谢">
                 <Grid Margin="21,40,21,16">
@@ -76,52 +96,52 @@
                     <local:MyListItem Title="Hao_Tian" Margin="-5,0,0,0" IsHitTestVisible="False" Grid.ColumnSpan="2" Info="在内测中找出了一大堆没人想得到的诡异 Bug，有非同寻常的 Bug 体质" Grid.Row="7" Grid.Column="1" />
                     <local:MyListItem Title="Minecraft 中文论坛" Margin="-5,0,15,0" IsHitTestVisible="False" Info="虽然已经关站了，但感谢此前提供了 MCBBS 镜像源……" Grid.Row="8" Grid.Column="1" />
                     <local:MyListItem Title="PCL 内群的各位" Margin="-5,0,0,0" IsHitTestVisible="False" Grid.ColumnSpan="2" Info="感谢内群的沙雕网友们这么久以来对我和 PCL 的支持与鼓励！" Grid.Row="9" Grid.Column="1" />
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/bangbang93.png" Grid.Row="0" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/bangbang93.png" Grid.Row="0" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/wiki.png" Grid.Row="1" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/wiki.png" Grid.Row="1" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/z0z0r4.png" Grid.Row="2" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/z0z0r4.png" Grid.Row="2" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/EasyTier.png" Grid.Row="3" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/EasyTier.png" Grid.Row="3" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/ChongQing.png" Grid.Row="4" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/ChongQing.png" Grid.Row="4" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/00ll00.png" Grid.Row="5" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/00ll00.png" Grid.Row="5" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/Patrick.png" Grid.Row="6" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/Patrick.png" Grid.Row="6" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/Hao_Tian.jpg" Grid.Row="7" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/Hao_Tian.jpg" Grid.Row="7" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/MCBBS.png" Grid.Row="8" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/MCBBS.png" Grid.Row="8" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
                     </Image>
-                    <Image Source="/Plain Craft Launcher 2;component/Images/Heads/PCL2.png" Grid.Row="9" Margin="3">
+                    <Image Source="/LivingPCL;component/Images/Heads/PCL2.png" Grid.Row="9" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
                         </Image.Clip>
@@ -786,7 +806,7 @@
                                         local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://shimo.im/docs/rGrd8pY8xWkt6ryW#anchor-RnU9" />
                         <local:MyButton Text="PCL 分发有限许可" Width="170" Padding="13,0" Margin="0,0,20,0" 
                                         local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://shimo.im/docs/rGrd8pY8xWkt6ryW#anchor-X0bo" />
-                        <local:MyButton Text="开源代码" Width="140" Padding="13,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Hex-Dragon/PCL2" />
+                        <local:MyButton Text="原作源代码" Width="140" Padding="13,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
                     </StackPanel>
                 </StackPanel>
             </local:MyCard>

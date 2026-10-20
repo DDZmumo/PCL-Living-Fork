@@ -39,9 +39,9 @@ Public Class Application
             '检查参数调用
             If e.Args.Length > 0 Then
                 If e.Args(0) = "--update" Then
-                    '自动更新
-                    UpdateReplace(e.Args(1), e.Args(2).Trim(""""), e.Args(3).Trim(""""), e.Args(4))
-                    Environment.Exit(ProcessReturnValues.TaskDone)
+                    '固定版本不接受官方更新，也不处理更新文件替换参数。
+                    Logger.Info("已拒绝启动器更新：本版本已禁用官方更新。")
+                    Environment.Exit(ProcessReturnValues.Fail)
                 ElseIf e.Args(0) = "--gpu" Then
                     '调整显卡设置
                     Try
@@ -108,7 +108,7 @@ RetryCacheCheck:
             End If
             '设置初始窗口
             If Settings.Get(Of Boolean)("UiLauncherLogo") Then
-                FrmStart = New SplashScreen("Images\icon.ico")
+                FrmStart = New SplashScreen("Images\Branding\LivingPCL-256.png")
                 FrmStart.Show(False, True)
             End If
             '基础信息
@@ -152,7 +152,7 @@ RetryCacheCheck:
         If BuildType = BuildTypes.Debug Then Return
         Try
             Dim MutexCreatedNew As Boolean
-            PclMutex = New Mutex(True, "PCL_SingletonMutex", MutexCreatedNew)
+            PclMutex = New Mutex(True, "LivingPCL_SingletonMutex", MutexCreatedNew)
             If MutexCreatedNew Then Return
             Logger.Warn("已有一个 PCL 实例正在运行")
             '等待已有的 PCL 退出
@@ -164,8 +164,7 @@ RetryCacheCheck:
                 End Try
             End If
             '将已有的 PCL 窗口拖出来
-            Dim WindowHwnd As IntPtr = FindWindow(Nothing, "Plain Craft Launcher　")
-            If WindowHwnd = IntPtr.Zero Then WindowHwnd = FindWindow(Nothing, "Plain Craft Launcher 2　")
+            Dim WindowHwnd As IntPtr = FindWindow(Nothing, "LivingPCL　")
             If WindowHwnd <> IntPtr.Zero Then ShowWindowToTop(WindowHwnd)
             '播放提示音并退出
             Beep()
