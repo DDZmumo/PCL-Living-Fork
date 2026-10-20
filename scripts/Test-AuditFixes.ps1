@@ -49,28 +49,41 @@ try {
  if($first -ne '{"first":"token-1"}' -or $second -ne '{"second":"token-2"}') { throw 'Shared account reads returned stale process cache' }
 } finally { $entry.ValueCache.Clear();if($hadCache){$entry.ValueCache['']=$oldCache};$script:fakeRaw=$null }
 $testPath='Software\LivingPCL-AuditTests\'+[Guid]::NewGuid().ToString('N')
-$store=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($testPath)
+$legacy=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($testPath+'\Legacy')
+$official=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($testPath+'\Official')
 try {
- $import=$settings.GetMethod('ImportFoldersOnce',$flags)
- $store.SetValue('LaunchFolders','Local>C:\Local\')
- $value=$import.Invoke($null,@($store,'Official>D:\Official\'))
- if($value -ne 'Local>C:\Local\|Official>D:\Official\') { throw 'Initial folder import failed' }
- $store.SetValue('LaunchFolders','Local>C:\Local\')
- if($import.Invoke($null,@($store,'Official>D:\Official\')) -ne 'Local>C:\Local\') { throw 'Removed inherited folder reappeared' }
+ $sharedPath=$settings.GetMethod('RegistryFolderFor',$flags)
+ foreach($key in @('LaunchFolders','ToolDownloadThread','ToolDownloadSpeed')) {
+  if($sharedPath.Invoke($null,@($entries[$key])) -ne 'PCL') { throw "Compatible preference $key is not shared with PCL" }
+ }
+ if($settings.GetMethod('IsCompatiblePclSetting',$flags).Invoke($null,@($entries['ToolLauncherUpdateIgnoredTag']))) { throw 'Branch updater state would leak into PCL' }
+ $migrate=$settings.GetMethod('MigrateSharedPclPreferences',$flags)
+ $legacy.SetValue('LaunchFolders','Local>C:\Local\')
+ $official.SetValue('LaunchFolders','Official>D:\Official\')
+ $legacy.SetValue('ToolDownloadThread','12')
+ $official.SetValue('ToolDownloadThread','16')
+ $legacy.SetValue('ToolDownloadSpeed','8')
+ $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+ if($official.GetValue('LaunchFolders') -ne 'Local>C:\Local\') { throw 'Locally removed game folders were restored instead of preserving LivingPCL selection' }
+ if($official.GetValue('ToolDownloadThread') -ne '16') { throw 'Existing official generic preference was overwritten' }
+ if($official.GetValue('ToolDownloadSpeed') -ne '8') { throw 'Previously saved LivingPCL preference was not migrated' }
+ $legacy.SetValue('LaunchFolders','Other>E:\Other\')
+ $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+ if($official.GetValue('LaunchFolders') -ne 'Local>C:\Local\') { throw 'Legacy migration reran and overwrote shared preferences' }
  $reset=$settings.GetMethod('ResetRegistryPreference',$flags)
- $store.SetValue('LaunchArgumentVisible','1')
- $reset.Invoke($null,@($store,$entries['LaunchArgumentVisible'])) | Out-Null
- if([string]$store.GetValue('LaunchArgumentVisible') -ne [string]$entries['LaunchArgumentVisible'].DefaultValue) { throw 'Default override was not persisted' }
- $reset.Invoke($null,@($store,$entries['LaunchArgumentVisible'])) | Out-Null
- if($null -eq $store.GetValue('LaunchArgumentVisible',$null)) { throw 'Repeated reset removed the explicit override' }
- $reset.Invoke($null,@($store,$entries['LaunchFolders'])) | Out-Null
- if($import.Invoke($null,@($store,'Official>D:\Official\')) -ne '') { throw 'Folder reset re-inherited upstream entries' }
- $store.DeleteValue('LivingPclFoldersImported',$false)
- $store.SetValue('LaunchFolders','Local>C:\Local\')
- $import.Invoke($null,@($store,'broken-entry')) | Out-Null
- if($null -ne $store.GetValue('LivingPclFoldersImported',$null) -or $store.GetValue('LaunchFolders') -ne 'Local>C:\Local\') { throw 'Invalid import was marked successful' }
+ $reset.Invoke($null,@($official,$entries['LaunchFolders'])) | Out-Null
+ if($official.GetValue('LaunchFolders') -ne '') { throw 'Reset game folders did not update the official shared registry' }
+ $reset.Invoke($null,@($official,$entries['ToolDownloadThread'])) | Out-Null
+ if([string]$official.GetValue('ToolDownloadThread') -ne [string]$entries['ToolDownloadThread'].DefaultValue) { throw 'Shared default preference reset was not persisted' }
+ $reset.Invoke($null,@($official,$entries['ToolDownloadThread'])) | Out-Null
+ if($null -eq $official.GetValue('ToolDownloadThread',$null)) { throw 'Repeated reset removed shared default override' }
+ $legacy.DeleteValue('LivingPclSharedPreferencesMigrated',$false)
+ $legacy.SetValue('LaunchFolders','malformed-relative-folder')
+ $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+ if($official.GetValue('LaunchFolders') -ne '') { throw 'Corrupted local folder list overwrote valid official preference' }
 } finally {
- $store.Dispose()
+ $legacy.Dispose()
+ $official.Dispose()
  if(-not $testPath.StartsWith('Software\LivingPCL-AuditTests\')) { throw 'Invalid test registry cleanup path' }
  [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testPath,$false)
 }
@@ -168,7 +181,7 @@ public static class LivingPclMutexAudit {
 [LivingPclMutexAudit]::Run($asm)
 [LivingPclMutexAudit]::CheckQueuedCancellation($asm)
 $startup=Get-Content -LiteralPath (Join-Path $root 'Plain Craft Launcher 2/Application.xaml.vb') -Raw
-if($startup.IndexOf('WaitingMutex(e)') -gt $startup.IndexOf('Settings.UseExistingPclConfiguration')) { throw 'Shared settings initialize before singleton acquisition' }
+if($startup.IndexOf('WaitingMutex(e)') -gt $startup.IndexOf('Settings.ImportLegacyPclPreferences()')) { throw 'Shared settings initialize before singleton acquisition' }
 $form=Get-Content -LiteralPath (Join-Path $root 'Plain Craft Launcher 2/FormMain.xaml.vb') -Raw
 if($form.Contains('Settings.Set("CacheMsV2OAuthRefresh", Settings.Get')) { throw 'Old startup cache overwrite remains' }
-Write-Output 'Audit regressions passed: existing/logout/corrupt V2 protection; legacy upgrade; one-time folder import/removal/reset; persistent defaults; strict certificate boundaries; update retries; canceled session writes; official/legacy/abandoned singleton coordination.'
+Write-Output 'Audit regressions passed: existing/logout/corrupt V2 protection; legacy upgrade; one-time folder import/removal/reset; persistent defaults; strict certificate boundaries; update retries; canceled session writes; official/legacy/abandoned singleton coordination; shared PCL preference migration and reset.'
