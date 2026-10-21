@@ -7,9 +7,17 @@ Friend Module ModSecret
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
     '用于微软登录的 ClientId
-    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
+    Public ReadOnly Property OAuthClientId As String
+        Get
+            Return BuildCredentials.ReadMicrosoftClientId()
+        End Get
+    End Property
     'CurseForge API Key
-    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
+    Public ReadOnly Property CurseForgeAPIKey As String
+        Get
+            Return BuildCredentials.ReadCurseForgeKey()
+        End Get
+    End Property
 
 #Region "网络鉴权"
 
@@ -20,7 +28,7 @@ Friend Module ModSecret
     ''' <summary>
     ''' 设置 Headers 的 UA、Referer。
     ''' </summary>
-    Friend Sub SecretHeadersSign(Url As String, ByRef Req As HttpRequestMessage, Optional SimulateBrowserHeaders As Boolean = False)
+    Friend Sub SecretHeadersSign(Url As String, ByRef Req As HttpRequestMessage, Optional SimulateBrowserHeaders As Boolean = False, Optional IncludeCredentials As Boolean = True)
         If Not Req.Headers.UserAgent.Any Then
             If Url.Contains("baidupcs.com") OrElse Url.Contains("baidu.com") Then
                 Req.Headers.Add("User-Agent", "LogStatistic")  '#4951
@@ -31,7 +39,10 @@ Friend Module ModSecret
             End If
         End If
         If Not SimulateBrowserHeaders Then Req.Headers.Add("Referer", $"http://{VersionCode}.open.pcl2.server/")
-        If Url.Contains("api.curseforge.com") OrElse Url.Contains("forgecdn.net") Then Req.Headers.Add("x-api-key", CurseForgeAPIKey)
+        If IncludeCredentials AndAlso BuildCredentials.IsCurseForgeRequest(Req.RequestUri) AndAlso Not Req.Headers.Contains("x-api-key") Then
+            Dim ApiKey = CurseForgeAPIKey
+            If Not String.IsNullOrEmpty(ApiKey) Then Req.Headers.Add("x-api-key", ApiKey)
+        End If
     End Sub
 
 #End Region

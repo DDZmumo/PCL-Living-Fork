@@ -5,30 +5,38 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$secretPath = Join-Path $projectRoot 'Plain Craft Launcher 2\Modules\ModSecret.vb'
-$originalBytes = [IO.File]::ReadAllBytes($secretPath)
+$generatedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'Plain Craft Launcher 2\obj\CredentialBuild'))
+$generatedFolder = Join-Path $generatedRoot ([Guid]::NewGuid().ToString('N'))
+$generatedSource = Join-Path $generatedFolder 'BuildCredentials.g.vb'
+$buildLease = $null
 try {
-    $source = [IO.File]::ReadAllText($secretPath)
-    $settings = @{
-        OAuthClientId = 'PCL_MS_CLIENT_ID'
-        CurseForgeAPIKey = 'PCL_CURSEFORGE_API_KEY'
+    [IO.Directory]::CreateDirectory($generatedRoot) | Out-Null
+    try {
+        $buildLease = [IO.File]::Open((Join-Path $generatedRoot 'build.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch {
+        throw 'Cannot acquire the workspace build lock; another release build may be running.'
     }
-    foreach ($field in $settings.Keys) {
-        $variable = $settings[$field]
-        $value = [Environment]::GetEnvironmentVariable($variable)
-        if ([string]::IsNullOrEmpty($value)) { continue }
-        if ($value.Contains("`r") -or $value.Contains("`n")) { throw "Invalid multiline build setting: $variable" }
-        $literal = $value.Replace('"', '""')
-        $replacement = 'Public ' + $field + ' As String = If(Environment.GetEnvironmentVariable("' + $variable + '"), "' + $literal + '")'
-        $pattern = 'Public ' + $field + ' As String = [^\r\n]*'
-        $source = [regex]::Replace($source, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $replacement })
-    }
-    [IO.File]::WriteAllText($secretPath, $source, [Text.UTF8Encoding]::new($true))
-    $buildArgs = @((Join-Path $projectRoot 'Plain Craft Launcher 2\LivingPCL2-Re.vbproj'), '-t:Rebuild', "-p:Configuration=$Configuration", '-verbosity:minimal', '-nologo')
+    [IO.Directory]::CreateDirectory($generatedFolder) | Out-Null
+    & (Join-Path $PSScriptRoot 'Write-BuildCredentials.ps1') -OutputPath $generatedSource
+    $intermediatePath = Join-Path $generatedFolder 'Intermediate\'
+    $buildArgs = @((Join-Path $projectRoot 'Plain Craft Launcher 2\LivingPCL2-Re.vbproj'), '-t:Rebuild', "-p:Configuration=$Configuration", "-p:GeneratedCredentialSource=$generatedSource", "-p:CredentialIntermediateOutputPath=$intermediatePath", '-verbosity:minimal', '-nologo')
     if ($OutputPath) { $buildArgs += "-p:OutputPath=$OutputPath" }
     & $MSBuildPath @buildArgs
     if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
 }
 finally {
-    [IO.File]::WriteAllBytes($secretPath, $originalBytes)
+    try {
+        if ([IO.Directory]::Exists($generatedFolder)) {
+            $resolvedFolder = [IO.Path]::GetFullPath($generatedFolder)
+            $rootPrefix = $generatedRoot.TrimEnd('\') + '\'
+            if (-not $resolvedFolder.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                [IO.Path]::GetFileName($resolvedFolder) -notmatch '\A[0-9a-f]{32}\z' -or
+                (([IO.File]::GetAttributes($resolvedFolder) -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+                throw 'Unsafe credential-build cleanup path'
+            }
+            [IO.Directory]::Delete($resolvedFolder, $true)
+        }
+    } finally {
+        if ($null -ne $buildLease) { $buildLease.Dispose() }
+    }
 }

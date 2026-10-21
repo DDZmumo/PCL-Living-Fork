@@ -32,6 +32,10 @@
         CurrentLaunchOptions = If(Options, New McLaunchOptions)
         '预检查
         If Not RunInUi() Then Throw New Exception("McLaunchStart 必须在 UI 线程调用！")
+        If PageOtherTest.IsCleaningGameFiles Then
+            Hint("正在清理游戏文件，请等待清理结束后再启动。", HintType.Red)
+            Return False
+        End If
         If McLaunchLoader.State = LoadState.Loading Then
             Hint("已有游戏正在启动中！", HintType.Red)
             Return False
@@ -207,10 +211,13 @@ NextInner:
         Dim Finished As Boolean = False
         RunInNewThread(
         Sub()
-            PageOtherTest.MemoryOptimize(False)
-            Finished = True
+            Try
+                PageOtherTest.MemoryOptimize(False)
+            Finally
+                Threading.Volatile.Write(Finished, True)
+            End Try
         End Sub, "Launch Memory Optimize")
-        Do While Not Finished AndAlso Not Loader.IsCanceled
+        Do While Not Threading.Volatile.Read(Finished) AndAlso Not Loader.IsCanceled
             If Loader.Progress < 0.7 Then
                 Loader.Progress += 0.007 '10s
             Else

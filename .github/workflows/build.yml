@@ -70,6 +70,12 @@ jobs:
         PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
       run: ./scripts/Build-Release.ps1 -Configuration ${{ matrix.configuration }}
 
+    - name: Verify build credential protection
+      env:
+        PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+        PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      run: powershell -NoProfile -File scripts/Test-BuildCredentials.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
     - name: Verify account migration and updater
       run: powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
 
@@ -82,8 +88,14 @@ jobs:
     - name: Verify launcher window activation
       run: powershell -NoProfile -STA -File scripts/Test-LauncherActivation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
 
+    - name: Verify toolbox operations
+      run: powershell -NoProfile -File scripts/Test-Toolbox.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
+    - name: Verify custom download saves
+      run: powershell -NoProfile -File scripts/Test-ToolboxDownload.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
       with:
         name: LivingPCL ${{ matrix.configuration }} ${{ env.describe }}
-        path: Plain Craft Launcher 2\obj\${{ matrix.configuration }}\LivingPCL.exe
+        path: Plain Craft Launcher 2\bin\LivingPCL.exe

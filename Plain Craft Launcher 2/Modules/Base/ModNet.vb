@@ -773,6 +773,10 @@ Retry:
         Public ReadOnly LockState As New Object
         Public ReadOnly LockChain As New Object
         Public ReadOnly LockSource As New Object
+        '仅供独立暂存下载在异步取消/合并线程退出后清理自身文件。
+        Friend CanceledMergeFinished As Action
+        '自定义下载不携带内置服务凭据，避免重定向把凭据转发到其他站点。
+        Friend AllowCredentialHeaders As Boolean = True
 
         Public ReadOnly Uuid As Integer = GetUuid()
         Public Overrides Function Equals(obj As Object) As Boolean
@@ -904,6 +908,7 @@ StartThread:
             Dim ResultStream As Stream = Nothing, HttpRequest As HttpRequestMessage = Nothing,
                 Response As HttpResponseMessage = Nothing, ResponseStream As Stream = Nothing,
                 CancelToken As CancellationTokenSource = Nothing
+            Dim ReachedEnd As Boolean = False
             '部分下载源真的特别慢，并且只需要一个请求，例如 Ping 为 20s，如果增长太慢，就会造成类似 2.5s 5s 7.5s 10s 12.5s... 的极大延迟
             '延迟过长会导致某些特别慢的链接迟迟不被掐死
             Dim Timeout As Integer = Math.Min(Math.Max(ConnectAverage, 15000) * (1 + Th.Source.FailCount), 30000)
@@ -912,7 +917,7 @@ StartThread:
                 Dim HttpDataCount As Integer = 0
                 If SourcesOnce.Contains(Th.Source) AndAlso Th <> Th.Source.SingleThread Then GoTo SourceBreak
                 HttpRequest = New HttpRequestMessage(HttpMethod.Get, Th.Source.Url)
-                SecretHeadersSign(Th.Source.Url, HttpRequest, SimulateBrowserHeaders)
+                SecretHeadersSign(Th.Source.Url, HttpRequest, SimulateBrowserHeaders, AllowCredentialHeaders)
                 CancelToken = New CancellationTokenSource(Timeout)
                 If Not Th.IsFirstThread Then HttpRequest.Headers.Range = New Headers.RangeHeaderValue(Th.DownloadStart, Nothing)
                 Dim ContentLength As Long = 0
@@ -1043,6 +1048,7 @@ SourceBreak:
                     Throw New Exception($"返回的 ContentLength 过多：ContentLength 为 {ContentLength}，但获取到的总数据量仅为 {Th.DownloadDone}（全文件总数据量 {DownloadDone}）")
                 Else
                     '本线程完成
+                    ReachedEnd = HttpDataCount = 0
                     Th.State = NetState.Finished
                     Logger.Trace(Function() $"{LocalName}：完成，已下载 {Th.DownloadDone}（{Th.DownloadStart}~{Th.DownloadEnd}）")
                 End If
@@ -1063,7 +1069,8 @@ SourceBreak:
                 '改变计数
                 Interlocked.Decrement(NetTaskThreadCount)
                 '合并
-                If ((FileSize >= 0 AndAlso DownloadDone >= FileSize) OrElse (FileSize = -1 AndAlso DownloadDone > 0)) AndAlso
+                If ((FileSize >= 0 AndAlso DownloadDone >= FileSize) OrElse
+                    (FileSize = -1 AndAlso ReachedEnd AndAlso Th.State = NetState.Finished)) AndAlso
                     State < NetState.Merging AndAlso Th.State <> NetState.Canceled Then Merge(Th)
             End Try
         End Sub
@@ -1243,6 +1250,13 @@ Retry:
                 SourceFail(Th, ex, True)
             Finally
                 Cache?.Dispose()
+                If State = NetState.Canceled AndAlso CanceledMergeFinished IsNot Nothing Then
+                    Try
+                        CanceledMergeFinished.Invoke()
+                    Catch ex As Exception
+                        Logger.Warn(ex, "清理已取消下载的暂存文件失败")
+                    End Try
+                End If
             End Try
         End Sub
         ''' <summary>

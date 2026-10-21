@@ -257,6 +257,11 @@
     <Compile Include="Modules\ModDevelop.vb" />
     <Compile Include="Modules\Minecraft\ModWatcher.vb" />
     <Compile Include="Modules\ModSecret.vb" />
+    <Compile Include="Modules\Base\BuildCredentials.vb" />
+    <Compile Include="Modules\Base\NativeMemoryOptimizer.vb" />
+    <Compile Include="Modules\Base\GameGarbageCleaner.vb" />
+    <Compile Include="Modules\Base\ToolboxDownloadSession.vb" />
+    <Compile Include="Pages\PageOther\PageOtherTest.Tools.vb" />
     <Compile Include="Modules\ModLauncherUpdate.vb" />
     <Compile Include="Modules\LauncherSessionLock.vb" />
     <Compile Include="Modules\LauncherWindowActivation.vb" />
@@ -959,6 +964,12 @@
     <Resource Include="Images\Branding\LivingPCL-256.png" />
     <Resource Include="Images\Branding\LivingPCL.ico" />
 
+  </ItemGroup>
+  <PropertyGroup Condition="'$(CredentialIntermediateOutputPath)' != ''">
+    <IntermediateOutputPath>$(CredentialIntermediateOutputPath)</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GeneratedCredentialSource)' != ''">
+    <Compile Include="$(GeneratedCredentialSource)" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
 </Project>

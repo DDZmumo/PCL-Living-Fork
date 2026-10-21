@@ -7,6 +7,7 @@ Public Class PageOtherLeft
         Dim IsHiddenPage As Boolean = False
         If ItemHelp.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenOtherHelp") Then IsHiddenPage = True
         If ItemAbout.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenOtherAbout") Then IsHiddenPage = True
+        If ItemTest.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenOtherTest") Then IsHiddenPage = True
         If PageSetupUI.HiddenForceShow Then IsHiddenPage = False
         '若页面错误，或尚未加载，则继续
         If IsLoad AndAlso Not IsHiddenPage Then Return
@@ -17,8 +18,10 @@ Public Class PageOtherLeft
         If IsPageSwitched Then Return
         If Not Settings.Get(Of Boolean)("UiHiddenOtherHelp") Then
             ItemHelp.SetChecked(True, False, False)
-        Else
+        ElseIf Not Settings.Get(Of Boolean)("UiHiddenOtherAbout") Then
             ItemAbout.SetChecked(True, False, False)
+        Else
+            ItemTest.SetChecked(True, False, False)
         End If
     End Sub
     Private Sub PageOtherLeft_Unloaded(sender As Object, e As RoutedEventArgs) Handles Me.Unloaded
@@ -36,15 +39,17 @@ Public Class PageOtherLeft
         '选择第一个未被禁用的子页面
         If Not Settings.Get(Of Boolean)("UiHiddenOtherHelp") Then
             PageID = FormMain.PageSubType.OtherHelp
-        Else
+        ElseIf Not Settings.Get(Of Boolean)("UiHiddenOtherAbout") Then
             PageID = FormMain.PageSubType.OtherAbout
+        Else
+            PageID = FormMain.PageSubType.OtherTest
         End If
     End Sub
 
     ''' <summary>
     ''' 勾选事件改变页面。
     ''' </summary>
-    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemAbout.Check, ItemHelp.Check
+    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemAbout.Check, ItemHelp.Check, ItemTest.Check
         '尚未初始化控件属性时，sender.Tag 为 Nothing，会导致切换到页面 0
         '若使用 IsLoaded，则会导致模拟点击不被执行（模拟点击切换页面时，控件的 IsLoaded 为 False）
         If sender.Tag IsNot Nothing Then PageChange(Val(sender.Tag))
@@ -52,7 +57,7 @@ Public Class PageOtherLeft
 
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
-        If ID >= FormMain.PageSubType.OtherTest Then ID = FormMain.PageSubType.OtherAbout
+        If ID > FormMain.PageSubType.OtherTest Then ID = FormMain.PageSubType.OtherAbout
         Select Case ID
             Case FormMain.PageSubType.OtherHelp
                 If FrmOtherHelp Is Nothing Then FrmOtherHelp = New PageOtherHelp
@@ -60,6 +65,9 @@ Public Class PageOtherLeft
             Case FormMain.PageSubType.OtherAbout
                 If FrmOtherAbout Is Nothing Then FrmOtherAbout = New PageOtherAbout
                 Return FrmOtherAbout
+            Case FormMain.PageSubType.OtherTest
+                If FrmOtherTest Is Nothing Then FrmOtherTest = New PageOtherTest
+                Return FrmOtherTest
             Case Else
                 Throw New Exception("未知的更多子页面种类：" & ID)
         End Select
@@ -69,7 +77,7 @@ Public Class PageOtherLeft
     ''' 切换现有页面。
     ''' </summary>
     Public Sub PageChange(ID As FormMain.PageSubType)
-        If ID >= FormMain.PageSubType.OtherTest Then ID = FormMain.PageSubType.OtherAbout
+        If ID > FormMain.PageSubType.OtherTest Then ID = FormMain.PageSubType.OtherAbout
         If PageID = ID Then Return
         AniControlEnabled += 1
         IsPageSwitched = True

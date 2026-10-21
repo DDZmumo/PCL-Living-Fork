@@ -7,6 +7,34 @@
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
-        <TextBlock Text="为便于维护，开源内容中不包含百宝箱功能……" HorizontalAlignment="Center" FontSize="15" Height="30" VerticalAlignment="Center" />
+        <StackPanel Margin="25,10">
+            <local:MyCard Title="原版百宝箱" Margin="0,15,0,15">
+                <Grid Margin="25,40,25,20">
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="15" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                    <local:MyButton x:Name="BtnMemory" Text="内存优化" Height="36" Grid.Column="0" ToolTip="整理系统工作集和缓存，需要管理员权限，可能短暂影响系统响应。" />
+                    <local:MyButton x:Name="BtnClear" Text="清理游戏垃圾" Height="36" Grid.Column="2" ToolTip="清理已添加游戏目录中的日志、崩溃报告和可重建的临时文件。" />
+                </Grid>
+            </local:MyCard>
+            <local:MyCard Title="下载自定义文件" Margin="0,0,0,15">
+                <StackPanel Margin="25,40,25,20">
+                    <TextBlock Text="使用 PCL 的多线程下载引擎下载文件。需要登录或不提供直链的网站可能无法下载。" TextWrapping="Wrap" Margin="0,0,0,12" />
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="75" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock Text="下载地址" VerticalAlignment="Center" />
+                        <local:MyTextBox x:Name="TextDownloadUrl" Grid.Column="1" Grid.ColumnSpan="3" MinHeight="30" />
+                        <TextBlock Text="保存到" Grid.Row="2" VerticalAlignment="Center" />
+                        <local:MyTextBox x:Name="TextDownloadFolder" Grid.Row="2" Grid.Column="1" MinHeight="30" />
+                        <local:MyButton x:Name="BtnDownloadSelect" Text="选择" Grid.Row="2" Grid.Column="3" Height="30" />
+                        <TextBlock Text="文件名" Grid.Row="4" VerticalAlignment="Center" />
+                        <local:MyTextBox x:Name="TextDownloadName" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" MinHeight="30" />
+                    </Grid>
+                    <WrapPanel HorizontalAlignment="Center" Margin="0,16,0,0">
+                        <local:MyButton x:Name="BtnDownloadStart" Text="开始下载" Width="140" Height="35" Margin="0,0,12,0" IsEnabled="False" />
+                        <local:MyButton x:Name="BtnDownloadOpen" Text="打开文件夹" Width="140" Height="35" />
+                    </WrapPanel>
+                </StackPanel>
+            </local:MyCard>
+        </StackPanel>
     </local:MyScrollViewer>
 </local:MyPageRight>

@@ -1,8 +1,8 @@
 # LivingPCL2-Re 来源与版权声明
 
-项目标识：LivingPCL2-Re。程序简称：LivingPCL。完整名称：PCL LivingPCL（第三方修改版）。
+项目标识：LivingPCL2-Re。程序名称：LivingPCL。
 
-本项目是第三方基于 Plain Craft Launcher（PCL）独立修改的衍生项目，不是龙腾猫跃、成都瓜皮龙科技有限公司或原 PCL 团队发布的官方版本，也不表示已获得其背书。
+本项目是基于 Plain Craft Launcher（PCL）官方开源版的第三方版本，不是龙腾猫跃、成都瓜皮龙科技有限公司或原 PCL 团队发布的官方版本，也不表示已获得其背书。
 
 ## 原作与来源
 

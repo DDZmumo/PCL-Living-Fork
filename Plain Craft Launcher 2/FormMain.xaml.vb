@@ -440,7 +440,7 @@ Public Class FormMain
             End Try
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"LivingPCL2-Re 是基于 PCL 2.14.0.0 的第三方修改版，原作者为龙腾猫跃及原项目贡献者；原作版权归成都瓜皮龙科技有限公司，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，启动时自动检查，可下载并更新，失败时可前往发布页{vbCrLf}- 自定义主题：在 设置 → 个性化 中勾选自定义主题并调整颜色", "LivingPCL 版本说明")
+                MyMsgBox($"LivingPCL 是基于 PCL 官方开源版的第三方版本，来源与许可详见 更多 → 关于。{vbCrLf}{vbCrLf}本版本功能与限制说明：{vbCrLf}- CurseForge 下载临时可用，正在等待正式 API Key 下发{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：已接入 DDZmumo/LivingPCL2-Re 的 GitHub Releases，启动时自动检查，可下载并更新，失败时可前往发布页{vbCrLf}- 自定义主题：在 设置 → 个性化 中勾选自定义主题并调整颜色", "LivingPCL 版本说明")
             End If
             ModLauncherUpdate.CheckForUpdates(True)
         End Sub, "初始化", ThreadPriority.Lowest)
@@ -1338,7 +1338,7 @@ Public Class FormMain
     ''' </summary>
     Public Sub PageChange(Stack As PageStackData, Optional SubType As PageSubType = PageSubType.Default)
         '兼容旧主页或配置中已移除的更多页面编号。
-        If Stack.Page = PageType.Other AndAlso SubType >= PageSubType.OtherTest Then SubType = PageSubType.OtherAbout
+        If Stack.Page = PageType.Other AndAlso SubType > PageSubType.OtherTest Then SubType = PageSubType.OtherAbout
         If PageNameGet(Stack) = "" Then
             '切换到主页面
             PageChangeExit()
