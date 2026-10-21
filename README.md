@@ -60,6 +60,8 @@ msbuild ".\Plain Craft Launcher 2\LivingPCL2-Re.vbproj" -p:Configuration=Release
 
 ### 发布验证
 
+后续开发分支在检测到已有 PCL / LivingPCL 实例时，会通过 Unicode 窗口查找和官方 6402 消息请求唤醒原窗口，并退出重复进程；窗口尚未创建时最多重试约 1.8 秒，无法投递唤醒消息时给出提示。共享账号的互斥保护和 `--wait` 等待流程保留。可运行 `scripts/Test-LauncherActivation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"`，测试使用随机标题的隐藏窗口，不查找或聚焦用户的启动器。
+
 构建后可运行 `powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"`。检查仅使用虚构账号和临时测试目录，验证账号合并、重加密、旧项清理、失败回滚、版本比较和 EXE 替换；不读取真实账号，也不打开启动器界面。
 
 1.0.2 移除 Minecraft 游戏更新提示及匿名遥测入口、发送逻辑；个性化主题仅保留“自定义主题”复选框，勾选后可调整色调、渐变、饱和度和亮度，取消后恢复默认主题，并保留已有自定义参数。启动器自身的 GitHub 检查更新与下载更新继续提供。
