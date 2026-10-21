@@ -37,6 +37,7 @@ Public Class PageInstanceExport
         TextExportVersion.HintText = "1.0.0"
         CheckAdvancedInclude.Checked = False
         CheckAdvancedModrinth.Checked = False
+        CheckAdvancedVersionIsolation.Checked = True
         GetExportOption(CheckOptionsBasic).Description = PageInstanceLeft.Instance.VersionDisplayName()
         ResetConfigOverrides()
         ReloadAllSubOptions()
@@ -342,6 +343,9 @@ Public Class PageInstanceExport
             ConfigLines.Add("# 是否默认开启 LivingPCL 整合包模式，仅在 IncludeLauncher 为 True 时生效。")
             ConfigLines.Add("LivingModpackMode:" & CheckOptionsModpackMode.Checked)
             ConfigLines.Add("")
+            ConfigLines.Add("# 导入后是否开启该版本的版本隔离，不修改全局默认设置。")
+            ConfigLines.Add("VersionIsolation:" & CheckAdvancedVersionIsolation.Checked)
+            ConfigLines.Add("")
             ConfigLines.Add("# 是否将 Mod、资源包、光影包的文件直接放入整合包中，这样在导入时就无需联网下载它们。")
             ConfigLines.Add("# 建议仅在无法稳定连接 CurseForge 或 Modrinth 时才考虑启用。")
             ConfigLines.Add("# 二次分发可能违反使用协议，请尽量不要公开发布包含资源文件的整合包！")
@@ -392,6 +396,7 @@ Public Class PageInstanceExport
             CheckOptionsPcl.Checked = Ini.GetOrDefault("IncludeLauncher", True)
             CheckOptionsPclCustom.Checked = Ini.GetOrDefault("IncludeLauncherCustom", True)
             CheckOptionsModpackMode.Checked = Ini.GetOrDefault("LivingModpackMode", True)
+            CheckAdvancedVersionIsolation.Checked = Ini.GetOrDefault("VersionIsolation", True)
             CheckAdvancedInclude.Checked = Ini.GetOrDefault("DontCheckHostedAssets", False)
             If Not CheckAdvancedInclude.Checked Then CheckAdvancedModrinth.Checked = Ini.GetOrDefault("ModrinthUploadMode", False) '#7979，加个特判
             ConfigPackPath = Ini.GetOrDefault("PackPath", Nothing)
@@ -472,6 +477,7 @@ Public Class PageInstanceExport
         Dim IncludePCL As Boolean = CheckOptionsPcl.Checked
         Dim IncludePCLCustom As Boolean = IncludePCL AndAlso CheckOptionsPclCustom.Checked
         Dim IncludeModpackMode As Boolean = IncludePCL AndAlso CheckOptionsModpackMode.Checked
+        Dim EnableVersionIsolation As Boolean = CheckAdvancedVersionIsolation.Checked
         Dim AllRules = StandardizeLines(GetAllRules(), True).ToList()
         Dim AllExtraFiles = StandardizeLines(GetExtraFileLines(), False).ToList()
         Logger.Info($"准备导出整合包，共有 {AllRules.Count} 条规则，{AllExtraFiles.Count} 条追加内容行")
@@ -490,6 +496,7 @@ Public Class PageInstanceExport
         Loaders.Add(New LoaderTask(Of Integer, List(Of LocalResourceFile))("复制导出内容",
         Sub(Loader As LoaderTask(Of Integer, List(Of LocalResourceFile)))
             Loader.Output = New List(Of LocalResourceFile)
+            Dim VersionOnlyFolders As New List(Of String)
             '复制版本文件
             Dim Progress As Integer = 0
             Dim SearchFolder As Action(Of DirectoryInfo)
@@ -539,7 +546,9 @@ Public Class PageInstanceExport
                 Dim JavaToExport = SelectOrDownloadJava(TargetInstance, False, Loader.CreateCancellationToken, Loader.CreateSyncProgressProvider(0.85, 0.93))
                 If JavaToExport Is Nothing Then Throw New FileNotFoundException("版本文件夹中没有找到可导出的 Java。")
                 Dim JavaFolder = PathUtils.RemoveLastPart(JavaToExport.Folder)
-                Dim DestFolder As String = Path.Combine(OverridesFolder, JavaFolder.AfterFirst(TargetInstance.PathVersion, True))
+                Dim JavaRelativeFolder = JavaFolder.AfterFirst(TargetInstance.PathVersion, True)
+                Dim DestFolder As String = Path.Combine(OverridesFolder, JavaRelativeFolder)
+                VersionOnlyFolders.Add(JavaRelativeFolder)
                 DirectoryUtils.Copy(JavaFolder, DestFolder)
                 Logger.Info($"已复制版本文件夹中的 Java：{JavaFolder} → {DestFolder}")
             End If
@@ -565,6 +574,7 @@ Public Class PageInstanceExport
             '复制 PCL 版本设置
             If DirectoryUtils.Exists(TargetInstance.PathVersion & "PCL\") Then DirectoryUtils.Copy(TargetInstance.PathVersion & "PCL\", OverridesFolder & "PCL\")
             WriteIni(OverridesFolder & "PCL\Setup.ini", "IsStar", False)
+            ExportedVersionIsolation.ConfigureExport(OverridesFolder, EnableVersionIsolation, VersionOnlyFolders)
             '复制 PCL 本体（正式版）
             If IncludePCL Then
                 FileUtils.Copy(PathExe, CacheFolder & "LivingPCL.exe")

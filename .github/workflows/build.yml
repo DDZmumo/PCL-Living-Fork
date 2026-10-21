@@ -106,6 +106,9 @@ jobs:
     - name: Verify complete overview component loading
       run: powershell -NoProfile -STA -File scripts/Test-InstalledComponentLoading.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
 
+    - name: Verify exported version isolation
+      run: powershell -NoProfile -STA -File scripts/Test-ExportVersionIsolation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+
     - name: Verify published legacy updater compatibility
       run: |
         $legacy = Join-Path $env:RUNNER_TEMP 'LivingPCL-1.0.3.exe'

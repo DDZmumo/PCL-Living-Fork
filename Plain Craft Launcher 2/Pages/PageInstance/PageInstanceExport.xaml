@@ -289,6 +289,8 @@
                 </local:MyCard>
                 <local:MyCard Title="高级选项" Margin="0,0,0,15" CanSwap="True" IsSwapped="True">
                     <StackPanel Margin="25,37,23,20">
+                        <local:MyCheckBox Text="开启该版本的版本隔离" x:Name="CheckAdvancedVersionIsolation" Checked="True"
+                                          ToolTip="导入后，该版本的 Mod、存档等使用独立目录。取消勾选后使用共享游戏目录，不改变全局默认隔离设置。" />
                         <local:MyHint Text="建议仅在无法稳定连接 CurseForge 或 Modrinth 时才打包资源文件。&#xa;请不要公开发布含资源文件的整合包，这会违反部分 Mod 的使用协议！"
                                       Theme="Yellow" Margin="0,2,0,8" Visibility="{Binding Checked, ElementName=CheckAdvancedInclude, Converter={StaticResource BooleanToVisibilityConverter}}" />
                         <local:MyCheckBox Text="打包资源文件，以避免在导入时下载" x:Name="CheckAdvancedInclude"

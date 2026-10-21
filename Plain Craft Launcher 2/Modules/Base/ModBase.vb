@@ -7,7 +7,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "1.1.0" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
+    Public Const VersionBaseName As String = "1.1.1" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版

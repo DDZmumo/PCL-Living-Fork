@@ -123,9 +123,14 @@ Public Module ModModpack
     ''' 从整合包的 override 目录复制文件，同时设置 PCL 的配置文件与版本隔离。
     ''' 对路径末尾是否为 \ 没有要求。
     ''' </summary>
-    Private Sub CopyOverrideDirectory(OverridesFolder As String, VersionFolder As String, Loader As LoaderBase)
+    Private Sub CopyOverrideDirectory(OverridesFolder As String, VersionFolder As String, Loader As LoaderBase,
+        Optional Isolation As ExportedVersionIsolation.Choice = Nothing, Optional GameFolder As String = Nothing)
         OverridesFolder = PathUtils.AddSlashSuffix(OverridesFolder)
         VersionFolder = PathUtils.AddSlashSuffix(VersionFolder)
+        If Isolation IsNot Nothing Then
+            ExportedVersionIsolation.CopyOverrides(OverridesFolder, VersionFolder, If(GameFolder, VersionFolder), Isolation)
+            Return
+        End If
         '复制文件
         If DirectoryUtils.Exists(OverridesFolder) Then
             Logger.Info($"处理整合包覆写文件夹：{OverridesFolder} → {VersionFolder}")
@@ -365,6 +370,7 @@ Public Module ModModpack
     'Modrinth
     Private Function InstallPackModrinth(FileAddress As String, Archive As ZipArchive, ArchiveBaseFolder As String, Optional InstanceName As String = Nothing, Optional Logo As String = Nothing) As LoaderCombo(Of String)
 
+        Dim Isolation = ExportedVersionIsolation.ReadArchiveChoice(Archive, ArchiveBaseFolder)
         '读取 Json 文件
         Dim Json As JObject
         Try
@@ -404,12 +410,13 @@ Public Module ModModpack
         Dim VersionFolder As String = Path.Combine(McFolderSelected, "versions", InstanceName) & "\"
         '解压
         Dim InstallTemp As String = RequestTaskTempFolder()
+        Dim GameFolder = ExportedVersionIsolation.GameFolder(VersionFolder, McFolderSelected, Isolation)
         Dim InstallLoaders As New List(Of LoaderBase)
         InstallLoaders.Add(New LoaderTask(Of String, Integer)("解压整合包文件",
         Sub(Task As LoaderTask(Of String, Integer))
             ExtractModpackFiles(InstallTemp, FileAddress, Task.CreateCancellationToken(), Task.CreateSyncProgressProvider(ToPercentage:=0.5))
-            CopyOverrideDirectory(InstallTemp & ArchiveBaseFolder & "overrides", VersionFolder, Task)
-            CopyOverrideDirectory(InstallTemp & ArchiveBaseFolder & "client-overrides", VersionFolder, Task)
+            CopyOverrideDirectory(InstallTemp & ArchiveBaseFolder & "overrides", VersionFolder, Task, Isolation, GameFolder)
+            CopyOverrideDirectory(InstallTemp & ArchiveBaseFolder & "client-overrides", VersionFolder, Task, Isolation, GameFolder)
         End Sub) With {.ProgressWeight = FileUtils.GetInfo(FileAddress).Length / 1024 / 1024 / 6, .Block = False}) '每 6M 需要 1s
         '获取下载文件列表
         Dim FileList As New List(Of NetFile)
@@ -432,9 +439,10 @@ Public Module ModModpack
             Urls = ResourceVersion.ParseModrinthTrackArguments(Urls,
                 ResourceVersion.DownloadReason.ModPack, TargetVersion.VanillaName, TargetVersion.ModLoaders).ToList 'Modrinth 来源追踪信息
             Urls = Urls.Distinct.ToList()
-            Dim TargetPath As String = Path.Combine(VersionFolder, File("path").ToString().TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-            If Not PathUtils.IsParentOf(VersionFolder, TargetPath) Then
-                MyMsgBox($"整合包的文件路径超出了版本文件夹，请向整合包作者反馈此问题！{vbCrLf}目标：{Path.GetFullPath(TargetPath)}{vbCrLf}错误的文件：{TargetPath}", "文件路径校验失败", IsWarn:=True)
+            Dim TargetPath As String = Path.Combine(GameFolder, File("path").ToString().TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            If Isolation IsNot Nothing Then TargetPath = ExportedVersionIsolation.OverrideTarget(File("path").ToString(), VersionFolder, GameFolder, Isolation)
+            If Not PathUtils.IsParentOf(GameFolder, TargetPath) AndAlso Not PathUtils.IsParentOf(VersionFolder, TargetPath) Then
+                MyMsgBox($"整合包的文件路径超出了游戏文件夹，请向整合包作者反馈此问题！{vbCrLf}目标：{Path.GetFullPath(TargetPath)}{vbCrLf}错误的文件：{TargetPath}", "文件路径校验失败", IsWarn:=True)
                 Throw New OperationCanceledException
             End If
             FileList.Add(New NetFile(Urls, TargetPath,
@@ -451,6 +459,9 @@ Public Module ModModpack
             .Components = Target})
         '构造总加载器
         Dim Loaders As New List(Of LoaderBase)
+        If Isolation IsNot Nothing Then
+            Loaders.Add(New LoaderTask(Of String, Integer)("设置版本隔离", Sub() ExportedVersionIsolation.ConfigureTarget(VersionFolder, Isolation)) With {.Show = False})
+        End If
         Loaders.Add(New LoaderCombo(Of String)("整合包安装", InstallLoaders) With {.Show = False, .Block = False, .ProgressWeight = InstallLoaders.Sum(Function(l) l.ProgressWeight)})
         Loaders.Add(New LoaderCombo(Of String)("游戏安装", MergeLoaders) With {.Show = False, .ProgressWeight = MergeLoaders.Sum(Function(l) l.ProgressWeight)})
         Loaders.Add(New LoaderTask(Of String, String)("最终整理文件",

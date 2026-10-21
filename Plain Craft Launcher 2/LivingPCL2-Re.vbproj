@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <TargetCulture>zh-CN</TargetCulture>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.1.0.0</ApplicationVersion>
+    <ApplicationVersion>1.1.1.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <Deterministic>true</Deterministic>
@@ -265,6 +265,7 @@
     <Compile Include="Modules\ModLauncherUpdate.vb" />
     <Compile Include="Modules\ModModpackMode.vb" />
     <Compile Include="Modules\Minecraft\InstalledComponentSummary.vb" />
+    <Compile Include="Modules\Minecraft\ExportedVersionIsolation.vb" />
     <Compile Include="Modules\Minecraft\MinecraftFolderPolicy.vb" />
     <Compile Include="Modules\Minecraft\MinecraftLogoCompatibility.vb" />
     <Compile Include="Pages\PageInstance\PageInstanceOverall.Components.vb" />
