@@ -10,7 +10,7 @@ Public Class Application
             Dim UtilityCommand = e.Args.Length > 0 AndAlso {"--update", "--gpu", "--memory"}.Contains(e.Args(0))
             If Not UtilityCommand Then WaitingMutex(e)
             '先迁移旧分支的兼容偏好，再初始化配置缓存；之后与官方 PCL 直接共用存储。
-            Settings.ImportLegacyPclPreferences()
+            If Not UtilityCommand Then Settings.ImportLegacyPclPreferences()
             '核心初始化
             MeloongCore.Main.Init("PCL")
             MeloongCore.Wpf.Main.Init()

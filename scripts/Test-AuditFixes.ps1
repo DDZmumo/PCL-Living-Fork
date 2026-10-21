@@ -64,12 +64,52 @@ try {
  $official.SetValue('ToolDownloadThread','16')
  $legacy.SetValue('ToolDownloadSpeed','8')
  $migrate.Invoke($null,@($legacy,$official)) | Out-Null
- if($official.GetValue('LaunchFolders') -ne 'Local>C:\Local\') { throw 'Locally removed game folders were restored instead of preserving LivingPCL selection' }
+ if($official.GetValue('LaunchFolders') -ne 'Official>D:\Official\') { throw 'Legacy folder snapshot overwrote current official folders' }
  if($official.GetValue('ToolDownloadThread') -ne '16') { throw 'Existing official generic preference was overwritten' }
  if($official.GetValue('ToolDownloadSpeed') -ne '8') { throw 'Previously saved LivingPCL preference was not migrated' }
  $legacy.SetValue('LaunchFolders','Other>E:\Other\')
  $migrate.Invoke($null,@($legacy,$official)) | Out-Null
- if($official.GetValue('LaunchFolders') -ne 'Local>C:\Local\') { throw 'Legacy migration reran and overwrote shared preferences' }
+ if($official.GetValue('LaunchFolders') -ne 'Official>D:\Official\') { throw 'Legacy migration reran and overwrote shared preferences' }
+ foreach($current in @('New>D:\New\','Renamed>D:\Renamed\','')) {
+  $legacy.DeleteValue('LivingPclSharedPreferencesMigrated',$false)
+  $official.SetValue('LaunchFolders',$current)
+  $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+  if($official.GetValue('LaunchFolders') -ne $current) { throw 'New, renamed or explicitly cleared official folders were overwritten' }
+ }
+ $legacy.DeleteValue('LivingPclSharedPreferencesMigrated',$false)
+ $official.DeleteValue('LaunchFolders',$false)
+ $legacy.SetValue('LaunchFolders','Local>C:/Local|Duplicate>c:\Local\|Network>\\server\share\Pack')
+ $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+ if($official.GetValue('LaunchFolders') -ne 'Local>C:\Local\|Network>\\server\share\Pack\') { throw 'Missing folders were not normalized and imported' }
+ if($legacy.GetValue('LaunchFolders') -ne 'Local>C:/Local|Duplicate>c:\Local\|Network>\\server\share\Pack') { throw 'Legacy preference was not preserved' }
+ $normalize=$settings.GetMethod('NormalizeSharedPclPreference',$flags)
+ foreach($pair in @(@('ToolDownloadThread','-1'),@('ToolDownloadThread','256'),@('ToolDownloadSpeed','43'),@('SystemDebugAnim','31'),@('LaunchArgumentPriority','3'),@('ToolModLocalNameStyle','2'),@('LaunchArgumentJavaAll','[{"Path":null}]'),@('LaunchArgumentJavaSelect','{"Path":42}'),@('LaunchFolders','Bad>relative\path'))) {
+  if($null -ne $normalize.Invoke($null,@($entries[$pair[0]],$pair[1]))) { throw "Invalid shared preference $($pair[0]) was accepted" }
+ }
+ foreach($pair in @(@('ToolDownloadThread','255'),@('ToolDownloadSpeed','42'),@('SystemDebugAnim','30'),@('ToolDownloadTranslateV2','4'),@('LaunchArgumentJavaAll','[{"Path":"C:\\Java\\"}]'),@('LaunchArgumentJavaSelect','{"Path":"C:\\Java\\"}'))) {
+  if($normalize.Invoke($null,@($entries[$pair[0]],$pair[1])) -ne $pair[1]) { throw "Valid shared preference $($pair[0]) was rejected" }
+ }
+ foreach($setting in $entries.Values) {
+  if($settings.GetMethod('IsCompatiblePclSetting',$flags).Invoke($null,@($setting))) {
+   $default=[Convert]::ToString($setting.DefaultValue,[Globalization.CultureInfo]::InvariantCulture)
+   if($null -eq $normalize.Invoke($null,@($setting,$default))) { throw "Compatible default $($setting.Key) was rejected" }
+  }
+ }
+ $legacy.DeleteValue('LivingPclSharedPreferencesMigrated',$false)
+ $legacy.SetValue('ToolDownloadThread','-1')
+ $official.DeleteValue('ToolDownloadThread',$false)
+ $migrate.Invoke($null,@($legacy,$official)) | Out-Null
+ if($null -ne $official.GetValue('ToolDownloadThread',$null)) { throw 'Invalid thread limit was written to shared preferences' }
+ $legacy.DeleteValue('LivingPclSharedPreferencesMigrated',$false)
+ $legacy.SetValue('ToolDownloadThread','9')
+ $legacy.SetValue('LivingPclSharedPreferencesMigrated',0,[Microsoft.Win32.RegistryValueKind]::DWord)
+ $official.SetValue('ToolDownloadSpeed',16,[Microsoft.Win32.RegistryValueKind]::DWord)
+ $readOnly=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($testPath+'\Legacy',$false)
+ $failed=$false
+ try { $migrate.Invoke($null,@($readOnly,$official)) | Out-Null } catch { $failed=$true } finally { $readOnly.Dispose() }
+ if(-not $failed -or $null -ne $official.GetValue('ToolDownloadThread',$null)) { throw 'Marker failure did not roll back shared writes' }
+ if($official.GetValue('ToolDownloadSpeed') -ne 16 -or $official.GetValueKind('ToolDownloadSpeed') -ne [Microsoft.Win32.RegistryValueKind]::DWord) { throw 'Rollback changed an existing value or registry kind' }
+ if($legacy.GetValue('ToolDownloadThread') -ne '9' -or $legacy.GetValue('LivingPclSharedPreferencesMigrated') -ne 0) { throw 'Failed migration altered legacy data' }
  $reset=$settings.GetMethod('ResetRegistryPreference',$flags)
  $reset.Invoke($null,@($official,$entries['LaunchFolders'])) | Out-Null
  if($official.GetValue('LaunchFolders') -ne '') { throw 'Reset game folders did not update the official shared registry' }
@@ -182,6 +222,7 @@ public static class LivingPclMutexAudit {
 [LivingPclMutexAudit]::CheckQueuedCancellation($asm)
 $startup=Get-Content -LiteralPath (Join-Path $root 'Plain Craft Launcher 2/Application.xaml.vb') -Raw
 if($startup.IndexOf('WaitingMutex(e)') -gt $startup.IndexOf('Settings.ImportLegacyPclPreferences()')) { throw 'Shared settings initialize before singleton acquisition' }
+if(-not $startup.Contains('If Not UtilityCommand Then Settings.ImportLegacyPclPreferences()')) { throw 'Utility commands may migrate preferences without the singleton lock' }
 $form=Get-Content -LiteralPath (Join-Path $root 'Plain Craft Launcher 2/FormMain.xaml.vb') -Raw
 if($form.Contains('Settings.Set("CacheMsV2OAuthRefresh", Settings.Get')) { throw 'Old startup cache overwrite remains' }
 Write-Output 'Audit regressions passed: existing/logout/corrupt V2 protection; legacy upgrade; one-time folder import/removal/reset; persistent defaults; strict certificate boundaries; update retries; canceled session writes; official/legacy/abandoned singleton coordination; shared PCL preference migration and reset.'
