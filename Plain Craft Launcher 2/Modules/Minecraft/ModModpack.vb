@@ -462,7 +462,8 @@ Public Module ModModpack
         If Isolation IsNot Nothing Then
             Loaders.Add(New LoaderTask(Of String, Integer)("设置版本隔离", Sub() ExportedVersionIsolation.ConfigureTarget(VersionFolder, Isolation)) With {.Show = False})
         End If
-        Loaders.Add(New LoaderCombo(Of String)("整合包安装", InstallLoaders) With {.Show = False, .Block = False, .ProgressWeight = InstallLoaders.Sum(Function(l) l.ProgressWeight)})
+        '关闭隔离时先完成覆写，避免游戏安装同时读取尚未复制完的版本设置。
+        Loaders.Add(New LoaderCombo(Of String)("整合包安装", InstallLoaders) With {.Show = False, .Block = Isolation IsNot Nothing AndAlso Not Isolation.Enabled, .ProgressWeight = InstallLoaders.Sum(Function(l) l.ProgressWeight)})
         Loaders.Add(New LoaderCombo(Of String)("游戏安装", MergeLoaders) With {.Show = False, .ProgressWeight = MergeLoaders.Sum(Function(l) l.ProgressWeight)})
         Loaders.Add(New LoaderTask(Of String, String)("最终整理文件",
         Sub(Task As LoaderTask(Of String, String))
