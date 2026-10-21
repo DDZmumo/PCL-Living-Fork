@@ -259,6 +259,7 @@
     <Compile Include="Modules\ModSecret.vb" />
     <Compile Include="Modules\ModLauncherUpdate.vb" />
     <Compile Include="Modules\LauncherSessionLock.vb" />
+    <Compile Include="Modules\LauncherWindowActivation.vb" />
     <Compile Include="Modules\Base\LoginCertificatePolicy.vb" />
     <Compile Include="Pages\PageSetup\Settings.Accounts.vb" />
     <Compile Include="Pages\PageSetup\Settings.Compatibility.vb" />
