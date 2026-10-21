@@ -1,6 +1,7 @@
 Public Class PageSetupLaunch
 
     Private Sub PageSetupLaunch_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
+        ModModpackMode.ApplyInstanceVisibility()
         '重复加载部分
         PanBack.ScrollToHome()
         RefreshRam(False)

@@ -123,8 +123,15 @@ Public Module ModLauncherUpdate
             Dim Actual = BitConverter.ToString(Hash.ComputeHash(Stream)).Replace("-", "")
             If Not Actual.Equals(ExpectedHash, StringComparison.OrdinalIgnoreCase) Then Throw New Exception("更新文件 SHA256 校验失败。")
         End Using
-        If AssemblyName.GetAssemblyName(FileName).Name <> "LivingPCL" Then Throw New Exception("更新文件不是 LivingPCL 启动器。")
+        If Not IsLivingExecutable(FileName) Then Throw New Exception("更新文件不是 LivingPCL 启动器。")
     End Sub
+
+    '兼容新旧构建的程序集名称，且产品信息须属于 LivingPCL，避免覆盖官方程序。
+    Friend Function IsLivingExecutable(FileName As String) As Boolean
+        Dim Identity = AssemblyName.GetAssemblyName(FileName).Name
+        Return (Identity = "LivingPCL" OrElse Identity = "Plain Craft Launcher 2") AndAlso
+            FileVersionInfo.GetVersionInfo(FileName).ProductName = "LivingPCL"
+    End Function
 
     '沿用官方 PCL 的流程：运行已下载的新 EXE，由新进程替换退出后的旧 EXE。
     Friend Sub ReplaceExecutable(Staged As String, Target As String, ExpectedHash As String, Restart As Boolean)
@@ -133,7 +140,7 @@ Public Module ModLauncherUpdate
         Dim Backup = Target & ".update-backup-" & Guid.NewGuid().ToString("N")
         Dim Replaced As Boolean = False
         Dim HadTarget = System.IO.File.Exists(Target)
-        If HadTarget AndAlso AssemblyName.GetAssemblyName(Target).Name <> "LivingPCL" Then Throw New Exception("更新目标不是 LivingPCL 启动器。")
+        If HadTarget AndAlso Not IsLivingExecutable(Target) Then Throw New Exception("更新目标不是 LivingPCL 启动器。")
         Try
             System.IO.File.Copy(Staged, Temporary)
             ValidateExecutable(Temporary, ExpectedHash)

@@ -5,6 +5,7 @@ Public Class PageInstanceMod
 
     Private IsLoad As Boolean = False
     Public Sub PageOther_Loaded() Handles Me.Loaded
+        ModModpackMode.ApplyInstanceVisibility()
 
         If FrmMain.PageLast.Page <> FormMain.PageType.ResourceDetail Then PanBack.ScrollToHome()
         AniControlEnabled += 1
@@ -275,18 +276,23 @@ Public Class PageInstanceMod
     ''' 安装 Mod。
     ''' </summary>
     Private Sub BtnManageInstall_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnManageInstall.Click, BtnHintInstall.Click
+        If Not ModModpackMode.ConfirmModAction("从文件安装 Mod") Then Return
         Dim FileList = Dialogs.SelectFile("选择要安装的 Mod", True, filter:={({"jar", "litemod", "disabled", "old"}, "Mod 文件")})
         If Not FileList.Any Then Return
-        InstallMods(FileList)
+        InstallModsCore(FileList, True)
     End Sub
     ''' <summary>
     ''' 尝试安装 Mod。
     ''' 返回输入的文件是否为一个 Mod 文件，仅用于判断拖拽行为。
     ''' </summary>
     Public Shared Function InstallMods(FilePathList As IEnumerable(Of String)) As Boolean
+        Return InstallModsCore(FilePathList, False)
+    End Function
+    Private Shared Function InstallModsCore(FilePathList As IEnumerable(Of String), ModeConfirmed As Boolean) As Boolean
         Dim Extension As String = PathUtils.GetExtension(FilePathList.First)
         '检查文件扩展名
         If Not {"jar", "litemod", "disabled", "old"}.Any(Function(t) t = Extension) Then Return False
+        If Not ModeConfirmed AndAlso Not ModModpackMode.ConfirmModAction("安装 Mod") Then Return True
         Logger.Info("文件为 jar/litemod 格式，尝试作为 Mod 安装")
         '检查回收站：回收站中的文件有错误的文件名
         If FilePathList.First.Contains(":\$RECYCLE.BIN\") Then
@@ -334,6 +340,7 @@ Install:
     ''' 下载 Mod。
     ''' </summary>
     Private Sub BtnManageDownload_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnManageDownload.Click, BtnHintDownload.Click
+        If ModModpackMode.Enabled Then Return
         '预设置当前版本和搜索框内容
         PageResource.TargetInstance = PageInstanceLeft.Instance
         PageResource.TargetName = SearchBox.Text
@@ -528,7 +535,8 @@ Install:
     Private Sub BtnSelectUpdate_Click() Handles BtnSelectUpdate.Click
         Dim UpdateList As List(Of LocalResourceFile) = LocalResourceLoader.Output.Where(Function(m) SelectedMods.Contains(m.EnabledName) AndAlso m.HasUpdate).ToList()
         If Not UpdateList.Any() Then Return
-        UpdateMods(UpdateList)
+        If Not ModModpackMode.ConfirmModAction("更新 Mod") Then Return
+        UpdateModsCore(UpdateList, True)
         ChangeAllSelected(False)
     End Sub
     ''' <summary>
@@ -536,8 +544,13 @@ Install:
     ''' </summary>
     Public Shared UpdatingInstanceModFolders As New List(Of String)
     Public Sub UpdateMods(ModList As IEnumerable(Of LocalResourceFile))
+        UpdateModsCore(ModList, False)
+    End Sub
+    Private Sub UpdateModsCore(ModList As IEnumerable(Of LocalResourceFile), ModeConfirmed As Boolean)
         '更新前警告
-        If Not Settings.Get(Of Boolean)("HintUpdateMod") OrElse ModList.Count >= 15 Then
+        If ModModpackMode.Enabled Then
+            If Not ModeConfirmed AndAlso Not ModModpackMode.ConfirmModAction("更新 Mod") Then Return
+        ElseIf Not Settings.Get(Of Boolean)("HintUpdateMod") OrElse ModList.Count >= 15 Then
             If MyMsgBox($"新版本 Mod 可能不兼容旧存档或者其他 Mod，这可能导致游戏崩溃，甚至永久损坏存档！{vbCrLf}如果你在游玩整合包，请千万不要自行更新 Mod！{vbCrLf}{vbCrLf}在更新前，请先备份存档，并检查 Mod 的更新日志。{vbCrLf}如果更新后出现问题，你也可以在回收站找回更新前的 Mod。", "Mod 更新警告", "我已了解风险，继续更新", "取消", IsWarn:=True) = 1 Then
                 Settings.Set("HintUpdateMod", True)
             Else
@@ -660,10 +673,12 @@ Install:
 
     '删除
     Private Sub BtnSelectDelete_Click() Handles BtnSelectDelete.Click
-        DeleteMods(LocalResourceLoader.Output.Where(Function(m) SelectedMods.Contains(m.EnabledName)))
+        If Not ModModpackMode.ConfirmModAction("删除 Mod") Then Return
+        DeleteMods(LocalResourceLoader.Output.Where(Function(m) SelectedMods.Contains(m.EnabledName)), True)
         ChangeAllSelected(False)
     End Sub
-    Private Sub DeleteMods(ModsToDelete As IEnumerable(Of LocalResourceFile))
+    Private Sub DeleteMods(ModsToDelete As IEnumerable(Of LocalResourceFile), Optional ModeConfirmed As Boolean = False)
+        If Not ModeConfirmed AndAlso Not ModModpackMode.ConfirmModAction("删除 Mod") Then Return
         Try
             Dim IsSuccessful As Boolean = True
             Dim IsShiftPressed As Boolean = My.Computer.Keyboard.ShiftKeyDown

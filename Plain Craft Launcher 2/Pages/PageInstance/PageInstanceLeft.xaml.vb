@@ -38,6 +38,7 @@ Public Class PageInstanceLeft
 
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
+        ID = ModModpackMode.NormalizeInstancePage(ID)
         Select Case ID
             Case FormMain.PageSubType.InstanceOverall
                 If FrmInstanceOverall Is Nothing Then FrmInstanceOverall = New PageInstanceOverall
@@ -66,6 +67,7 @@ Public Class PageInstanceLeft
     ''' 切换现有页面。
     ''' </summary>
     Public Sub PageChange(ID As FormMain.PageSubType)
+        ID = ModModpackMode.NormalizeInstancePage(ID)
         If PageID = ID Then Return
         If Instance IsNot Nothing AndAlso McInstanceLock.IsLocked(Instance) Then
             Hint("该版本正在被修改，请稍后再切换页面！", HintType.Red)
@@ -109,6 +111,7 @@ Public Class PageInstanceLeft
         Refresh(FrmMain.PageCurrentSub)
     End Sub
     Public Sub Refresh(SubType As FormMain.PageSubType)
+        If ModModpackMode.Enabled AndAlso SubType = FormMain.PageSubType.InstanceExport Then Return
         If Instance IsNot Nothing AndAlso McInstanceLock.IsLocked(Instance) Then
             Hint("该版本正在被修改，请稍后再刷新！", HintType.Red)
             Return

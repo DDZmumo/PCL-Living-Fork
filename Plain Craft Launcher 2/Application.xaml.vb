@@ -22,6 +22,8 @@ Public Class Application
                 Catch
                     Logger.Warn("旧版微软缓存升级未完成，原有数据已保留。")
                 End Try
+                Dim IconRepair As New Thread(AddressOf RepairSharedMinecraftIcons) With {.IsBackground = True, .Name = "Repair Shared Minecraft Icons", .Priority = ThreadPriority.BelowNormal}
+                IconRepair.Start()
             End If
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest

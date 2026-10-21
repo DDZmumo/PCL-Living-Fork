@@ -32,6 +32,10 @@
         CurrentLaunchOptions = If(Options, New McLaunchOptions)
         '预检查
         If Not RunInUi() Then Throw New Exception("McLaunchStart 必须在 UI 线程调用！")
+        If ModModpackMode.Enabled AndAlso Not ModModpackMode.AllowsInstance(If(CurrentLaunchOptions.Instance, McInstanceSelected)?.PathVersion) Then
+            Hint("请在版本选择中选择当前整合包目录里的游戏版本。", HintType.Red)
+            Return False
+        End If
         If PageOtherTest.IsCleaningGameFiles Then
             Hint("正在清理游戏文件，请等待清理结束后再启动。", HintType.Red)
             Return False

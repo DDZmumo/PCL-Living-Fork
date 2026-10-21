@@ -17,6 +17,24 @@ Public Class PageInstanceOverall
     End Sub
 
     Public InstanceHeaderItem As MyListItem
+    Private OriginalHeaderInfo As String = ""
+
+    Friend Sub RefreshModpackVisibility()
+        Dim Hidden = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
+        BtnManageDelete.Visibility = Hidden
+        BtnDisplayStar.Visibility = Hidden
+        PanInstalledComponents.Visibility = If(ModModpackMode.Enabled, Visibility.Visible, Visibility.Collapsed)
+        If InstanceHeaderItem IsNot Nothing Then
+            InstanceHeaderItem.Info = If(ModModpackMode.Enabled, "", OriginalHeaderInfo)
+            For Each Logo As Canvas In InstanceHeaderItem.Children.OfType(Of Canvas)()
+                Dim Brush = TryCast(Logo.Background, ImageBrush)
+                If Brush Is Nothing OrElse Brush.Stretch = Stretch.Uniform Then Continue For
+                Dim UniformBrush = Brush.CloneCurrentValue()
+                UniformBrush.Stretch = Stretch.Uniform
+                Logo.Background = UniformBrush
+            Next
+        End If
+    End Sub
     ''' <summary>
     ''' 确保当前页面上的信息已正确显示。
     ''' </summary>
@@ -30,16 +48,19 @@ Public Class PageInstanceOverall
         '刷新版本显示
         PanDisplayItem.Children.Clear()
         InstanceHeaderItem = PageInstanceLeft.Instance.ToListItem().Init()
+        OriginalHeaderInfo = InstanceHeaderItem.Info
         InstanceHeaderItem.IsHitTestVisible = False
         PanDisplayItem.Children.Add(InstanceHeaderItem)
+        RefreshInstalledComponents()
+        RefreshModpackVisibility()
         FrmMain.PageNameRefresh()
         '刷新版本图标
         ComboDisplayLogo.SelectedIndex = 0
-        Dim Logo As String = ReadIni(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini", "Logo", "")
+        Dim Logo As String = MinecraftLogoCompatibility.ReadVersionLogo(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini")
         Dim LogoCustom As Boolean = ReadIni(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini", "LogoCustom", "False")
         If LogoCustom Then
             For Each Selection As MyComboBoxItem In ComboDisplayLogo.Items
-                If Selection.Tag = Logo OrElse (Selection.Tag = "PCL\Logo.png" AndAlso Logo.EndsWithF("PCL\Logo.png")) Then
+                If MinecraftLogoCompatibility.ToStorageUri(CStr(Selection.Tag)) = Logo OrElse (Selection.Tag = "PCL\Logo.png" AndAlso Logo.EndsWithF("PCL\Logo.png")) Then
                     ComboDisplayLogo.SelectedItem = Selection
                     Exit For
                 End If
@@ -148,7 +169,7 @@ Public Class PageInstanceOverall
         '进行更改
         Try
             Dim NewLogo As String = ComboDisplayLogo.SelectedItem.Tag
-            WriteIni(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini", "Logo", NewLogo)
+            MinecraftLogoCompatibility.WriteVersionLogo(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini", NewLogo)
             WriteIni(PageInstanceLeft.Instance.PathVersion & "PCL\Setup.ini", "LogoCustom", Not NewLogo = "")
             '刷新显示
             WriteIni(McFolderSelected & "PCL.ini", "InstanceCache", "") '要求刷新缓存
@@ -277,6 +298,7 @@ Public Class PageInstanceOverall
     '删除版本
     '修改此代码时，同时修改 PageSelectRight 中的代码
     Private Sub BtnManageDelete_Click(sender As Object, e As EventArgs) Handles BtnManageDelete.Click
+        If ModModpackMode.Enabled Then Return
         Try
             If McInstanceLock.IsLocked(PageInstanceLeft.Instance) Then
                 Hint("该版本正在被修改，请稍后再删除！", HintType.Red)

@@ -3,6 +3,13 @@ Public Class PageSetupLeft
     Private IsLoad As Boolean = False
     Private IsPageSwitched As Boolean = False '如果在 Loaded 前切换到其他页面，会导致触发 Loaded 时再次切换一次
     Private Sub PageSetupLeft_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
+        If ModModpackMode.Enabled Then
+            IsLoad = True
+            PageSetupUI.HiddenRefresh()
+            ModModpackMode.ApplyVisibility()
+            If Not IsPageSwitched Then ItemLaunch.SetChecked(True, False, False)
+            Return
+        End If
         '是否处于隐藏的子页面
         Dim IsHiddenPage As Boolean = False
         If ItemLaunch.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then IsHiddenPage = True
@@ -42,7 +49,7 @@ Public Class PageSetupLeft
     Public Sub New()
         InitializeComponent()
         '选择第一个未被禁用的子页面
-        If Not Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then
+        If ModModpackMode.Enabled OrElse Not Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then
             PageID = FormMain.PageSubType.SetupLaunch
         ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupUi") Then
             PageID = FormMain.PageSubType.SetupUI
@@ -69,6 +76,7 @@ Public Class PageSetupLeft
     ''' </summary>
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
+        ID = ModModpackMode.NormalizeSetupPage(ID)
         Select Case ID
             Case FormMain.PageSubType.SetupLaunch
                 If FrmSetupLaunch Is Nothing Then FrmSetupLaunch = New PageSetupLaunch
@@ -80,8 +88,7 @@ Public Class PageSetupLeft
                 If FrmSetupLink Is Nothing Then FrmSetupLink = New PageSetupLink
                 Return FrmSetupLink
             Case FormMain.PageSubType.SetupSystem
-                If FrmSetupSystem Is Nothing Then FrmSetupSystem = New PageSetupSystem
-                Return FrmSetupSystem
+                Return ModModpackMode.LauncherSettingsPage()
             Case Else
                 Throw New Exception("未知的设置子页面种类：" & ID)
         End Select
@@ -90,28 +97,14 @@ Public Class PageSetupLeft
     ''' <summary>
     ''' 切换现有页面。
     ''' </summary>
-    Public Sub PageChange(ID As FormMain.PageSubType)
-        If PageID = ID Then Return
+    Public Sub PageChange(ID As FormMain.PageSubType, Optional Force As Boolean = False)
+        ID = ModModpackMode.NormalizeSetupPage(ID)
+        If PageID = ID AndAlso Not Force Then Return
         AniControlEnabled += 1
         IsPageSwitched = True
         Try
 
-            Select Case ID
-                Case FormMain.PageSubType.SetupLaunch
-                    If IsNothing(FrmSetupLaunch) Then FrmSetupLaunch = New PageSetupLaunch
-                    PageChangeRun(FrmSetupLaunch)
-                Case FormMain.PageSubType.SetupUI
-                    If IsNothing(FrmSetupUI) Then FrmSetupUI = New PageSetupUI
-                    PageChangeRun(FrmSetupUI)
-                Case FormMain.PageSubType.SetupLink
-                    If IsNothing(FrmSetupLink) Then FrmSetupLink = New PageSetupLink
-                    PageChangeRun(FrmSetupLink)
-                Case FormMain.PageSubType.SetupSystem
-                    If IsNothing(FrmSetupSystem) Then FrmSetupSystem = New PageSetupSystem
-                    PageChangeRun(FrmSetupSystem)
-                Case Else
-                    Throw New Exception("未知的设置子页面种类：" & ID)
-            End Select
+            PageChangeRun(PageGet(ID))
 
             PageID = ID
         Catch ex As Exception

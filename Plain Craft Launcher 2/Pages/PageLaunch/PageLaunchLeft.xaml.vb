@@ -638,8 +638,8 @@ Finish:
         If (Not IsLoadFinished) OrElse McInstanceListLoader.State = LoadState.Loading OrElse McFolderListLoader.State = LoadState.Loading Then
             CurrentState = 0
         Else
-            If McInstanceSelected Is Nothing Then
-                If Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow Then
+            If McInstanceSelected Is Nothing OrElse Not ModModpackMode.AllowsInstance(McInstanceSelected.PathVersion) Then
+                If ModModpackMode.Enabled OrElse (Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow) Then
                     CurrentState = 1
                 Else
                     CurrentState = 2
@@ -685,9 +685,10 @@ Finish:
         End Select
 ExitRefresh:
         '功能隐藏
-        FrmLaunchLeft.BtnVersion.Visibility = If(Not PageSetupUI.HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenFunctionSelect"), Visibility.Collapsed, Visibility.Visible)
+        ModModpackMode.ApplyLaunchLayout(FrmLaunchLeft)
+        FrmLaunchLeft.BtnVersion.Visibility = If(ModModpackMode.Enabled OrElse PageSetupUI.HiddenForceShow OrElse Not Settings.Get(Of Boolean)("UiHiddenFunctionSelect"), Visibility.Visible, Visibility.Collapsed)
         If CurrentState = 3 Then
-            FrmLaunchLeft.BtnMore.Visibility = FrmLaunchLeft.BtnVersion.Visibility
+            FrmLaunchLeft.BtnMore.Visibility = If(ModModpackMode.Enabled, Visibility.Visible, FrmLaunchLeft.BtnVersion.Visibility)
         End If
     End Sub
     '取消按钮

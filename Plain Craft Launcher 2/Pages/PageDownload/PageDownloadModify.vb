@@ -360,6 +360,7 @@ Public Class PageDownloadModify
     End Function
 
     Public Overrides Sub ShowMinecraftVersionList()
+        If ModModpackMode.Enabled Then Return
         If IsInSelectPage Then
             '把当前已选择的组件记录到 PendingComponents
             Dim Components = GetSelectedComponents()
@@ -469,6 +470,12 @@ Public Class PageDownloadModify
         '刷新当前选择与原始版本的对比
         MyBase.ReloadSelected()
         If InitialTarget IsNot Nothing Then RefreshComparisons()
+        RefreshModpackRestrictions()
+    End Sub
+
+    Friend Sub RefreshModpackRestrictions()
+        CardMinecraft.IsHitTestVisible = Not ModModpackMode.Enabled
+        PanMinecraftChange.Visibility = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
     End Sub
 
     Private Sub RefreshComparisons()
@@ -665,6 +672,10 @@ Public Class PageDownloadModify
     End Sub
 
     Public Overrides Sub StartInstall(Request As McInstallRequest)
+        If Not ModModpackMode.CanChangeMinecraft(InitialTarget?.MinecraftVersion, Request.Components?.MinecraftVersion) Then
+            Hint("整合包模式下不允许修改 Minecraft 主版本。", HintType.Red)
+            Return
+        End If
         UpdateStartButton()
         If Not BtnStart.IsEnabled Then Return
         Dim TargetInstance = InitLoader.Input
@@ -675,6 +686,9 @@ Public Class PageDownloadModify
         Request.InstanceFolder = TargetInstance.PathVersion
         '警告
         Dim Warnings As New List(Of String)
+        If ModModpackMode.Enabled AndAlso Not InitialTarget.IsEquivalentTo(Target) Then
+            Warnings.Add("正在修改整合包的已安装组件。加载器、OptiFine 或辅助组件的版本变化可能导致 Mod 不兼容、整合包无法启动，请确认后继续。")
+        End If
         If (SelectedForge IsNot Nothing OrElse SelectedNeoForge IsNot Nothing OrElse SelectedFabric IsNot Nothing) AndAlso
            Not PathUtils.IsSame(TargetInstance.PathIndie, TargetInstance.PathVersion) Then
             Warnings.Add("该版本尚未开启版本隔离，可能与别的 MC 版本共用同一个 Mod 和存档文件夹。" & vbCrLf &

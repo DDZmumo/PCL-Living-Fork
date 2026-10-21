@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$ExecutablePath)
+﻿param([Parameter(Mandatory=$true)][string]$ExecutablePath,[string]$LegacyExecutablePath,[string]$OfficialExecutablePath)
 # 使用虚构账号和独立的测试注册表分支；不读取真实账号数据，不启动应用窗口。
 $ExecutablePath=[IO.Path]::GetFullPath($ExecutablePath)
 $ErrorActionPreference='Stop'
@@ -89,6 +89,23 @@ try {
  $replace.Invoke($null,@($ExecutablePath,[string]$target,[string]$hash,$false)) | Out-Null
  if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash) { throw 'EXE replacement failed' }
  if(@(Get-ChildItem -LiteralPath $folder).Count -ne 1) { throw 'Update left temporary files' }
+ if($LegacyExecutablePath){
+  [IO.File]::Copy([IO.Path]::GetFullPath($LegacyExecutablePath),$target,$true)
+  $replace.Invoke($null,@($ExecutablePath,[string]$target,[string]$hash,$false)) | Out-Null
+  if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash){throw 'Legacy LivingPCL could not migrate to the new version'}
+ }
+ if($OfficialExecutablePath){
+  $officialPath=[IO.Path]::GetFullPath($OfficialExecutablePath)
+  $officialHash=[string](Get-FileHash -LiteralPath $officialPath -Algorithm SHA256).Hash
+  $validate=$updater.GetMethod('ValidateExecutable',$flags)
+  $rejected=$false
+  try{$validate.Invoke($null,@($officialPath,$officialHash))|Out-Null}catch{$rejected=$true}
+  if(-not $rejected){throw 'Official PCL was mistaken for LivingPCL update content'}
+  [IO.File]::Copy($officialPath,$target,$true)
+  $rejected=$false
+  try{$replace.Invoke($null,@($ExecutablePath,[string]$target,[string]$hash,$false))|Out-Null}catch{$rejected=$true}
+  if(-not $rejected -or (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $officialHash){throw 'Updater overwrote an official PCL target'}
+ }
  Write-Output 'Updater: versions, own-repository URLs, SHA256 parsing, EXE replacement and invalid-update preservation passed.'
 } finally {
  if([IO.File]::Exists($target)) { [IO.File]::Delete($target) }

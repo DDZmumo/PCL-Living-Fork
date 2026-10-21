@@ -7,6 +7,7 @@
     ''' </summary>
     Public Property McFolderSelected As String
         Get
+            If ModModpackMode.Enabled Then Return MinecraftFolderPolicy.PackFolder(Paths.Base)
             If _McFolderSelected Is Nothing Then SetMcFolder(Settings.Get(Of String)("LaunchFolderSelect")) '不能使用 McFolderSelected 触发 Set，这会被视为为 Get 设置返回值
             Return _McFolderSelected
         End Get
@@ -15,6 +16,7 @@
         End Set
     End Property
     Private Sub SetMcFolder(Value As String) '等同 McFolderSelected.Set
+        If ModModpackMode.Enabled Then Return '不覆盖普通模式的文件夹选择记录。
         If PathUtils.IsSame(_McFolderSelected, Value.Replace("$", Paths.Base)) Then Return
         _McFolderSelected = Value.Replace("$", Paths.Base)
         _McFolderSelected = PathUtils.AddSlashSuffix(PathUtils.ForCompare(_McFolderSelected))
@@ -57,6 +59,12 @@
     Public McFolderListLoader As New LoaderTask(Of Integer, Integer)("Minecraft Folder List", AddressOf McFolderListLoadSub, Priority:=ThreadPriority.AboveNormal)
     Private Sub McFolderListLoadSub()
         Try
+            If ModModpackMode.Enabled Then
+                McFolderList = ModModpackMode.CreatePackFolderList()
+                DirectoryUtils.Create(McFolderList(0).Location & "versions\")
+                McFolderLauncherProfilesJsonCreate(McFolderList(0).Location)
+                Return
+            End If
             '初始化
             Dim CacheMcFolderList = New List(Of McFolder)
 
@@ -117,7 +125,7 @@
                 If Not Folder.Type = McFolder.Types.Vanilla Then NewSetup.Add(Folder.Name & ">" & Folder.Location)
             Next
             If Not NewSetup.Any() Then NewSetup.Add("") '防止 0 元素 Join 返回 Nothing
-            Settings.Set("LaunchFolders", NewSetup.Join("|"c))
+            If Not ModModpackMode.Enabled Then Settings.Set("LaunchFolders", NewSetup.Join("|"c))
 
 #End Region
 
@@ -133,10 +141,26 @@
             If Settings.Get(Of Boolean)("SystemDebugDelay") Then Thread.Sleep(RandomInteger(200, 2000))
 
             '回设
-            McFolderList = CacheMcFolderList
+            McFolderList = If(ModModpackMode.Enabled, ModModpackMode.CreatePackFolderList(), CacheMcFolderList)
 
         Catch ex As Exception
             Logger.Error(ex, "加载 Minecraft 文件夹列表失败")
+        End Try
+    End Sub
+
+    Friend Sub RepairSharedMinecraftIcons()
+        Try
+            Dim Folders As New List(Of String) From {Paths.Base, Path.Combine(Paths.Base, ".minecraft"), Path.Combine(Paths.AppData, ".minecraft")}
+            Dim Selected = Settings.Get(Of String)("LaunchFolderSelect")
+            If Not String.IsNullOrWhiteSpace(Selected) Then Folders.Add(Selected.Replace("$", Paths.Base))
+            For Each Entry In Settings.Get(Of String)("LaunchFolders").Split("|"c)
+                Dim Separator = Entry.IndexOf(">"c)
+                If Separator >= 0 AndAlso Separator < Entry.Length - 1 Then Folders.Add(Entry.Substring(Separator + 1))
+            Next
+            Dim Repaired = MinecraftLogoCompatibility.RepairFolders(Folders)
+            If Repaired > 0 Then Logger.Info($"已修复 {Repaired} 个共享版本的内置图标配置")
+        Catch ex As Exception
+            Logger.Warn(ex, "检查共享版本图标兼容性失败")
         End Try
     End Sub
 
@@ -303,11 +327,16 @@
         ''' </summary>
         Public Property Logo As String
             Get
-                Return _Logo
+                Return MyBitmap.NormalizeResourceUri(_Logo)
             End Get
             Set(value As String)
-                _Logo = MyBitmap.NormalizeResourceUri(value)
+                _Logo = MinecraftLogoCompatibility.ToStorageUri(value)
             End Set
+        End Property
+        Friend ReadOnly Property LogoForStorage As String
+            Get
+                Return _Logo
+            End Get
         End Property
         Private _Logo As String
         ''' <summary>
@@ -672,7 +701,7 @@ Recheck:
 #End Region
 ExitDataLoad:
                 '确定版本图标
-                Logo = ReadIni(PathVersion & "PCL\Setup.ini", "Logo", "")
+                Logo = MinecraftLogoCompatibility.ReadVersionLogo(PathVersion & "PCL\Setup.ini")
                 If Logo = "" OrElse Not CType(ReadIni(PathVersion & "PCL\Setup.ini", "LogoCustom", False), Boolean) Then
                     Select Case State
                         Case McInstanceState.Original
@@ -707,7 +736,7 @@ ExitDataLoad:
                 If DirectoryUtils.Exists(PathVersion) Then
                     WriteIni(PathVersion & "PCL\Setup.ini", "State", State)
                     WriteIni(PathVersion & "PCL\Setup.ini", "Info", Info)
-                    WriteIni(PathVersion & "PCL\Setup.ini", "Logo", Logo)
+                    MinecraftLogoCompatibility.WriteVersionLogo(PathVersion & "PCL\Setup.ini", LogoForStorage)
                 End If
                 If State <> McInstanceState.Error AndAlso Version.Reliable Then
                     WriteIni(PathVersion & "PCL\Setup.ini", "ReleaseTime", ReleaseTime.ToString("yyyy'-'MM'-'dd HH':'mm"))
@@ -1065,7 +1094,7 @@ OnLoaded:
                         InstanceList.Add(Instance)
                         Instance.Info = ReadIni(Instance.PathVersion & "PCL\Setup.ini", "CustomInfo", "")
                         If Instance.Info = "" Then Instance.Info = ReadIni(Instance.PathVersion & "PCL\Setup.ini", "Info", Instance.Info)
-                        Instance.Logo = ReadIni(Instance.PathVersion & "PCL\Setup.ini", "Logo", Instance.Logo)
+                        Instance.Logo = MinecraftLogoCompatibility.ReadVersionLogo(Instance.PathVersion & "PCL\Setup.ini", Instance.LogoForStorage)
                         Instance.State = ReadIni(Instance.PathVersion & "PCL\Setup.ini", "State", Instance.State)
                         Instance.IsStar = ReadIni(Instance.PathVersion & "PCL\Setup.ini", "IsStar", False)
                         Instance.DisplayType = ReadIni(Folder & "PCL\Setup.ini", "DisplayType", McInstanceCardType.Auto)

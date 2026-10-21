@@ -7,7 +7,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "1.0.3" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
+    Public Const VersionBaseName As String = "1.1.0" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版
@@ -1115,7 +1115,7 @@ Public Module ModBase
     Public Function GetObjectFromXML(Str As String) As Object
         '兼容原 PCL 帮助包和自定义主页中的程序集限定名。
         Dim AssemblyName = GetType(MyBitmap).Assembly.GetName().Name
-        Str = Regex.Replace(Str, "(?<=;)assembly=Plain(?: |%20)Craft(?: |%20)Launcher(?: |%20)2(?=[""';])",
+        Str = Regex.Replace(Str, "(?<=;)assembly=(?:Plain(?: |%20)Craft(?: |%20)Launcher(?: |%20)2|LivingPCL)(?=[""';])",
             "assembly=" & AssemblyName, RegexOptions.IgnoreCase Or RegexOptions.CultureInvariant)
         Str = Regex.Replace(Str,
             "(?<=[""'])(?:pack://application:,,,/|/)(?:Plain(?: |%20)Craft(?: |%20)Launcher(?: |%20)2|LivingPCL);component/",

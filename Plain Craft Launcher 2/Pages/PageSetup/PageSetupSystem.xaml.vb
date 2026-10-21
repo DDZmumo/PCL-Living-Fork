@@ -5,6 +5,8 @@ Public Class PageSetupSystem
 
         '重复加载部分
         PanBack.ScrollToHome()
+        RefreshModpackSwitch()
+        LabLauncherVersion.Text = "LivingPCL " & VersionBaseName
 
         If BuildType = BuildTypes.Release Then
             PanDonate.Visibility = Visibility.Collapsed
@@ -25,6 +27,16 @@ Public Class PageSetupSystem
     End Sub
     Public Sub Reload()
         SettingService.RefreshSettings(Me)
+        RefreshModpackSwitch()
+        LabLauncherVersion.Text = "LivingPCL " & VersionBaseName
+    End Sub
+    Friend Sub RefreshModpackSwitch()
+        CheckModpackMode.Checked = ModModpackMode.Enabled
+        CheckModpackMode.Visibility = If(ModModpackMode.CanEnable, Visibility.Visible, Visibility.Collapsed)
+        LabModpackMode.Visibility = CheckModpackMode.Visibility
+    End Sub
+    Private Sub ModpackModeChanged(sender As Object, User As Boolean) Handles CheckModpackMode.Change
+        ModModpackMode.Toggle(CheckModpackMode, User)
     End Sub
     Public Sub Reset()
         Try

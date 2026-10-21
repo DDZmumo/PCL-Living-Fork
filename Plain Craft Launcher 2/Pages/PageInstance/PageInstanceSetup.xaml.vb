@@ -2,6 +2,7 @@ Public Class PageInstanceSetup
 
     Private LoadedFirst As Boolean = False
     Private Sub PageSetupSystem_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
+        ModModpackMode.ApplyInstanceVisibility()
 
         '重复加载部分
         PanBack.ScrollToHome()

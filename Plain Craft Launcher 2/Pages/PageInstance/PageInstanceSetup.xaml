@@ -27,7 +27,7 @@
                             <RowDefinition Height="28" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="版本隔离" Margin="0,0,25,0" />
+                        <TextBlock x:Name="LabArgumentIndie" Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="版本隔离" Margin="0,0,25,0" />
                         <local:MyComboBox x:Name="ComboArgumentIndieV2" Grid.Row="0" Grid.ColumnSpan="2" Grid.Column="1">
                             <local:MyComboBoxItem Content="开启" ToolTipService.InitialShowDelay="0"
                                                   ToolTip="与其他版本的存档、Mod 等文件相互独立，互不干涉。&#xa;这会使你无法跨版本共享存档，但可以规避 Mod 冲突问题。"/>

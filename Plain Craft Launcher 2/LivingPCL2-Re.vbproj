@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <TargetCulture>zh-CN</TargetCulture>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.0.2.0</ApplicationVersion>
+    <ApplicationVersion>1.1.0.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <Deterministic>true</Deterministic>
@@ -263,6 +263,11 @@
     <Compile Include="Modules\Base\ToolboxDownloadSession.vb" />
     <Compile Include="Pages\PageOther\PageOtherTest.Tools.vb" />
     <Compile Include="Modules\ModLauncherUpdate.vb" />
+    <Compile Include="Modules\ModModpackMode.vb" />
+    <Compile Include="Modules\Minecraft\InstalledComponentSummary.vb" />
+    <Compile Include="Modules\Minecraft\MinecraftFolderPolicy.vb" />
+    <Compile Include="Modules\Minecraft\MinecraftLogoCompatibility.vb" />
+    <Compile Include="Pages\PageInstance\PageInstanceOverall.Components.vb" />
     <Compile Include="Modules\LauncherSessionLock.vb" />
     <Compile Include="Modules\LauncherWindowActivation.vb" />
     <Compile Include="Modules\Base\LoginCertificatePolicy.vb" />
@@ -391,6 +396,9 @@
     </Compile>
     <Compile Include="Pages\PageSetup\PageSetupSystem.xaml.vb">
       <DependentUpon>PageSetupSystem.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\PageSetupModpack.xaml.vb">
+      <DependentUpon>PageSetupModpack.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\PageSetup\PageSetupLink.xaml.vb">
       <DependentUpon>PageSetupLink.xaml</DependentUpon>
@@ -644,6 +652,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Pages\PageSetup\PageSetupSystem.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Pages\PageSetup\PageSetupModpack.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

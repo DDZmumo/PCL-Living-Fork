@@ -266,6 +266,8 @@ Partial Public Class Settings
         New Setting("SystemDebugDelay", False, Source:=Sources.Registry),
         New Setting("SystemDebugSkipCopy", False, Source:=Sources.Registry),
         New Setting("SystemSystemCache", "", Source:=Sources.Registry),
+        New Setting("LivingModpackMode", False, OnChanged:=AddressOf ModModpackMode.OnChanged),
+        New Setting("LivingModpackExported", False),
         New Setting("SystemSystemUpdate", 3), '兼容旧配置键；本版本不提供官方更新入口。
         New Setting("SystemSystemActivity", 0),
         New Setting("CacheDrops", "", Source:=Sources.Registry),

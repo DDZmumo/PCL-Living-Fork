@@ -11,6 +11,10 @@ Public Class PageSelectLeft
     End Sub
     Private Sub McFolderListUI()
         Try
+            If ModModpackMode.Enabled Then
+                RenderPackFolderList()
+                Return
+            End If
 
             '确认数据有变化
             If McFolderListLast IsNot Nothing AndAlso McFolderListLast.SequenceEqual(McFolderList) Then
@@ -36,7 +40,7 @@ Public Class PageSelectLeft
                 Select Case Folder.Type
                     Case McFolder.Types.Vanilla
                         ContMenu = GetObjectFromXML(
-                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=LivingPCL">
+                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=Plain Craft Launcher 2">
                                     <local:MyMenuItem x:Name="Rename" Header="重命名" Padding="0,2,0,0" Icon="F1 M 53.2929,21.2929L 54.7071,22.7071C 56.4645,24.4645 56.4645,27.3137 54.7071,29.0711L 52.2323,31.5459L 44.4541,23.7677L 46.9289,21.2929C 48.6863,19.5355 51.5355,19.5355 53.2929,21.2929 Z M 31.7262,52.052L 23.948,44.2738L 43.0399,25.182L 50.818,32.9601L 31.7262,52.052 Z M 23.2409,47.1023L 28.8977,52.7591L 21.0463,54.9537L 23.2409,47.1023 Z"/>
                                     <local:MyMenuItem x:Name="Open" Header="打开" Icon="F1 M 19,50L 28,34L 63,34L 54,50L 19,50 Z M 19,28.0001L 35,28C 36,25 37.4999,24.0001 37.4999,24.0001L 48.75,24C 49.3023,24 50,24.6977 50,25.25L 50,28L 54,28.0001L 54,32L 27,32L 19,46.4L 19,28.0001 Z"/>
                                     <local:MyMenuItem x:Name="Refresh" Header="刷新" Icon="F1 M 38,20.5833C 42.9908,20.5833 47.4912,22.6825 50.6667,26.046L 50.6667,17.4167L 55.4166,22.1667L 55.4167,34.8333L 42.75,34.8333L 38,30.0833L 46.8512,30.0833C 44.6768,27.6539 41.517,26.125 38,26.125C 31.9785,26.125 27.0037,30.6068 26.2296,36.4167L 20.6543,36.4167C 21.4543,27.5397 28.9148,20.5833 38,20.5833 Z M 38,49.875C 44.0215,49.875 48.9963,45.3932 49.7703,39.5833L 55.3457,39.5833C 54.5457,48.4603 47.0852,55.4167 38,55.4167C 33.0092,55.4167 28.5088,53.3175 25.3333,49.954L 25.3333,58.5833L 20.5833,53.8333L 20.5833,41.1667L 33.25,41.1667L 38,45.9167L 29.1487,45.9167C 31.3231,48.3461 34.483,49.875 38,49.875 Z"/>
@@ -45,7 +49,7 @@ Public Class PageSelectLeft
                         )
                     Case McFolder.Types.RenamedVanilla
                         ContMenu = GetObjectFromXML(
-                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=LivingPCL">
+                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=Plain Craft Launcher 2">
                                     <local:MyMenuItem x:Name="Remove" Header="复原名称" Padding="0,2,0,0" Icon="F1 M 53.2929,21.2929L 54.7071,22.7071C 56.4645,24.4645 56.4645,27.3137 54.7071,29.0711L 52.2323,31.5459L 44.4541,23.7677L 46.9289,21.2929C 48.6863,19.5355 51.5355,19.5355 53.2929,21.2929 Z M 31.7262,52.052L 23.948,44.2738L 43.0399,25.182L 50.818,32.9601L 31.7262,52.052 Z M 23.2409,47.1023L 28.8977,52.7591L 21.0463,54.9537L 23.2409,47.1023 Z"/>
                                     <local:MyMenuItem x:Name="Rename" Header="重命名" Icon="F1 M 53.2929,21.2929L 54.7071,22.7071C 56.4645,24.4645 56.4645,27.3137 54.7071,29.0711L 52.2323,31.5459L 44.4541,23.7677L 46.9289,21.2929C 48.6863,19.5355 51.5355,19.5355 53.2929,21.2929 Z M 31.7262,52.052L 23.948,44.2738L 43.0399,25.182L 50.818,32.9601L 31.7262,52.052 Z M 23.2409,47.1023L 28.8977,52.7591L 21.0463,54.9537L 23.2409,47.1023 Z"/>
                                     <local:MyMenuItem x:Name="Open" Header="打开" Icon="F1 M 19,50L 28,34L 63,34L 54,50L 19,50 Z M 19,28.0001L 35,28C 36,25 37.4999,24.0001 37.4999,24.0001L 48.75,24C 49.3023,24 50,24.6977 50,25.25L 50,28L 54,28.0001L 54,32L 27,32L 19,46.4L 19,28.0001 Z"/>
@@ -55,7 +59,7 @@ Public Class PageSelectLeft
                         )
                     Case McFolder.Types.Custom
                         ContMenu = GetObjectFromXML(
-                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=LivingPCL">
+                                <ContextMenu xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL;assembly=Plain Craft Launcher 2">
                                     <local:MyMenuItem x:Name="Rename" Header="重命名" Padding="0,2,0,0" Icon="F1 M 53.2929,21.2929L 54.7071,22.7071C 56.4645,24.4645 56.4645,27.3137 54.7071,29.0711L 52.2323,31.5459L 44.4541,23.7677L 46.9289,21.2929C 48.6863,19.5355 51.5355,19.5355 53.2929,21.2929 Z M 31.7262,52.052L 23.948,44.2738L 43.0399,25.182L 50.818,32.9601L 31.7262,52.052 Z M 23.2409,47.1023L 28.8977,52.7591L 21.0463,54.9537L 23.2409,47.1023 Z"/>
                                     <local:MyMenuItem x:Name="Open" Header="打开" Icon="F1 M 19,50L 28,34L 63,34L 54,50L 19,50 Z M 19,28.0001L 35,28C 36,25 37.4999,24.0001 37.4999,24.0001L 48.75,24C 49.3023,24 50,24.6977 50,25.25L 50,28L 54,28.0001L 54,32L 27,32L 19,46.4L 19,28.0001 Z"/>
                                     <local:MyMenuItem x:Name="Refresh" Header="刷新" Icon="F1 M 38,20.5833C 42.9908,20.5833 47.4912,22.6825 50.6667,26.046L 50.6667,17.4167L 55.4166,22.1667L 55.4167,34.8333L 42.75,34.8333L 38,30.0833L 46.8512,30.0833C 44.6768,27.6539 41.517,26.125 38,26.125C 31.9785,26.125 27.0037,30.6068 26.2296,36.4167L 20.6543,36.4167C 21.4543,27.5397 28.9148,20.5833 38,20.5833 Z M 38,49.875C 44.0215,49.875 48.9963,45.3932 49.7703,39.5833L 55.3457,39.5833C 54.5457,48.4603 47.0852,55.4167 38,55.4167C 33.0092,55.4167 28.5088,53.3175 25.3333,49.954L 25.3333,58.5833L 20.5833,53.8333L 20.5833,41.1667L 33.25,41.1667L 38,45.9167L 29.1487,45.9167C 31.3231,48.3461 34.483,49.875 38,49.875 Z"/>
@@ -136,8 +140,24 @@ Public Class PageSelectLeft
     End Sub
     Private McFolderListLast As List(Of McFolder)
 
+    Friend Sub RefreshForModpackMode()
+        McFolderListLast = Nothing
+        McFolderListUI()
+    End Sub
+
+    Friend Sub RenderPackFolderList()
+        Dim Folder = ModModpackMode.CreatePackFolderList()(0)
+        PanList.Children.Clear()
+        PanList.Children.Add(New TextBlock With {.Text = "文件夹列表", .Margin = New Thickness(13, 18, 5, 4), .Opacity = 0.6, .FontSize = 12})
+        Dim Item As New MyListItem With {.IsScaleAnimationEnabled = False, .Type = MyListItem.CheckType.RadioBox, .MinPaddingRight = 30,
+            .Title = Folder.Name, .Info = Folder.Location, .Height = 40, .Tag = Folder}
+        Item.SetChecked(True, False, False)
+        PanList.Children.Add(Item)
+    End Sub
+
     '添加文件夹
     Public Sub Add_Click()
+        If ModModpackMode.Enabled Then Return
         Dim NewFolder As String = ""
         '下载或版本修改期间禁止更改游戏文件夹
         If McInstanceLock.IsAnyLocked OrElse HasDownloadingTask() Then
@@ -169,9 +189,11 @@ Public Class PageSelectLeft
     ''' 将指定文件夹添加到 Minecraft 文件夹列表，并选中它。
     ''' </summary>
     Public Shared Sub AddFolder(FolderPath As String, DisplayName As String, ShowHint As Boolean)
+        If ModModpackMode.Enabled Then Return
         RunInThread(
         Sub()
             Try
+                If ModModpackMode.Enabled Then Return
                 FolderPath = PathUtils.AddSlashSuffix(FolderPath)
                 '检查文件夹权限
                 If Not CheckPermission(FolderPath) Then
@@ -214,6 +236,7 @@ Public Class PageSelectLeft
                 '如果没有添加过，则添加进去
                 If Not IsAdded Then Folders.Add(DisplayName & ">" & FolderPath)
                 '保存
+                If ModModpackMode.Enabled Then Return
                 Settings.Set("LaunchFolders", Folders.Join("|"))
                 '切换选择并更新列表
                 McFolderSelected = FolderPath
@@ -249,6 +272,7 @@ Public Class PageSelectLeft
 
     '创建文件夹
     Public Sub Create_Click()
+        If ModModpackMode.Enabled Then Return
         '下载或版本修改期间禁止更改游戏文件夹
         If McInstanceLock.IsAnyLocked OrElse HasDownloadingTask() Then
             Hint("请在其他任务完成后，再创建游戏文件夹！", HintType.Red)
@@ -268,6 +292,7 @@ Public Class PageSelectLeft
 
     '右键菜单
     Public Sub Remove_Click(sender As Object, e As RoutedEventArgs)
+        If ModModpackMode.Enabled Then Return
         Try
 
             Dim Target As McFolder = CType(CType(CType(sender.Parent, ContextMenu).Parent, Primitives.Popup).PlacementTarget, MyListItem).Tag
@@ -299,6 +324,7 @@ Public Class PageSelectLeft
         End Try
     End Sub
     Public Sub Delete_Click(sender As Object, e As RoutedEventArgs)
+        If ModModpackMode.Enabled Then Return
         If McInstanceLock.IsAnyLocked OrElse HasDownloadingTask() Then
             Hint("请在其他任务完成后，再删除游戏文件夹！", HintType.Red)
             Return
@@ -363,6 +389,7 @@ Public Class PageSelectLeft
         If PathUtils.IsSame(Folder, McFolderSelected) Then LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\")
     End Sub
     Public Sub Rename_Click(sender As Object, e As RoutedEventArgs)
+        If ModModpackMode.Enabled Then Return
         Dim Folder As McFolder = CType(CType(CType(sender.Parent, ContextMenu).Parent, Primitives.Popup).PlacementTarget, MyListItem).Tag
         Try
             '获取输入
@@ -400,6 +427,7 @@ Public Class PageSelectLeft
 
     '点击选项
     Public Sub Folder_Change(sender As MyListItem, e As RouteEventArgs)
+        If ModModpackMode.Enabled Then Return
         If Not e.RaiseByMouse OrElse Not sender.Checked Then Return
         '下载或版本修改期间禁止更改游戏文件夹
         If McInstanceLock.IsAnyLocked OrElse HasDownloadingTask(True) Then

@@ -30,7 +30,7 @@ Public Class PageSelectRight
             For Each Card As KeyValuePair(Of McInstanceCardType, List(Of McInstance)) In McInstanceList.ToArray
                 '确认是否为隐藏版本显示状态
                 If Card.Key = McInstanceCardType.Hidden Xor ShowHidden Then Continue For
-                Dim Instances = Card.Value.Where(Function(Instance) Not McInstanceLock.IsLocked(Instance)).ToList
+                Dim Instances = Card.Value.Where(Function(Instance) Not McInstanceLock.IsLocked(Instance) AndAlso ModModpackMode.AllowsInstance(Instance.PathVersion)).ToList
                 If Not Instances.Any Then Continue For
 #Region "确认卡片名称"
                 Dim CardName As String = ""
@@ -105,7 +105,8 @@ Public Class PageSelectRight
                 Else
                     LabEmptyTitle.Text = "无可用版本"
                     LabEmptyContent.Text = "未找到任何版本的游戏，请先下载任意版本的游戏。" & vbCrLf & "若有已存在的游戏，请在左边的列表中选择添加文件夹，选择 .minecraft 文件夹将其导入。"
-                    BtnEmptyDownload.Visibility = If(Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow, Visibility.Collapsed, Visibility.Visible)
+                    If ModModpackMode.Enabled Then LabEmptyContent.Text = "当前整合包目录中没有可用的游戏版本。请确认整合包已完整解压，或重新运行附带安装文件的启动器完成安装。"
+                    BtnEmptyDownload.Visibility = If(ModModpackMode.Enabled OrElse (Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow), Visibility.Collapsed, Visibility.Visible)
                 End If
             Else
                 PanBack.Visibility = Visibility.Visible
@@ -122,6 +123,7 @@ Public Class PageSelectRight
         AddHandler sender.Click, AddressOf Item_Click
         '图标按钮
         Dim BtnStar As New MyIconButton
+        BtnStar.Visibility = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
         If Instance.IsStar Then
             BtnStar.ToolTip = "取消收藏"
             BtnStar.LogoScale = 1.1
@@ -138,6 +140,7 @@ Public Class PageSelectRight
             LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\")
         End Sub
         Dim BtnDel As New MyIconButton With {.LogoScale = 1.1, .Logo = Logo.IconButtonDelete}
+        BtnDel.Visibility = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
         BtnDel.ToolTip = "删除"
         AddHandler BtnDel.Click, Sub() DeleteInstance(sender, Instance)
         If Instance.State <> McInstance.McInstanceState.Error Then
@@ -170,6 +173,7 @@ Public Class PageSelectRight
     '点击选项
     Public Shared Sub Item_Click(sender As MyListItem, e As EventArgs)
         Dim Instance As McInstance = sender.Tag
+        If Not ModModpackMode.AllowsInstance(Instance.PathVersion) Then Return
         If McInstanceLock.IsLocked(Instance) Then
             Hint("该版本正在被修改，请稍后再选择！", HintType.Red)
             Return
@@ -190,6 +194,7 @@ Public Class PageSelectRight
 
     '修改此代码时，同时修改 PageInstanceOverall 中的代码
     Public Shared Sub DeleteInstance(Item As MyListItem, Instance As McInstance)
+        If ModModpackMode.Enabled Then Return
         Try
             If McInstanceLock.IsLocked(Instance) Then
                 Hint("该版本正在被修改，请稍后再删除！", HintType.Red)

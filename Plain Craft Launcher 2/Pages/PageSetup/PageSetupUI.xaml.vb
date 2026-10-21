@@ -432,6 +432,7 @@ Refresh:
             If FrmMain.PageCurrent = FormMain.PageType.InstanceSetup AndAlso FrmInstanceModDisabled IsNot Nothing Then FrmInstanceModDisabled.BtnDownload_Loaded()
             '备注
             If FrmSetupUI IsNot Nothing Then FrmSetupUI.CardSwitch.Title = If(HiddenForceShow, "功能隐藏（已暂时关闭，按 F12 以重新启用）", "功能隐藏")
+            ModModpackMode.ApplyVisibility()
         Catch ex As Exception
             Logger.Error(ex, "刷新功能隐藏项目失败")
         End Try

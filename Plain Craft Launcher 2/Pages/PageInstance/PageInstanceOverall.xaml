@@ -5,11 +5,13 @@
     xmlns:System="clr-namespace:System;assembly=mscorlib" 
     mc:Ignorable="d" x:Class="PageInstanceOverall"
     PanScroll="PanBack" Grid.IsSharedSizeScope="True">
+    <Grid>
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel x:Name="PanMain" Margin="25,10">
             <local:MyCard Margin="0,15" Title="">
                 <Grid Margin="10,7" Name="PanDisplayItem" />
             </local:MyCard>
+            <StackPanel x:Name="PanInstalledComponents" Visibility="Collapsed" />
             <local:MyCard Margin="0,0,0,15" Title="个性化" x:Name="PanDisplay">
                 <StackPanel Margin="25,40,25,15">
                     <Grid x:Name="PanDisplayIcon" HorizontalAlignment="Stretch">
@@ -85,4 +87,8 @@
             </local:MyCard>
         </StackPanel>
     </local:MyScrollViewer>
+        <local:MyCard HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,0" x:Name="PanComponentsLoad" UseAnimation="False">
+            <local:MyLoading Text="正在读取已安装组件" Margin="20,20,20,17" x:Name="LoadComponents" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </local:MyCard>
+    </Grid>
 </local:MyPageRight>

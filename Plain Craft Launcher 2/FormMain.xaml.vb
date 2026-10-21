@@ -311,6 +311,8 @@ Public Class FormMain
         [AddHandler](DragDrop.DragOverEvent, New DragEventHandler(AddressOf HandleDrag), handledEventsToo:=True)
         '加载 UI
         InitializeComponent()
+        ModModpackMode.ApplyVisibility(Me)
+        If ModModpackMode.Enabled Then UpdateTitleBar()
         Opacity = 0
         '开启管理员权限下的文件拖拽
         If WindowsUtils.HasAdminRole() Then
@@ -722,8 +724,15 @@ Public Class FormMain
                     Brush.AlignmentY = AlignmentY.Bottom
             End Select
         End If
+        UpdateTitleBar()
+    End Sub
+
+    Friend Sub UpdateTitleBar()
+        '整合包模式必须显示标题状态，关闭后恢复原来的文本或图片设置。
+        Dim LogoType = Settings.Get(Of Integer)("UiLogoType")
+        If ModModpackMode.Enabled AndAlso LogoType <> 2 Then LogoType = 1
         '标题栏显示类型
-        Select Case Settings.Get(Of Integer)("UiLogoType")
+        Select Case LogoType
             Case 0 '无
                 ShapeTitleLogo.Visibility = Visibility.Collapsed
                 LabTitleLogo.Visibility = Visibility.Collapsed
@@ -769,9 +778,9 @@ Public Class FormMain
         End Select
         FrmSetupUI?.CardLogo.TriggerForceResize()
         '标题栏文本
-        LabTitleLogo.Text = If(Settings.Get(Of Integer)("UiLogoType") = 1, "LivingPCL", Settings.Get(Of String)("UiLogoText"))
+        LabTitleLogo.Text = ModModpackMode.DisplayTitle(If(LogoType = 1, "LivingPCL", Settings.Get(Of String)("UiLogoText")))
         '标题栏文本是否居左
-        PanTitleMain.ColumnDefinitions(0).Width = New GridLength(If(Settings.Get(Of Boolean)("UiLogoLeft") AndAlso Settings.Get(Of Integer)("UiLogoType") = 0, 0, 1), GridUnitType.Star)
+        PanTitleMain.ColumnDefinitions(0).Width = New GridLength(If(Settings.Get(Of Boolean)("UiLogoLeft") AndAlso LogoType = 0, 0, 1), GridUnitType.Star)
     End Sub
 
 #End Region
@@ -1337,6 +1346,12 @@ Public Class FormMain
     ''' 切换页面，并引起对应选择 UI 的改变。
     ''' </summary>
     Public Sub PageChange(Stack As PageStackData, Optional SubType As PageSubType = PageSubType.Default)
+        If ModModpackMode.BlocksPage(Stack.Page) Then
+            Hint("整合包模式已隐藏此功能，可在 设置 → 启动器 中关闭整合包模式。")
+            Return
+        End If
+        If Stack.Page = PageType.Setup Then SubType = ModModpackMode.NormalizeSetupPage(SubType)
+        If Stack.Page = PageType.InstanceSetup Then SubType = ModModpackMode.NormalizeInstancePage(SubType)
         '兼容旧主页或配置中已移除的更多页面编号。
         If Stack.Page = PageType.Other AndAlso SubType > PageSubType.OtherTest Then SubType = PageSubType.OtherAbout
         If PageNameGet(Stack) = "" Then
@@ -1390,6 +1405,9 @@ Public Class FormMain
     ''' 切换现有页面的实际方法。
     ''' </summary>
     Private Sub PageChangeActual(Stack As PageStackData, Optional SubType As PageSubType = -1)
+        If ModModpackMode.BlocksPage(Stack.Page) Then Return
+        If Stack.Page = PageType.Setup AndAlso SubType >= 0 Then SubType = ModModpackMode.NormalizeSetupPage(SubType)
+        If Stack.Page = PageType.InstanceSetup AndAlso SubType >= 0 Then SubType = ModModpackMode.NormalizeInstancePage(SubType)
         If PageCurrent = Stack AndAlso (PageCurrentSub = SubType OrElse SubType = -1) Then Return
         If Stack.Page = PageType.InstanceSetup AndAlso PageInstanceLeft.Instance IsNot Nothing AndAlso McInstanceLock.IsLocked(PageInstanceLeft.Instance) Then
             Hint("该版本正在被修改，暂时无法进入版本设置！", HintType.Red)

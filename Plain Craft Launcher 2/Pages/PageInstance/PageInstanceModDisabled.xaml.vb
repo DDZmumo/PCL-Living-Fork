@@ -9,7 +9,8 @@ Public Class PageInstanceModDisabled
     End Sub
 
     Public Sub BtnDownload_Loaded() Handles BtnDownload.Loaded
-        Dim NewVisibility = If((Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow) OrElse If(FrmSelectRight Is Nothing, False, FrmSelectRight.ShowHidden), Visibility.Collapsed, Visibility.Visible)
+        Dim NewVisibility = If(ModModpackMode.Enabled OrElse (Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow) OrElse If(FrmSelectRight Is Nothing, False, FrmSelectRight.ShowHidden), Visibility.Collapsed, Visibility.Visible)
+        BtnVersion.Visibility = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
         If BtnDownload.Visibility <> NewVisibility Then
             BtnDownload.Visibility = NewVisibility
             PanMain.TriggerForceResize()

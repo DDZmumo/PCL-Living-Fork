@@ -333,11 +333,14 @@ Public Class PageInstanceExport
             ConfigLines.Add($"# 当版本设置中选择了 {vbLQ}使用版本文件夹中的 Java{vbRQ} 时，是否打包版本文件夹中的 Java。")
             ConfigLines.Add("IncludeJava:" & CheckOptionsJava.Checked)
             ConfigLines.Add("")
-            ConfigLines.Add("# 是否打包正式版 PCL，以便没有启动器的玩家安装整合包。")
+            ConfigLines.Add("# 是否打包当前 LivingPCL，以便没有启动器的玩家安装整合包。")
             ConfigLines.Add("IncludeLauncher:" & CheckOptionsPcl.Checked)
             ConfigLines.Add("")
             ConfigLines.Add("# 是否打包 PCL 个性化内容，例如功能隐藏设置、主页、背景音乐和图片等。")
             ConfigLines.Add("IncludeLauncherCustom:" & CheckOptionsPclCustom.Checked)
+            ConfigLines.Add("")
+            ConfigLines.Add("# 是否默认开启 LivingPCL 整合包模式，仅在 IncludeLauncher 为 True 时生效。")
+            ConfigLines.Add("LivingModpackMode:" & CheckOptionsModpackMode.Checked)
             ConfigLines.Add("")
             ConfigLines.Add("# 是否将 Mod、资源包、光影包的文件直接放入整合包中，这样在导入时就无需联网下载它们。")
             ConfigLines.Add("# 建议仅在无法稳定连接 CurseForge 或 Modrinth 时才考虑启用。")
@@ -388,6 +391,7 @@ Public Class PageInstanceExport
             CheckOptionsJava.Checked = Ini.GetOrDefault("IncludeJava", True)
             CheckOptionsPcl.Checked = Ini.GetOrDefault("IncludeLauncher", True)
             CheckOptionsPclCustom.Checked = Ini.GetOrDefault("IncludeLauncherCustom", True)
+            CheckOptionsModpackMode.Checked = Ini.GetOrDefault("LivingModpackMode", True)
             CheckAdvancedInclude.Checked = Ini.GetOrDefault("DontCheckHostedAssets", False)
             If Not CheckAdvancedInclude.Checked Then CheckAdvancedModrinth.Checked = Ini.GetOrDefault("ModrinthUploadMode", False) '#7979，加个特判
             ConfigPackPath = Ini.GetOrDefault("PackPath", Nothing)
@@ -419,6 +423,7 @@ Public Class PageInstanceExport
     ''' 开始导出。
     ''' </summary>
     Private Sub StartExport() Handles BtnExport.Click
+        If ModModpackMode.Enabled Then Return
         Dim PackName As String = If(String.IsNullOrEmpty(TextExportName.Text), TextExportName.HintText, TextExportName.Text)
         Dim PackVersion As String = If(String.IsNullOrEmpty(TextExportVersion.Text), "1.0.0", TextExportVersion.Text)
 
@@ -466,6 +471,7 @@ Public Class PageInstanceExport
         Dim ModrinthUploadMode As Boolean = CheckAdvancedModrinth.Checked
         Dim IncludePCL As Boolean = CheckOptionsPcl.Checked
         Dim IncludePCLCustom As Boolean = IncludePCL AndAlso CheckOptionsPclCustom.Checked
+        Dim IncludeModpackMode As Boolean = IncludePCL AndAlso CheckOptionsModpackMode.Checked
         Dim AllRules = StandardizeLines(GetAllRules(), True).ToList()
         Dim AllExtraFiles = StandardizeLines(GetExtraFileLines(), False).ToList()
         Logger.Info($"准备导出整合包，共有 {AllRules.Count} 条规则，{AllExtraFiles.Count} 条追加内容行")
@@ -475,13 +481,7 @@ Public Class PageInstanceExport
 
 #Region "准备 PCL 文件"
 
-        If BuildType <> BuildTypes.Release AndAlso IncludePCL Then
-            Loaders.Add(New LoaderTask(Of Integer, Integer)("下载 PCL 正式版",
-            Sub(Loader As LoaderTask(Of Integer, Integer))
-                DownloadLatestPCL(Loader)
-                FileUtils.Copy(PathTemp & "Latest.exe", CacheFolder & "LivingPCL.exe")
-            End Sub) With {.ProgressWeight = 0.5, .Block = False})
-        End If
+        '各构建类型均打包当前 LivingPCL，不调用开源版中未实现的官方下载接口。
 
 #End Region
 
@@ -566,7 +566,10 @@ Public Class PageInstanceExport
             If DirectoryUtils.Exists(TargetInstance.PathVersion & "PCL\") Then DirectoryUtils.Copy(TargetInstance.PathVersion & "PCL\", OverridesFolder & "PCL\")
             WriteIni(OverridesFolder & "PCL\Setup.ini", "IsStar", False)
             '复制 PCL 本体（正式版）
-            If BuildType = BuildTypes.Release AndAlso IncludePCL Then FileUtils.Copy(PathExe, CacheFolder & "LivingPCL.exe")
+            If IncludePCL Then
+                FileUtils.Copy(PathExe, CacheFolder & "LivingPCL.exe")
+                If FileUtils.Exists(PathExe & ".config") Then FileUtils.Copy(PathExe & ".config", CacheFolder & "LivingPCL.exe.config")
+            End If
             '复制 PCL 个性化内容
             If IncludePCLCustom Then
                 If DirectoryUtils.Exists(Paths.Base & "PCL\Pictures\") Then DirectoryUtils.Copy(Paths.Base & "PCL\Pictures\", CacheFolder & "PCL\Pictures\")
@@ -577,6 +580,7 @@ Public Class PageInstanceExport
                 If FileUtils.Exists(Paths.Base & "PCL\hints.txt") Then FileUtils.Copy(Paths.Base & "PCL\hints.txt", CacheFolder & "PCL\hints.txt")
                 If FileUtils.Exists(Paths.Base & "PCL\Logo.png") Then FileUtils.Copy(Paths.Base & "PCL\Logo.png", CacheFolder & "PCL\Logo.png")
             End If
+            ModModpackMode.ConfigureExport(CacheFolder, IncludePCL, IncludeModpackMode)
         End Sub) With {.ProgressWeight = 5})
 
 #End Region
