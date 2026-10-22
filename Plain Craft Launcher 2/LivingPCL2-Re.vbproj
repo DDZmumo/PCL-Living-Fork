@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <TargetCulture>zh-CN</TargetCulture>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.1.1.0</ApplicationVersion>
+    <ApplicationVersion>1.1.2.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <Deterministic>true</Deterministic>

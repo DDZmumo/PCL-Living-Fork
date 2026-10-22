@@ -54,7 +54,7 @@
             <local:MyCard Margin="0,0,0,15" Title="本项目">
                 <StackPanel Margin="25,40,25,20">
                     <TextBlock Text="LivingPCL 是基于 PCL 官方开源版的第三方版本，由 DDZmumo 维护。" TextWrapping="Wrap" Margin="0,0,0,8" />
-                    <TextBlock Text="CurseForge 下载临时可用，等待正式 API Key。&#xa;临时 Key 不代表永久有效。" TextWrapping="Wrap" Margin="0,0,0,12" />
+                    <TextBlock Text="CurseForge 第三方 API 申请已获批。&#xa;本版已接入正式 API Key。" TextWrapping="Wrap" Margin="0,0,0,12" />
                     <WrapPanel>
                         <local:MyButton Text="LivingPCL 仓库" Width="140" Height="32" Margin="0,0,10,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo/LivingPCL2-Re" />
                         <local:MyButton Text="PCL 开源仓库" Width="140" Height="32" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
