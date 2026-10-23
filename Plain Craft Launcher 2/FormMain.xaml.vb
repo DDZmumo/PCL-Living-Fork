@@ -442,7 +442,7 @@ Public Class FormMain
             End Try
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"LivingPCL {VersionBaseName} 是基于 PCL 官方开源版的第三方版本。{vbCrLf}{vbCrLf}- CurseForge：第三方 API 申请已获批，本版已接入正式 API Key{vbCrLf}- 整合包：精简界面与独立目录；导出可选择该版本的版本隔离，默认开启{vbCrLf}- 兼容修复：自动修正共享图标，保留旧版自动更新兼容{vbCrLf}- 正版登录：复用龙腾猫跃 Client ID 后已实现正版登录{vbCrLf}- 启动器更新：来自 DDZmumo/LivingPCL2-Re 的 GitHub Releases", $"LivingPCL {VersionBaseName} 版本说明")
+                MyMsgBox($"LivingPCL {VersionBaseName} 是基于 PCL 官方开源版的第三方版本。{vbCrLf}{vbCrLf}- CurseForge：第三方 API 申请已获批，本版已接入正式 API Key{vbCrLf}- 整合包：精简界面与独立目录；导出可选择该版本的版本隔离，默认开启{vbCrLf}- 兼容修复：自动修正共享图标，保留旧版自动更新兼容{vbCrLf}- 正版登录：本项目 AppID 已通过 Mojang 审核{vbCrLf}- 启动器更新：来自 DDZmumo/LivingPCL2-Re 的 GitHub Releases", $"LivingPCL {VersionBaseName} 版本说明")
             End If
             ModLauncherUpdate.CheckForUpdates(True)
         End Sub, "初始化", ThreadPriority.Lowest)

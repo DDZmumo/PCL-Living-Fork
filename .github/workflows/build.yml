@@ -16,6 +16,8 @@ jobs:
   build:
     name: Build
     runs-on: windows-latest
+    env:
+      PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
     strategy:  
        matrix:  
          configuration: [Debug, Release]
@@ -66,13 +68,11 @@ jobs:
 
     - name: Build
       env:
-        PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
         PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
       run: ./scripts/Build-Release.ps1 -Configuration ${{ matrix.configuration }}
 
     - name: Verify build credential protection
       env:
-        PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
         PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
       run: powershell -NoProfile -File scripts/Test-BuildCredentials.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
 

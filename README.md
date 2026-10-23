@@ -17,6 +17,8 @@
 
 **CurseForge 第三方 API 申请已获批，发布版已接入正式 API Key。**
 
+**LivingPCL2-Re 的 Minecraft 登录 AppID 已通过 Mojang 审核。**
+
 ## 编译
 
 需要 Visual Studio 2022 的“.NET 桌面开发”工作负载、.NET Framework 4.8 Targeting Pack 和 .NET 9 SDK。
@@ -24,12 +26,15 @@
 ```powershell
 git submodule update --init --recursive
 dotnet restore .\PCLCS\PCLCS.csproj
+$env:PCL_MS_CLIENT_ID = '<你的已获批 Client ID>'
 .\scripts\Build-Release.ps1
 ```
 
 请在 VS Developer PowerShell 中构建。程序默认输出到 `Plain Craft Launcher 2\bin\LivingPCL.exe`。
 
-源码不包含 Client ID 或 API Key。自行构建时，通过 `PCL_MS_CLIENT_ID` 和 `PCL_CURSEFORGE_API_KEY` 环境变量提供自己的配置；发布构建会加密保存这些值。
+源码不包含具体 Client ID 或 CurseForge API Key。GitHub Actions 通过仓库 Actions Secret `CLIENT_ID` 注入微软登录应用；将该 Secret 更新为本项目获批应用的值后，新构建才会使用该应用。凭据回读检查继承同一配置。
+
+自行构建时，通过 `PCL_MS_CLIENT_ID` 提供已获批的应用标识。设备代码登录需要该应用支持个人 Microsoft 帐户，并在 Azure 身份验证设置中启用“允许公共客户端流”。需要 CurseForge 资源功能时，通过 `PCL_CURSEFORGE_API_KEY` 提供自己的 Key。构建脚本继续加密保存这些值；运行时仍可用对应环境变量覆盖。
 
 ## 来源与许可
 
