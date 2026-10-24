@@ -56,6 +56,7 @@ public static class ModpackConfirmationChecks {
 '@
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('LivingPCL-ModpackMode-'+[Guid]::NewGuid().ToString('N'))
 $entry=$entries['LivingModpackMode']
+$brand=$asm.GetType('PCL.ModBase').GetField('LauncherDisplayName').GetRawConstantValue()
 try {
  $marker=$entries['LivingModpackExported']
  if($marker.Source.ToString() -ne 'Normal' -or $marker.DefaultValue -ne $false){throw 'Export marker must default off in local Setup.ini'}
@@ -145,7 +146,7 @@ try {
   if($entries['LaunchFolders'].ValueCache[''] -cne $sharedBefore){throw 'First pack registration changed the shared directory catalog'}
  }
  $page.GetType().GetMethod('PageLoaded',[Reflection.BindingFlags]'NonPublic,Instance').Invoke($page,@()) | Out-Null
- if(-not $page.FindName('CheckModpackMode').Checked -or -not $page.FindName('LabVersion').Text.StartsWith('LivingPCL ')){throw 'Compact page state/version failed'}
+ if(-not $page.FindName('CheckModpackMode').Checked -or -not $page.FindName('LabVersion').Text.StartsWith($brand+' ')){throw 'Compact page state/version failed'}
  if([string]::IsNullOrEmpty($page.FindName('CardLauncher').MainTextBlock.Text)){throw 'Launcher card title is missing'}
  if([Windows.Controls.Grid]::GetColumn($page.FindName('CheckModpackMode')) -ne 1){throw 'Mode checkbox does not align with the other setting values'}
  foreach($name in @('BtnSystemUpdate','ComboSystemActivity','BtnSystemSettingImp','BtnSystemSettingExp','CardDebug')){if($page.FindName($name)){throw 'Unexpected full-setting control in compact page'}}
@@ -173,7 +174,7 @@ try {
  if($system.FindName('CheckModpackMode').Visibility -ne 'Collapsed' -or $system.FindName('LabModpackMode').Visibility -ne 'Collapsed'){throw 'Unmarked launcher exposed the mode switch'}
  $marker.ValueCache['']=$true
  $system.GetType().GetMethod('RefreshModpackSwitch',[Reflection.BindingFlags]'NonPublic,Instance').Invoke($system,@()) | Out-Null
- if(-not $system.FindName('LabLauncherVersion').Text.StartsWith('LivingPCL ') -or [Windows.Controls.Grid]::GetRow($system.FindName('LabLauncherVersion')) -ne 2){throw 'Normal launcher version line must follow the update source'}
+ if(-not $system.FindName('LabLauncherVersion').Text.StartsWith($brand+' ') -or [Windows.Controls.Grid]::GetRow($system.FindName('LabLauncherVersion')) -ne 2){throw 'Normal launcher version line must follow the update source'}
  foreach($key in $preferences.Keys){if($preferences[$key] -ne $entries[$key].ValueCache['']){throw 'Mode altered existing hidden preferences'}}
  $export=[Activator]::CreateInstance($asm.GetType('PCL.PageInstanceExport'))
  $packOption=$export.FindName('CheckOptionsModpackMode')
@@ -233,7 +234,7 @@ try {
   $normalCard=$system.FindName('LabLauncherVersion').Parent
   while($normalCard -and $normalCard.GetType().FullName -ne 'PCL.MyCard'){$normalCard=$normalCard.Parent}
   if(-not $normalCard){throw 'Normal launcher card not found for preview'}
-  $system.FindName('PanDonate').Visibility='Collapsed'
+  if($system.FindName('PanDonate')){throw 'Removed potato-code controls remain in normal launcher settings'}
   $normalCard.UseAnimation=$false
   $null=$normalCard.MainTextBlock
   $normalCard.Parent.Children.Remove($normalCard)

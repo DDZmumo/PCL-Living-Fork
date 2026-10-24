@@ -25,6 +25,7 @@ Public Class PageSetupLaunch
     Public Sub Refresh()
         Try
             SettingService.RefreshSettings(Me)
+            CheckPersonalOptionsSync.Checked = Settings.Get(Of Boolean)("LaunchPersonalOptionsSync")
             UpdateSkinType()
             UpdateRamType()
             UpdateJavaList()
@@ -38,6 +39,7 @@ Public Class PageSetupLaunch
     Public Sub Reset()
         Try
             SettingService.ResetSettings(Me)
+            Settings.Reset("LaunchPersonalOptionsSync")
             Settings.Set("LaunchArgumentIndieV2", Settings.GetDefault("LaunchArgumentIndieV2"))
             Configs.JavaList.Reset()
             Configs.JavaRemovedList.Reset()
@@ -50,6 +52,40 @@ Public Class PageSetupLaunch
     End Sub
 
 #Region "离线皮肤"
+
+    Private Sub PersonalSyncChanged(Sender As Object, User As Boolean) Handles CheckPersonalOptionsSync.Change
+        If Not User OrElse AniControlEnabled <> 0 Then Return
+        Try
+            If CheckPersonalOptionsSync.Checked AndAlso Not PersonalGameSettings.HasProfile() Then
+                If Not ImportPersonalOptions() Then
+                    CheckPersonalOptionsSync.Checked = False
+                    Return
+                End If
+            End If
+            Settings.Set("LaunchPersonalOptionsSync", CheckPersonalOptionsSync.Checked)
+        Catch ex As Exception
+            CheckPersonalOptionsSync.Checked = False
+            Logger.Error(ex, "启用个人游戏设置同步失败", LogBehavior.Toast)
+        End Try
+    End Sub
+    Private Function ImportPersonalOptions() As Boolean
+        Dim Instance = McInstanceSelected
+        If Instance Is Nothing Then
+            Hint("请先选择一个已经运行过的游戏版本。", HintType.Red)
+            Return False
+        End If
+        If MyMsgBox($"以 {Instance.Name} 的游戏设置作为个人习惯来源？{vbCrLf}只导入当前勾选的类别；其他版本将在下次启动时合并这些设置。", "导入个人游戏设置", "导入", "取消") <> 1 Then Return False
+        PersonalGameSettings.ImportFrom(Instance)
+        Hint("个人游戏设置已导入。", HintType.Green)
+        Return True
+    End Function
+    Private Sub ImportPersonalOptionsClick() Handles BtnImportPersonalOptions.Click
+        Try
+            ImportPersonalOptions()
+        Catch ex As Exception
+            Logger.Error(ex, "导入个人游戏设置失败", LogBehavior.Toast)
+        End Try
+    End Sub
 
     Private Sub BtnSkinChange_Click(sender As Object, e As EventArgs) Handles BtnSkinChange.Click
         Dim SkinInfo As McSkinInfo = McSkinSelect()

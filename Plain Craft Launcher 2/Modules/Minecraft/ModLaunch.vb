@@ -23,6 +23,10 @@
         ''' 额外的启动参数。
         ''' </summary>
         Public ExtraGameArgs As New List(Of String)
+        Public QuickPlayWorld As String = Nothing
+        Friend PersonalOptions As PersonalOptionsSession
+        Friend QuickPlay As QuickPlaySession
+        Friend EnvironmentPoint As String
     End Class
     ''' <summary>
     ''' 尝试启动 Minecraft。必须在 UI 线程调用。
@@ -65,8 +69,12 @@
             FrmLaunchLeft.RefreshButtonsUI()
             FrmLaunchLeft.RefreshPage(False, False)
         End If
-        If McInstanceSelected IsNot Nothing AndAlso McInstanceLock.IsLocked(McInstanceSelected) Then
+        If EnvironmentHistoryUi.IsBusy OrElse ModpackUpdateFlow.IsUpdating OrElse (McInstanceSelected IsNot Nothing AndAlso McInstanceLock.IsLocked(McInstanceSelected)) Then
             Hint($"版本 {McInstanceSelected.Name} 正在被修改，请稍后再启动！", HintType.Red)
+            Return False
+        End If
+        If McInstanceSelected IsNot Nothing AndAlso ModpackUpdate.Pending(McInstanceSelected.PathVersion).Any() Then
+            Hint("整合包更新曾被中断，请在版本概览中点击整合包更新，恢复后再启动。", HintType.Red)
             Return False
         End If
         FrmMain.AprilGiveup()
@@ -97,6 +105,7 @@
     Public McLaunchProcess As Process
     Public McLaunchWatcher As Watcher
     Private Sub McLaunchState(Loader As LoaderTask(Of McLaunchOptions, Object))
+        RunInUi(Sub() FrmLaunchRight?.UpdateRecentWorldVisibility())
         Select Case McLaunchLoader.State
             Case LoadState.Finished, LoadState.Failed, LoadState.Waiting, LoadState.Canceled
                 FrmLaunchLeft.PageChangeToLogin()
@@ -605,7 +614,6 @@ Relogin:
 SkipLogin:
         McLaunchLog($"微软登录结束，AccessToken 将在 {DateTimeOffset.FromUnixTimeSeconds(ExpiresAt).LocalDateTime} 过期")
         Settings.Set("HintBuy", True) '关闭正版购买提示
-        If ThemeUnlock(10, False) Then MyMsgBox("感谢你对正版游戏的支持！" & vbCrLf & "隐藏主题 跳票红 已解锁！", "提示")
     End Sub
     Private Sub McLoginServerStart(Data As LoaderTask(Of McLoginServer, McLoginResult))
         Dim Input As McLoginServer = Data.Input
@@ -1467,7 +1475,7 @@ NextInstance:
         If Settings.Get(Of Integer)("LaunchArgumentWindowType") = 0 Then Args.Add("--fullscreen")
 
         '自动进入服务器
-        Dim Server As String = If(String.IsNullOrEmpty(CurrentLaunchOptions.ServerIp), Settings.Get(Of String)("VersionServerEnter", McInstanceSelected), CurrentLaunchOptions.ServerIp)
+        Dim Server As String = If(CurrentLaunchOptions.QuickPlayWorld IsNot Nothing, "", If(String.IsNullOrEmpty(CurrentLaunchOptions.ServerIp), Settings.Get(Of String)("VersionServerEnter", McInstanceSelected), CurrentLaunchOptions.ServerIp))
         If Server.Any Then
             If McInstanceSelected.ReleaseTime > New Date(2023, 4, 4) Then
                 'QuickPlay
@@ -1487,6 +1495,7 @@ NextInstance:
             End If
         End If
 
+        CurrentLaunchOptions.QuickPlay = QuickPlayWorlds.Prepare(McInstanceSelected, CurrentLaunchOptions.QuickPlayWorld, Args, CurrentLaunchOptions.SaveBatch IsNot Nothing)
         '再次去重并输出
         Return DeduplicateJavaArguments(Args, False)
     End Function
@@ -1866,6 +1875,14 @@ NextInstance:
         Catch ex As Exception
             Logger.Error(ex, "更新 options.txt 失败", LogBehavior.Toast)
         End Try
+        If CurrentLaunchOptions.SaveBatch Is Nothing Then
+            CurrentLaunchOptions.PersonalOptions = Nothing
+            Try
+                CurrentLaunchOptions.PersonalOptions = PersonalGameSettings.Prepare(McInstanceSelected)
+            Catch ex As Exception
+                Logger.Warn(ex, "个人游戏设置同步未完成，保留现有游戏配置")
+            End Try
+        End If
 
         '离线皮肤 Alex 警告
         If McInstanceSelected.Version.Vanilla.Major <= 7 AndAlso McInstanceSelected.Version.Vanilla.Major >= 2 AndAlso '1.2 ~ 1.7
@@ -2079,6 +2096,16 @@ IgnoreCustomSkin:
 
     End Sub
     Private Sub McLaunchRun(Loader As LoaderTask(Of Integer, Process))
+        CurrentLaunchOptions.EnvironmentPoint = Nothing
+        If Not HasRunningMinecraft Then
+            Try
+                CurrentLaunchOptions.EnvironmentPoint = EnvironmentHistory.CaptureInstance(McInstanceSelected, "游戏启动前", Loader.CreateCancellationToken())
+            Catch ex As OperationCanceledException
+                Throw
+            Catch ex As Exception
+                Logger.Warn(ex, "创建环境还原点失败，本次启动不标记为可恢复环境")
+            End Try
+        End If
 
         '启动信息
         Dim StartInfo As New ProcessStartInfo(McLaunchJavaSelected.JavaExePath) '使用 javaw.exe 会导致 #6263
@@ -2158,7 +2185,36 @@ IgnoreCustomSkin:
         WindowTitle = ArgumentReplace(WindowTitle, ReplaceTime:=False)
 
         '初始化等待
-        Dim Watcher As New Watcher(Loader, McInstanceSelected, WindowTitle)
+        Dim Personal = CurrentLaunchOptions.PersonalOptions, Quick = CurrentLaunchOptions.QuickPlay
+        Dim Watcher As New Watcher(Loader, McInstanceSelected, WindowTitle,
+            Sub(Game)
+                Try
+                    PersonalGameSettings.Track(Personal, Game)
+                Catch ex As Exception
+                    Logger.Warn(ex, "记录个人设置同步会话失败")
+                End Try
+                Try
+                    QuickPlayWorlds.Track(Quick, Game)
+                Catch ex As Exception
+                    Logger.Warn(ex, "记录 Quick Play 会话失败")
+                End Try
+            End Sub,
+            Sub()
+                Try
+                    PersonalGameSettings.Finish(Personal)
+                Catch ex As Exception
+                    Logger.Warn(ex, "保存个人游戏设置失败")
+                End Try
+                Try
+                    QuickPlayWorlds.Finish(Quick)
+                Catch ex As Exception
+                    Logger.Warn(ex, "保存最近存档记录失败")
+                End Try
+                RunInUi(Sub() FrmLaunchRight?.RefreshRecentWorlds())
+                RunInUi(Sub()
+                            If TypeOf FrmMain?.PageRight Is PageInstanceKeybindings Then DirectCast(FrmMain.PageRight, PageInstanceKeybindings).RefreshBindings()
+                        End Sub)
+            End Sub, EnvironmentPoint:=CurrentLaunchOptions.EnvironmentPoint)
         McLaunchWatcher = Watcher
 
         '等待

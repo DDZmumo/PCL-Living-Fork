@@ -25,7 +25,7 @@ Public Module ModModpack
     ''' 构建并启动安装给定的整合包文件的加载器，并返回该加载器。若失败则抛出异常。
     ''' 必须在工作线程执行。
     ''' </summary>
-    Public Function ModpackInstall(File As String, Optional InstanceName As String = Nothing, Optional Logo As String = Nothing) As LoaderCombo(Of String)
+    Public Function ModpackInstall(File As String, Optional InstanceName As String = Nothing, Optional Logo As String = Nothing, Optional Source As JObject = Nothing) As LoaderCombo(Of String)
         If ModModpackMode.Enabled AndAlso Not PathUtils.IsSame(File, Paths.Base & "modpack.mrpack") AndAlso Not PathUtils.IsSame(File, Paths.Base & "modpack.zip") Then
             Hint("整合包模式下不支持导入其他整合包。请关闭整合包模式后再导入。")
             Throw New OperationCanceledException()
@@ -89,7 +89,7 @@ Public Module ModModpack
             Select Case PackType
                 Case 0
                     Logger.Info("整合包种类：CurseForge")
-                    Return InstallPackCurseForge(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
+                    Return InstallPackCurseForge(File, Archive, ArchiveBaseFolder, InstanceName, Logo, Source)
                 Case 1
                     Logger.Info("整合包种类：HMCL")
                     Return InstallPackHMCL(File, Archive, ArchiveBaseFolder)
@@ -101,7 +101,7 @@ Public Module ModModpack
                     Return InstallPackMCBBS(File, Archive, ArchiveBaseFolder, InstanceName)
                 Case 4
                     Logger.Info("整合包种类：Modrinth")
-                    Return InstallPackModrinth(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
+                    Return InstallPackModrinth(File, Archive, ArchiveBaseFolder, InstanceName, Logo, Source)
                 Case 9
                     Logger.Info("整合包种类：带启动器的压缩包")
                     Return InstallPackLauncherPack(File, Archive, ArchiveBaseFolder)
@@ -165,7 +165,7 @@ Public Module ModModpack
 
     'CurseForge
     Private Function InstallPackCurseForge(FileAddress As String, Archive As ZipArchive, ArchiveBaseFolder As String,
-                                           Optional InstanceName As String = Nothing, Optional Logo As String = Nothing) As LoaderCombo(Of String)
+                                           Optional InstanceName As String = Nothing, Optional Logo As String = Nothing, Optional Source As JObject = Nothing) As LoaderCombo(Of String)
 
         '读取 Json 文件
         Dim Json As JObject
@@ -333,6 +333,7 @@ Public Module ModModpack
                 WriteIni(VersionFolder & "PCL\Setup.ini", "LogoCustom", "True")
                 Logger.Info($"已设置整合包 Logo：{Logo}")
             End If
+            ModpackUpdate.RecordInstalled(FileAddress, VersionFolder, Source)
             '解压地图文件
             Dim SaveFolder As String = $"{VersionFolder}saves\"
             For Each MapFile In DirectoryUtils.EnumerateFiles(SaveFolder, searchPattern:="*.zip")
@@ -368,7 +369,7 @@ Public Module ModModpack
     End Function
 
     'Modrinth
-    Private Function InstallPackModrinth(FileAddress As String, Archive As ZipArchive, ArchiveBaseFolder As String, Optional InstanceName As String = Nothing, Optional Logo As String = Nothing) As LoaderCombo(Of String)
+    Private Function InstallPackModrinth(FileAddress As String, Archive As ZipArchive, ArchiveBaseFolder As String, Optional InstanceName As String = Nothing, Optional Logo As String = Nothing, Optional Source As JObject = Nothing) As LoaderCombo(Of String)
 
         Dim Isolation = ExportedVersionIsolation.ReadArchiveChoice(Archive, ArchiveBaseFolder)
         '读取 Json 文件
@@ -487,6 +488,8 @@ Public Module ModModpack
             End If
         End Sub) With {.ProgressWeight = 0.1, .Show = False})
 
+        '在原始整合包被清理前记录作者文件清单。
+        Loaders.Insert(Loaders.Count - 1, New LoaderTask(Of String, String)("记录整合包文件", Sub() ModpackUpdate.RecordInstalled(FileAddress, VersionFolder, Source)) With {.Show = False})
         '重复任务检查
         Dim LoaderName As String = $"Modrinth 整合包安装：{InstanceName} "
         If LoaderTaskbar.Any(Function(l) l.Name = LoaderName) Then

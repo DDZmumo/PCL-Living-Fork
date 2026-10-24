@@ -6,7 +6,7 @@ Public Class PageSetupModpack
         AniControlEnabled += 1
         Try
             Dim Title = CardLauncher.MainTextBlock
-            LabVersion.Text = "LivingPCL " & VersionBaseName
+            LabVersion.Text = LauncherDisplayName & " " & VersionBaseName
             SettingService.RefreshSettings(Me)
             CheckModpackMode.Checked = ModModpackMode.Enabled
             PanBack.ScrollToHome()

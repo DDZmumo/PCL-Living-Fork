@@ -349,7 +349,8 @@ GroupDone:
                 File.ToNetFile(Target, ResourceVersion.DownloadReason.Standalone, File.GameVersions.FirstOrDefault, File.ModLoaders)
             }) With {.ProgressWeight = 10, .Block = True})
             Loaders.Add(New LoaderTask(Of Integer, Integer)("准备安装整合包",
-            Sub() ModpackInstall(Target, InstanceName, If(FileUtils.Exists(LogoFileAddress), LogoFileAddress, Nothing))) With {.ProgressWeight = 0.1})
+            Sub() ModpackInstall(Target, InstanceName, If(FileUtils.Exists(LogoFileAddress), LogoFileAddress, Nothing),
+                New JObject(New JProperty("platform", Project.Platform.ToString()), New JProperty("project", Project.Id), New JProperty("version", File.Id)))) With {.ProgressWeight = 0.1})
 
             '启动
             Dim Loader As New LoaderCombo(Of String)(LoaderName, Loaders) With {.OnStateChanged =
@@ -387,6 +388,7 @@ GroupDone:
                     Case ResourceTypes.ResourcePack : Desc = "资源包"
                     Case ResourceTypes.Shader : Desc = "光影包"
                     Case ResourceTypes.DataPack : Desc = "数据包"
+                    Case ResourceTypes.Map : Desc = "地图"
                 End Select
                 '确认默认保存位置
                 Dim DefaultFolder As String = Nothing
@@ -397,6 +399,7 @@ GroupDone:
                         Case ResourceTypes.ResourcePack : SubFolder = "resourcepacks\"
                         Case ResourceTypes.Shader : SubFolder = "shaderpacks\"
                         Case ResourceTypes.DataPack : SubFolder = "" '导航到版本根目录
+                        Case ResourceTypes.Map : SubFolder = "saves\"
                     End Select
                     Dim IsInstanceSuitable As Func(Of McInstance, Boolean) = Nothing
                     '获取资源所需的加载器

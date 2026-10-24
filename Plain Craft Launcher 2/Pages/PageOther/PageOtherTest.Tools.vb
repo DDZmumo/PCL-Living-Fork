@@ -212,17 +212,13 @@ Partial Public Class PageOtherTest
         End If
         Try
             If ShowHint Then Hint("正在进行内存优化……")
-            Dim Released As Long
-            If WindowsUtils.HasAdminRole() Then
-                Dim Before = CLng(My.Computer.Info.AvailablePhysicalMemory)
-                MemoryOptimizeInternal(ShowHint)
-                Released = Math.Max(0L, CLng(My.Computer.Info.AvailablePhysicalMemory) - Before)
-            Else
-                Dim ExitCode = RunAsAdmin("--memory")
-                If ExitCode < 0 Then Return
-                Released = CLng(ExitCode) * 1024L
-            End If
+            Dim Released As Long = MemoryOptimizationOperation.Execute(WindowsUtils.HasAdminRole(),
+                Function() CLng(My.Computer.Info.AvailablePhysicalMemory),
+                Sub() MemoryOptimizeInternal(ShowHint), Function() RunAsAdmin("--memory"))
             If ShowHint Then Hint($"内存优化完成，目前可用 {StringUtils.FormatByteSize(CLng(My.Computer.Info.AvailablePhysicalMemory))}，增加约 {StringUtils.FormatByteSize(Released)}。", HintType.Green)
+        Catch ex As OperationCanceledException
+            If ShowHint Then Hint("已取消内存优化。")
+            Logger.Info("用户取消了内存优化的管理员授权。")
         Catch ex As Exception
             If ShowHint Then
                 Logger.Warn(ex, "内存优化未完成", LogBehavior.Toast)

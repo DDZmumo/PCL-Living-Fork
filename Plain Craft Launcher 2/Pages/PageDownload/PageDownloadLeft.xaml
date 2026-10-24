@@ -1,4 +1,4 @@
-<local:MyPageLeft x:Class="PageDownloadLeft"
+﻿<local:MyPageLeft x:Class="PageDownloadLeft"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PCL" AnimatedControl="PanItem">
@@ -30,6 +30,7 @@
                     </x:Array>
                 </local:MyListItem.Buttons>
             </local:MyListItem>
+            <local:MyListItem x:Name="ItemMap" Type="RadioBox" IsScaleAnimationEnabled="False" Tag="7" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="地图" LogoScale="0.95" Logo="F0 M12 0A12 12 0 1 0 12 24A12 12 0 1 0 12 0 M12 2A10 10 0 1 1 12 22A10 10 0 1 1 12 2 M0 11H24V13H0Z M11 0H13V24H11Z M4 5H20V7H4Z M4 17H20V19H4Z" />
             <local:MyListItem x:Name="ItemDataPack" Type="RadioBox" IsScaleAnimationEnabled="False" Tag="4" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="数据包"
                   LogoScale="0.96" Logo="M445 545c18 0 33 14 33 33v149a182 182 0 1 1-182-182z m282 0a182 182 0 1 1-182 182v-149c0-18 14-33 33-33zM412 611H296a116 116 0 1 0 116 116V611z m315 0H611v116a116 116 0 1 0 116-116zM296 113a182 182 0 0 1 182 182v149a33 33 0 0 1-33 33H296a182 182 0 0 1 0-365z m431 0a182 182 0 0 1 0 365h-149a33 33 0 0 1-33-33V296A182 182 0 0 1 727 113zM296 180a116 116 0 0 0 0 232H412V296c0-62-48-112-109-115z m431 0a116 116 0 0 0-116 116V412h116c62 0 112-48 115-109l0-6a116 116 0 0 0-116-116z">
                 <local:MyListItem.Buttons>

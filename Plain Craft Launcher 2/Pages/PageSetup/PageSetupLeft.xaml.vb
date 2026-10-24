@@ -77,6 +77,9 @@ Public Class PageSetupLeft
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
         ID = ModModpackMode.NormalizeSetupPage(ID)
+#If Not LEGACY_LINK Then
+        If ID = FormMain.PageSubType.SetupLink Then ID = FormMain.PageSubType.SetupLaunch
+#End If
         Select Case ID
             Case FormMain.PageSubType.SetupLaunch
                 If FrmSetupLaunch Is Nothing Then FrmSetupLaunch = New PageSetupLaunch
@@ -84,9 +87,11 @@ Public Class PageSetupLeft
             Case FormMain.PageSubType.SetupUI
                 If FrmSetupUI Is Nothing Then FrmSetupUI = New PageSetupUI
                 Return FrmSetupUI
+#If LEGACY_LINK Then
             Case FormMain.PageSubType.SetupLink
                 If FrmSetupLink Is Nothing Then FrmSetupLink = New PageSetupLink
                 Return FrmSetupLink
+#End If
             Case FormMain.PageSubType.SetupSystem
                 Return ModModpackMode.LauncherSettingsPage()
             Case Else
@@ -99,6 +104,9 @@ Public Class PageSetupLeft
     ''' </summary>
     Public Sub PageChange(ID As FormMain.PageSubType, Optional Force As Boolean = False)
         ID = ModModpackMode.NormalizeSetupPage(ID)
+#If Not LEGACY_LINK Then
+        If ID = FormMain.PageSubType.SetupLink Then ID = FormMain.PageSubType.SetupLaunch
+#End If
         If PageID = ID AndAlso Not Force Then Return
         AniControlEnabled += 1
         IsPageSwitched = True
@@ -157,11 +165,13 @@ Public Class PageSetupLeft
                     ItemSystem.Checked = True
                 End If
             Case FormMain.PageSubType.SetupLink
+#If LEGACY_LINK Then
                 If MyMsgBox("是否要初始化 联机 页面的所有设置？该操作不可撤销。", "初始化确认",, "取消", IsWarn:=True) = 1 Then
                     If IsNothing(FrmSetupLink) Then FrmSetupLink = New PageSetupLink
                     FrmSetupLink.Reset()
                     ItemLink.Checked = True
                 End If
+#End If
         End Select
     End Sub
 

@@ -82,6 +82,8 @@ Public Class ResourceSearcher
                     Address += "&classId=6552"
                 Case ResourceTypes.ResourcePack
                     Address += "&classId=12"
+                Case ResourceTypes.Map
+                    Address += "&classId=17"
             End Select
             If Tag <> "" Then Address += "&categoryId=" & Tag.BeforeFirst("/")
             If ModLoaders <> ModLoaders.None AndAlso Not IgnoreModLoaderFilter Then Address += "&modLoaderType=" & Resource.ToCurseForgeModLoaderType(ModLoaders.Flags.First)

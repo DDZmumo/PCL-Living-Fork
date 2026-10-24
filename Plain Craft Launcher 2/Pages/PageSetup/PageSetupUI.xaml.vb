@@ -18,8 +18,6 @@ Public Class PageSetupUI
     Public Sub Refresh()
         Try
             SettingService.RefreshSettings(Me)
-            CheckLauncherCustomTheme.Checked = Settings.Get(Of Integer)("UiLauncherTheme") = 14
-            RefreshCustomThemeControls()
             BackgroundRefresh(False, False)
 
             '标题栏
@@ -328,24 +326,6 @@ Refresh:
         End If
     End Sub
 
-    '保留旧自定义主题编号，兼容已有参数；界面只提供默认/自定义复选框。
-    Private Sub CheckLauncherCustomTheme_Change(sender As Object, user As Boolean) Handles CheckLauncherCustomTheme.Change
-        If user AndAlso AniControlEnabled = 0 Then Settings.Set("UiLauncherTheme", If(CheckLauncherCustomTheme.Checked, 14, 0))
-        RefreshCustomThemeControls()
-    End Sub
-    Private Sub RefreshCustomThemeControls()
-        Dim State = If(CheckLauncherCustomTheme.Checked, Visibility.Visible, Visibility.Collapsed)
-        For Each Control As FrameworkElement In {LabLauncherHue, SliderLauncherHue, LabLauncherSat, SliderLauncherSat,
-                                               LabLauncherDelta, SliderLauncherDelta, LabLauncherLight, SliderLauncherLight}
-            Control.Visibility = State
-        Next
-        CardLauncher.TriggerForceResize()
-    End Sub
-    Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change, SliderLauncherDelta.Change
-        If AniControlEnabled <> 0 OrElse SliderLauncherSat Is Nothing OrElse Not SliderLauncherSat.IsLoaded Then Return
-        ThemeRefresh()
-    End Sub
-
 #Region "功能隐藏"
 
     Private Shared _HiddenForceShow As Boolean = False
@@ -505,28 +485,6 @@ Refresh:
     Private Sub SliderLoad()
         SliderMusicVolume.GetHintText = Function(v) Math.Ceiling(v * 0.1) & "%"
         SliderLauncherTransparent.GetHintText = Function(v) Math.Round(40 + v * 0.1) & "%"
-        SliderLauncherHue.GetHintText = Function(v) v & "°"
-        SliderLauncherSat.GetHintText = Function(v) v & "%"
-        SliderLauncherDelta.GetHintText =
-        Function(Value As Integer) As String
-            If Value > 90 Then
-                Return "+" & (Value - 90)
-            ElseIf Value = 90 Then
-                Return 0
-            Else
-                Return Value - 90
-            End If
-        End Function
-        SliderLauncherLight.GetHintText =
-        Function(Value As Integer) As String
-            If Value > 20 Then
-                Return "+" & (Value - 20)
-            ElseIf Value = 20 Then
-                Return 0
-            Else
-                Return Value - 20
-            End If
-        End Function
         SliderBackgroundOpacity.GetHintText = Function(v) Math.Round(v * 0.1) & "%"
         SliderBackgroundBlur.GetHintText = Function(v) v & " 像素"
     End Sub

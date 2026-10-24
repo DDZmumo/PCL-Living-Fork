@@ -1725,6 +1725,8 @@ Retry:
         ''' 是否为中间产物。
         ''' </summary>
         Public IsIntermediateOutput As Boolean = False
+        '独立更新任务明确绑定游戏根目录，避免期间切换文件夹影响支持库落点。
+        Public MinecraftFolder As String = Nothing
     End Class
 
     ''' <summary>
@@ -1832,7 +1834,7 @@ Retry:
                 .ProgressWeight = 2, .Show = False, .Block = True})
         End If
         '合并安装
-        Dim MinecraftFolder = McFolderSelected
+        Dim MinecraftFolder = If(Request.MinecraftFolder, McFolderSelected)
         Dim TargetFolder As String = Nothing
         LoaderList.Add(New LoaderTask(Of String, String)("安装游戏",
         Sub(Task As LoaderTask(Of String, String))
@@ -2065,6 +2067,7 @@ Retry:
     ''' 将安装好的临时版本文件夹覆盖到一个现有文件夹中。
     ''' </summary>
     Public Sub McInstallCommit(Instance As McInstance, NewManifest As McInstallManifest, BuildFolder As String, TargetFolder As String)
+        EnvironmentHistory.CaptureInstance(Instance, "修改游戏组件前", CancellationToken.None)
         Dim OldFiles = If(Configs.McInstallManifest.Get(Instance.Config)?.ManagedFiles, {})
         Dim NewFiles = NewManifest.ManagedFiles
 

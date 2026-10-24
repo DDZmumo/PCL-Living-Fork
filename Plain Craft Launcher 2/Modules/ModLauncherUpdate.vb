@@ -2,8 +2,9 @@ Imports System.Reflection
 Imports System.Security.Cryptography
 
 Public Module ModLauncherUpdate
-    Private Const Repository As String = "DDZmumo/LivingPCL2-Re"
-    Private Const ReleasePage As String = "https://github.com/" & Repository & "/releases/latest"
+    Private Const Repository As String = LauncherRepository
+    Private Const CompatibilityRepository As String = "DDZmumo/LivingPCL2-Re"
+    Private Const ReleasePage As String = LauncherReleasesUrl & "/latest"
     Private CheckRunning As Integer
 
     Friend Function NewerRelease(Tag As String, Current As String) As Boolean
@@ -17,7 +18,8 @@ Public Module ModLauncherUpdate
     Friend Function ValidAssetUrl(Value As String) As Boolean
         Dim Url As Uri = Nothing
         Return Uri.TryCreate(Value, UriKind.Absolute, Url) AndAlso Url.Scheme = "https" AndAlso Url.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) AndAlso
-            Url.AbsolutePath.StartsWith("/" & Repository & "/releases/download/", StringComparison.OrdinalIgnoreCase) AndAlso Url.UserInfo = "" AndAlso Url.IsDefaultPort
+            (Url.AbsolutePath.StartsWith("/" & Repository & "/releases/download/", StringComparison.OrdinalIgnoreCase) OrElse
+             Url.AbsolutePath.StartsWith("/" & CompatibilityRepository & "/releases/download/", StringComparison.OrdinalIgnoreCase)) AndAlso Url.UserInfo = "" AndAlso Url.IsDefaultPort
     End Function
 
     Friend Function ShouldPromptForUpdate(Tag As String, Current As String, IgnoredTag As String) As Boolean
@@ -33,10 +35,12 @@ Public Module ModLauncherUpdate
     Friend Function ReleaseExecutable(Info As JObject) As JObject
         Dim Assets = TryCast(Info("assets"), JArray)
         If Assets Is Nothing Then Throw New Exception("发布中没有下载附件。")
-        Dim Candidates = Assets.OfType(Of JObject)().Where(Function(Asset)
+        Dim Executables = Assets.OfType(Of JObject)().Where(Function(Asset)
             Dim Name = Asset("name")?.ToString()
-            Return Name IsNot Nothing AndAlso Name.StartsWith("LivingPCL2-Re-", StringComparison.OrdinalIgnoreCase) AndAlso Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            Return Name IsNot Nothing AndAlso Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
         End Function).ToList()
+        Dim Candidates = Executables.Where(Function(Asset) Asset("name").ToString().StartsWith("PCL-Living-Fork-", StringComparison.OrdinalIgnoreCase)).ToList()
+        If Candidates.Count = 0 Then Candidates = Executables.Where(Function(Asset) Asset("name").ToString().StartsWith("LivingPCL2-Re-", StringComparison.OrdinalIgnoreCase)).ToList()
         If Candidates.Count <> 1 Then Throw New Exception("无法确定本版本的启动器 EXE。")
         If Not ValidAssetUrl(Candidates(0)("browser_download_url")?.ToString()) Then Throw New Exception("下载地址不属于本项目。")
         Return Candidates(0)
@@ -55,7 +59,7 @@ Public Module ModLauncherUpdate
             If Not Startup Then Hint("正在检查更新，请稍候……")
             Return
         End If
-        If Not Startup Then Hint("正在检查 LivingPCL 的 GitHub Releases……")
+        If Not Startup Then Hint("正在检查 PCL Living Fork 的 GitHub Releases……")
         RunInNewThread(Sub()
             Try
                 Dim Info As JObject = NetRequestByClientRetry("https://api.github.com/repos/" & Repository & "/releases/latest", Accept:="application/vnd.github+json", RequireJson:=True).DeserializeJson()
@@ -64,12 +68,12 @@ Public Module ModLauncherUpdate
                 If String.IsNullOrWhiteSpace(Tag) OrElse Not System.Version.TryParse(Tag.TrimStart("v"c, "V"c), ParsedVersion) Then Throw New Exception("发布标签不是可识别的版本号。")
                 If CBool(If(Info("draft"), False)) OrElse CBool(If(Info("prerelease"), False)) Then Return
                 If Not NewerRelease(Tag, VersionBaseName) Then
-                    If Not Startup Then MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}当前没有更新的正式版本。", "LivingPCL 更新")
+                    If Not Startup Then MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}当前没有更新的正式版本。", "PCL Living Fork 更新")
                     Return
                 End If
                 Dim IgnoredTag = Settings.Get(Of String)("ToolLauncherUpdateIgnoredTag")
                 If Startup AndAlso Not ShouldPromptForUpdate(Tag, VersionBaseName, IgnoredTag) Then Return
-                Dim Choice = MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}下载并校验更新后，启动器将自动替换并重新启动。", "发现 LivingPCL 新版本", "下载并更新", "暂不更新")
+                Dim Choice = MyMsgBox($"当前版本：{VersionBaseName}{vbCrLf}最新正式版：{Tag}{vbCrLf}{vbCrLf}下载并校验更新后，启动器将自动替换并重新启动。", "发现 PCL Living Fork 新版本", "下载并更新", "暂不更新")
                 If Choice = 1 Then
                     Settings.Set("ToolLauncherUpdateIgnoredTag", IgnoreTagAfterChoice(IgnoredTag, Tag, Choice))
                     DownloadAndUpdate(Info)
@@ -85,7 +89,7 @@ Public Module ModLauncherUpdate
             Finally
                 Interlocked.Exchange(CheckRunning, 0)
             End Try
-        End Sub, "LivingPCL 更新检查", ThreadPriority.BelowNormal)
+        End Sub, "PCL Living Fork 更新检查", ThreadPriority.BelowNormal)
     End Sub
 
     Private Sub DownloadAndUpdate(Info As JObject)
@@ -97,8 +101,8 @@ Public Module ModLauncherUpdate
             Dim ExpectedHash = ManifestHash(Manifest, Asset("name").ToString())
             Dim Folder = System.IO.Path.Combine(Paths.Base, "PCL", "Updates")
             Directory.CreateDirectory(Folder)
-            Dim Staged = System.IO.Path.Combine(Folder, "LivingPCL.exe")
-            Hint("正在下载 LivingPCL 更新……")
+            Dim Staged = System.IO.Path.Combine(Folder, "PCL Living Fork.exe")
+            Hint("正在下载 PCL Living Fork 更新……")
             NetDownloadByLoader(Asset("browser_download_url").ToString(), Staged, Check:=New FileChecker With {.Hash = ExpectedHash, .ActualSize = CLng(Asset("size"))})
             ValidateExecutable(Staged, ExpectedHash)
             If HasDownloadingTask() Then Throw New Exception("仍有下载任务正在进行。请等待任务结束后重试更新。")
@@ -114,7 +118,7 @@ Public Module ModLauncherUpdate
     End Sub
 
     Private Sub UpdateFailure(Reason As String)
-        If MyMsgBox("更新未完成，现有启动器已保留。" & vbCrLf & vbCrLf & Reason, "LivingPCL 更新失败", "打开发布页", "取消", IsWarn:=True) = 1 Then OpenWebsite(ReleasePage)
+        If MyMsgBox("更新未完成，现有启动器已保留。" & vbCrLf & vbCrLf & Reason, "PCL Living Fork 更新失败", "打开发布页", "取消", IsWarn:=True) = 1 Then OpenWebsite(ReleasePage)
     End Sub
 
     Friend Sub ValidateExecutable(FileName As String, ExpectedHash As String)
@@ -123,14 +127,14 @@ Public Module ModLauncherUpdate
             Dim Actual = BitConverter.ToString(Hash.ComputeHash(Stream)).Replace("-", "")
             If Not Actual.Equals(ExpectedHash, StringComparison.OrdinalIgnoreCase) Then Throw New Exception("更新文件 SHA256 校验失败。")
         End Using
-        If Not IsLivingExecutable(FileName) Then Throw New Exception("更新文件不是 LivingPCL 启动器。")
+        If Not IsLivingExecutable(FileName) Then Throw New Exception("更新文件不是 PCL Living Fork 启动器。")
     End Sub
 
     '兼容新旧构建的程序集名称，且产品信息须属于 LivingPCL，避免覆盖官方程序。
     Friend Function IsLivingExecutable(FileName As String) As Boolean
         Dim Identity = AssemblyName.GetAssemblyName(FileName).Name
         Return (Identity = "LivingPCL" OrElse Identity = "Plain Craft Launcher 2") AndAlso
-            FileVersionInfo.GetVersionInfo(FileName).ProductName = "LivingPCL"
+            {"LivingPCL", LauncherDisplayName}.Contains(FileVersionInfo.GetVersionInfo(FileName).ProductName, StringComparer.Ordinal)
     End Function
 
     '沿用官方 PCL 的流程：运行已下载的新 EXE，由新进程替换退出后的旧 EXE。
@@ -140,7 +144,7 @@ Public Module ModLauncherUpdate
         Dim Backup = Target & ".update-backup-" & Guid.NewGuid().ToString("N")
         Dim Replaced As Boolean = False
         Dim HadTarget = System.IO.File.Exists(Target)
-        If HadTarget AndAlso Not IsLivingExecutable(Target) Then Throw New Exception("更新目标不是 LivingPCL 启动器。")
+        If HadTarget AndAlso Not IsLivingExecutable(Target) Then Throw New Exception("更新目标不是 PCL Living Fork 启动器。")
         Try
             System.IO.File.Copy(Staged, Temporary)
             ValidateExecutable(Temporary, ExpectedHash)
@@ -196,7 +200,7 @@ Public Module ModLauncherUpdate
             End If
             ReplaceExecutable(Staged, Target, Arguments(3), True)
         Catch ex As Exception
-            If MessageBox.Show("自动更新未完成，请从发布页手动更新。" & vbCrLf & ex.Message, "LivingPCL 更新失败", MessageBoxButton.YesNo, MessageBoxImage.Warning) = MessageBoxResult.Yes Then
+            If MessageBox.Show("自动更新未完成，请从发布页手动更新。" & vbCrLf & ex.Message, "PCL Living Fork 更新失败", MessageBoxButton.YesNo, MessageBoxImage.Warning) = MessageBoxResult.Yes Then
                 Process.Start(New ProcessStartInfo(ReleasePage) With {.UseShellExecute = True})
             End If
         End Try

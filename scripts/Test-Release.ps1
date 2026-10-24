@@ -68,8 +68,16 @@ foreach($case in @(@('v1.0.1','1.0.0',$true),@('v1.0.1.0','1.0.1',$false),@('v0.
 }
 $valid=$updater.GetMethod('ValidAssetUrl',$flags)
 if(-not $valid.Invoke($null,@('https://github.com/DDZmumo/LivingPCL2-Re/releases/download/v1.0.1/LivingPCL2-Re-1.0.1.exe'))) { throw 'Own release URL rejected' }
+if(-not $valid.Invoke($null,@('https://github.com/DDZmumo/PCL-Living-Fork/releases/download/v1.2.0/PCL-Living-Fork-1.2.0.exe'))) { throw 'Renamed repository release URL rejected' }
 foreach($url in @('http://github.com/DDZmumo/LivingPCL2-Re/releases/download/v1.0.1/a.exe','https://github.com/Other/PCL/releases/download/v1.0.1/a.exe','https://example.com/a.exe','https://github.com/DDZmumo/LivingPCL2-Re-other/releases/download/a.exe')) {
  if($valid.Invoke($null,@($url))) { throw 'Untrusted release URL accepted' }
+}
+$oldAsset=@{name='LivingPCL2-Re-1.2.0.exe';browser_download_url='https://github.com/DDZmumo/LivingPCL2-Re/releases/download/v1.2.0/LivingPCL2-Re-1.2.0.exe'}
+$newAsset=@{name='PCL-Living-Fork-1.2.0.exe';browser_download_url='https://github.com/DDZmumo/PCL-Living-Fork/releases/download/v1.2.0/PCL-Living-Fork-1.2.0.exe'}
+foreach($case in @(@{assets=@($oldAsset);expected=$oldAsset.name},@{assets=@($oldAsset,$newAsset);expected=$newAsset.name})){
+ $info=[Newtonsoft.Json.Linq.JObject]::Parse((@{assets=$case.assets}|ConvertTo-Json -Depth 5))
+ $selected=$updater.GetMethod('ReleaseExecutable',$flags).Invoke($null,[object[]](,$info))
+ if($selected['name'].ToString() -cne $case.expected){throw 'Updater chose the wrong renamed/legacy release asset'}
 }
 $hash=[string](Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256).Hash
 $manifest=$hash.ToLowerInvariant()+'  LivingPCL2-Re-1.0.1.exe'

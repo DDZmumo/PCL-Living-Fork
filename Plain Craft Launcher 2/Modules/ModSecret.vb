@@ -33,9 +33,9 @@ Friend Module ModSecret
             If Url.Contains("baidupcs.com") OrElse Url.Contains("baidu.com") Then
                 Req.Headers.Add("User-Agent", "LogStatistic")  '#4951
             ElseIf SimulateBrowserHeaders Then
-                Req.Headers.Add("User-Agent", $"LivingPCL/{VersionBaseName}.{CInt(BuildType)} Mozilla/5.0 AppleWebKit/537.36 Chrome/63.0.3239.132 Safari/537.36")
+                Req.Headers.Add("User-Agent", $"PCL-Living-Fork/{VersionBaseName}.{CInt(BuildType)} Mozilla/5.0 AppleWebKit/537.36 Chrome/63.0.3239.132 Safari/537.36")
             Else
-                Req.Headers.Add("User-Agent", $"LivingPCL/{VersionBaseName}.{CInt(BuildType)}")
+                Req.Headers.Add("User-Agent", $"PCL-Living-Fork/{VersionBaseName}.{CInt(BuildType)}")
             End If
         End If
         If Not SimulateBrowserHeaders Then Req.Headers.Add("Referer", $"http://{VersionCode}.open.pcl2.server/")
@@ -49,7 +49,7 @@ Friend Module ModSecret
 
 #Region "主题"
 
-    '默认外观取自当前使用的配色，关闭自定义主题后固定回到这组参数。
+    '固定默认外观；旧自定义主题配置保留存储，不在本版本启用调色。
     Public Const DefaultThemeHue As Integer = 225
     Public Const DefaultThemeSat As Integer = 100
     Public Const DefaultThemeDelta As Integer = 115
@@ -76,25 +76,14 @@ Friend Module ModSecret
     Public ColorGray8 As New MyColor(245, 245, 245)
     Public ColorSemiTransparent As New MyColor(1, Color8)
 
-    Public ThemeNow As Integer = -1
     Public ColorHue As Integer = DefaultThemeHue, ColorSat As Integer = DefaultThemeSat, ColorLightAdjust As Integer = DefaultThemeLight - 20, ColorHueTopbarDelta As OneOf(Of Integer, Integer()) = DefaultThemeDelta - 90
-    Public ThemeDontClick As Integer = 0
 
     Public Sub ThemeRefresh(Optional NewTheme As Integer = -1)
         Try
-            Dim SelectedTheme = If(NewTheme >= 0, NewTheme, Settings.Get(Of Integer)("UiLauncherTheme"))
-            ThemeNow = If(SelectedTheme = 14, 14, 0)
-            If ThemeNow = 14 Then
-                ColorHue = Math.Max(0, Math.Min(360, Settings.Get(Of Integer)("UiLauncherHue")))
-                ColorSat = Math.Max(0, Math.Min(100, Settings.Get(Of Integer)("UiLauncherSat")))
-                ColorLightAdjust = Math.Max(0, Math.Min(40, Settings.Get(Of Integer)("UiLauncherLight"))) - 20
-                ColorHueTopbarDelta = Math.Max(0, Math.Min(180, Settings.Get(Of Integer)("UiLauncherDelta"))) - 90
-            Else
-                ColorHue = DefaultThemeHue
-                ColorSat = DefaultThemeSat
-                ColorLightAdjust = DefaultThemeLight - 20
-                ColorHueTopbarDelta = DefaultThemeDelta - 90
-            End If
+            ColorHue = DefaultThemeHue
+            ColorSat = DefaultThemeSat
+            ColorLightAdjust = DefaultThemeLight - 20
+            ColorHueTopbarDelta = DefaultThemeDelta - 90
 
             Color1 = New MyColor().FromHSL2(ColorHue, ColorSat * 0.2, 25 + ColorLightAdjust * 0.3)
             Color2 = New MyColor().FromHSL2(ColorHue, ColorSat, 45 + ColorLightAdjust)
@@ -158,14 +147,6 @@ Friend Module ModSecret
             FrmMain.PanForm.Background.Freeze()
         End Sub)
     End Sub
-    Friend Sub ThemeCheckAll(EffectSetup As Boolean)
-    End Sub
-    Friend Function ThemeCheckOne(Id As Integer) As Boolean
-        Return True
-    End Function
-    Friend Function ThemeUnlock(Id As Integer, Optional ShowDoubleHint As Boolean = True, Optional UnlockHint As String = Nothing) As Boolean
-        Return False
-    End Function
 
 #End Region
 
@@ -175,17 +156,10 @@ Friend Module ModSecret
         ModLauncherUpdate.CheckForUpdates(False)
     End Sub
 
-    ''' <summary>
-    ''' 确保 PathTemp/Latest.exe 是最新正式版的 PCL，它会被用于整合包打包。
-    ''' 如果不是，则下载一个。
-    ''' </summary>
-    Friend Sub DownloadLatestPCL(Optional LoaderToSyncProgress As LoaderBase = Nothing)
-        '注意：如果要自行实现这个功能，请换用另一个文件路径，以免与官方版本冲突
-    End Sub
-
 #End Region
 
-#Region "联网配置"
+#If LEGACY_LINK Then
+#Region "旧联机配置预留"
 
     ''' <summary>
     ''' 联网获取的配置信息。
@@ -197,19 +171,9 @@ Friend Module ModSecret
         {.ReloadTimeout = 1000 * 60 * 60} '超时 1 小时
 
 #End Region
+#End If
 
-#Region "赞助等级"
-
-    Public ReadOnly Property CurrentRank As DonationRank
-        Get
-            Return DonationRank.None
-        End Get
-    End Property
-
-    Public Sub InputPotatoCode(IsUpdating As Boolean)
-    End Sub
-    Friend Sub GeneratePotatoCode()
-    End Sub
+#Region "兼容设备标识"
 
     ''' <summary>
     ''' 获取设备识别码。

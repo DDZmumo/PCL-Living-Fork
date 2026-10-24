@@ -1,4 +1,4 @@
-<local:MyPageRight
+﻿<local:MyPageRight
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -7,6 +7,19 @@
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel x:Name="PanMain" Margin="25,25,25,10">
+            <local:MyCard Margin="0,0,0,15" Title="个人游戏设置同步">
+                <StackPanel Margin="25,40,25,18">
+                    <local:MyCheckBox x:Name="CheckPersonalOptionsSync" Text="同步个人游戏设置" Height="22" Margin="0,0,0,10" ToolTip="只同步选中的个人设置，保留整合包的其他配置。可在版本设置中单独关闭。" />
+                    <WrapPanel>
+                        <local:MyCheckBox Text="原版按键" local:SettingService.Key="LaunchPersonalOptionsKeys" Margin="0,0,18,8" />
+                        <local:MyCheckBox Text="鼠标" local:SettingService.Key="LaunchPersonalOptionsMouse" Margin="0,0,18,8" />
+                        <local:MyCheckBox Text="视野与视角效果" local:SettingService.Key="LaunchPersonalOptionsView" Margin="0,0,18,8" />
+                        <local:MyCheckBox Text="字幕等辅助功能" local:SettingService.Key="LaunchPersonalOptionsAccessibility" Margin="0,0,18,8" />
+                        <local:MyCheckBox Text="音量" local:SettingService.Key="LaunchPersonalOptionsAudio" Margin="0,0,18,8" />
+                    </WrapPanel>
+                    <local:MyButton x:Name="BtnImportPersonalOptions" Text="从当前版本导入个人设置" Height="35" Padding="16,0" HorizontalAlignment="Left" Margin="0,5,0,0" />
+                </StackPanel>
+            </local:MyCard>
             <local:MyCard x:Name="CardArgument" Margin="0,0,0,15" Title="启动选项">
                 <StackPanel Margin="25,40,25,25">
                     <Grid>

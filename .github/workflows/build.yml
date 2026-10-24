@@ -1,4 +1,4 @@
-name: Build
+﻿name: Build
 on:
   push:
     paths:
@@ -74,50 +74,79 @@ jobs:
       env:
         PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
         PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-      run: powershell -NoProfile -File scripts/Test-BuildCredentials.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -File scripts/Test-BuildCredentials.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify account migration and updater
-      run: powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-Release.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify cancelled version scanning
-      run: powershell -NoProfile -STA -File scripts/Test-VersionListCancellation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-VersionListCancellation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify audit regressions
-      run: powershell -NoProfile -STA -File scripts/Test-AuditFixes.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-AuditFixes.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify launcher window activation
-      run: powershell -NoProfile -STA -File scripts/Test-LauncherActivation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-LauncherActivation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify toolbox operations
-      run: powershell -NoProfile -File scripts/Test-Toolbox.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -File scripts/Test-Toolbox.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify memory helper permissions
+      run: powershell -NoProfile -File scripts/Test-ToolboxMemory.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify native game resource management
+      run: powershell -NoProfile -STA -File scripts/Test-InstanceResources.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify resource update compatibility and replacement
+      run: powershell -NoProfile -STA -File scripts/Test-ResourceUpdates.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify personal game settings and Quick Play
+      run: powershell -NoProfile -STA -File scripts/Test-LocalGameFeatures.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify first-run keybindings and Mojang Quick Play records
+      run: powershell -NoProfile -STA -File scripts/Test-GameFeatureRegressions.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify modpack updates and personal changes
+      run: powershell -NoProfile -STA -File scripts/Test-ModpackUpdate.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify environment restore points
+      run: powershell -NoProfile -STA -File scripts/Test-EnvironmentHistory.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify recent-world card animation and launch sequencing
+      run: powershell -NoProfile -STA -File scripts/Test-RecentWorldCard.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify custom download saves
-      run: powershell -NoProfile -File scripts/Test-ToolboxDownload.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -File scripts/Test-ToolboxDownload.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify modpack mode
-      run: powershell -NoProfile -STA -File scripts/Test-ModpackMode.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-ModpackMode.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify modpack folder isolation
       run: powershell -NoProfile -File scripts/Test-ModpackFolderScope.ps1
 
     - name: Verify shared version icons
-      run: powershell -NoProfile -STA -File scripts/Test-IconCompatibility.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-IconCompatibility.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify complete overview component loading
-      run: powershell -NoProfile -STA -File scripts/Test-InstalledComponentLoading.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-InstalledComponentLoading.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify exported version isolation
-      run: powershell -NoProfile -STA -File scripts/Test-ExportVersionIsolation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe"
+      run: powershell -NoProfile -STA -File scripts/Test-ExportVersionIsolation.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
-    - name: Verify published legacy updater compatibility
-      run: |
-        $legacy = Join-Path $env:RUNNER_TEMP 'LivingPCL-1.0.3.exe'
-        Invoke-WebRequest -Uri 'https://github.com/DDZmumo/LivingPCL2-Re/releases/download/v1.0.3/LivingPCL2-Re-1.0.3.exe' -OutFile $legacy
-        if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ne '371D47DE8CC5C37BBDE615A8C0919A4EB98D2748C334698B2A20654675CA0CC0') { throw 'Legacy release checksum mismatch' }
-        powershell -NoProfile -File scripts/Test-LegacyUpdater.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\LivingPCL.exe" -LegacyExecutablePath $legacy
+    - name: Build legacy update bridge
+      run: ./scripts/Build-UpdateBridge.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe" -OutputPath "Plain Craft Launcher 2\bin\legacy-update\LivingPCL.exe"
+
+    - name: Verify update bridge handoff
+      run: powershell -NoProfile -File scripts/Test-UpdateBridge.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
       with:
-        name: LivingPCL ${{ matrix.configuration }} ${{ env.describe }}
-        path: Plain Craft Launcher 2\bin\LivingPCL.exe
+        name: PCL-Living-Fork ${{ matrix.configuration }} ${{ env.describe }}
+        path: Plain Craft Launcher 2\bin\PCL Living Fork.exe
+
+    - name: Upload legacy update bridge
+      uses: actions/upload-artifact@v7
+      with:
+        name: LivingPCL-legacy-update ${{ matrix.configuration }} ${{ env.describe }}
+        path: Plain Craft Launcher 2\bin\legacy-update\LivingPCL.exe

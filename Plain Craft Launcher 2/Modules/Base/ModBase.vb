@@ -7,7 +7,12 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "1.1.2" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
+    Public Const VersionBaseName As String = "1.2.0" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
+    Public Const LauncherDisplayName As String = "PCL Living Fork"
+    Public Const LauncherRepository As String = "DDZmumo/PCL-Living-Fork"
+    Public Const LauncherRepositoryUrl As String = "https://github.com/" & LauncherRepository
+    Public Const LauncherIssuesUrl As String = LauncherRepositoryUrl & "/issues"
+    Public Const LauncherReleasesUrl As String = LauncherRepositoryUrl & "/releases"
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版

@@ -374,7 +374,9 @@ EndHint:
     Public FrmSpeedRight As PageSpeedRight
 
     '联机页面声明
+#If LEGACY_LINK Then
     Public FrmLinkMain As PageLinkMain
+#End If
 
     '下载页面声明
     Public FrmDownloadLeft As PageDownloadLeft
@@ -390,7 +392,9 @@ EndHint:
     Public FrmSetupLaunch As PageSetupLaunch
     Public FrmSetupUI As PageSetupUI
     Public FrmSetupSystem As PageSetupSystem
+#If LEGACY_LINK Then
     Public FrmSetupLink As PageSetupLink
+#End If
 
     '其他页面声明
     Public FrmOtherLeft As PageOtherLeft
@@ -967,7 +971,7 @@ NextFile:
         If ForceOpenLog OrElse (ShowMsgbox AndAlso MyMsgBox("若你在汇报一个 Bug，请点击 打开文件夹 按钮，并上传 Log(1~5).txt 中包含错误信息的文件。" & vbCrLf & "游戏崩溃一般与启动器无关，请不要因为游戏崩溃而提交反馈。", "反馈提交提醒", "打开文件夹", "不需要") = 1) Then
             OpenExplorer(Paths.Base & "PCL\Log1.txt")
         End If
-        OpenWebsite("https://github.com/Meloong-Git/PCL/issues/")
+        OpenWebsite(LauncherIssuesUrl)
     End Sub
     ''' <summary>
     ''' 在日志中输出系统诊断信息。
@@ -986,7 +990,6 @@ NextFile:
 #End Region
 
     Public DragControl = Nothing
-    Private Timer4Count As Integer = 0
     Private Timer150Count As Integer = 0
     Private Sub TimerMain()
         Try
@@ -995,22 +998,10 @@ NextFile:
             MyMsgBoxTick()
             FrmMain.DragTick()
             LoaderTaskbarProgressRefresh()
-            If ThemeDontClick = 2 Then ThemeRefresh()
 #End Region
         Catch ex As Exception
             Logger.Error(ex, "短程主时钟执行异常", LogBehavior.AlertThenCrash)
         End Try
-        Timer4Count += 1
-        If Timer4Count = 4 Then
-            Timer4Count = 0
-            Try
-#Region "每 250ms 执行一次的代码"
-                If ThemeNow = 12 Then ThemeRefresh()
-#End Region
-            Catch ex As Exception
-                Logger.Warn(ex, "中程主时钟执行异常")
-            End Try
-        End If
         Timer150Count += 1
         If Timer150Count = 150 Then
             Timer150Count = 0

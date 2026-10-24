@@ -1,4 +1,4 @@
-Public Class PageInstanceOverall
+﻿Public Class PageInstanceOverall
 
     Private IsLoad As Boolean = False
     Private Sub PageSetupLaunch_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
@@ -18,7 +18,6 @@ Public Class PageInstanceOverall
 
     Public InstanceHeaderItem As MyListItem
     Private OriginalHeaderInfo As String = ""
-
     Friend Sub RefreshModpackVisibility()
         Dim Hidden = If(ModModpackMode.Enabled, Visibility.Collapsed, Visibility.Visible)
         BtnManageDelete.Visibility = Hidden

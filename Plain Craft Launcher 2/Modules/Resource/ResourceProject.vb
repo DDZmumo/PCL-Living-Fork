@@ -173,6 +173,8 @@ Public Class ResourceProject
                     Types = ResourceTypes.ResourcePack
                 ElseIf Website.Contains("/shaders/") Then
                     Types = ResourceTypes.Shader
+                ElseIf Website.Contains("/worlds/") OrElse Website.Contains("/maps/") OrElse Data("classId")?.ToObject(Of Integer)() = 17 Then
+                    Types = ResourceTypes.Map
                 Else
                     Types = ResourceTypes.DataPack
                 End If

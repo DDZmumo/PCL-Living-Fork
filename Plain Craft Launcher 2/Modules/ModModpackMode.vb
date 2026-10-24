@@ -42,8 +42,8 @@ Friend Module ModModpackMode
 
     Friend Function ShowWarning(Enable As Boolean) As Boolean
         Dim Message = If(Enable,
-            "开启 LivingPCL 整合包模式后，将隐藏下载和更多，版本选择仅显示本目录的整合包游戏，不提供新建、添加或导入入口，设置也会精简。" & vbCrLf & vbCrLf & "原有的其他游戏文件夹和收藏记录会保留。之后可在 设置 → 启动器 中关闭此模式。是否继续？",
-            "关闭 LivingPCL 整合包模式后，将恢复普通启动器界面，允许选择版本并使用下载、更多和完整设置。" & vbCrLf & vbCrLf & "修改版本或组件可能影响整合包正常运行；关闭模式不会删除游戏文件。是否继续？")
+            "开启 PCL Living Fork 整合包模式后，将隐藏下载和更多，版本选择仅显示本目录的整合包游戏，不提供新建、添加或导入入口，设置也会精简。" & vbCrLf & vbCrLf & "原有的其他游戏文件夹和收藏记录会保留。之后可在 设置 → 启动器 中关闭此模式。是否继续？",
+            "关闭 PCL Living Fork 整合包模式后，将恢复普通启动器界面，允许选择版本并使用下载、更多和完整设置。" & vbCrLf & vbCrLf & "修改版本或组件可能影响整合包正常运行；关闭模式不会删除游戏文件。是否继续？")
         Return MyMsgBox(Message, If(Enable, "开启整合包模式", "关闭整合包模式"), If(Enable, "开启", "关闭"), "取消", IsWarn:=True) = 1
     End Function
 
@@ -51,7 +51,7 @@ Friend Module ModModpackMode
         If Not User Then Return
         If Check.Checked AndAlso Not CanEnable Then
             Check.Checked = False
-            MyMsgBox("只有导出并附带 LivingPCL 启动器的整合包才能开启此模式。" & vbCrLf & vbCrLf &
+            MyMsgBox("只有导出并附带 PCL Living Fork 启动器的整合包才能开启此模式。" & vbCrLf & vbCrLf &
                 "当前目录的 PCL\Setup.ini 中没有整合包导出标记。请先导出整合包，再运行解压后的启动器。", "无法开启整合包模式")
             Return
         End If
@@ -76,7 +76,7 @@ Friend Module ModModpackMode
     End Sub
 
     Friend Function DisplayTitle(Title As String) As String
-        Return If(Enabled, If(String.IsNullOrWhiteSpace(Title), "LivingPCL", Title) & " - 整合包模式", Title)
+        Return If(Enabled, If(String.IsNullOrWhiteSpace(Title), LauncherDisplayName, Title) & " - 整合包模式", Title)
     End Function
 
     Friend Sub ApplyVisibility(Optional Main As FormMain = Nothing)

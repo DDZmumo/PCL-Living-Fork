@@ -5,10 +5,9 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
     xmlns:behaviors="clr-namespace:PCL.Controls.Behaviors"
     xmlns:local="clr-namespace:PCL" PanScroll="PanBack">
+    <Grid>
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel Name="PanMain" Margin="25,25,25,10" Grid.IsSharedSizeScope="True">
-            <local:MyHint x:Name="PanHint" RelativeSetup="HintSnapshot" Theme="Blue" CanClose="True" Margin="0,0,0,15"
-                          Text="快照版 PCL 包含尚未正式发布的测试功能，仅限赞助者自己使用。&#xa;请不要随意发给其他人，或是用来制作整合包哦！" />
             <StackPanel x:Name="PanCustom">
             </StackPanel>
             <local:MyCard Margin="0,0,0,15" Title="启动日志" x:Name="PanLog">
@@ -18,4 +17,15 @@
             </local:MyCard>
         </StackPanel>
     </local:MyScrollViewer>
+    <local:MyCard x:Name="CardRecentWorlds" Title="上次游玩" Width="260" Height="78" Margin="20,0,0,20"
+                  HorizontalAlignment="Left" VerticalAlignment="Bottom" Visibility="Collapsed" Opacity="0" UseAnimation="False">
+        <local:MyCard.RenderTransform>
+            <TranslateTransform x:Name="TransRecentWorld" X="-24" />
+        </local:MyCard.RenderTransform>
+        <StackPanel x:Name="PanRecentWorlds" Margin="9,27,9,7">
+            <local:MyListItem x:Name="ItemRecentWorld" Type="Clickable" IsScaleAnimationEnabled="False" Height="44"
+                              Logo="/LivingPCL;component/Images/Blocks/Grass.png" />
+        </StackPanel>
+    </local:MyCard>
+    </Grid>
 </local:MyPageRight>

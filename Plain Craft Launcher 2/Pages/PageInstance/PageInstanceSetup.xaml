@@ -9,6 +9,19 @@
         <StackPanel x:Name="PanMain" Margin="25,25,25,25">
             <local:MyHint Text="这些设置只对该游戏版本生效，不影响其他版本。" Theme="Blue" Margin="0,0,0,15"
                           CanClose="True" RelativeSetup="HintIndieSetup"  />
+            <local:MyCard Margin="0,0,0,15" Title="个人游戏设置">
+                <Grid Margin="25,40,25,21" Height="28">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
+                        <ColumnDefinition Width="1*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="个人设置同步" Margin="0,0,25,0" VerticalAlignment="Center" />
+                    <local:MyComboBox Grid.Column="1" local:SettingService.Key="VersionPersonalOptionsSync" ToolTip="关闭后保留此版本自己的按键、鼠标、视野和字幕等设置，不影响其他版本。">
+                        <local:MyComboBoxItem Content="跟随全局设置" local:SettingService.Value="0" />
+                        <local:MyComboBoxItem Content="不同步，保留此版本的个人设置" local:SettingService.Value="1" />
+                    </local:MyComboBox>
+                </Grid>
+            </local:MyCard>
             <local:MyCard x:Name="CardArgument" Margin="0,0,0,15" Title="启动选项">
                 <StackPanel Margin="25,40,25,21">
                     <Grid>

@@ -8,12 +8,12 @@ Imports System.Runtime.InteropServices
 
 '查看程序集特性的值
 
-<Assembly: AssemblyTitle("LivingPCL")>
-<Assembly: AssemblyDescription("基于 PCL 官方开源版的第三方版本")>
+<Assembly: AssemblyTitle("PCL Living Fork")>
+<Assembly: AssemblyDescription("基于 PCL 原项目的第三方修改版本")>
 <Assembly: AssemblyCompany("")>
-<Assembly: AssemblyProduct("LivingPCL")>
+<Assembly: AssemblyProduct("PCL Living Fork")>
 <Assembly: AssemblyCopyright("Copyright © 成都瓜皮龙科技有限公司")>
-<Assembly: AssemblyConfiguration("LivingPCL2-Re")>
+<Assembly: AssemblyConfiguration("PCL-Living-Fork")>
 <Assembly: ComVisible(False)>
 
 '若要开始生成可本地化的应用程序，请设置
@@ -51,7 +51,7 @@ Imports System.Runtime.InteropServices
 ' 可以指定所有值，也可以使用以下所示的 "*" 预置版本号和修订号
 ' 方法是按如下所示使用“*”
 
-<Assembly: AssemblyVersion("1.1.2.0")>
-<Assembly: AssemblyFileVersion("1.1.2.0")>
-<Assembly: AssemblyInformationalVersion("1.1.2")>
+<Assembly: AssemblyVersion("1.2.0.0")>
+<Assembly: AssemblyFileVersion("1.2.0.0")>
+<Assembly: AssemblyInformationalVersion("1.2.0")>
 <Assembly: NeutralResourcesLanguage("")>

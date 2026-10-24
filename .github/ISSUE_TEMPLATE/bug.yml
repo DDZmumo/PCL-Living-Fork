@@ -1,0 +1,29 @@
+name: 问题反馈
+description: 反馈 PCL Living Fork 的启动、下载、登录或界面问题。
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 启动器版本
+      placeholder: 请填写 PCL Living Fork 的版本号。
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 描述实际表现和预期结果。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重现步骤
+      description: 说明触发问题的操作，以及是否每次都会出现。
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 日志与环境
+      description: 可附日志、截图、Windows 版本和相关游戏版本；提交前移除密码、令牌及 API Key。

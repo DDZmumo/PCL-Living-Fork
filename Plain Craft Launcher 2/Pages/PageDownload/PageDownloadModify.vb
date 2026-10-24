@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 版本修改页：完整还原已安装组件后，复用安装页的选择交互。
 ''' </summary>
 Public Class PageDownloadModify
@@ -18,9 +18,32 @@ Public Class PageDownloadModify
     ''' </summary>
     Private ReadOnly PendingComponents As New Dictionary(Of MyLoading, String)
     Private IsRestoringComponents As Boolean
+    Friend PackUpdateButtons As WrapPanel
+    Friend PackUpdateName As TextBlock
+    Friend PackUpdateInfo As TextBlock
 
     Public Overrides Sub LoaderInit() '父级 Handles Me.Initialized
         ControlInit()
+        Dim UpdateCard As New MyCard With {.Title = "整合包更新", .Margin = New Thickness(0, 0, 0, 15)}
+        Dim Content As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
+        PackUpdateName = New TextBlock With {.Text = "正在读取整合包信息", .TextWrapping = TextWrapping.Wrap}
+        PackUpdateInfo = New TextBlock With {.Margin = New Thickness(0, 5, 0, 0), .Opacity = 0.6, .TextWrapping = TextWrapping.Wrap}
+        Dim Buttons As New WrapPanel With {.Visibility = Visibility.Collapsed}
+        PackUpdateButtons = Buttons
+        Dim Local As New MyButton With {.Text = "从文件更新", .MinWidth = 140, .Height = 35, .Margin = New Thickness(0, 13, 20, 0), .Padding = New Thickness(13, 0, 13, 0)}
+        Dim Online As New MyButton With {.Text = "在线更新", .MinWidth = 140, .Height = 35, .Margin = New Thickness(0, 13, 20, 0), .Padding = New Thickness(13, 0, 13, 0)}
+        Dim Backups As New MyButton With {.Text = "更新备份", .MinWidth = 140, .Height = 35, .Margin = New Thickness(0, 13, 20, 0), .Padding = New Thickness(13, 0, 13, 0)}
+        AddHandler Local.Click, Sub() ModpackUpdateFlow.Start(PageInstanceLeft.Instance, False)
+        AddHandler Online.Click, Sub() ModpackUpdateFlow.Start(PageInstanceLeft.Instance, True)
+        AddHandler Backups.Click, Sub() ModpackUpdateFlow.OpenBackups(PageInstanceLeft.Instance)
+        Buttons.Children.Add(Local)
+        Buttons.Children.Add(Online)
+        Buttons.Children.Add(Backups)
+        Content.Children.Add(PackUpdateName)
+        Content.Children.Add(PackUpdateInfo)
+        Content.Children.Add(Buttons)
+        UpdateCard.Children.Add(Content)
+        PanSelect.Children.Insert(PanSelect.Children.IndexOf(CardSelectName) + 1, UpdateCard)
         InitLoader = New LoaderTask(Of McInstance, Object)("初始化版本修改", AddressOf LoadInstance)
         PageLoaderInit(LoadMinecraft, PanLoad, PanAllBack, Nothing, InitLoader, AddressOf LoadInstanceFinished, Function() PageInstanceLeft.Instance)
     End Sub
@@ -38,6 +61,12 @@ Public Class PageDownloadModify
     ''' 读取或初始化版本的安装清单。
     ''' </summary>
     Private Sub LoadInstance(Task As LoaderTask(Of McInstance, Object))
+        Try
+            Task.Output = ModpackUpdate.Detect(Task.Input.PathVersion)
+        Catch ex As Exception
+            Logger.Warn(ex, "读取整合包信息失败")
+            Task.Output = New JObject(New JProperty("error", True))
+        End Try
 
         '旧状态清理
         RunInUiWait(
@@ -297,6 +326,7 @@ Public Class PageDownloadModify
     ''' 初始化修改页
     ''' </summary>
     Private Sub LoadInstanceFinished(Task As LoaderTask(Of McInstance, Object))
+        ShowPackInfo(TryCast(Task.Output, JObject))
         '还原原版信息
         OriginalName = Task.Input.Name
         CustomLogo = Nothing
@@ -737,5 +767,17 @@ Public Class PageDownloadModify
             '实际修改
             If McModificationStart(Request, TargetInstance) Then FrmMain.PageBack()
         End If
+    End Sub
+    Friend Sub ShowPackInfo(Data As JObject)
+        Dim Recognized = Data IsNot Nothing AndAlso Data("error") Is Nothing
+        PackUpdateButtons.Visibility = If(Recognized, Visibility.Visible, Visibility.Collapsed)
+        PackUpdateInfo.Visibility = If(Recognized, Visibility.Visible, Visibility.Collapsed)
+        If Not Recognized Then
+            PackUpdateName.Text = If(Data Is Nothing, "未检测到整合包", "整合包信息读取失败")
+            Return
+        End If
+        PackUpdateName.Text = If(Data("name")?.ToString(), "整合包") & If(String.IsNullOrWhiteSpace(Data("version")?.ToString()), "", "  |  " & Data("version").ToString())
+        Dim Source = TryCast(Data("source"), JObject)
+        PackUpdateInfo.Text = If(Source?("platform")?.ToString(), "本地整合包") & " · Minecraft " & Data("minecraft")?.ToString()
     End Sub
 End Class

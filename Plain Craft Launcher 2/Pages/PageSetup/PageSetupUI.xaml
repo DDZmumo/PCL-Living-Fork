@@ -17,29 +17,17 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="1*" />
                             </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="不透明度" Margin="0,0,20,0" />
                             <local:MySlider local:SettingService.Key="UiLauncherTransparent" 
                                             MaxValue="600" ValueByKey="10" Grid.ColumnSpan="5" x:Name="SliderLauncherTransparent" Grid.Column="1" />
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Name="LabLauncherHue" Visibility="Collapsed" HorizontalAlignment="Left" Text="色调" Margin="0,10,20,0" />
-                            <local:MySlider local:SettingService.Key="UiLauncherHue" 
-                                            Grid.Row="1" Grid.Column="1" x:Name="SliderLauncherHue" Visibility="Collapsed" MaxValue="360" ValueByKey="10" Margin="0,10,0,0" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Name="LabLauncherDelta" Visibility="Collapsed" HorizontalAlignment="Left" Text="色调渐变" Margin="0,10,20,0" />
-                            <local:MySlider local:SettingService.Key="UiLauncherDelta" 
-                                            Grid.Row="2" Grid.Column="1" x:Name="SliderLauncherDelta" Visibility="Collapsed" MaxValue="180" ValueByKey="5" Margin="0,10,0,0" />
-                            <TextBlock Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" Name="LabLauncherSat" Visibility="Collapsed" HorizontalAlignment="Left" Text="饱和度" Margin="0,10,20,0" />
-                            <local:MySlider local:SettingService.Key="UiLauncherSat" 
-                                            Grid.Row="1" Grid.Column="4" x:Name="SliderLauncherSat" Visibility="Collapsed" MaxValue="100" ValueByKey="5" Margin="0,10,0,0" />
-                            <TextBlock Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" Name="LabLauncherLight" Visibility="Collapsed" HorizontalAlignment="Left" Text="亮度" Margin="0,10,20,0" />
-                            <local:MySlider local:SettingService.Key="UiLauncherLight" 
-                                            Grid.Row="2" Grid.Column="4" x:Name="SliderLauncherLight" Visibility="Collapsed" MaxValue="40" ValueByKey="5" Margin="0,10,0,0" />
                         </Grid>
-                        <local:MyCheckBox x:Name="CheckLauncherCustomTheme" Text="自定义主题" Height="22" Margin="-1,2,0,9"
-                                          ToolTip="勾选后调整主题色调、渐变、饱和度和亮度；取消后使用默认主题。" />
+                        <Border x:Name="PanOfficialTheme" CornerRadius="4" Background="{DynamicResource ColorBrushBg1}" Padding="16" Margin="0,4,0,12">
+                            <StackPanel>
+                                <TextBlock Text="想要使用自定义主题和使用其他颜色主题？请前往赞助，获取官方快照版" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" FontWeight="Bold" Margin="0,0,0,10" />
+                                <local:MyButton x:Name="BtnOfficialTheme" Text="获取官方快照版" Height="35" Padding="20,0" HorizontalAlignment="Center" ColorType="Highlight"
+                                                local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://afdian.com/a/LTCat" />
+                            </StackPanel>
+                        </Border>
                         <local:MyCheckBox local:SettingService.Key="UiLauncherLogo" Text="打开启动器时显示 PCL 图标" Margin="-1,0,0,1" Height="22" />
                     </StackPanel>
 
@@ -237,6 +225,7 @@
                             <local:MyComboBoxItem local:SettingService.Value="24" Content="新一代狗屁王大杂烩主页（作者：llsgllsg）" />
                         </local:MyComboBox>
                     </Grid>
+                    <local:MyCheckBox x:Name="CheckRecentWorlds" Text="在首页显示最近游玩的存档" local:SettingService.Key="LaunchRecentWorlds" Height="22" Margin="0,15,0,0" ToolTip="需要支持 Quick Play 的 Java 1.20 或更新版本，记录仅保存在此电脑。" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard x:Name="CardSwitch" Margin="0,0,0,15" Title="功能隐藏">

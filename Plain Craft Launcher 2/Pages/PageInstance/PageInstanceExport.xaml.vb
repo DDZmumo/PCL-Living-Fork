@@ -334,13 +334,13 @@ Public Class PageInstanceExport
             ConfigLines.Add($"# 当版本设置中选择了 {vbLQ}使用版本文件夹中的 Java{vbRQ} 时，是否打包版本文件夹中的 Java。")
             ConfigLines.Add("IncludeJava:" & CheckOptionsJava.Checked)
             ConfigLines.Add("")
-            ConfigLines.Add("# 是否打包当前 LivingPCL，以便没有启动器的玩家安装整合包。")
+            ConfigLines.Add("# 是否打包当前 PCL Living Fork，以便没有启动器的玩家安装整合包。")
             ConfigLines.Add("IncludeLauncher:" & CheckOptionsPcl.Checked)
             ConfigLines.Add("")
             ConfigLines.Add("# 是否打包 PCL 个性化内容，例如功能隐藏设置、主页、背景音乐和图片等。")
             ConfigLines.Add("IncludeLauncherCustom:" & CheckOptionsPclCustom.Checked)
             ConfigLines.Add("")
-            ConfigLines.Add("# 是否默认开启 LivingPCL 整合包模式，仅在 IncludeLauncher 为 True 时生效。")
+            ConfigLines.Add("# 是否默认开启 PCL Living Fork 整合包模式，仅在 IncludeLauncher 为 True 时生效。")
             ConfigLines.Add("LivingModpackMode:" & CheckOptionsModpackMode.Checked)
             ConfigLines.Add("")
             ConfigLines.Add("# 导入后是否开启该版本的版本隔离，不修改全局默认设置。")
@@ -487,7 +487,7 @@ Public Class PageInstanceExport
 
 #Region "准备 PCL 文件"
 
-        '各构建类型均打包当前 LivingPCL，不调用开源版中未实现的官方下载接口。
+        '各构建类型均打包当前 PCL Living Fork，不调用开源版中未实现的官方下载接口。
 
 #End Region
 
@@ -504,6 +504,8 @@ Public Class PageInstanceExport
             Sub(Folder As DirectoryInfo)
                 '文件夹：进一步搜索
                 For Each SubFolder In Folder.EnumerateDirectories("*", SearchOption.TopDirectoryOnly)
+                    If SubFolder.Name.Equals("PackUpdateBackups", StringComparison.OrdinalIgnoreCase) AndAlso Folder.Name.Equals("PCL", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If PathUtils.IsSame(SubFolder.FullName, Path.Combine(McFolderSelected, "PCL", "ResourceRecycle")) Then Continue For
                     '跳过部分又没用文件又多的文件夹，加快搜索
                     If {"assets", "versions", "libraries"}.Contains(SubFolder.Name) AndAlso PathUtils.IsSame(PathIndie, Folder.FullName) Then Continue For
                     If {"structureCacheV1", ".fabric", ".git", "avatar-cache", "cosmetic-cache"}.Contains(SubFolder.Name) Then Continue For
@@ -511,6 +513,7 @@ Public Class PageInstanceExport
                 Next
                 '文件：检查规则并复制
                 For Each Entry In Folder.EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+                    If Entry.Name.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) AndAlso Folder.Name.Equals("PCL", StringComparison.OrdinalIgnoreCase) Then Continue For
                     Dim RelativePath As String = Entry.FullName.AfterFirst(PathIndie)
                     '检查规则
                     Dim ShouldKeep As Boolean = False
@@ -572,13 +575,20 @@ Public Class PageInstanceExport
             Next
             Loader.Progress = 0.97
             '复制 PCL 版本设置
-            If DirectoryUtils.Exists(TargetInstance.PathVersion & "PCL\") Then DirectoryUtils.Copy(TargetInstance.PathVersion & "PCL\", OverridesFolder & "PCL\")
+            Dim PclSource = TargetInstance.PathVersion & "PCL\"
+            If DirectoryUtils.Exists(PclSource) Then
+                For Each FileName In DirectoryUtils.EnumerateFiles(PclSource, includeSubDirectories:=True)
+                    Dim Relative = PathUtils.RemoveExtendedPrefix(FileName).Substring(PclSource.Length)
+                    If Relative.StartsWith("PackUpdateBackups\", StringComparison.OrdinalIgnoreCase) OrElse Relative.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    FileUtils.Copy(FileName, OverridesFolder & "PCL\" & Relative)
+                Next
+            End If
             WriteIni(OverridesFolder & "PCL\Setup.ini", "IsStar", False)
             ExportedVersionIsolation.ConfigureExport(OverridesFolder, EnableVersionIsolation, VersionOnlyFolders)
             '复制 PCL 本体（正式版）
             If IncludePCL Then
-                FileUtils.Copy(PathExe, CacheFolder & "LivingPCL.exe")
-                If FileUtils.Exists(PathExe & ".config") Then FileUtils.Copy(PathExe & ".config", CacheFolder & "LivingPCL.exe.config")
+                FileUtils.Copy(PathExe, CacheFolder & "PCL Living Fork.exe")
+                If FileUtils.Exists(PathExe & ".config") Then FileUtils.Copy(PathExe & ".config", CacheFolder & "PCL Living Fork.exe.config")
             End If
             '复制 PCL 个性化内容
             If IncludePCLCustom Then

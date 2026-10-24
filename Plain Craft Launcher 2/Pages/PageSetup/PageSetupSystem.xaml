@@ -114,11 +114,11 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="启动器更新" Margin="0,0,25,0" />
-                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="LivingPCL2-Re（GitHub Releases）" />
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="PCL Living Fork（GitHub Releases）" />
                     <TextBlock Grid.Row="2" Text="启动器版本" VerticalAlignment="Center" Margin="0,0,25,0" />
                     <TextBlock x:Name="LabLauncherVersion" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" />
                     <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="启动器公告" Margin="0,0,25,0" Grid.Row="4" />
-                    <local:MyComboBox x:Name="ComboSystemActivity" local:SettingService.Key="SystemSystemActivity" Grid.Column="1" Grid.Row="4">
+                    <local:MyComboBox x:Name="ComboSystemActivity" local:SettingService.Key="SystemSystemActivity" Grid.Column="1" Grid.Row="4" ToolTip="预留的公告显示偏好，当前版本暂未接入联网公告。">
                         <local:MyComboBoxItem Content="显示所有公告" ToolTip="显示包括启动器功能调查、活动等在内的全部公告" />
                         <local:MyComboBoxItem Content="仅在有重要通知时显示公告" />
                         <local:MyComboBoxItem Content="关闭所有公告" />
@@ -139,14 +139,6 @@
                         <local:MyButton Grid.Column="0" x:Name="BtnSystemUpdate" MinWidth="140" Text="检查更新" Padding="13,0" Margin="0,0,20,0" />
                         <local:MyButton Grid.Column="1" x:Name="BtnSystemSettingExp" MinWidth="140" Text="导出设置" Padding="13,0" Margin="0,0,20,0" />
                         <local:MyButton Grid.Column="2" x:Name="BtnSystemSettingImp" MinWidth="140" Text="导入设置" Padding="13,0" Margin="0,0,20,0" />
-                    </Grid>
-                    <Grid Height="35" Grid.Row="8" Grid.ColumnSpan="5" Margin="0,12,0,0" x:Name="PanDonate">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                        </Grid.ColumnDefinitions>
-                        <local:MyButton Grid.Column="0" x:Name="BtnSystemIdentify" MinWidth="140" Text="复制识别码" Padding="13,0" Margin="0,0,20,0" />
-                        <local:MyButton Grid.Column="1" x:Name="BtnSystemUnlock" MinWidth="140" Text="输入土豆码" Padding="13,0" Margin="0,0,20,0" />
                     </Grid>
                     <TextBlock x:Name="LabModpackMode" Text="整合包模式" Grid.Row="9" VerticalAlignment="Center" Margin="0,16,25,0" Visibility="Collapsed" />
                     <local:MyCheckBox x:Name="CheckModpackMode" Text="启用" Grid.Row="9" Grid.Column="1" VerticalAlignment="Center" Margin="0,16,0,0" Visibility="Collapsed" />

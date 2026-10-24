@@ -4,6 +4,60 @@ Public Class MyLocalModItem
 
 #Region "基础属性"
     Public Uuid As Integer = GetUuid()
+    '游戏资源页复用此控件的排版、悬停、选择和滑动多选，不伪造 Mod 文件。
+    Friend ResourceEntry As InstanceResourceEntry
+    Friend RestorePoint As JObject
+    Friend Sub BindRestorePoint(Value As JObject)
+        ResourceEntry = Nothing
+        Entry = Nothing
+        RestorePoint = Value
+        Refresh()
+    End Sub
+    Friend ResourceUpdateRequested As Action
+    Friend ResourceDetailsRequested As Action
+    Friend SelectionBar As FrameworkElement
+    Private ResourceInfo As InstanceResourceOnlineInfo
+    Private ReadOnly Property ItemEnabled As Boolean
+        Get
+            Return Entry Is Nothing OrElse Entry.IsEnabled
+        End Get
+    End Property
+
+    Friend Sub BindResource(Value As InstanceResourceEntry, Info As InstanceResourceOnlineInfo)
+        RestorePoint = Nothing
+        ResourceEntry = Value
+        ResourceInfo = Info
+        RefreshResource()
+    End Sub
+    Private Sub RefreshResource()
+        Dim LocalName = If(ResourceEntry.IsDirectory, ResourceEntry.Name, IO.Path.GetFileNameWithoutExtension(ResourceEntry.Name))
+        Title = If(String.IsNullOrWhiteSpace(ResourceInfo?.ProjectName), LocalName, ResourceInfo.ProjectName)
+        SubTitle = If(ResourceInfo?.CurrentVersion Is Nothing, "", "  |  " & If(ResourceInfo.CurrentVersion.Version, ResourceInfo.CurrentVersion.Display))
+        Description = LocalName & ": " & ResourceEntry.Description
+        ToolTip = ResourceEntry.Name & vbCrLf & ResourceEntry.Description & If(ResourceInfo Is Nothing, "", vbCrLf & ResourceInfo.Status)
+        BtnUpdate.Visibility = If(ResourceInfo IsNot Nothing AndAlso ResourceInfo.HasUpdate, Visibility.Visible, Visibility.Collapsed)
+        BtnUpdate.ToolTip = If(ResourceInfo Is Nothing, "", ResourceInfo.Status & vbCrLf & "点击以更新，右键查看资源详情。")
+        Tags = If(ResourceInfo?.Tags, New List(Of String))
+        LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(Checked, "ColorBrush2", "ColorBrush1"))
+        Dim Address As Uri = Nothing
+        Dim HasRemoteLogo = Uri.TryCreate(ResourceInfo?.IconUrl, UriKind.Absolute, Address) AndAlso Address.Scheme = "https" AndAlso Address.UserInfo = ""
+        '和模组页一样，仅为进入视口的条目请求网络图标。
+        If HasRemoteLogo AndAlso HasEnteredViewport Then
+            ResourceLogo.Visibility = Visibility.Collapsed
+            ResourceLogo.Source = Nothing
+            PathLogo.Visibility = Visibility.Visible
+            PathLogo.Source = Address.AbsoluteUri
+        ElseIf ResourceEntry.Icon IsNot Nothing Then
+            PathLogo.Visibility = Visibility.Collapsed
+            ResourceLogo.Visibility = Visibility.Visible
+            ResourceLogo.Source = ResourceEntry.Icon
+        Else
+            ResourceLogo.Visibility = Visibility.Collapsed
+            ResourceLogo.Source = Nothing
+            PathLogo.Visibility = Visibility.Visible
+            PathLogo.Source = PathImage & "Icons/NoIcon.png"
+        End If
+    End Sub
 
     '标题
     Private _Title As String
@@ -13,7 +67,7 @@ Public Class MyLocalModItem
         End Get
         Set(value As String)
             Dim RawValue = value
-            LabTitle.TextDecorations = If(Entry.IsEnabled, Nothing, TextDecorations.Strikethrough)
+            LabTitle.TextDecorations = If(ItemEnabled, Nothing, TextDecorations.Strikethrough)
             If LabTitle.Text = value Then Return
             LabTitle.Text = value
             _Title = RawValue
@@ -99,19 +153,24 @@ Public Class MyLocalModItem
     '滑动选中
     Private Shared SwipeStart As Integer, SwipeEnd As Integer
     Private Shared _Swiping As Boolean = False
+    Private Shared SwipePanel As StackPanel
+    Private Shared SwipeBar As FrameworkElement
     Private Shared Property Swiping As Boolean
         Get
             Return _Swiping
         End Get
         Set(value As Boolean)
             _Swiping = value
-            FrmInstanceMod.CardSelect.IsHitTestVisible = Not value
+            If SwipeBar IsNot Nothing Then SwipeBar.IsHitTestVisible = Not value
         End Set
     End Property
     Private Shared SwipToState As Boolean '被滑动到的目标应将 Checked 改为此值
     Private Sub Button_MouseSwipeStart(sender As Object, e As Object) Handles Me.MouseLeftButtonDown
         If Parent Is Nothing Then Return 'Mod 可能已被删除（#3824）
         '开始滑动
+        If SwipeBar IsNot Nothing Then SwipeBar.IsHitTestVisible = True
+        SwipePanel = TryCast(Parent, StackPanel)
+        SwipeBar = If(SelectionBar, FrmInstanceMod?.CardSelect)
         Dim Index = CType(Parent, StackPanel).Children.IndexOf(Me)
         SwipeStart = Index
         SwipeEnd = Index
@@ -119,13 +178,14 @@ Public Class MyLocalModItem
         SwipToState = Not Checked
     End Sub
     Private Sub Button_MouseSwipe(sender As Object, e As Object) Handles Me.MouseEnter, Me.MouseLeave, Me.MouseLeftButtonUp
-        If Parent Is Nothing Then Return 'Mod 可能已被删除（#3824）
+        If Parent Is Nothing OrElse Parent IsNot SwipePanel Then Return '限制在当前资源列表内。
         '结束滑动
         If Mouse.LeftButton <> MouseButtonState.Pressed OrElse
            TypeOf Mouse.DirectlyOver IsNot MyLocalModItem Then '#5771
             Swiping = False
             Return
         End If
+        If Not Swiping Then Return
         '计算滑动范围
         Dim Elements = CType(Parent, StackPanel).Children
         Dim Index As Integer = Elements.IndexOf(Me)
@@ -178,7 +238,7 @@ Public Class MyLocalModItem
                         Anim.Add(AaOpacity(RectCheck, 1 - RectCheck.Opacity, 30))
                         RectCheck.VerticalAlignment = VerticalAlignment.Center
                         RectCheck.Margin = New Thickness(-3, 0, 0, 0)
-                        Anim.Add(AaColor(LabTitle, TextBlock.ForegroundProperty, If(Entry.IsEnabled, "ColorBrush2", "ColorBrush5"), 200))
+                        Anim.Add(AaColor(LabTitle, TextBlock.ForegroundProperty, If(ItemEnabled, "ColorBrush2", "ColorBrush5"), 200))
                     Else
                         '由有变无
                         Anim.Add(AaHeight(RectCheck, -RectCheck.ActualHeight, 120,, New AniEaseInFluent(AniEasePower.Weak)))
@@ -194,11 +254,11 @@ Public Class MyLocalModItem
                     If Checked Then
                         RectCheck.Height = 32
                         RectCheck.Opacity = 1
-                        LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(Entry.IsEnabled, "ColorBrush2", "ColorBrush5"))
+                        LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(ItemEnabled, "ColorBrush2", "ColorBrush5"))
                     Else
                         RectCheck.Height = 0
                         RectCheck.Opacity = 0
-                        LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(Entry.IsEnabled, "ColorBrush1", "ColorBrushGray4"))
+                        LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(ItemEnabled, "ColorBrush1", "ColorBrushGray4"))
                     End If
                     AniStop("MyLocalModItem Checked " & Uuid)
                 End If
@@ -326,6 +386,22 @@ Public Class MyLocalModItem
         Refresh()
     End Sub
     Public Sub Refresh()
+        If RestorePoint IsNot Nothing Then
+            Title = RestorePoint("label").ToString()
+            SubTitle = "  |  " & CDate(RestorePoint("created")).ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            Description = RestorePoint("description")?.ToString()
+            Tags = If(CBool(RestorePoint("healthy")), New List(Of String) From {"正常运行"}, New List(Of String))
+            ToolTip = Title & SubTitle & vbCrLf & Description
+            BtnUpdate.Visibility = Visibility.Collapsed
+            ResourceLogo.Visibility = Visibility.Collapsed
+            PathLogo.Visibility = Visibility.Visible
+            PathLogo.Source = PathImage & "Icons/NoIcon.png"
+            Return
+        End If
+        If ResourceEntry IsNot Nothing Then
+            RefreshResource()
+            Return
+        End If
         If Not HasEnteredViewport Then Return '避免在未显示时因为资源更新而加载内容
         '更新
         If Entry.HasUpdate Then
@@ -460,6 +536,11 @@ Public Class MyLocalModItem
         ShowUpdateLog()
     End Sub
     Private Sub ShowUpdateLog()
+        If RestorePoint IsNot Nothing Then Return
+        If ResourceEntry IsNot Nothing Then
+            ResourceDetailsRequested?.Invoke()
+            Return
+        End If
         Dim CurseForgeUrl As String = Entry.ChangelogUrls.FirstOrDefault(Function(x) x.Contains("curseforge.com"))
         Dim ModrinthUrl As String = Entry.ChangelogUrls.FirstOrDefault(Function(x) x.Contains("modrinth.com"))
         If CurseForgeUrl Is Nothing OrElse ModrinthUrl Is Nothing Then
@@ -476,6 +557,11 @@ Public Class MyLocalModItem
 
     '触发更新
     Private Sub BtnUpdate_Click(sender As Object, e As EventArgs) Handles BtnUpdate.Click
+        If RestorePoint IsNot Nothing Then Return
+        If ResourceEntry IsNot Nothing Then
+            ResourceUpdateRequested?.Invoke()
+            Return
+        End If
         Select Case MyMsgBox($"是否要更新 {Entry.Display}？{vbCrLf}{vbCrLf}{GetUpdateCompareDescription()}", "Mod 更新确认", "更新", "查看更新日志", "取消")
             Case 1 '更新
                 FrmInstanceMod.UpdateMods({Entry})
@@ -483,6 +569,18 @@ Public Class MyLocalModItem
                 ShowUpdateLog()
             Case 3 '取消
         End Select
+    End Sub
+
+    Private Sub ReleaseResourceInteraction() Handles Me.Unloaded
+        If ResourceEntry Is Nothing AndAlso RestorePoint Is Nothing Then Return
+        IsMouseDown = False
+        Swiping = False
+        If SelectionBar Is SwipeBar Then
+            SwipeBar = Nothing
+            SwipePanel = Nothing
+        End If
+        AniStop("MyLocalModItem Checked " & Uuid)
+        AniStop("LocalModItem Color " & Uuid)
     End Sub
 
     '自适应（#4465）

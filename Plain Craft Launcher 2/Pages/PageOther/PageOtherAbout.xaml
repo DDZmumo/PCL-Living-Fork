@@ -6,7 +6,7 @@
     PanScroll="PanBack" RenderOptions.BitmapScalingMode="LowQuality">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel x:Name="PanMain" Margin="25,10" Grid.IsSharedSizeScope="True">
-            <local:MyCard Margin="0,15" Title="关于 LivingPCL">
+            <local:MyCard Margin="0,15" Title="关于 PCL Living Fork">
                 <Grid Margin="21,40,21,16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="45" />
@@ -21,8 +21,8 @@
                     </Grid.ColumnDefinitions>
                     <local:MyListItem IsHitTestVisible="False" Title="龙腾猫跃" Margin="-5,0,15,0" Info="PCL 原作者" Grid.Row="0" Grid.Column="1" />
                     <local:MyListItem IsHitTestVisible="False" Title="HerobrineXia" Margin="-5,0,15,0" Info="PCL 协力开发者" Grid.Row="1" Grid.Column="1" />
-                    <local:MyListItem IsHitTestVisible="False" Title="DDZmumo" Margin="-5,0,15,0" Info="LivingPCL 维护者 · 功能与体验改进" Grid.Row="2" Grid.Column="1" />
-                    <local:MyListItem IsHitTestVisible="False" Title="LivingPCL" Margin="-5,0,15,0" Info="当前版本：%VERSION%" Grid.Row="3" Grid.Column="1" x:Name="ItemAboutPcl" />
+                    <local:MyListItem IsHitTestVisible="False" Title="DDZmumo" Margin="-5,0,15,0" Info="PCL Living Fork 维护者 · 功能与体验改进" Grid.Row="2" Grid.Column="1" />
+                    <local:MyListItem IsHitTestVisible="False" Title="PCL Living Fork" Margin="-5,0,15,0" Info="当前版本：%VERSION%" Grid.Row="3" Grid.Column="1" x:Name="ItemAboutPcl" />
                     <Image Source="/LivingPCL;component/Images/Heads/LTCat.jpg" Grid.Row="0" Margin="3">
                         <Image.Clip>
                             <EllipseGeometry Center="17 17" RadiusX="17" RadiusY="17" />
@@ -53,10 +53,10 @@
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="本项目">
                 <StackPanel Margin="25,40,25,20">
-                    <TextBlock Text="LivingPCL 是基于 PCL 官方开源版的第三方版本，由 DDZmumo 维护。" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="PCL Living Fork 是基于 PCL 原项目的第三方修改版本，由 DDZmumo 维护。源码基线与逆向参考说明见项目 NOTICE。" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <TextBlock Text="CurseForge 第三方 API 申请已获批。&#xa;本版已接入正式 API Key。" TextWrapping="Wrap" Margin="0,0,0,12" />
                     <WrapPanel>
-                        <local:MyButton Text="LivingPCL 仓库" Width="140" Height="32" Margin="0,0,10,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo/LivingPCL2-Re" />
+                        <local:MyButton Text="项目仓库" Width="140" Height="32" Margin="0,0,10,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo/PCL-Living-Fork" />
                         <local:MyButton Text="PCL 开源仓库" Width="140" Height="32" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
                     </WrapPanel>
                 </StackPanel>
@@ -150,7 +150,7 @@
             <local:MyCard Margin="0,0,0,15" Title="法律信息" IsSwapped="True" CanSwap="True">
                 <StackPanel Margin="25,39,23,20">
                     <TextBlock Text="隐私声明与个人信息保护政策" TextWrapping="Wrap" Margin="0,10,0,4" FontWeight="Bold" />
-                    <TextBlock Margin="0,0,0,2" LineHeight="17" Text="LivingPCL 已移除匿名遥测上报功能，不向 PCL 作者或本项目发送此类统计与错误报告。&#xa;微软登录、资源下载和 GitHub 更新检查仍会按相应功能发起网络请求。" TextWrapping="Wrap" />
+                    <TextBlock Margin="0,0,0,2" LineHeight="17" Text="PCL Living Fork 已移除匿名遥测上报功能，不向 PCL 作者或本项目发送此类统计与错误报告。&#xa;微软登录、资源下载和 GitHub 更新检查仍会按相应功能发起网络请求。" TextWrapping="Wrap" />
                     <TextBlock Text="其他信息" TextWrapping="Wrap" Margin="0,10,0,4" FontWeight="Bold" />
                     <TextBlock Margin="0,0,0,2" LineHeight="17" Text="Copyright © 成都瓜皮龙科技有限公司&#13;计算机软件著作权登记号：2020SR0875133&#13;违法违规行为举报投诉邮箱：admin@meloong.com&#13;非 MINECRAFT 官方产品。未经 MOJANG 或 MICROSOFT 批准，也不与 MOJANG 或 MICROSOFT 关联。" TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Height="35" HorizontalAlignment="Left" Margin="0,12,0,0">

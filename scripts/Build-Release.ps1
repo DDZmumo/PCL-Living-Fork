@@ -19,10 +19,17 @@ try {
     [IO.Directory]::CreateDirectory($generatedFolder) | Out-Null
     & (Join-Path $PSScriptRoot 'Write-BuildCredentials.ps1') -OutputPath $generatedSource
     $intermediatePath = Join-Path $generatedFolder 'Intermediate\'
-    $buildArgs = @((Join-Path $projectRoot 'Plain Craft Launcher 2\LivingPCL2-Re.vbproj'), '-t:Rebuild', "-p:Configuration=$Configuration", "-p:GeneratedCredentialSource=$generatedSource", "-p:CredentialIntermediateOutputPath=$intermediatePath", '-verbosity:minimal', '-nologo')
+    $buildArgs = @((Join-Path $projectRoot 'Plain Craft Launcher 2\PCL-Living-Fork.vbproj'), '-t:Rebuild', "-p:Configuration=$Configuration", "-p:GeneratedCredentialSource=$generatedSource", "-p:CredentialIntermediateOutputPath=$intermediatePath", '-verbosity:minimal', '-nologo')
     if ($OutputPath) { $buildArgs += "-p:OutputPath=$OutputPath" }
     & $MSBuildPath @buildArgs
     if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
+    # Keep the legacy assembly identity, but use the public product name on disk.
+    $projectFolder=Join-Path $projectRoot 'Plain Craft Launcher 2'
+    $outputFolder=if($OutputPath){if([IO.Path]::IsPathRooted($OutputPath)){[IO.Path]::GetFullPath($OutputPath)}else{[IO.Path]::GetFullPath((Join-Path $projectFolder $OutputPath))}}else{Join-Path $projectFolder 'bin'}
+    foreach($suffix in @('', '.config')){
+        $compiled=Join-Path $outputFolder ('LivingPCL.exe'+$suffix)
+        if([IO.File]::Exists($compiled)){Move-Item -LiteralPath $compiled -Destination (Join-Path $outputFolder ('PCL Living Fork.exe'+$suffix)) -Force}
+    }
 }
 finally {
     try {

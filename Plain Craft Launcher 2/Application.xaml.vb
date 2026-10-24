@@ -24,6 +24,19 @@ Public Class Application
                 End Try
                 Dim IconRepair As New Thread(AddressOf RepairSharedMinecraftIcons) With {.IsBackground = True, .Name = "Repair Shared Minecraft Icons", .Priority = ThreadPriority.BelowNormal}
                 IconRepair.Start()
+                RunInNewThread(Sub()
+                                   Try
+                                       PersonalGameSettings.RecoverExitedSessions()
+                                   Catch ex As Exception
+                                       Logger.Warn(ex, "恢复个人游戏设置失败")
+                                   End Try
+                                   Try
+                                       QuickPlayWorlds.RecoverExitedSessions()
+                                   Catch ex As Exception
+                                       Logger.Warn(ex, "恢复最近存档记录失败")
+                                   End Try
+                                   RunInUi(Sub() FrmLaunchRight?.RefreshRecentWorlds())
+                               End Sub, "Recover Local Game Data", ThreadPriority.BelowNormal)
             End If
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest
@@ -64,18 +77,14 @@ Public Class Application
                     End Try
                 ElseIf e.Args(0) = "--memory" Then
                     '内存优化
-                    Dim Ram = My.Computer.Info.AvailablePhysicalMemory
                     Try
-                        PageOtherTest.MemoryOptimizeInternal(False)
+                        Environment.Exit(MemoryOptimizationOperation.ExecuteHelper(
+                            Function() CLng(My.Computer.Info.AvailablePhysicalMemory),
+                            Sub() PageOtherTest.MemoryOptimizeInternal(False)))
                     Catch ex As Exception
                         MsgBox(ex.Message, MsgBoxStyle.Critical, "内存优化失败")
-                        Environment.Exit(-1)
+                        Environment.Exit(MemoryOptimizationOperation.FailedExitCode)
                     End Try
-                    If My.Computer.Info.AvailablePhysicalMemory < Ram Then '避免 ULong 相减出现负数
-                        Environment.Exit(0)
-                    Else
-                        Environment.Exit((My.Computer.Info.AvailablePhysicalMemory - Ram) / 1024) '返回清理的内存量（K）
-                    End If
                 End If
             End If
             '初始化文件结构
@@ -125,11 +134,7 @@ RetryCacheCheck:
             End If
             '基础信息
             Logger.Info($"程序版本：{VersionDisplay} ({VersionCode}{If(CommitHash = "", "", $"，#{CommitHash}")})")
-            If BuildType = BuildTypes.Snapshot Then
-                Logger.Info($"识别码：{Identify}{If(ThemeCheckOne(9), "，已解锁反馈主题", "，未解锁反馈主题")}")
-            Else
-                Logger.Info($"识别码：{Identify}")
-            End If
+            Logger.Info($"识别码：{Identify}")
             Logger.Info($"程序路径：{PathExe}")
             Logger.Info($"系统编码：{Encoding.Default.HeaderName} ({Encoding.Default.CodePage}, GBK={IsGBKEncoding})")
             Logger.Info($"管理员权限：{WindowsUtils.HasAdminRole()}")
@@ -170,7 +175,7 @@ RetryCacheCheck:
             If LauncherWindowActivation.TryActivateExistingWindow() Then
                 Microsoft.VisualBasic.Interaction.Beep()
             Else
-                System.Windows.MessageBox.Show("PCL 或 LivingPCL 已在运行，但未能唤醒其窗口。请切换到正在运行的启动器，或退出后重试。", "启动器正在运行", MessageBoxButton.OK, MessageBoxImage.Information)
+                System.Windows.MessageBox.Show("PCL 或 PCL Living Fork 已在运行，但未能唤醒其窗口。请切换到正在运行的启动器，或退出后重试。", "启动器正在运行", MessageBoxButton.OK, MessageBoxImage.Information)
             End If
         Catch
             System.Windows.MessageBox.Show("无法确认启动器的运行状态。为保护共享账号，本次启动已停止。", "无法启动", MessageBoxButton.OK, MessageBoxImage.Warning)

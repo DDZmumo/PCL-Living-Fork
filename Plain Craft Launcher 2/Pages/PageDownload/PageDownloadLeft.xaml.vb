@@ -1,4 +1,4 @@
-Public Class PageDownloadLeft
+﻿Public Class PageDownloadLeft
     Implements IRefreshable
 
 #Region "页面切换"
@@ -11,15 +11,24 @@ Public Class PageDownloadLeft
     ''' <summary>
     ''' 勾选事件改变页面。
     ''' </summary>
-    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemInstall.Check, ItemMod.Check, ItemPack.Check, ItemResourcePack.Check, ItemShader.Check, ItemDataPack.Check
+    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemInstall.Check, ItemMod.Check, ItemPack.Check, ItemResourcePack.Check, ItemShader.Check, ItemDataPack.Check, ItemMap.Check
         '尚未初始化控件属性时，sender.Tag 为 Nothing，会导致切换到页面 0
         '若使用 IsLoaded，则会导致模拟点击不被执行（模拟点击切换页面时，控件的 IsLoaded 为 False）
         If sender.Tag IsNot Nothing Then PageChange(Val(sender.Tag))
     End Sub
 
+    Private MapPage As PageDownloadMap
+    Private Sub MapButtonInit() Handles Me.Initialized
+        Dim Button As New MyIconButton With {.Tag = 7, .ToolTip = "刷新", .LogoScale = 0.85, .Logo = Logo.IconButtonRefresh}
+        AddHandler Button.Click, AddressOf Refresh_Click
+        ItemMap.Buttons = {Button}
+    End Sub
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
         Select Case ID
+            Case FormMain.PageSubType.DownloadMap
+                If MapPage Is Nothing Then MapPage = New PageDownloadMap
+                Return MapPage
             Case FormMain.PageSubType.DownloadInstall
                 If FrmDownloadInstall Is Nothing Then FrmDownloadInstall = New PageDownloadInstall
                 Return FrmDownloadInstall
@@ -92,6 +101,13 @@ Public Class PageDownloadLeft
         ResourceProject.Cache.Clear()
         ResourceVersion.ProjectFilesCache.Clear()
         Select Case SubType
+            Case FormMain.PageSubType.DownloadMap
+                If MapPage IsNot Nothing Then
+                    MapPage.Content.Storage = New ResourceSearcher.SearchResult
+                    MapPage.Content.Page = 0
+                    MapPage.PageLoaderRestart()
+                End If
+                ItemMap.Checked = True
             Case FormMain.PageSubType.DownloadInstall
                 DlClientListLoader.Start(IsForceRestart:=True)
                 DlOptiFineListLoader.Start(IsForceRestart:=True)

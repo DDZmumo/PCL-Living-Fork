@@ -48,8 +48,14 @@ Friend NotInheritable Class NativeMemoryOptimizer
         End Using
     End Sub
 
+    '仅打开当前令牌，不启用权限或修改系统内存；与权限获取使用同一入口，便于只读回归。
+    Friend Shared Function OpenPrivilegeIdentity() As WindowsIdentity
+        'WindowsPrincipal.IsInRole 会复制主令牌来检查组成员；缺少 Duplicate 时会在清理前报“拒绝访问”。
+        Return WindowsIdentity.GetCurrent(TokenAccessLevels.Query Or TokenAccessLevels.Duplicate Or TokenAccessLevels.AdjustPrivileges)
+    End Function
+
     Private Shared Function AcquireProfilePrivilege() As IDisposable
-        Dim Identity As WindowsIdentity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query Or TokenAccessLevels.AdjustPrivileges)
+        Dim Identity As WindowsIdentity = OpenPrivilegeIdentity()
         Dim Lease As ProfilePrivilegeLease = Nothing
         Try
             If Not New WindowsPrincipal(Identity).IsInRole(WindowsBuiltInRole.Administrator) Then
@@ -135,5 +141,42 @@ Friend NotInheritable Class NativeMemoryOptimizer
     <DllImport("ntdll.dll", ExactSpelling:=True)>
     Private Shared Function NtSetSystemInformation(InformationClass As Integer, ByRef Command As Integer,
         InformationLength As UInteger) As Integer
+    End Function
+End Class
+
+'父进程和 --memory 辅助进程共用结果约定；测试只需注入委托，不启动提权进程。
+Friend NotInheritable Class MemoryOptimizationOperation
+    Friend Const FailedExitCode As Integer = -1
+
+    Private Sub New()
+    End Sub
+
+    Friend Shared Function Execute(IsElevated As Boolean, ReadAvailable As Func(Of Long), Optimize As Action,
+                                   RunElevated As Func(Of Integer)) As Long
+        If IsElevated Then Return MeasureReleased(ReadAvailable, Optimize)
+        If RunElevated Is Nothing Then Throw New ArgumentNullException(NameOf(RunElevated))
+        Dim ExitCode As Integer
+        Try
+            ExitCode = RunElevated()
+        Catch ex As Win32Exception When ex.NativeErrorCode = 1223 'ERROR_CANCELLED：用户取消 UAC。
+            Throw New OperationCanceledException("已取消授予内存优化所需的管理员权限。", ex)
+        End Try
+        If ExitCode < 0 Then
+            Throw New InvalidOperationException($"内存优化辅助进程执行失败（退出代码：{ExitCode}）。")
+        End If
+        Return CLng(ExitCode) * 1024L
+    End Function
+
+    Friend Shared Function ExecuteHelper(ReadAvailable As Func(Of Long), Optimize As Action) As Integer
+        '进程退出码保留非负 Int32 表示 KiB，避免大内存机器上的溢出被误判为失败。
+        Return CInt(Math.Min(CLng(Integer.MaxValue), MeasureReleased(ReadAvailable, Optimize) \ 1024L))
+    End Function
+
+    Private Shared Function MeasureReleased(ReadAvailable As Func(Of Long), Optimize As Action) As Long
+        If ReadAvailable Is Nothing Then Throw New ArgumentNullException(NameOf(ReadAvailable))
+        If Optimize Is Nothing Then Throw New ArgumentNullException(NameOf(Optimize))
+        Dim Before As Long = ReadAvailable()
+        Optimize()
+        Return Math.Max(0L, ReadAvailable() - Before)
     End Function
 End Class

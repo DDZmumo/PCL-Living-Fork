@@ -211,6 +211,7 @@
             '更新 MC 文件夹所选取的 Minecraft 版本
             Logger.Info($"当前选择的 Minecraft 版本：{If(value?.PathVersion, "无")}")
             WriteIni(McFolderSelected & "PCL.ini", "Version", If(value?.Name, ""))
+            RunInUi(Sub() FrmLaunchRight?.RefreshRecentWorlds())
             If value Is Nothing Then Return
             '重置缓存的下载文件夹
             PageDownloadResourceDetail.CachedFolder.Clear()

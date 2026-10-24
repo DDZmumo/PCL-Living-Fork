@@ -263,7 +263,7 @@
                             <local:MyCheckBox.Tag>
                                 <local:ExportOption 
                                 Title="PCL 启动器程序"
-                                Description="打包当前 LivingPCL，以便没有启动器的玩家安装整合包"
+                                Description="打包当前 PCL Living Fork，以便没有启动器的玩家安装整合包"
                                 DefaultChecked="True" />
                             </local:MyCheckBox.Tag>
                         </local:MyCheckBox>
@@ -279,7 +279,7 @@
                             </local:MyCheckBox>
                             <local:MyCheckBox x:Name="CheckOptionsModpackMode" Checked="True">
                                 <local:MyCheckBox.Tag>
-                                    <local:ExportOption Title="LivingPCL 整合包模式"
+                                    <local:ExportOption Title="PCL Living Fork 整合包模式"
                                         Description="精简导航与设置，隐藏版本选择；可在启动器设置中关闭"
                                         DefaultChecked="True" />
                                 </local:MyCheckBox.Tag>

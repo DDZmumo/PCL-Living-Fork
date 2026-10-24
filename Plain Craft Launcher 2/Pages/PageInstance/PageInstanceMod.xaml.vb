@@ -54,6 +54,7 @@ Public Class PageInstanceMod
     End Sub
 
     Private Sub LoaderInit() Handles Me.Initialized
+        LocalResourceUi.ApplySelectionIcons(BtnSelectUpdate, BtnSelectDelete, BtnSelectCancel)
         PageLoaderInit(Load, PanLoad, PanAllBack, Nothing, LocalResourceLoader, AddressOf LoadUIFromLoaderOutput, AutoRun:=False)
     End Sub
     Private Sub Load_Click(sender As Object, e As MouseButtonEventArgs) Handles Load.Click
@@ -204,48 +205,8 @@ Public Class PageInstanceMod
             BtnSelectUpdate.IsEnabled = HasUpdate
         End If
         '更新显示状态
-        If AniControlEnabled = 0 Then
-            PanListBack.Margin = New Thickness(0, 0, 0, If(Selected, 95, 15))
-            If Selected Then
-                '仅在数量增加时播放出现/跳跃动画
-                If BottomBarShownCount >= NewCount Then
-                    BottomBarShownCount = NewCount
-                    Return
-                Else
-                    BottomBarShownCount = NewCount
-                End If
-                '出现/跳跃动画
-                CardSelect.Visibility = Visibility.Visible
-                AniStart({
-                    AaOpacity(CardSelect, 1 - CardSelect.Opacity, 60),
-                    AaTranslateY(CardSelect, -27 - TransSelect.Y, 120, Ease:=New AniEaseOutFluent(AniEasePower.Weak)),
-                    AaTranslateY(CardSelect, 3, 150, 120, Ease:=New AniEaseInoutFluent(AniEasePower.Weak)),
-                    AaTranslateY(CardSelect, -1, 90, 270, Ease:=New AniEaseInoutFluent(AniEasePower.Weak))
-                }, "Mod Sidebar")
-            Else
-                '不重复播放隐藏动画
-                If BottomBarShownCount = 0 Then Return
-                BottomBarShownCount = 0
-                '隐藏动画
-                AniStart({
-                    AaOpacity(CardSelect, -CardSelect.Opacity, 90),
-                    AaTranslateY(CardSelect, -10 - TransSelect.Y, 90, Ease:=New AniEaseInFluent(AniEasePower.Weak)),
-                    AaCode(Sub() CardSelect.Visibility = Visibility.Collapsed, After:=True)
-                }, "Mod Sidebar")
-            End If
-        Else
-            AniStop("Mod Sidebar")
-            BottomBarShownCount = NewCount
-            If Selected Then
-                CardSelect.Visibility = Visibility.Visible
-                CardSelect.Opacity = 1
-                TransSelect.Y = -25
-            Else
-                CardSelect.Visibility = Visibility.Collapsed
-                CardSelect.Opacity = 0
-                TransSelect.Y = -10
-            End If
-        End If
+        PanListBack.Margin = New Thickness(0, 0, 0, If(Selected, 95, 15))
+        LocalResourceUi.RefreshSelectionBar(CardSelect, TransSelect, NewCount, BottomBarShownCount, "Mod Sidebar", IsLoaded AndAlso AniControlEnabled = 0)
     End Sub
     Private BottomBarShownCount As Integer = 0
 
@@ -547,6 +508,11 @@ Install:
         UpdateModsCore(ModList, False)
     End Sub
     Private Sub UpdateModsCore(ModList As IEnumerable(Of LocalResourceFile), ModeConfirmed As Boolean)
+        If EnvironmentHistoryUi.IsBusy Then
+            Hint("请等待环境还原操作完成。")
+            Return
+        End If
+        Dim SnapshotInstance = PageInstanceLeft.Instance
         '更新前警告
         If ModModpackMode.Enabled Then
             If Not ModeConfirmed AndAlso Not ModModpackMode.ConfirmModAction("更新 Mod") Then Return
@@ -601,6 +567,7 @@ Install:
             InstallLoaders.Add(New LoaderDownload("下载新版 Mod 文件", FileList) With {.ProgressWeight = ModList.Count * 1.5}) '每个 Mod 需要 1.5s
             InstallLoaders.Add(New LoaderTask(Of Integer, Integer)("替换旧版 Mod 文件",
             Sub()
+                EnvironmentHistory.CaptureInstance(SnapshotInstance, "更新模组前", CancellationToken.None)
                 Try
                     For Each Entry As LocalResourceFile In ModList
                         If FileUtils.Exists(Entry.File.FullName) Then

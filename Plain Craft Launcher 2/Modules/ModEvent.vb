@@ -334,6 +334,7 @@ Public Class CustomEvent
                     End Try
 
                 Case EventType.加入房间
+#If LEGACY_LINK Then
                     RunInUi(
                     Sub()
                         If String.IsNullOrWhiteSpace(Arg) Then
@@ -343,6 +344,9 @@ Public Class CustomEvent
                             PageLinkMain.Join(Arg)
                         End If
                     End Sub)
+#Else
+                    Hint("旧联机模块暂未参与编译，当前版本无法加入联机房间。")
+#End If
 
                 Case EventType.检查更新
                     UpdateCheckByButton()

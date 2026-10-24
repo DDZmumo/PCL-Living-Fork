@@ -56,6 +56,10 @@ Public Class PageResource
             If _Type = Value Then Return
             _Type = Value
             BtnSearchInstallModPack.Visibility = If(Value = ResourceTypes.ModPack, Visibility.Visible, Visibility.Collapsed)
+            If Value = ResourceTypes.Map Then
+                ComboSearchSource.Items.Clear()
+                ComboSearchSource.Items.Add(New MyComboBoxItem With {.Content = "CurseForge", .Tag = CInt(ResourcePlatforms.CurseForge), .IsSelected = True})
+            End If
         End Set
     End Property
     Private _Type As ResourceTypes = -1
@@ -127,7 +131,7 @@ Public Class PageResource
             .GameVersion = GameVersion
             .Tag = ComboSearchTag.SelectedItem.Tag
             .ModLoaders = If(PageType = ResourceTypes.Mod, Val(ComboSearchLoader.SelectedItem.Tag), ModLoaders.None)
-            .Sources = CType(Val(ComboSearchSource.SelectedItem.Tag), ResourcePlatforms)
+            .Sources = If(PageType = ResourceTypes.Map, ResourcePlatforms.CurseForge, CType(Val(ComboSearchSource.SelectedItem.Tag), ResourcePlatforms))
         End With
         Return Request
     End Function

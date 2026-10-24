@@ -27,11 +27,13 @@ Public Module ModWatcher
     Private Sub MinecraftStart()
         McLaunchLog("[全局] 出现运行中的 Minecraft")
         HasRunningMinecraft = True
+        RunInUi(Sub() FrmLaunchRight?.UpdateRecentWorldVisibility())
         FrmMain.BtnExtraShutdown.ShowRefresh()
     End Sub
     Private Sub MinecraftStop(TriggerLauncherShutdown As Boolean)
         McLaunchLog("[全局] 已无运行中的 Minecraft")
         HasRunningMinecraft = False
+        RunInUi(Sub() FrmLaunchRight?.RefreshRecentWorlds())
         FrmMain.BtnExtraShutdown.ShowRefresh()
         '音乐播放
         If Settings.Get(Of Boolean)("UiMusicStop") Then
@@ -62,12 +64,18 @@ Public Module ModWatcher
         Public Instance As McInstance
         Private WindowTitle As String = ""
         Private PID As Integer
+        Private ReadOnly AfterStopped As Action
+        Private StopCallbackCompleted As Integer
+        Private ReadOnly EnvironmentPoint As String
+        Private ReachedRunning As Boolean
         Public Loader As LoaderTask(Of Process, Integer)
-        Public Sub New(Loader As LoaderTask(Of Process, Integer), Instance As McInstance, WindowTitle As String)
+        Public Sub New(Loader As LoaderTask(Of Process, Integer), Instance As McInstance, WindowTitle As String, Optional BeforeMonitoring As Action(Of Process) = Nothing, Optional OnStopped As Action = Nothing, Optional EnvironmentPoint As String = Nothing)
             Me.Loader = Loader
             Me.Instance = Instance
             Me.WindowTitle = WindowTitle
             Me.PID = Loader.Input.Id
+            Me.AfterStopped = OnStopped
+            Me.EnvironmentPoint = EnvironmentPoint
             WatcherLog("开始 Minecraft 日志监控")
             If Me.WindowTitle <> "" Then WatcherLog("要求窗口标题：" & WindowTitle)
 
@@ -83,6 +91,7 @@ Public Module ModWatcher
 
             '初始化进程与日志读取
             GameProcess = Loader.Input
+            BeforeMonitoring?.Invoke(GameProcess)
             GameProcess.BeginOutputReadLine()
             GameProcess.BeginErrorReadLine()
             AddHandler GameProcess.OutputDataReceived, AddressOf LogReceived
@@ -124,6 +133,7 @@ Public Module ModWatcher
             Set(value As MinecraftState)
                 If _State = value Then Return
                 _State = value
+                If value = MinecraftState.Running Then ReachedRunning = True
                 WatcherStateChanged()
             End Set
         End Property
@@ -158,6 +168,18 @@ Public Module ModWatcher
                 If State = MinecraftState.Loading Then ProgressUpdate()
                 '游戏退出检查
                 If GameProcess.HasExited Then
+                    If Interlocked.Exchange(StopCallbackCompleted, 1) = 0 Then
+                        Try
+                            EnvironmentHistory.MarkHealthy(Instance.PathVersion, EnvironmentPoint, ReachedRunning AndAlso GameProcess.ExitCode = 0 AndAlso State <> MinecraftState.Crashed AndAlso State <> MinecraftState.Canceled)
+                        Catch ex As Exception
+                            Logger.Warn(ex, "标记正常运行的环境还原点失败")
+                        End Try
+                        Try
+                            AfterStopped?.Invoke()
+                        Catch ex As Exception
+                            Logger.Warn(ex, "处理游戏退出后的本机资料失败")
+                        End Try
+                    End If
                     WatcherLog("Minecraft 已退出，返回值：" & GameProcess.ExitCode)
                     'If Process.ExitCode = 1 Then
                     '    '返回值为 1，考虑是任务管理器结束

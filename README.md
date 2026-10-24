@@ -1,25 +1,31 @@
-# LivingPCL2-Re
+# PCL Living Fork
 
-**LivingPCL** 是基于 Plain Craft Launcher（PCL）官方开源版的第三方 Minecraft 启动器，由 DDZmumo 维护，非 PCL 官方版本。
+**PCL Living Fork**（原 LivingPCL）是基于 [Plain Craft Launcher（PCL）](https://github.com/Meloong-Git/PCL) 原项目的第三方 Minecraft 启动器，由 DDZmumo 维护，非 PCL 官方版本。
 
-保留原版下载与启动功能，加入角色背景和图标、兼容配置共享，以及本仓库的检查更新与下载更新。
+[下载 1.2.0](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.2.0) · [更新说明](RELEASE_NOTES_v1.2.0.md) · [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues)
+
+## 功能
+
+- **游戏资源管理**：在启动器内管理存档、截图、模组、资源包、光影包和投影/原理图，使用 PCL 原生列表、多选与动效。资源包和光影包支持在线更新，下载页提供 CurseForge 地图下载。
+- **个人游戏习惯**：按类别同步按键、鼠标、视野、字幕等设置，每个版本可单独例外；按键管理支持搜索、同键占用检查和重新绑定。
+- **继续上次的世界**：首页和存档管理可直接进入支持 Quick Play 的 Java 版存档，首页卡片可在“个性化 → 主页”关闭。
+- **整合包更新**：从本地文件或 CurseForge / Modrinth 更新已识别的整合包，先预览变化与冲突，保留个人修改并下载变化文件。
+- **还原点**：手动或在更新前保存 Minecraft、加载器、模组与配置，支持整套恢复、删除和恢复前留档，保留当前存档进度。
+- **整合包导出与模式**：可附带启动器、选择该版本的版本隔离，并使用仅保留必要入口的整合包界面。
 
 ## 使用
 
-需要 Windows 64 位系统和 .NET Framework 4.8。从 [Releases](https://github.com/DDZmumo/LivingPCL2-Re/releases) 下载 EXE 直接运行，或下载 ZIP 解压后运行 `LivingPCL.exe`。升级时保留原有 `PCL`、`.minecraft` 和游戏目录。
+需要 **Windows 64 位系统和 .NET Framework 4.8**。从 [Releases](https://github.com/DDZmumo/PCL-Living-Fork/releases) 下载 EXE，或解压 ZIP 后运行 `PCL Living Fork.exe`。
 
-- 与官方 PCL 共用兼容的注册表设置和账号；同目录运行时也共用 `PCL\Setup.ini`。
-- 在一边修改共享设置或账号，会影响另一边；切换启动器前请先退出当前实例。
-- 内置背景与默认配色可在设置中调整，自定义图片放入 `PCL\Pictures`。
-- 更多 → 原版百宝箱提供内存优化、清理游戏垃圾和自定义文件下载。
-- 整合包模式隐藏下载、更多和部分管理选项，版本选择仅限本目录的整合包，概览显示已安装组件；附带启动器导出时默认开启，仅带本目录导出标记的整合包可切换此模式。
-- 导出高级选项可设置“开启该版本的版本隔离”，默认勾选，导入后按此选择使用独立或共享游戏目录。
+升级时保留原有 `PCL`、`.minecraft` 和游戏目录。旧 `LivingPCL2-Re` 仓库继续提供兼容更新入口。
 
-**CurseForge 第三方 API 申请已获批，发布版已接入正式 API Key。**
+可与官方 PCL 共用兼容的账号和设置；同目录运行时共用 `PCL\Setup.ini`，修改共享配置也会影响另一边。保留固定默认配色，背景图片可自行更换；自定义及其他颜色主题请[赞助原作者](https://meloong.com/afd/a/LTCat)，获取官方快照版。
 
-## 编译
+**Minecraft API 与 CurseForge 第三方 API 均已获批，发行版使用本项目自有 Client ID 和正式 API Key。** 接口可用性以后续平台授权及服务政策为准。
 
-需要 Visual Studio 2022 的“.NET 桌面开发”工作负载、.NET Framework 4.8 Targeting Pack 和 .NET 9 SDK。
+## 自行编译
+
+需要 Visual Studio 2022 的“.NET 桌面开发”工作负载、.NET Framework 4.8 Targeting Pack 和 .NET 9 SDK。在 VS Developer PowerShell 中运行：
 
 ```powershell
 git submodule update --init --recursive
@@ -27,9 +33,7 @@ dotnet restore .\PCLCS\PCLCS.csproj
 .\scripts\Build-Release.ps1
 ```
 
-请在 VS Developer PowerShell 中构建。程序默认输出到 `Plain Craft Launcher 2\bin\LivingPCL.exe`。
-
-源码不包含 Client ID 或 API Key。自行构建时，通过 `PCL_MS_CLIENT_ID` 和 `PCL_CURSEFORGE_API_KEY` 环境变量提供自己的配置；发布构建会加密保存这些值。
+输出为 `Plain Craft Launcher 2\bin\PCL Living Fork.exe`。源码不包含实际 Client ID 或 API Key；请通过 `PCL_MS_CLIENT_ID`、`PCL_CURSEFORGE_API_KEY` 环境变量提供自己的配置，构建时会加密嵌入。
 
 ## 来源与许可
 
