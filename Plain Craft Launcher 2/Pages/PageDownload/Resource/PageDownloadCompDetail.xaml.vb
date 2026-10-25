@@ -80,13 +80,15 @@ Public Class PageDownloadResourceDetail
     '筛选类型相同的结果（Modrinth 会返回 Mod、服务端插件、数据包混合的列表）
     Private Function GetResults() As List(Of ResourceVersion)
         Dim Results As List(Of ResourceVersion) = ResourceFileLoader.Output
-        Select Case TargetResourceType
+        '旧入口遗漏类别时，按工程本身的类型显示，避免把有效版本全部筛掉。
+        Dim EffectiveType = If(TargetResourceType = 0, If(Project Is Nothing, ResourceTypes.Any, Project.Types), TargetResourceType)
+        Select Case EffectiveType
             Case ResourceTypes.Any
                 Results = Results.Where(Function(r) r.ResourceType <> ResourceTypes.Plugin).ToList
             Case ResourceTypes.Shader, ResourceTypes.ResourcePack
                 '不筛选光影和资源包，否则原版光影会因为是资源包格式而被过滤（#6473）
             Case Else
-                Results = Results.Where(Function(r) r.ResourceType = TargetResourceType).ToList
+                Results = Results.Where(Function(r) r.ResourceType = EffectiveType).ToList
         End Select
         Return Results
     End Function

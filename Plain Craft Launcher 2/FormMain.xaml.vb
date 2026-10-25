@@ -175,7 +175,7 @@ Public Class FormMain
             End Try
             '开源版本提示
             If VersionBranchMain = "OpenSource" Then
-                MyMsgBox($"{LauncherDisplayName} {VersionBaseName} 是基于 PCL 原项目的第三方修改版本。{vbCrLf}{vbCrLf}- 微软正版登录：Minecraft API 审核已通过，已接入本项目自有 Client ID{vbCrLf}- CurseForge：第三方 API 申请已获批，本版已接入正式 API Key{vbCrLf}- 游戏资源：新增资源管理、个人设置同步、按键管理与继续存档{vbCrLf}- 整合包与还原点：保留个人修改进行更新，支持整套恢复游戏环境{vbCrLf}- 启动器更新：来自 DDZmumo/PCL-Living-Fork 的 GitHub Releases", $"{LauncherDisplayName} {VersionBaseName} 版本说明")
+                MyMsgBox($"{LauncherDisplayName} {VersionBaseName} 是基于 PCL 原项目的第三方修改版本。{vbCrLf}{vbCrLf}- 微软正版登录：Minecraft API 审核已通过，已接入本项目自有 Client ID{vbCrLf}- CurseForge：第三方 API 申请已获批，本版已接入正式 API Key{vbCrLf}- 存档保护：正常退出后自动备份，支持按世界查看与恢复{vbCrLf}- 环境管理：新增模组依赖检查、测试副本与崩溃变更对照{vbCrLf}- 启动器更新：来自 DDZmumo/PCL-Living-Fork 的 GitHub Releases", $"{LauncherDisplayName} {VersionBaseName} 版本说明")
             End If
             ModLauncherUpdate.CheckForUpdates(True)
         End Sub, "初始化", ThreadPriority.Lowest)
@@ -962,6 +962,8 @@ Public Class FormMain
         InstanceSchematics = 10
         InstanceKeybindings = 11
         InstanceRestorePoints = 12
+        InstanceBackups = 13
+        InstanceClone = 14
     End Enum
     ''' <summary>
     ''' 获取次级页面的名称。若并非次级页面则返回空字符串，故可以以此判断是否为次级页面。

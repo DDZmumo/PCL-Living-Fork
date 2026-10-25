@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Threading
 
 Public Class PageInstanceResources
@@ -12,7 +12,6 @@ Public Class PageInstanceResources
     Private RecycleRoot As String
     Private Entries As New List(Of InstanceResourceEntry)
     Private Selected As InstanceResourceEntry
-    Private PreviewRevision As Integer
     Private Operation As CancellationTokenSource
     Private Busy As Boolean
     Private ReadOnly SelectedPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
@@ -23,6 +22,7 @@ Public Class PageInstanceResources
     Private Rendering As Boolean
     Private Filter As Integer
     Private ReadOnly Rows As New Dictionary(Of String, MyLocalModItem)(StringComparer.OrdinalIgnoreCase)
+    Private ReadOnly ScreenshotRows As New Dictionary(Of String, MyScreenshotItem)(StringComparer.OrdinalIgnoreCase)
     Private BottomBarShownCount As Integer
     Private KeyboardOwner As FormMain
     Private ReadOnly Property NeedsSchematicLoader As Boolean
@@ -35,16 +35,20 @@ Public Class PageInstanceResources
         Public Instance As McInstance
         Public Root As String
         Public Folder As String
+        Public GameFolder As String
     End Class
     Private Class ResourceResult
         Public Request As ResourceRequest
         Public Entries As List(Of InstanceResourceEntry)
+        Public Backups As List(Of JObject)
+        Public BackupError As String
     End Class
 
     Public Sub New()
         InitializeComponent()
         LocalResourceUi.ApplySelectionIcons(BtnUpdate, BtnDelete, BtnDeselect)
         BtnExport.Logo = Logo.IconButtonSave
+        BtnBackupRestore.Logo = Logo.IconButtonRefresh
         For Each Button As MyRadioButton In PanFilter.Children
             Button.LabText.Margin = New Thickness(-2, 0, 8, 0)
         Next
@@ -58,6 +62,7 @@ Public Class PageInstanceResources
         PageLoaderInit(Load, PanLoad, PanAllBack, Nothing, ResourceLoader, AddressOf ResourcesLoaded, AutoRun:=False)
     End Sub
     Private Sub PageLoaded() Handles Me.Loaded
+        If Kind = InstanceResourceKind.Saves Then AddHandler WorldBackups.Changed, AddressOf RefreshResources
         If KeyboardOwner Is Nothing AndAlso FrmMain IsNot Nothing Then
             KeyboardOwner = FrmMain
             AddHandler KeyboardOwner.KeyDown, AddressOf MainKeyDown
@@ -69,22 +74,28 @@ Public Class PageInstanceResources
     Private Sub ClearSelection() Handles Me.PageExit
         Rendering = True
         SelectedPaths.Clear()
+        ClearBackupSelection()
         For Each Row In Rows.Values
             Row.Checked = False
+        Next
+        For Each Tile In ScreenshotRows.Values
+            Tile.Checked = False
         Next
         Rendering = False
         SelectResource(Nothing)
     End Sub
     Private Sub PageUnloaded() Handles Me.Unloaded
+        If Kind = InstanceResourceKind.Saves Then RemoveHandler WorldBackups.Changed, AddressOf RefreshResources
         If KeyboardOwner IsNot Nothing Then
             RemoveHandler KeyboardOwner.KeyDown, AddressOf MainKeyDown
             KeyboardOwner = Nothing
         End If
         ResourceLoader.Cancel()
-        Interlocked.Increment(PreviewRevision)
+        For Each Tile In ScreenshotRows.Values
+            Tile.ReleaseThumbnail()
+        Next
         Operation?.Cancel()
         CancelOnline()
-        ImagePreview.Source = Nothing
         AniStop("Resource Sidebar " & PageUuid)
         BottomBarShownCount = 0
         CardSelect.Visibility = Visibility.Collapsed
@@ -95,12 +106,15 @@ Public Class PageInstanceResources
     Public Sub RefreshResources() Implements IRefreshable.Refresh
         Dim Instance = PageInstanceLeft.Instance
         If Instance Is Nothing OrElse Not ModModpackMode.AllowsInstance(Instance.PathVersion) Then Return
-        Dim Root = InstanceResourceStore.Root(Instance.PathIndie, Kind)
+        Dim GameFolder = Instance.PathIndie
+        Dim Root = InstanceResourceStore.Root(GameFolder, Kind)
         If Owner IsNot Instance OrElse Not PathUtils.IsSame(CurrentRoot, Root) Then
             CurrentFolder = Root
             SelectedPaths.Clear()
             Online.Clear()
             Filter = 0
+            WorldBackupPoints.Clear()
+            ResetWorldGroups()
         End If
         CancelOnline()
         Owner = Instance
@@ -108,17 +122,30 @@ Public Class PageInstanceResources
         If CurrentFolder Is Nothing OrElse Not Directory.Exists(CurrentFolder) Then CurrentFolder = Root
         Dim MinecraftRoot = Path.GetDirectoryName(Path.GetDirectoryName(Instance.PathVersion.TrimEnd("\"c)))
         RecycleRoot = Path.Combine(MinecraftRoot, "PCL", "ResourceRecycle", Kind.ToString())
-        ResourceLoader.Start(New ResourceRequest With {.Instance = Instance, .Root = Root, .Folder = CurrentFolder}, IsForceRestart:=True)
+        ResourceLoader.Start(New ResourceRequest With {.Instance = Instance, .Root = Root, .Folder = CurrentFolder, .GameFolder = GameFolder}, IsForceRestart:=True)
     End Sub
     Private Sub ReadResources(Loader As LoaderTask(Of ResourceRequest, ResourceResult))
         Dim Request = Loader.Input
         Dim Items = InstanceResourceStore.Scan(Request.Root, Request.Folder, Kind, Loader.CreateCancellationToken())
         If Loader.IsCanceled Then Return
-        Loader.Output = New ResourceResult With {.Request = Request, .Entries = Items}
+        Dim Result As New ResourceResult With {.Request = Request, .Entries = Items}
+        If Kind = InstanceResourceKind.Saves Then
+            Try
+                Result.Backups = WorldBackups.Points(Request.GameFolder)
+            Catch ex As Exception
+                Logger.Warn(ex, "读取此游戏目录的存档备份失败")
+                Result.BackupError = "存档备份读取失败，请刷新后重试。"
+            End Try
+        End If
+        Loader.Output = Result
     End Sub
     Private Sub ResourcesLoaded(Loader As LoaderTask(Of ResourceRequest, ResourceResult))
         Dim Result = Loader.Output
         If Result Is Nothing OrElse Owner IsNot Result.Request.Instance OrElse PageInstanceLeft.Instance IsNot Owner OrElse Not PathUtils.IsSame(CurrentFolder, Result.Request.Folder) Then Return
+        If Kind = InstanceResourceKind.Saves AndAlso Not PathUtils.IsSame(Owner.PathIndie, Result.Request.GameFolder) Then Return
+        WorldBackupPoints = If(Result.Backups, New List(Of JObject))
+        LabBackupStatus.Text = Result.BackupError
+        LabBackupStatus.Visibility = If(String.IsNullOrEmpty(Result.BackupError), Visibility.Collapsed, Visibility.Visible)
         ShowResources(Result.Request.Root, Result.Request.Folder, Result.Entries)
         CheckUpdates()
     End Sub
@@ -127,6 +154,10 @@ Public Class PageInstanceResources
         CurrentRoot = Root
         CurrentFolder = Folder
         Entries = Items.ToList()
+        BackupSettings.Visibility = If(Kind = InstanceResourceKind.Saves, Visibility.Visible, Visibility.Collapsed)
+        BtnBackupAll.Visibility = BackupSettings.Visibility
+        PanManageButtons.ColumnDefinitions(4).SharedSizeGroup = If(Kind = InstanceResourceKind.Saves, "Button", Nothing)
+        If Kind = InstanceResourceKind.Saves Then BackupSettings.BindOwner(Owner)
         For Each Key In Online.Keys.ToList()
             Dim Current = Entries.FirstOrDefault(Function(Item) PathUtils.IsSame(Item.FullPath, Key))
             If Current Is Nothing OrElse Current.ModifiedUtc <> Online(Key).Entry.ModifiedUtc OrElse Current.Length <> Online(Key).Entry.Length Then Online.Remove(Key)
@@ -173,10 +204,22 @@ Public Class PageInstanceResources
         Dim Mixed = Entries.Any(Function(Item) Item.IsDirectory) AndAlso Entries.Any(Function(Item) Not Item.IsDirectory)
         BtnFilterFiles.Visibility = If(Mixed OrElse Filter = 2, Visibility.Visible, Visibility.Collapsed)
         BtnFilterFolders.Visibility = If(Mixed OrElse Filter = 3, Visibility.Visible, Visibility.Collapsed)
-        Dim PreviewTitle = CardPreview.MainTextBlock
         LabEmpty.Visibility = If(Visible.Any(), Visibility.Collapsed, Visibility.Visible)
         LabEmpty.Text = If(Query = "" AndAlso Filter = 0, "暂无" & InstanceResourceStore.Title(Kind) & "，可以从本地文件安装" & If(Kind = InstanceResourceKind.Screenshots, "或拖入图片。", "或拖入文件夹。"), If(Filter = 1, "未发现可更新的资源，可刷新列表重新检查。", "没有找到匹配的资源。"))
         SelectedPaths.IntersectWith(Visible.Select(Function(Item) Item.FullPath))
+        PanList.Visibility = If(Kind = InstanceResourceKind.Screenshots OrElse Kind = InstanceResourceKind.Saves, Visibility.Collapsed, Visibility.Visible)
+        PanWorlds.Visibility = If(Kind = InstanceResourceKind.Saves, Visibility.Visible, Visibility.Collapsed)
+        PanScreenshots.Visibility = If(Kind = InstanceResourceKind.Screenshots, Visibility.Visible, Visibility.Collapsed)
+        If Kind = InstanceResourceKind.Screenshots Then
+            RenderScreenshots(Visible)
+            SelectResource(Selection().FirstOrDefault())
+            Return
+        End If
+        If Kind = InstanceResourceKind.Saves Then
+            RenderWorldGroups(Visible, Query)
+            SelectResource(Selection().FirstOrDefault())
+            Return
+        End If
         For Each Key In Rows.Keys.Where(Function(Value) Not Entries.Any(Function(Item) String.Equals(Item.FullPath, Value, StringComparison.OrdinalIgnoreCase))).ToList()
             Rows.Remove(Key)
         Next
@@ -207,6 +250,76 @@ Public Class PageInstanceResources
         SelectResource(If(NextSelected, Visible.FirstOrDefault(Function(Item) SelectedPaths.Contains(Item.FullPath))))
         Finally
             Rendering = False
+        End Try
+    End Sub
+
+    Private Sub RenderScreenshots(Visible As List(Of InstanceResourceEntry))
+        For Each Key In ScreenshotRows.Keys.Where(Function(Value) Not Entries.Any(Function(Item) String.Equals(Item.FullPath, Value, StringComparison.OrdinalIgnoreCase))).ToList()
+            ScreenshotRows(Key).ReleaseThumbnail()
+            ScreenshotRows.Remove(Key)
+        Next
+        Dim Desired As New List(Of MyScreenshotItem)
+        For Each Entry In Visible
+            Dim Tile As MyScreenshotItem = Nothing
+            If Not ScreenshotRows.TryGetValue(Entry.FullPath, Tile) Then
+                Tile = New MyScreenshotItem
+                AddHandler Tile.Changed, AddressOf ScreenshotSelectionChanged
+                AddHandler Tile.ClickRequested, Sub(Sender, Count) ScreenshotClick(Sender.Entry, Count)
+                AddHandler Tile.Loaded, Sub() Tile.UpdateViewport(PanBack)
+                ScreenshotRows.Add(Entry.FullPath, Tile)
+            End If
+            Tile.Bind(Entry)
+            Tile.Checked = SelectedPaths.Contains(Entry.FullPath)
+            Desired.Add(Tile)
+        Next
+        For Each Tile In PanScreenshots.Children.OfType(Of MyScreenshotItem)().Where(Function(Item) Not Desired.Contains(Item)).ToList()
+            Tile.ReleaseThumbnail()
+            PanScreenshots.Children.Remove(Tile)
+        Next
+        For Index = 0 To Desired.Count - 1
+            Dim Tile = Desired(Index)
+            If PanScreenshots.Children.IndexOf(Tile) = Index Then Continue For
+            PanScreenshots.Children.Remove(Tile)
+            PanScreenshots.Children.Insert(Index, Tile)
+        Next
+        RefreshScreenshotViewport()
+    End Sub
+    Private Sub RefreshScreenshotViewport() Handles PanBack.ScrollChanged, PanBack.SizeChanged
+        If Kind <> InstanceResourceKind.Screenshots Then Return
+        For Each Tile As MyScreenshotItem In PanScreenshots.Children
+            Tile.UpdateViewport(PanBack)
+        Next
+    End Sub
+    Private Sub ScreenshotSelectionChanged(Tile As MyScreenshotItem)
+        If Rendering OrElse Busy Then Return
+        If Tile.Checked Then SelectedPaths.Add(Tile.Entry.FullPath) Else SelectedPaths.Remove(Tile.Entry.FullPath)
+        SelectResource(Selection().FirstOrDefault())
+    End Sub
+    Friend Sub ScreenshotClick(Entry As InstanceResourceEntry, Count As Integer, Optional Open As Action(Of ProcessStartInfo) = Nothing)
+        If Busy OrElse Kind <> InstanceResourceKind.Screenshots OrElse Entry Is Nothing OrElse Count < 1 Then Return
+        If Not Entries.Any(Function(Item) Item Is Entry) Then Return
+        Rendering = True
+        If Keyboard.Modifiers <> ModifierKeys.Control OrElse Count = 2 Then
+            SelectedPaths.Clear()
+            SelectedPaths.Add(Entry.FullPath)
+            For Each Tile In ScreenshotRows.Values
+                Tile.Checked = Tile.Entry Is Entry
+            Next
+        Else
+            Dim Tile = ScreenshotRows(Entry.FullPath)
+            Tile.Checked = Not Tile.Checked
+            If Tile.Checked Then SelectedPaths.Add(Entry.FullPath) Else SelectedPaths.Remove(Entry.FullPath)
+        End If
+        Rendering = False
+        SelectResource(Selection().FirstOrDefault())
+        If Count <> 2 Then Return
+        Try
+            InstanceResourceStore.ValidateEntry(CurrentRoot, Entry)
+            Dim Start As New ProcessStartInfo(Entry.FullPath) With {.UseShellExecute = True}
+            If Open Is Nothing Then Open = Sub(Info) Process.Start(Info)
+            Open(Start)
+        Catch ex As Exception
+            Logger.Error(ex, "使用默认图片软件打开截图失败", LogBehavior.Toast)
         End Try
     End Sub
 
@@ -247,22 +360,28 @@ Public Class PageInstanceResources
             e.Handled = True
             Return
         End If
+        ClearBackupSelection()
         If Row.Checked Then SelectedPaths.Add(Entry.FullPath) Else SelectedPaths.Remove(Entry.FullPath)
         SelectResource(If(Row.Checked, Entry, Selection().LastOrDefault()))
     End Sub
     Friend Sub ChangeAllSelected(Value As Boolean)
         If Busy Then Return
         SelectedPaths.Clear()
+        ClearBackupSelection()
         Rendering = True
-        For Each Row As MyLocalModItem In PanList.Children
+        For Each Row As MyLocalModItem In VisibleResourceRows()
             Row.Checked = Value
             If Value Then SelectedPaths.Add(Row.ResourceEntry.FullPath)
+        Next
+        For Each Tile As MyScreenshotItem In PanScreenshots.Children
+            Tile.Checked = Value
+            If Value Then SelectedPaths.Add(Tile.Entry.FullPath)
         Next
         Rendering = False
         SelectResource(Selection().FirstOrDefault())
     End Sub
     Private Sub SelectAllClick() Handles BtnSelectAll.Click
-        ChangeAllSelected(SelectedPaths.Count < PanList.Children.Count)
+        ChangeAllSelected(SelectedPaths.Count < If(Kind = InstanceResourceKind.Screenshots, PanScreenshots.Children.Count, VisibleResourceRows().Count()))
     End Sub
     Private Sub DeselectClick() Handles BtnDeselect.Click
         ChangeAllSelected(False)
@@ -279,7 +398,7 @@ Public Class PageInstanceResources
         If SearchBox.Text = "" AndAlso e.Key = Key.A AndAlso Keyboard.Modifiers = ModifierKeys.Control Then PanBack.Focus()
     End Sub
     Private Sub ResourceKeyDown(Sender As Object, e As KeyEventArgs) Handles Me.KeyDown
-        If e.Key = Key.Escape AndAlso SelectedPaths.Count > 0 Then ChangeAllSelected(False) : e.Handled = True
+        If e.Key = Key.Escape AndAlso (SelectedPaths.Count > 0 OrElse SelectedBackupIds().Count > 0) Then ChangeAllSelected(False) : e.Handled = True
         If e.Key = Key.A AndAlso Keyboard.Modifiers = ModifierKeys.Control AndAlso Not SearchBox.IsKeyboardFocusWithin Then ChangeAllSelected(True) : e.Handled = True
     End Sub
 
@@ -307,45 +426,36 @@ Public Class PageInstanceResources
         Return Buttons
     End Function
     Private Sub ShowDetails(Entry As InstanceResourceEntry)
-        If Kind = InstanceResourceKind.Screenshots Then
-            ChangeAllSelected(False)
-            Dim Row = PanList.Children.OfType(Of MyLocalModItem)().FirstOrDefault(Function(Item) Item.ResourceEntry Is Entry)
-            If Row IsNot Nothing Then Row.Checked = True
+        If Kind = InstanceResourceKind.Saves Then
+            Dim Root = CurrentRoot
+            RunInNewThread(Sub()
+                               Try
+                                   InstanceResourceStore.ValidateEntry(Root, Entry)
+                                   Dim Content = WorldMetadata.Describe(Entry.FullPath)
+                                   RunInUi(Sub() MyMsgBox(Content, "存档详情", "确定"))
+                               Catch ex As Exception
+                                   Logger.Error(ex, "读取存档详情失败", LogBehavior.Toast)
+                               End Try
+                           End Sub, "Local World Details")
             Return
         End If
+        If Kind = InstanceResourceKind.Screenshots Then Return
         Dim Info As InstanceResourceOnlineInfo = Nothing
         Online.TryGetValue(Entry.FullPath, Info)
-        Dim Choice = MyMsgBox(Entry.Name & vbCrLf & Entry.Description & vbCrLf & Entry.FullPath & If(Info Is Nothing, "", vbCrLf & Info.Status), "资源详情", "确定", If(String.IsNullOrEmpty(Info?.Website), Nothing, "项目主页"))
+        Dim Choice = MyMsgBox(Entry.Name & vbCrLf & Entry.Description & vbCrLf & Entry.FullPath & If(Info Is Nothing, "", vbCrLf & Info.Status), "资源详情", "确定", If(String.IsNullOrEmpty(Info?.Website), "", "项目主页"))
         If Choice = 2 AndAlso Info?.Website IsNot Nothing Then OpenWebsite(Info.Website)
     End Sub
 
     Private Sub SelectResource(Entry As InstanceResourceEntry)
-        Dim SamePreview = Selected Is Entry AndAlso ImagePreview.Source IsNot Nothing
         Selected = Entry
         UpdateButtons()
-        CardPreview.Visibility = If(Kind = InstanceResourceKind.Screenshots AndAlso Entry IsNot Nothing, Visibility.Visible, Visibility.Collapsed)
-        If SamePreview Then Return
-        Dim Revision = Interlocked.Increment(PreviewRevision)
-        ImagePreview.Source = Nothing
-        If Kind <> InstanceResourceKind.Screenshots OrElse Entry Is Nothing Then Return
-        LabPreview.Text = "正在读取截图……"
-        ImagePreview.Source = Entry.Icon
-        RunInNewThread(
-            Sub()
-                Dim Bitmap = InstanceResourceStore.LoadImage(Entry.FullPath, 1200)
-                RunInUi(Sub()
-                            If Revision <> PreviewRevision OrElse Selected IsNot Entry Then Return
-                            ImagePreview.Source = Bitmap
-                            LabPreview.Text = If(Bitmap Is Nothing, "无法预览此图片，请尝试打开所在位置。", "")
-                        End Sub)
-            End Sub, "Resource Screenshot Preview")
     End Sub
 
     Private Sub UpdateButtons()
         BtnImportFile.IsEnabled = Not Busy
         BtnUp.IsEnabled = Not Busy
         BtnDownload.IsEnabled = Not Busy
-        BtnSelectAll.IsEnabled = Not Busy AndAlso PanList.Children.Count > 0
+        BtnSelectAll.IsEnabled = Not Busy AndAlso If(Kind = InstanceResourceKind.Screenshots, PanScreenshots.Children.Count, VisibleResourceRows().Count()) > 0
         BtnExport.IsEnabled = Not Busy AndAlso SelectedPaths.Count > 0
         BtnDelete.IsEnabled = BtnExport.IsEnabled
         BtnDeselect.IsEnabled = Not Busy
@@ -361,13 +471,12 @@ Public Class PageInstanceResources
         '后台检查不改变工具栏和列表的位置；取消检查仍可通过切页或刷新执行。
         BtnCancel.Visibility = If(Busy, Visibility.Visible, Visibility.Collapsed)
         PanOperations.Visibility = If(BtnUp.Visibility = Visibility.Visible OrElse LabOperation.Visibility = Visibility.Visible OrElse BtnRestore.Visibility = Visibility.Visible OrElse Busy, Visibility.Visible, Visibility.Collapsed)
-        PanEmpty.Visibility = If(Entries.Count = 0 AndAlso Not Busy, Visibility.Visible, Visibility.Collapsed)
+        PanEmpty.Visibility = If(Entries.Count = 0 AndAlso Not Busy AndAlso Kind <> InstanceResourceKind.Saves, Visibility.Visible, Visibility.Collapsed)
         PanBack.Visibility = If(PanEmpty.Visibility = Visibility.Visible, Visibility.Collapsed, Visibility.Visible)
         PanList.IsHitTestVisible = Not Busy
-        LabSelect.Text = $"已选择 {SelectedPaths.Count} 个资源"
-        CardList.Margin = New Thickness(0, 0, 0, If(SelectedPaths.Count > 0 AndAlso Kind <> InstanceResourceKind.Screenshots, 95, 15))
-        CardPreview.Margin = New Thickness(0, 0, 0, If(SelectedPaths.Count > 0, 95, 15))
-        LocalResourceUi.RefreshSelectionBar(CardSelect, TransSelect, SelectedPaths.Count, BottomBarShownCount, "Resource Sidebar " & PageUuid, IsLoaded AndAlso AniControlEnabled = 0)
+        PanWorlds.IsHitTestVisible = Not Busy
+        PanScreenshots.IsHitTestVisible = Not Busy
+        RefreshBackupActions()
     End Sub
 
     Private Sub CancelOnline()
@@ -607,6 +716,11 @@ Public Class PageInstanceResources
         RunOperation("重命名资源", Sub(Token) InstanceResourceStore.Rename(Root, Entry, Name))
     End Sub
     Private Sub DeleteSelected() Handles BtnDelete.Click
+        Dim BackupIds = SelectedBackupIds()
+        If BackupIds.Count > 0 Then
+            WorldBackupsUi.Start(Owner, DeleteIds:=BackupIds)
+            Return
+        End If
         DeleteResources(Selection())
     End Sub
     Private Sub DeleteResources(Resources As IEnumerable(Of InstanceResourceEntry))

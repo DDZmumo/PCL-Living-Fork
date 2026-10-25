@@ -1,4 +1,4 @@
-Public Class CrashAnalyzer
+﻿Public Class CrashAnalyzer
 
     '构造函数
     Private TempFolder As String
@@ -858,13 +858,46 @@ NextStack:
     ''' <summary>
     ''' 弹出崩溃弹窗，并指导导出崩溃报告。
     ''' </summary>
+    Private Sub ShowRecentChanges(Report As RecentEnvironmentChangesReport)
+        Dim Choice = MyMsgBox(Report.ToAnalysisText(200), "最近环境变更", "查看对应还原点", "关闭", If(DirectFile Is Nothing, "", "查看输出"))
+        If Choice = 1 Then
+            RunInUi(Sub()
+                        PageInstanceLeft.Instance = TargetInstance
+                        If FrmInstanceLeft Is Nothing Then FrmInstanceLeft = New PageInstanceLeft
+                        Dim Page = DirectCast(FrmInstanceLeft.PageGet(FormMain.PageSubType.InstanceRestorePoints), PageInstanceRestorePoints)
+                        Page.FocusPoint(Report.BaselineId)
+                        FrmMain.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceRestorePoints)
+                    End Sub)
+        ElseIf Choice = 3 AndAlso DirectFile IsNot Nothing Then
+            If FileUtils.Exists(DirectFile.Value.Key) Then
+                StartProcess(DirectFile.Value.Key)
+            Else
+                Dim FilePath = Path.Combine(PathTemp, "Crash-output-" & GetUuid() & ".txt")
+                FileUtils.Write(FilePath, DirectFile.Value.Value.Join(vbCrLf))
+                StartProcess(FilePath)
+            End If
+        End If
+    End Sub
     Public Sub Output(IsManualAnalyze As Boolean, Optional ExtraFiles As List(Of String) = Nothing)
         '弹窗提示
         FrmMain.ShowWindowToTop()
         Dim Detail As String = GetAnalyzeResult(IsManualAnalyze)
+        Dim Changes As RecentEnvironmentChangesReport = Nothing
+        If TargetInstance IsNot Nothing Then
+            Try
+                Changes = RecentEnvironmentChanges.BuildInstance(TargetInstance, CancellationToken.None)
+                Detail = RecentEnvironmentChanges.AppendAnalysis(Detail, Changes)
+                Dim ReportPath = Path.Combine(PathTemp, "RecentEnvironmentChanges-" & GetUuid() & ".txt")
+                FileUtils.Write(ReportPath, Changes.ToAnalysisText(200))
+                OutputFiles.Add(ReportPath)
+            Catch ex As Exception
+                Logger.Warn(ex, "读取崩溃前的环境变更失败，继续显示原有分析")
+            End Try
+        End If
+        Dim HasRestorePoint = Changes IsNot Nothing AndAlso Changes.HasBaseline
         Select Case MyMsgBox(Detail, If(IsManualAnalyze, "错误报告分析结果", "Minecraft 出现错误"),
-            "确定", If(IsManualAnalyze OrElse DirectFile Is Nothing, "", "查看输出"), If(IsManualAnalyze, "", "导出错误报告"),
-            Button2Action:=If(IsManualAnalyze OrElse DirectFile Is Nothing, Nothing,
+            "确定", If(HasRestorePoint, "最近变更", If(IsManualAnalyze OrElse DirectFile Is Nothing, "", "查看输出")), If(IsManualAnalyze, "", "导出错误报告"),
+            Button2Action:=If(HasRestorePoint OrElse IsManualAnalyze OrElse DirectFile Is Nothing, Nothing,
             Sub()
                 '弹窗选择：查看输出
                 If FileUtils.Exists(DirectFile.Value.Key) Then
@@ -875,6 +908,8 @@ NextStack:
                     StartProcess(FilePath)
                 End If
             End Sub))
+            Case 2
+                If HasRestorePoint Then ShowRecentChanges(Changes)
             Case 3
                 '弹窗选择：导出错误报告
                 Dim FileAddress As String = Nothing

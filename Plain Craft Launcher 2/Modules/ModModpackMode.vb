@@ -108,6 +108,7 @@ Friend Module ModModpackMode
     End Sub
 
     Friend Function NormalizeInstancePage(Page As FormMain.PageSubType) As FormMain.PageSubType
+        If Page = FormMain.PageSubType.InstanceBackups Then Return FormMain.PageSubType.InstanceSaves
         Return If(Enabled AndAlso Page = FormMain.PageSubType.InstanceExport, FormMain.PageSubType.InstanceOverall, Page)
     End Function
 

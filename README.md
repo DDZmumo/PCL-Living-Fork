@@ -2,7 +2,7 @@
 
 **PCL Living Fork**（原 LivingPCL）是基于 [Plain Craft Launcher（PCL）](https://github.com/Meloong-Git/PCL) 原项目的第三方 Minecraft 启动器，由 DDZmumo 维护，非 PCL 官方版本。
 
-[下载 1.2.0](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.2.0) · [更新说明](RELEASE_NOTES_v1.2.0.md) · [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues)
+[下载 1.3.0](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.3.0) · [更新说明](RELEASE_NOTES_v1.3.0.md) · [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues)
 
 ## 功能
 
@@ -11,6 +11,9 @@
 - **继续上次的世界**：首页和存档管理可直接进入支持 Quick Play 的 Java 版存档，首页卡片可在“个性化 → 主页”关闭。
 - **整合包更新**：从本地文件或 CurseForge / Modrinth 更新已识别的整合包，先预览变化与冲突，保留个人修改并下载变化文件。
 - **还原点**：手动或在更新前保存 Minecraft、加载器、模组与配置，支持整套恢复、删除和恢复前留档，保留当前存档进度。
+- **存档备份**：正常退出后备份世界，更新 Minecraft 前额外备份；在存档下展开查看、恢复和删除备份，并设置保留份数。
+- **模组依赖检查**：查看依赖与被依赖关系，删除、禁用前提示影响，启动前检查明确的依赖错误；缺失元数据时尝试联网补充。
+- **测试副本与崩溃对照**：克隆当前版本进行测试，在版本选择中按来源折叠显示；崩溃时对照上次正常运行后的环境变化，并连接到还原点。
 - **整合包导出与模式**：可附带启动器、选择该版本的版本隔离，并使用仅保留必要入口的整合包界面。
 
 ## 使用

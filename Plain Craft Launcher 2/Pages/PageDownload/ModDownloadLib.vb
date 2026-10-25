@@ -2067,6 +2067,7 @@ Retry:
     ''' 将安装好的临时版本文件夹覆盖到一个现有文件夹中。
     ''' </summary>
     Public Sub McInstallCommit(Instance As McInstance, NewManifest As McInstallManifest, BuildFolder As String, TargetFolder As String)
+        WorldBackups.BeforeMinecraftChange(Instance, Instance.Version.VanillaName, NewManifest.Components.MinecraftVersion, CancellationToken.None)
         EnvironmentHistory.CaptureInstance(Instance, "修改游戏组件前", CancellationToken.None)
         Dim OldFiles = If(Configs.McInstallManifest.Get(Instance.Config)?.ManagedFiles, {})
         Dim NewFiles = NewManifest.ManagedFiles

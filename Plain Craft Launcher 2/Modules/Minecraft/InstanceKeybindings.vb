@@ -108,7 +108,7 @@ Friend Module InstanceKeybindings
                 Item.SharedCount = Group.Count()
             Next
         Next
-        Return Result.OrderByDescending(Function(Item) Item.SharedCount > 1).ThenBy(Function(Item) Item.Owners).ThenBy(Function(Item) Item.Name).ToList()
+        Return Result '“全部”保留游戏配置中的顺序；同键分组仅由占用视图执行。
     End Function
     Friend Sub Save(GameFolder As String, Key As String, Previous As String, Replacement As String)
         If HasRunningMinecraft Then Throw New IOException("请先关闭游戏，再修改按键配置。")

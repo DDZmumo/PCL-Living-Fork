@@ -1,5 +1,20 @@
 '模组页与游戏资源页共用的原生选择栏图标和动画。
 Friend Module LocalResourceUi
+    '从原模组条目的选中/悬停反馈抽出，行与截图卡片共用相同时间和缓动。
+    Friend Sub AppendItemSelection(Ani As List(Of AniData), Back As Border, Hovered As Boolean, Selected As Boolean, Pressed As Boolean, Optional TintBackground As Boolean = True)
+        Dim Time As Integer = If(Hovered, 120, 180)
+        If Hovered OrElse Selected Then
+            If TintBackground Then Ani.Add(AaColor(Back, Border.BackgroundProperty, If(Pressed, "ColorBrush6", "ColorBrushBg1"), Time))
+            Ani.Add(AaOpacity(Back, 1 - Back.Opacity, Time,, New AniEaseOutFluent))
+            Ani.Add(AaScaleTransform(Back, If(Pressed, 0.996, 1) - CType(Back.RenderTransform, ScaleTransform).ScaleX, Time * 1.2,, New AniEaseOutFluent))
+        Else
+            Ani.AddRange({
+                AaOpacity(Back, -Back.Opacity, Time),
+                AaScaleTransform(Back, 0.996 - CType(Back.RenderTransform, ScaleTransform).ScaleX, Time,, New AniEaseOutFluent),
+                AaScaleTransform(Back, -0.196, 1,,, True)
+            })
+        End If
+    End Sub
     Friend Const PlayLogo As String = "M52.1,164.5c-1.4,0-3.1-0.5-4.2-1.3c-2.6-1.7-4-4.2-4-7V43.8c0-2.9,1.6-5.8,4.1-7c1.2-0.8,2.7-1.2,4.1-1.2c1.5,0,2.9,0.4,4.2,1.2L153.1,93c0,0,0.1,0,0.1,0.1c2.6,1.7,4,4.2,4,7c0,3-1.7,5.8-4.2,7.1l-96.8,56.2C55.1,164,53.5,164.5,52.1,164.5z M60.4,142.1l72.1-42.1L60.4,58.2V142.1z"
     Friend Sub ApplySelectionIcons(Update As MyIconTextButton, Delete As MyIconTextButton, Cancel As MyIconTextButton)
         Update.Logo = "M640 768H384l-32-32V509H213L190 454l298-298h45l298 298L810 509h-138v226z m-224-64h192V477l32-32h93L512 223 290 445H384l32 32zM352 831h320v64h-320z"

@@ -1,0 +1,18 @@
+<Grid x:Class="WorldBackupSettings"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:PCL" Margin="0,0,0,15" IsEnabled="False">
+ <local:MyCard x:Name="CardSettings" Title="存档自动备份" CanSwap="True" IsSwapped="True">
+  <StackPanel x:Name="PanSettings" Margin="25,40,25,20">
+   <local:MyCheckBox x:Name="CheckAuto" Text="正常退出游戏或更新 Minecraft 前自动备份世界" Margin="0,0,0,12" />
+   <StackPanel Orientation="Horizontal">
+    <TextBlock Text="每个世界保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
+    <local:MyTextBox x:Name="TextRetention" Width="65" MaxLength="2" Text="5" ShowValidateResult="False" ToolTip="允许 1 到 50 份。新备份成功校验后才会清理该世界的旧备份。">
+     <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
+    </local:MyTextBox>
+    <TextBlock Text="份备份" VerticalAlignment="Center" Margin="10,0,0,0" />
+   </StackPanel>
+   <TextBlock Text="备份保存在本机个人资料目录。恢复前会自动保存当前世界；自动清理按世界分别计算。" Opacity="0.65" TextWrapping="Wrap" Margin="0,12,0,0" />
+  </StackPanel>
+ </local:MyCard>
+</Grid>

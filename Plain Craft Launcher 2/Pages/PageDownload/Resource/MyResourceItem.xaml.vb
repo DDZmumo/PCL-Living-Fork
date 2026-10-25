@@ -1,4 +1,4 @@
-Public Class MyResourceItem
+﻿Public Class MyResourceItem
 
 #Region "基础属性"
     Public Uuid As Integer = GetUuid()
@@ -75,47 +75,44 @@ Public Class MyResourceItem
     Private Sub MyResourceItem_Click(sender As MyResourceItem, e As EventArgs) Handles Me.Click
         '记录当前展开的卡片标题（#2712）
         Dim Titles As New List(Of String)
-        If FrmMain.PageCurrent.Page = FormMain.PageType.ResourceDetail Then
+        If FrmMain.PageCurrent.Page = FormMain.PageType.ResourceDetail AndAlso FrmDownloadResourceDetail IsNot Nothing Then
             For Each Card As MyCard In FrmDownloadResourceDetail.PanResults.Children
                 If Card.Title <> "" AndAlso Not Card.IsSwapped Then Titles.Add(Card.Title)
             Next
             Logger.Info($"记录当前已展开的卡片：{String.Join("、", Titles)}")
         End If
         '打开详情页
-        Dim TargetType As ResourceTypes
-        Dim TargetInstance As String = Nothing
-        Dim TargetLoader As ModLoaders = ModLoaders.None
-        If FrmMain.PageCurrent.Page = FormMain.PageType.Download Then
-            '从下载页进入
-            Select Case FrmMain.PageCurrentSub
-                Case FormMain.PageSubType.DownloadMod
-                    TargetType = ResourceTypes.Mod
-                    TargetInstance = FrmDownloadMod.Content.Loader.Input.GameVersion
-                    TargetLoader = FrmDownloadMod.Content.Loader.Input.ModLoaders
-                Case FormMain.PageSubType.DownloadPack
-                    TargetType = ResourceTypes.ModPack
-                    TargetInstance = FrmDownloadPack.Content.Loader.Input.GameVersion
-                Case FormMain.PageSubType.DownloadDataPack
-                    TargetType = ResourceTypes.DataPack
-                    TargetInstance = FrmDownloadDataPack.Content.Loader.Input.GameVersion
-                Case FormMain.PageSubType.DownloadResourcePack
-                    TargetType = ResourceTypes.ResourcePack
-                    TargetInstance = FrmDownloadResourcePack.Content.Loader.Input.GameVersion
-                Case FormMain.PageSubType.DownloadShader
-                    TargetType = ResourceTypes.Shader
-                    TargetInstance = FrmDownloadShader.Content.Loader.Input.GameVersion
-            End Select
-        Else
-            '从详情页进入（查看前置）
-            TargetType = ResourceTypes.Any '允许任意类别
-            TargetInstance = FrmMain.PageCurrent.Additional(2)
-            TargetLoader = FrmMain.PageCurrent.Additional(3)
+        Dim Search As ResourceSearcher.SearchRequest = Nothing
+        If FrmMain.PageCurrent.Page = FormMain.PageType.Download AndAlso FrmDownloadLeft IsNot Nothing Then
+            Dim ResourcePage = TryCast(FrmDownloadLeft.PageGet(FrmMain.PageCurrentSub).FindName("Content"), PageResource)
+            Search = ResourcePage?.Loader?.Input
         End If
-        FrmMain.PageChange(New FormMain.PageStackData With {.Page = FormMain.PageType.ResourceDetail,
-                           .Additional = {sender.Tag, Titles, TargetInstance, TargetLoader, TargetType}})
+        Dim Arguments = BuildDetailArguments(TryCast(sender.Tag, ResourceProject), FrmMain.PageCurrent.Page, Search,
+            TryCast(FrmMain.PageCurrent.Additional, Object()), PageInstanceLeft.Instance)
+        Arguments(1) = Titles
+        FrmMain.PageChange(New FormMain.PageStackData With {.Page = FormMain.PageType.ResourceDetail, .Additional = Arguments})
     End Sub
 
-    '鼠标点击判定
+    Friend Shared Function BuildDetailArguments(Project As ResourceProject, Page As FormMain.PageType, Search As ResourceSearcher.SearchRequest,
+        Existing As Object(), Instance As McInstance) As Object()
+        Dim TargetType = If(Project Is Nothing, ResourceTypes.Any, Project.Types)
+        Dim TargetVersion As String = Nothing, TargetLoader As ModLoaders = ModLoaders.None
+        If Page = FormMain.PageType.Download AndAlso Search IsNot Nothing Then
+            TargetType = Search.Type
+            TargetVersion = Search.GameVersion
+            If TargetType = ResourceTypes.Mod Then TargetLoader = Search.ModLoaders
+        ElseIf Page = FormMain.PageType.ResourceDetail Then
+            TargetType = ResourceTypes.Any
+            If Existing IsNot Nothing AndAlso Existing.Length > 2 Then TargetVersion = TryCast(Existing(2), String)
+            If Existing IsNot Nothing AndAlso Existing.Length > 3 AndAlso TypeOf Existing(3) Is ModLoaders Then TargetLoader = CType(Existing(3), ModLoaders)
+        ElseIf Page = FormMain.PageType.InstanceSetup AndAlso Instance IsNot Nothing Then
+            TargetVersion = Instance.Version.VanillaName
+            If TargetType.HasFlagF(ResourceTypes.Mod) Then TargetLoader = Instance.Version.ModLoaders
+        End If
+        If TargetType = 0 Then TargetType = ResourceTypes.Any
+        Return {Project, New List(Of String), TargetVersion, TargetLoader, TargetType}
+    End Function
+
     Private IsMouseDown As Boolean = False
     Private Sub Button_MouseDown(sender As Object, e As MouseButtonEventArgs) Handles Me.PreviewMouseLeftButtonDown
         If IsMouseOver AndAlso CanInteraction Then IsMouseDown = True

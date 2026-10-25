@@ -11,11 +11,13 @@
     End Sub
 
     Private Sub ResourceButtonsInit() Handles Me.Initialized
+        ItemClone.Logo = ItemExport.Logo
+        InstanceClonerUi.BeforeMinecraftChangeHandler = Sub(Target, Previous, NextVersion, Token) WorldBackups.BeforeMinecraftChange(Target, Previous, NextVersion, Token)
         ItemRestorePoints.Logo = Logo.IconButtonRefresh
         ItemRestorePoints.LogoScale = 0.85
         ItemKeybindings.Logo = ItemSetup.Logo
         ItemKeybindings.LogoScale = ItemSetup.LogoScale
-        For Each Item In {ItemSaves, ItemScreenshots, ItemResourcePacks, ItemShaderPacks, ItemSchematics, ItemKeybindings, ItemRestorePoints}
+        For Each Item In {ItemSaves, ItemScreenshots, ItemResourcePacks, ItemShaderPacks, ItemSchematics, ItemKeybindings, ItemRestorePoints, ItemClone}
             Dim Button As New MyIconButton With {.Tag = Item.Tag, .ToolTip = "刷新", .LogoScale = 0.85, .Logo = DirectCast(ItemModify.Buttons.First(), MyIconButton).Logo}
             AddHandler Button.Click, AddressOf Refresh_Click
             Item.Buttons = {Button}
@@ -42,19 +44,21 @@
     ''' <summary>
     ''' 勾选事件改变页面。
     ''' </summary>
-    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check, ItemSaves.Check, ItemScreenshots.Check, ItemResourcePacks.Check, ItemShaderPacks.Check, ItemSchematics.Check, ItemKeybindings.Check, ItemRestorePoints.Check
+    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check, ItemSaves.Check, ItemScreenshots.Check, ItemResourcePacks.Check, ItemShaderPacks.Check, ItemSchematics.Check, ItemKeybindings.Check, ItemRestorePoints.Check, ItemClone.Check
         '尚未初始化控件属性时，sender.Tag 为 Nothing，会导致切换到页面 0
         '若使用 IsLoaded，则会导致模拟点击不被执行（模拟点击切换页面时，控件的 IsLoaded 为 False）
         If sender.Tag IsNot Nothing Then PageChange(Val(sender.Tag))
     End Sub
 
     Friend Function NavigationItem(ID As FormMain.PageSubType) As MyListItem
+        ID = ModModpackMode.NormalizeInstancePage(ID)
         Return PanItem.Children.OfType(Of MyListItem)().First(Function(Item) CInt(Item.Tag) = CInt(ID))
     End Function
 
     Private ReadOnly ResourcePages As New Dictionary(Of FormMain.PageSubType, PageInstanceResources)
     Private KeybindingsPage As PageInstanceKeybindings
     Private RestorePointsPage As PageInstanceRestorePoints
+    Private ClonePage As PageInstanceClone
 
     Public Function PageGet(Optional ID As FormMain.PageSubType = -1)
         If ID = -1 Then ID = PageID
@@ -81,6 +85,9 @@
             Case FormMain.PageSubType.InstanceRestorePoints
                 If RestorePointsPage Is Nothing Then RestorePointsPage = New PageInstanceRestorePoints
                 Return RestorePointsPage
+            Case FormMain.PageSubType.InstanceClone
+                If ClonePage Is Nothing Then ClonePage = New PageInstanceClone
+                Return ClonePage
             Case FormMain.PageSubType.InstanceKeybindings
                 If KeybindingsPage Is Nothing Then KeybindingsPage = New PageInstanceKeybindings
                 Return KeybindingsPage
@@ -158,6 +165,9 @@
             Case FormMain.PageSubType.InstanceRestorePoints
                 DirectCast(PageGet(SubType), PageInstanceRestorePoints).Refresh()
                 ItemRestorePoints.Checked = True
+            Case FormMain.PageSubType.InstanceClone
+                DirectCast(PageGet(SubType), PageInstanceClone).Refresh()
+                ItemClone.Checked = True
             Case FormMain.PageSubType.InstanceKeybindings
                 DirectCast(PageGet(SubType), PageInstanceKeybindings).RefreshBindings()
                 ItemKeybindings.Checked = True

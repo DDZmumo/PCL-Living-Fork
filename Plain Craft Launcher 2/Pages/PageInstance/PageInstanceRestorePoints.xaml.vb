@@ -7,6 +7,17 @@
     Private BarCount As Integer
     Private HealthyOnly As Boolean
     Private Owner As McInstance
+    Private PendingFocusId As String
+    Friend Sub FocusPoint(Id As String)
+        PendingFocusId = Id
+        SearchBox.Text = ""
+        FilterAll.Checked = True
+        If Entries.Any(Function(Item) Item("id").ToString() = Id) Then
+            SelectedIds.Clear()
+            SelectedIds.Add(Id)
+            RenderList()
+        End If
+    End Sub
 
     Private Sub Init() Handles Me.Initialized
         DisabledPageAnimControls.Add(CardSelect)
@@ -35,6 +46,10 @@
     Private Sub LoadedPoints()
         If Owner Is Nothing OrElse Owner IsNot PageInstanceLeft.Instance Then Return
         Entries = PointsLoader.Output
+        If PendingFocusId IsNot Nothing AndAlso Entries.Any(Function(Item) Item("id").ToString() = PendingFocusId) Then
+            SelectedIds.Add(PendingFocusId)
+            PendingFocusId = Nothing
+        End If
         RenderList()
     End Sub
     Private Sub SearchChanged() Handles SearchBox.TextChanged

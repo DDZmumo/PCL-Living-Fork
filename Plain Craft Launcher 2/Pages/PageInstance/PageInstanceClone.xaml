@@ -1,0 +1,32 @@
+<local:MyPageRight x:Class="PageInstanceClone"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:PCL" PanScroll="PanBack">
+ <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Margin="25,10">
+   <local:MyHint Margin="0,15" Text="把当前环境复制为独立测试版本，在副本中升级并试运行。确认效果后，可预览变更并迁移回原版本。" Theme="Blue" />
+   <local:MyCard Title="克隆为测试版本" Margin="0,0,0,15">
+    <StackPanel Margin="25,40,25,20">
+     <TextBlock x:Name="LabSource" TextWrapping="Wrap" Margin="0,0,0,15" />
+     <Grid Margin="0,0,0,17">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <TextBlock Text="测试版本名称" VerticalAlignment="Center" Margin="0,0,20,0" />
+      <local:MyTextBox x:Name="TextName" Grid.Column="1" MaxLength="100" HintText="输入新的版本名称" />
+     </Grid>
+     <TextBlock Text="游戏本体、加载器、模组、配置、按键、资源包和光影包会复制到独立目录。" TextWrapping="Wrap" Opacity="0.65" Margin="0,0,0,13" />
+     <local:MyCheckBox x:Name="CheckSaves" Text="复制存档" Height="27" ToolTip="复制当前世界，用副本测试。副本中的世界进度不会自动迁移回原版。" />
+     <local:MyCheckBox x:Name="CheckScreenshots" Text="复制截图" Height="27" Margin="0,5,0,0" />
+     <local:MyCheckBox x:Name="CheckServers" Text="复制服务器列表" Height="27" Margin="0,5,0,0" ToolTip="仅复制 servers.dat 和 servers.dat_old。账号登录资料不会复制。" />
+     <TextBlock x:Name="LabValidation" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushRedLight}" Margin="0,12,0,0" />
+     <local:MyButton x:Name="BtnClone" Text="创建测试副本" ColorType="Highlight" Height="35" MinWidth="150" Padding="15,0" HorizontalAlignment="Left" Margin="0,16,0,0" />
+    </StackPanel>
+   </local:MyCard>
+   <local:MyCard x:Name="CardOrigin" Title="测试完成后" Visibility="Collapsed" Margin="0,0,0,15">
+    <StackPanel Margin="25,40,25,20">
+     <TextBlock x:Name="LabOrigin" TextWrapping="Wrap" Margin="0,0,0,15" />
+     <local:MyButton x:Name="BtnMigrate" Text="预览迁移到原版本" Height="35" MinWidth="170" Padding="15,0" HorizontalAlignment="Left" />
+    </StackPanel>
+   </local:MyCard>
+  </StackPanel>
+ </local:MyScrollViewer>
+</local:MyPageRight>

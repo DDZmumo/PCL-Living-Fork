@@ -1,4 +1,4 @@
-Public Class ExportOption
+﻿Public Class ExportOption
     Public Property Title As String
     Public Property Description As String
     Public Property Rules As String
@@ -513,7 +513,7 @@ Public Class PageInstanceExport
                 Next
                 '文件：检查规则并复制
                 For Each Entry In Folder.EnumerateFiles("*", SearchOption.TopDirectoryOnly)
-                    If Entry.Name.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) AndAlso Folder.Name.Equals("PCL", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If (Entry.Name.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) OrElse Entry.Name.Equals("CloneOrigin.json", StringComparison.OrdinalIgnoreCase)) AndAlso Folder.Name.Equals("PCL", StringComparison.OrdinalIgnoreCase) Then Continue For
                     Dim RelativePath As String = Entry.FullName.AfterFirst(PathIndie)
                     '检查规则
                     Dim ShouldKeep As Boolean = False
@@ -579,7 +579,7 @@ Public Class PageInstanceExport
             If DirectoryUtils.Exists(PclSource) Then
                 For Each FileName In DirectoryUtils.EnumerateFiles(PclSource, includeSubDirectories:=True)
                     Dim Relative = PathUtils.RemoveExtendedPrefix(FileName).Substring(PclSource.Length)
-                    If Relative.StartsWith("PackUpdateBackups\", StringComparison.OrdinalIgnoreCase) OrElse Relative.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If Relative.StartsWith("PackUpdateBackups\", StringComparison.OrdinalIgnoreCase) OrElse Relative.Equals("ModpackOrigin.json", StringComparison.OrdinalIgnoreCase) OrElse Relative.Equals("CloneOrigin.json", StringComparison.OrdinalIgnoreCase) Then Continue For
                     FileUtils.Copy(FileName, OverridesFolder & "PCL\" & Relative)
                 Next
             End If

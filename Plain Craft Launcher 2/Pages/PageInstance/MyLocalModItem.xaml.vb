@@ -1,4 +1,4 @@
-Imports System.Windows.Forms
+﻿Imports System.Windows.Forms
 
 Public Class MyLocalModItem
 
@@ -501,24 +501,7 @@ Public Class MyLocalModItem
                     4 - ColumnPaddingRight.Width.Value, Time * 0.4))
             End If
         End If
-        'RectBack
-        If IsMouseOver OrElse Checked Then
-            Ani.AddRange({
-                AaColor(RectBack, Border.BackgroundProperty, If(IsMouseDown, "ColorBrush6", "ColorBrushBg1"), Time),
-                AaOpacity(RectBack, 1 - RectBack.Opacity, Time,, New AniEaseOutFluent)
-            })
-            If IsMouseDown Then
-                Ani.Add(AaScaleTransform(RectBack, 0.996 - CType(RectBack.RenderTransform, ScaleTransform).ScaleX, Time * 1.2,, New AniEaseOutFluent))
-            Else
-                Ani.Add(AaScaleTransform(RectBack, 1 - CType(RectBack.RenderTransform, ScaleTransform).ScaleX, Time * 1.2,, New AniEaseOutFluent))
-            End If
-        Else
-            Ani.AddRange({
-                AaOpacity(RectBack, -RectBack.Opacity, Time),
-                AaScaleTransform(RectBack, 0.996 - CType(RectBack.RenderTransform, ScaleTransform).ScaleX, Time,, New AniEaseOutFluent),
-                AaScaleTransform(RectBack, -0.196, 1,,, True)
-            })
-        End If
+        LocalResourceUi.AppendItemSelection(Ani, RectBack, IsMouseOver, Checked, IsMouseDown)
         AniStart(Ani, "LocalModItem Color " & Uuid)
     End Sub
 

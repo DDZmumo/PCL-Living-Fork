@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <TargetCulture>zh-CN</TargetCulture>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.2.0.0</ApplicationVersion>
+    <ApplicationVersion>1.3.0.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <Deterministic>true</Deterministic>
@@ -277,11 +277,30 @@
     <Compile Include="Modules\Minecraft\InstanceResourceUpdates.vb" />
     <Compile Include="Modules\Minecraft\ModpackUpdate.vb" />
     <Compile Include="Modules\Minecraft\EnvironmentHistory.vb" />
+    <Compile Include="Modules\Minecraft\WorldBackups.vb" />
+    <Compile Include="Modules\Minecraft\ModDependencyInspector.vb" />
+    <Compile Include="Modules\Minecraft\ModDependencyOnline.vb" />
+    <Compile Include="Modules\Minecraft\InstanceCloneGroups.vb" />
+    <Compile Include="Modules\Minecraft\InstanceCloner.vb" />
+    <Compile Include="Modules\Minecraft\RecentEnvironmentChanges.vb" />
+    <Compile Include="Pages\PageInstance\WorldBackupGroup.xaml.vb">
+      <DependentUpon>WorldBackupGroup.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\WorldBackupSettings.xaml.vb">
+      <DependentUpon>WorldBackupSettings.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceResources.Backups.vb" />
+    <Compile Include="Pages\PageInstance\PageInstanceClone.xaml.vb">
+      <DependentUpon>PageInstanceClone.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\PageDownload\Resource\PageDownloadMap.xaml.vb">
       <DependentUpon>PageDownloadMap.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\PageInstance\PageInstanceRestorePoints.xaml.vb">
       <DependentUpon>PageInstanceRestorePoints.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\MyScreenshotItem.xaml.vb">
+      <DependentUpon>MyScreenshotItem.xaml</DependentUpon>
     </Compile>
     <Compile Include="Modules\Minecraft\ModpackUpdateFlow.vb" />
     <Compile Include="Modules\Minecraft\LocalGameData.vb" />
@@ -719,6 +738,22 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\PageInstance\PageInstanceRestorePoints.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageInstance\WorldBackupGroup.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageInstance\WorldBackupSettings.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageInstance\PageInstanceClone.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageInstance\MyScreenshotItem.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

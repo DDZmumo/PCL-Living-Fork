@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$ExecutablePath,[string]$PreviewDirectory)
+﻿param([Parameter(Mandatory=$true)][string]$ExecutablePath,[string]$PreviewDirectory)
 # Offscreen PCL controls and GUID temporary files only; never start the launcher or touch game directories.
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -ne 'Desktop' -or [Threading.Thread]::CurrentThread.ApartmentState -ne 'STA'){throw 'Use powershell -NoProfile -STA.'}
@@ -126,7 +126,7 @@ try{
  $pageType.GetMethod('ShowResources',$flags).Invoke($packPage,@([string]$packs,[string]$packs,$items.PSObject.BaseObject))|Out-Null
  if($packPage.FindName('CardSelected') -or $packPage.FindName('LabFolder')){throw 'Old separate details/path card remains'}
  foreach($name in @('BtnImportFolder','BtnCheckUpdates','BtnRefresh')){if($packPage.FindName($name)){throw 'Extra toolbar icons remain'}}
- if($packPage.FindName('BtnOpenFolder').Parent.Children.Count -ne 4){throw 'Resource toolbar differs from the native four-button layout'}
+ if(@($packPage.FindName('BtnOpenFolder').Parent.Children|Where-Object {$_.Visibility -ne 'Collapsed'}).Count -ne 4){throw 'Resource toolbar differs from the native four-button layout'}
  if($packPage.FindName('BtnFilterAll').Text -notmatch '3' -or $packPage.FindName('BtnDownload').Visibility -ne 'Visible'){throw 'Native count filter or resource download action missing'}
  $rowType=$asm.GetType('PCL.MyLocalModItem')
  foreach($row in $packPage.FindName('PanList').Children){if($row.GetType() -ne $rowType -or $row.Height -ne 44 -or @($row.Buttons).Count -ne 4){throw 'Resource rows do not reuse the native mod item and hover actions'}}

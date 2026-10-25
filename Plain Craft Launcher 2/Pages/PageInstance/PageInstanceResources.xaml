@@ -6,6 +6,8 @@
         <Grid x:Name="PanAllBack">
         <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="25,10" x:Name="PanMain" Grid.IsSharedSizeScope="True">
+                <local:WorldBackupSettings x:Name="BackupSettings" Visibility="Collapsed" Margin="0,15,0,0" />
+                <TextBlock x:Name="LabBackupStatus" Visibility="Collapsed" TextWrapping="Wrap" Margin="5,10,5,0" Foreground="{DynamicResource ColorBrushGray4}" />
                 <local:MySearchBox x:Name="SearchBox" Margin="0,15" HintText="搜索资源名称或说明" />
                 <local:MyCard Margin="0,0,0,15" x:Name="CardManage">
                     <Grid x:Name="PanManageButtons" Margin="15,15,0,15" Height="35">
@@ -20,6 +22,7 @@
                         <local:MyButton x:Name="BtnImportFile" Grid.Column="1" Text="从文件安装" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" ToolTip="选择本地资源文件安装，也可将文件或资源文件夹拖入列表。" />
                         <local:MyButton x:Name="BtnDownload" Grid.Column="2" Text="下载新资源" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" Visibility="Collapsed" />
                         <local:MyButton x:Name="BtnSelectAll" Grid.Column="3" Text="全选" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
+                        <local:MyButton x:Name="BtnBackupAll" Grid.Column="4" Text="立即备份" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" Visibility="Collapsed" />
                     </Grid>
                 </local:MyCard>
                 <StackPanel x:Name="PanOperations" Margin="20,0,20,12" Visibility="Collapsed">
@@ -38,13 +41,9 @@
                     <StackPanel Margin="20,48,18,22">
                         <TextBlock x:Name="LabEmpty" Text="此目录中暂无资源，可从本地文件安装。" Margin="5,2,5,8" Opacity="0.6" TextWrapping="Wrap" />
                         <StackPanel x:Name="PanList" />
+                        <StackPanel x:Name="PanWorlds" Visibility="Collapsed" />
+                        <UniformGrid x:Name="PanScreenshots" Columns="2" Visibility="Collapsed" Margin="-5,0,-5,0" />
                     </StackPanel>
-                </local:MyCard>
-                <local:MyCard x:Name="CardPreview" Title="截图预览" Height="285" Margin="0,0,0,15" Visibility="Collapsed">
-                    <Grid Margin="20,38,20,15">
-                        <TextBlock x:Name="LabPreview" Text="选择截图后在此预览" Opacity="0.6" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        <Image x:Name="ImagePreview" Stretch="Uniform" />
-                    </Grid>
                 </local:MyCard>
             </StackPanel>
         </local:MyScrollViewer>
@@ -77,6 +76,7 @@
             <TextBlock x:Name="LabSelect" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="9" Foreground="{DynamicResource ColorBrush2}" />
             <StackPanel Orientation="Horizontal" Margin="5,28,5,5">
                 <local:MyIconTextButton x:Name="BtnUpdate" Text="更新" Visibility="Collapsed" />
+                <local:MyIconTextButton x:Name="BtnBackupRestore" Text="恢复备份" Visibility="Collapsed" />
                 <local:MyIconTextButton x:Name="BtnExport" Text="导出" />
                 <local:MyIconTextButton x:Name="BtnDelete" Text="删除" />
                 <local:MyIconTextButton x:Name="BtnDeselect" Text="取消选择" />

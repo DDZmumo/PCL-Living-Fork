@@ -75,14 +75,32 @@
         BtnFilterConflicts.Text = $"同键占用 ({Matching.Where(Function(Item) Item.SharedCount > 1).Count()})"
         LabEmpty.Visibility = If(Visible.Count > 0, Visibility.Collapsed, Visibility.Visible)
         LabEmpty.Text = If(Entries.Count = 0, "暂无按键记录。请先启动一次该版本的游戏并保存设置。", "没有找到符合条件的按键。")
+        Dim Rendered As New HashSet(Of String)(StringComparer.Ordinal)
         For Each Entry In Visible
+            If Not ConflictsOnly OrElse Entry.SharedCount <= 1 OrElse Entry.Normalized = "key.keyboard.unknown" Then
+                PanBindings.Children.Add(CreateBindingRow(Entry))
+                Continue For
+            End If
+            If Not Rendered.Add(Entry.Normalized) Then Continue For
+            Dim Members = Visible.Where(Function(Item) Item.Normalized = Entry.Normalized).ToList()
+            Dim Total = Math.Max(Entry.SharedCount, Entries.Where(Function(Item) Item.Normalized = Entry.Normalized).Count())
+            Dim Group As New MyCard With {.Title = DisplayKey(Entry.Normalized) & $" 键位 · 与 {Total - 1} 项共用", .Margin = New Thickness(0, 8, 0, 12), .Tag = Entry.Normalized}
+            Dim Rows As New StackPanel With {.Margin = New Thickness(15, 36, 15, 12)}
+            For Each Member In Members
+                Rows.Children.Add(CreateBindingRow(Member))
+            Next
+            Dim Header = Group.MainTextBlock
+            Group.Children.Add(Rows)
+            PanBindings.Children.Add(Group)
+        Next
+    End Sub
+    Private Function CreateBindingRow(Entry As InstanceKeybinding) As Grid
             Dim Row As New Grid With {.Height = 44, .Margin = New Thickness(5, 2, 4, 4)}
             Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
             Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
             Dim Labels As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 0, 18, 0)}
             Labels.Children.Add(New TextBlock With {.Text = Entry.Name, .FontSize = 13.5, .TextTrimming = TextTrimming.CharacterEllipsis})
             Dim Detail = If(Entry.Owners = "Minecraft", "", Entry.Owners)
-            If Entry.SharedCount > 1 Then Detail &= If(Detail = "", "", " · ") & $"与 {Entry.SharedCount - 1} 项共用"
             If Detail <> "" Then
                 Dim Description As New TextBlock With {.Text = Detail, .FontSize = 12, .TextTrimming = TextTrimming.CharacterEllipsis, .Margin = New Thickness(0, 2, 0, 0)}
                 Description.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray4")
@@ -96,9 +114,8 @@
             AddHandler Button.Click, Sub() BeginCapture(Entry)
             KeyButtons.Add(Entry.Key, Button)
             Row.Children.Add(Button)
-            PanBindings.Children.Add(Row)
-        Next
-    End Sub
+        Return Row
+    End Function
     Private Function DisplayKey(Value As String) As String
         If String.IsNullOrEmpty(Value) OrElse Value = "key.keyboard.unknown" Then Return "未绑定"
         Dim Parts = Value.Split(":"c), Name As String

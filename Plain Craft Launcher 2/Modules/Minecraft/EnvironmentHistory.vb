@@ -5,6 +5,24 @@ Imports System.Text.RegularExpressions
 Friend NotInheritable Class EnvironmentHistory
     Private Shared ReadOnly Gate As New Object
     Friend Shared Property TestRoot As String
+    Private Const CurrentCoverageVersion As Integer = 2
+    Private Shared ReadOnly LegacyGameFolders As String() = {"mods", "config", "defaultconfigs", "kubejs", "scripts", "resources"}
+    Friend Shared ReadOnly GameEnvironmentFolders As String() = {"mods", "coremods", "config", "defaultconfigs", "configureddefaults", "kubejs", "scripts", "resources", "global_packs", "openloader"}
+    Friend Shared Function CoverageVersion(Point As JObject) As Integer
+        Dim Value = Point("coverageVersion")
+        If Value Is Nothing Then Return 1
+        If Value.Type <> JTokenType.Integer Then Throw New IOException("还原点的覆盖范围版本无效。")
+        Dim Version = Value.ToObject(Of Integer)()
+        If Version < 1 OrElse Version > CurrentCoverageVersion Then Throw New IOException("此还原点使用了不支持的覆盖范围，请使用对应版本的启动器。")
+        Return Version
+    End Function
+    Friend Shared Function FoldersForCoverage(Version As Integer) As IEnumerable(Of String)
+        Select Case Version
+            Case 1 : Return LegacyGameFolders
+            Case 2 : Return GameEnvironmentFolders
+            Case Else : Throw New IOException("不支持此还原点的覆盖范围。")
+        End Select
+    End Function
     Private Shared Function Store(VersionFolder As String) As String
         Dim Key = LocalGameData.Hash(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(VersionFolder).TrimEnd("\"c).ToLowerInvariant())).Replace("/", "_").Replace("+", "-").TrimEnd("="c)
         Return Path.Combine(If(TestRoot, Path.Combine(LocalGameData.Root, "environment-history")), Key)
@@ -16,10 +34,13 @@ Friend NotInheritable Class EnvironmentHistory
         If Not Regex.IsMatch(If(Hash, ""), "\Asha1:[a-f0-9]{40}\z") Then Throw New IOException("还原点文件校验值无效。")
         Return Safe(StoreRoot, "objects/" & Hash.Substring(5))
     End Function
-    Private Shared Function IsGameFile(Relative As String) As Boolean
+    Friend Shared Function IsGameFile(Relative As String) As Boolean
+        Return IsGameFileCovered(Relative, CurrentCoverageVersion)
+    End Function
+    Friend Shared Function IsGameFileCovered(Relative As String, Version As Integer) As Boolean
         Dim Lower = Relative.Replace("\", "/").ToLowerInvariant(), Top = Lower.Split("/"c)(0)
         If Lower.Contains("waypoint") OrElse Lower.StartsWith("config/xaero") OrElse Lower.StartsWith("config/journeymap") OrElse Lower.StartsWith("config/voxelmap") Then Return False
-        If {"mods", "config", "defaultconfigs", "kubejs", "scripts", "resources"}.Contains(Top) Then Return True
+        If FoldersForCoverage(Version).Contains(Top) Then Return True
         If Lower.Contains("/") Then Return False
         Return Lower = "options.txt" OrElse Lower.StartsWith("optionsof") OrElse Lower.StartsWith("optionsshaders") OrElse
             {".cfg", ".toml", ".properties"}.Contains(Path.GetExtension(Lower))
@@ -37,8 +58,11 @@ Friend NotInheritable Class EnvironmentHistory
         Next
     End Sub
     Friend Shared Function Files(VersionFolder As String, GameRoot As String) As Dictionary(Of String, String)
+        Return FilesWithCoverage(VersionFolder, GameRoot, CurrentCoverageVersion)
+    End Function
+    Private Shared Function FilesWithCoverage(VersionFolder As String, GameRoot As String, Version As Integer) As Dictionary(Of String, String)
         Dim Result As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-        For Each Name In {"mods", "config", "defaultconfigs", "kubejs", "scripts", "resources"}
+        For Each Name In FoldersForCoverage(Version)
             Walk(GameRoot, Path.Combine(GameRoot, Name), Result)
         Next
         If Directory.Exists(GameRoot) Then
@@ -92,7 +116,7 @@ Friend NotInheritable Class EnvironmentHistory
             For Each Pair In Latest
                 If ModpackUpdate.Digest(Pair.Value) <> Content(Pair.Key).ToString() Then Throw New IOException("创建还原点期间配置发生变化。")
             Next
-            Dim Data As New JObject(New JProperty("schema", 1), New JProperty("id", Id), New JProperty("created", Date.UtcNow), New JProperty("label", Label),
+            Dim Data As New JObject(New JProperty("schema", 1), New JProperty("coverageVersion", CurrentCoverageVersion), New JProperty("id", Id), New JProperty("created", Date.UtcNow), New JProperty("label", Label),
                 New JProperty("description", Description), New JProperty("gameRoot", Path.GetFullPath(GameRoot)), New JProperty("healthy", False), New JProperty("files", Content))
             LocalGameData.AtomicWrite(Safe(StoreRoot, "points/" & Id & ".json"), System.Text.Encoding.UTF8.GetBytes(Data.ToString()), Nothing, False)
             Return Id
@@ -147,7 +171,8 @@ Friend NotInheritable Class EnvironmentHistory
             Dim Point = Points(VersionFolder).FirstOrDefault(Function(Item) Item("id").ToString() = Id)
             If Point Is Nothing Then Throw New IOException("找不到该环境还原点。")
             If Not PathUtils.IsSame(Point("gameRoot").ToString(), GameRoot) Then Throw New IOException("此还原点的游戏目录与当前版本隔离设置不同，请先恢复原隔离设置。")
-            Dim StoreRoot = Store(VersionFolder), Current = Files(VersionFolder, GameRoot), Sources As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+            Dim Coverage = CoverageVersion(Point)
+            Dim StoreRoot = Store(VersionFolder), Current = FilesWithCoverage(VersionFolder, GameRoot, Coverage), Sources As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
             For Each Entry As JProperty In CType(Point("files"), JObject).Properties()
                 Token.ThrowIfCancellationRequested()
                 Dim Key = Entry.Name, Hash = Entry.Value.ToString(), Blob = ObjectPath(StoreRoot, Hash)
@@ -158,7 +183,7 @@ Friend NotInheritable Class EnvironmentHistory
                     Dim Destination = ModpackUpdate.Target(McRoot, Relative)
                     If File.Exists(Destination) AndAlso ModpackUpdate.Digest(Destination) <> Hash Then Throw New IOException("共享支持库已被修改，已停止恢复：" & Relative)
                     Sources(Key) = Blob
-                ElseIf Key.StartsWith("g/") AndAlso IsGameFile(Key.Substring(2)) Then
+                ElseIf Key.StartsWith("g/") AndAlso IsGameFileCovered(Key.Substring(2), Coverage) Then
                     ModpackUpdate.Target(GameRoot, Key.Substring(2))
                     Sources(Key) = Blob
                 ElseIf Key.StartsWith("v/") AndAlso (Not Key.Substring(2).Contains("/") AndAlso {".json", ".jar"}.Contains(Path.GetExtension(Key).ToLowerInvariant()) OrElse {"v/PCL/Setup.ini", "v/PCL/config.json", "v/PCL/ModpackOrigin.json"}.Contains(Key)) Then

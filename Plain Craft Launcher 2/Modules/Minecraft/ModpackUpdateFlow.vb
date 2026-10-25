@@ -146,6 +146,7 @@ Friend NotInheritable Class ModpackUpdateFlow
             If ModpackUpdate.Digest(ModpackUpdate.Target(Instance.PathVersion, Pair.Key)) <> Pair.Value Then Throw New IOException("游戏组件或版本设置在预览后发生变化，请重新检查更新。")
         Next
         Task.Progress = 0.85
+        WorldBackups.BeforeMinecraftChange(Instance, Instance.Version.VanillaName, Package.Minecraft, Token)
         EnvironmentHistory.CaptureInstance(Instance, "整合包更新前", Token)
         Dim Backup = ModpackUpdate.Commit(Plan, Instance.PathVersion, Token, Extras)
         Task.Output = Backup

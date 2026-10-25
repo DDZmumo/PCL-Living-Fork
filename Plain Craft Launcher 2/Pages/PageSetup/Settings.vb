@@ -423,6 +423,8 @@ Partial Public Class Settings
         New Setting("VersionArgumentIndie", -1, Source:=Sources.Instance),
         New Setting("VersionArgumentIndieV2", False, Source:=Sources.Instance),
         New Setting("VersionPersonalOptionsSync", 0, Source:=Sources.Instance),
+        New Setting("VersionWorldBackupAutoEnabled", True, Source:=Sources.Instance),
+        New Setting("VersionWorldBackupRetention", 5, Source:=Sources.Instance),
         New Setting("VersionArgumentJavaSelect", "使用全局设置", Source:=Sources.Instance),
         New Setting("VersionArgumentJavaV2", 0, Source:=Sources.Instance),
         New Setting("VersionArgumentJavaRange", "", Source:=Sources.Instance),

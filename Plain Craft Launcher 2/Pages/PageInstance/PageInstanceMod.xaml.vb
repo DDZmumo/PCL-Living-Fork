@@ -1,9 +1,10 @@
-Public Class PageInstanceMod
+﻿Public Class PageInstanceMod
     Implements IRefreshable
 
 #Region "初始化"
 
     Private IsLoad As Boolean = False
+    Private DependencyChecking As Integer
     Public Sub PageOther_Loaded() Handles Me.Loaded
         ModModpackMode.ApplyInstanceVisibility()
 
@@ -107,6 +108,64 @@ Public Class PageInstanceMod
         AniControlEnabled -= 1
         Return NewItem
     End Function
+    Private Shared Function DependencyStamp(Instance As McInstance) As String
+        Dim Folder = IO.Path.Combine(Instance.PathIndie, "mods")
+        If Not IO.Directory.Exists(Folder) Then Return ""
+        Return String.Join("|", New IO.DirectoryInfo(Folder).GetFiles().OrderBy(Function(Item) Item.Name, StringComparer.OrdinalIgnoreCase).
+            Select(Function(Item) Item.Name & ":" & Item.Length & ":" & Item.LastWriteTimeUtc.Ticks))
+    End Function
+    Private Sub BeginDependencyMutation(Paths As IEnumerable(Of String), ActionName As String, ContinueAction As Action)
+        Dim Target = PageInstanceLeft.Instance, Candidates = Paths.ToArray()
+        If Target Is Nothing OrElse Candidates.Length = 0 Then
+            ContinueAction()
+            Return
+        End If
+        If Interlocked.CompareExchange(DependencyChecking, 1, 0) <> 0 Then
+            Hint("正在检查模组依赖，请稍候。")
+            Return
+        End If
+        RunInNewThread(Sub()
+                           Dim Caption As String = Nothing, Stamp As String = Nothing, Failure As Exception = Nothing
+                           Try
+                               Stamp = DependencyStamp(Target)
+                               Dim Report = ModDependencyOnline.InspectWithOnline(IO.Path.Combine(Target.PathIndie, "mods"), ModDependencyInspector.ContextForInstance(Target))
+                               Caption = ModDependencyInspector.DescribeImpacts(Report, Candidates)
+                           Catch ex As Exception
+                               Failure = ex
+                           End Try
+                           RunInUi(Sub()
+                                       Try
+                                           If Failure IsNot Nothing Then
+                                               Logger.Error(Failure, "检查模组依赖失败，本次操作已停止", LogBehavior.Toast)
+                                               Return
+                                           End If
+                                           If PageInstanceLeft.Instance IsNot Target OrElse McInstanceLock.IsLocked(Target) Then Return
+                                           If Not String.IsNullOrEmpty(Caption) AndAlso MyMsgBox(Caption & vbCrLf & vbCrLf & "仍然" & ActionName & "这些模组吗？", "模组依赖影响", "继续" & ActionName, "取消", IsWarn:=True) <> 1 Then Return
+                                           If DependencyStamp(Target) <> Stamp Then
+                                               Hint("Mod 列表已变化，请重新执行操作以检查依赖。", HintType.Red)
+                                               Return
+                                           End If
+                                           ContinueAction()
+                                       Finally
+                                           Interlocked.Exchange(DependencyChecking, 0)
+                                       End Try
+                                   End Sub)
+                       End Sub, "Mod Dependency Impact")
+    End Sub
+    Private Sub ShowDependencyDetails(Entry As LocalResourceFile)
+        Dim Target = PageInstanceLeft.Instance
+        If Target Is Nothing OrElse Entry Is Nothing Then Return
+        RunInNewThread(Sub()
+                           Try
+                               Dim Report = ModDependencyOnline.InspectWithOnline(IO.Path.Combine(Target.PathIndie, "mods"), ModDependencyInspector.ContextForInstance(Target),
+                                   Options:=New ModDependencyOnline.LookupOptions With {.TargetFile = Entry.File.FullName})
+                               Dim Caption = Report.DescribeFile(Entry.File.FullName)
+                               RunInUi(Sub() MyMsgBox(Caption, "模组依赖关系", "确定"))
+                           Catch ex As Exception
+                               Logger.Error(ex, "读取模组依赖关系失败", LogBehavior.Toast)
+                           End Try
+                       End Sub, "Mod Dependency Details")
+    End Sub
     Private Sub McModContent(sender As MyLocalModItem, e As EventArgs)
         '点击事件
         AddHandler sender.Changed, AddressOf CheckChanged
@@ -125,7 +184,9 @@ Public Class PageInstanceMod
         Dim BtnED As New MyIconButton With {.LogoScale = 1, .Logo = If(sender.Entry.IsEnabled, Logo.IconButtonStop, Logo.IconButtonCheck), .Tag = sender}
         BtnED.ToolTip = If(sender.Entry.IsEnabled, "禁用", "启用")
         AddHandler BtnED.Click, AddressOf ED_Click
-        sender.Buttons = {BtnCont, BtnOpen, BtnED, BtnDelete}
+        Dim BtnDependencies As New MyIconButton With {.Logo = Logo.IconButtonList, .ToolTip = "查看模组依赖关系"}
+        AddHandler BtnDependencies.Click, Sub() ShowDependencyDetails(sender.Entry)
+        sender.Buttons = {BtnCont, BtnDependencies, BtnOpen, BtnED, BtnDelete}
     End Sub
 
     ''' <summary>
@@ -424,6 +485,14 @@ Install:
         ChangeAllSelected(False)
     End Sub
     Private Sub EDMods(ModList As IEnumerable(Of LocalResourceFile), IsEnable As Boolean)
+        Dim Frozen = ModList.ToList()
+        If IsEnable Then
+            ApplyModState(Frozen, True)
+        Else
+            BeginDependencyMutation(Frozen.Where(Function(Item) Item.IsEnabled).Select(Function(Item) Item.File.FullName), "禁用", Sub() ApplyModState(Frozen, False))
+        End If
+    End Sub
+    Private Sub ApplyModState(ModList As IEnumerable(Of LocalResourceFile), IsEnable As Boolean)
         Dim IsSuccessful As Boolean = True
         For Each ModE In ModList.ToList
             Dim ModEntity = ModE '仅用于去除迭代变量无法修改的限制
@@ -640,15 +709,18 @@ Install:
 
     '删除
     Private Sub BtnSelectDelete_Click() Handles BtnSelectDelete.Click
-        If Not ModModpackMode.ConfirmModAction("删除 Mod") Then Return
-        DeleteMods(LocalResourceLoader.Output.Where(Function(m) SelectedMods.Contains(m.EnabledName)), True)
+        DeleteMods(LocalResourceLoader.Output.Where(Function(m) SelectedMods.Contains(m.EnabledName)))
         ChangeAllSelected(False)
     End Sub
     Private Sub DeleteMods(ModsToDelete As IEnumerable(Of LocalResourceFile), Optional ModeConfirmed As Boolean = False)
+        Dim IsPermanent = My.Computer.Keyboard.ShiftKeyDown
+        Dim Frozen = ModsToDelete.ToList()
         If Not ModeConfirmed AndAlso Not ModModpackMode.ConfirmModAction("删除 Mod") Then Return
+        BeginDependencyMutation(Frozen.SelectMany(Function(Item) {Item.File.FullName, Item.EnabledFullName}), "删除", Sub() DeleteModsCore(Frozen, IsPermanent))
+    End Sub
+    Private Sub DeleteModsCore(ModsToDelete As IEnumerable(Of LocalResourceFile), IsPermanent As Boolean)
         Try
             Dim IsSuccessful As Boolean = True
-            Dim IsShiftPressed As Boolean = My.Computer.Keyboard.ShiftKeyDown
             '确认需要删除的文件
             Dim ModList = ModsToDelete.SelectMany(
             Function(Target As LocalResourceFile)
@@ -662,7 +734,7 @@ Install:
             For Each ModEntity In ModList
                 '删除
                 Try
-                    FileUtils.Delete(ModEntity.File.FullName, Not IsShiftPressed)
+                    FileUtils.Delete(ModEntity.File.FullName, Not IsPermanent)
                 Catch ex As OperationCanceledException
                     Logger.Warn(ex, "删除 Mod 被主动取消")
                     ReloadModList(True)

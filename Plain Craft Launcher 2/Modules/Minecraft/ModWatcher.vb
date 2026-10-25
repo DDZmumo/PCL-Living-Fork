@@ -170,6 +170,11 @@ Public Module ModWatcher
                 If GameProcess.HasExited Then
                     If Interlocked.Exchange(StopCallbackCompleted, 1) = 0 Then
                         Try
+                            WorldBackups.OnProcessStopped(Instance, GameProcess, ReachedRunning AndAlso GameProcess.ExitCode = 0 AndAlso State <> MinecraftState.Crashed AndAlso State <> MinecraftState.Canceled)
+                        Catch ex As Exception
+                            Logger.Warn(ex, "游戏退出后的存档自动备份失败")
+                        End Try
+                        Try
                             EnvironmentHistory.MarkHealthy(Instance.PathVersion, EnvironmentPoint, ReachedRunning AndAlso GameProcess.ExitCode = 0 AndAlso State <> MinecraftState.Crashed AndAlso State <> MinecraftState.Canceled)
                         Catch ex As Exception
                             Logger.Warn(ex, "标记正常运行的环境还原点失败")

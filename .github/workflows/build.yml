@@ -115,6 +115,20 @@ jobs:
     - name: Verify recent-world card animation and launch sequencing
       run: powershell -NoProfile -STA -File scripts/Test-RecentWorldCard.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
+    - name: Verify world protection, dependency checks, clones and resource regressions
+      run: |
+        $checks = @(
+          'Test-WorldBackups', 'Test-WorldBackupGroups', 'Test-SaveBackupIntegration',
+          'Test-ModDependencies', 'Test-ModDependencyOnline',
+          'Test-InstanceClone', 'Test-InstanceCloneGroups', 'Test-RecentEnvironmentChanges',
+          'Test-EnvironmentCoverage', 'Test-KeybindingGroups',
+          'Test-MapDetails', 'Test-ResourceEntryPoints', 'Test-WorldDetails', 'Test-ScreenshotGallery'
+        )
+        foreach ($check in $checks) {
+          powershell -NoProfile -STA -File "scripts/$check.ps1" -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+          if ($LASTEXITCODE -ne 0) { throw "$check failed" }
+        }
+
     - name: Verify custom download saves
       run: powershell -NoProfile -File scripts/Test-ToolboxDownload.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 

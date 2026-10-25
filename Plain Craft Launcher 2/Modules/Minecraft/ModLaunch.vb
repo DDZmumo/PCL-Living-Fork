@@ -69,12 +69,12 @@
             FrmLaunchLeft.RefreshButtonsUI()
             FrmLaunchLeft.RefreshPage(False, False)
         End If
-        If EnvironmentHistoryUi.IsBusy OrElse ModpackUpdateFlow.IsUpdating OrElse (McInstanceSelected IsNot Nothing AndAlso McInstanceLock.IsLocked(McInstanceSelected)) Then
+        If WorldBackups.IsBusy OrElse WorldBackupsUi.IsBusy OrElse InstanceClonerUi.IsBusy OrElse EnvironmentHistoryUi.IsBusy OrElse ModpackUpdateFlow.IsUpdating OrElse (McInstanceSelected IsNot Nothing AndAlso McInstanceLock.IsLocked(McInstanceSelected)) Then
             Hint($"版本 {McInstanceSelected.Name} 正在被修改，请稍后再启动！", HintType.Red)
             Return False
         End If
         If McInstanceSelected IsNot Nothing AndAlso ModpackUpdate.Pending(McInstanceSelected.PathVersion).Any() Then
-            Hint("整合包更新曾被中断，请在版本概览中点击整合包更新，恢复后再启动。", HintType.Red)
+            Hint("环境修改曾被中断，请在版本设置的还原点或修改页中恢复后再启动。", HintType.Red)
             Return False
         End If
         FrmMain.AprilGiveup()
@@ -140,6 +140,8 @@
                 New LoaderTask(Of Integer, Integer)("获取 Java", AddressOf McLaunchJava) With {.ProgressWeight = 4, .Block = False},
                 McLoginLoader, '.ProgressWeight = 15, .Block = False
                 New LoaderCombo(Of String)("补全文件", DlClientFix(McInstanceSelected, False, True)) With {.ProgressWeight = 15, .Show = False},
+                New LoaderTask(Of Integer, Integer)("恢复未完成的存档操作", Sub(Task) WorldBackups.RecoverBeforeLaunch(McInstanceSelected.PathIndie, Task.CreateCancellationToken())) With {.ProgressWeight = 1},
+                New LoaderTask(Of Integer, Integer)("检查模组依赖", AddressOf McLaunchDependencyCheck) With {.ProgressWeight = 1},
                 New LoaderTask(Of String, Integer)("获取启动参数", AddressOf McLaunchArgumentMain) With {.ProgressWeight = 2},
                 New LoaderTask(Of Integer, Integer)("解压文件", AddressOf McLaunchNatives) With {.ProgressWeight = 2},
                 New LoaderTask(Of Integer, Integer)("预启动处理", AddressOf McLaunchPrerun) With {.ProgressWeight = 1},
@@ -219,6 +221,30 @@ NextInner:
 
 #Region "内存优化"
 
+    Private Sub McLaunchDependencyCheck(Loader As LoaderTask(Of Integer, Integer))
+        If CurrentLaunchOptions?.SaveBatch IsNot Nothing Then Return
+        If McInstanceSelected Is Nothing OrElse Not McInstanceSelected.Modable Then Return
+        Dim Context = ModDependencyInspector.ContextForInstance(McInstanceSelected, McLaunchJavaSelected?.Version?.ToString())
+        Dim Token = Loader.CreateCancellationToken()
+        Dim CheckThread = Thread.CurrentThread
+        Dim Report = ModDependencyOnline.InspectWithOnline(IO.Path.Combine(McInstanceSelected.PathIndie, "mods"), Context, Token)
+        If Loader.IsCanceled OrElse Token.IsCancellationRequested Then Return
+        If Not Report.HasErrors Then Return
+        Dim Choice As Integer
+        RunInUiWait(Sub()
+                        If Loader.IsCanceledWithThread(CheckThread) OrElse Token.IsCancellationRequested Then Return
+                        Choice = MyMsgBox(Report.ToSummary(), "启动前模组检查", "返回 Mod 管理", "仍然启动", IsWarn:=True)
+                    End Sub)
+        If Loader.IsCanceled OrElse Token.IsCancellationRequested Then Return
+        If Choice = 2 Then Return
+        Dim Target = McInstanceSelected
+        RunInUiWait(Sub()
+                    If Loader.IsCanceledWithThread(CheckThread) OrElse Token.IsCancellationRequested Then Return
+                    PageInstanceLeft.Instance = Target
+                    FrmMain.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceMod)
+                End Sub)
+        Throw New OperationCanceledException()
+    End Sub
     Private Sub McLaunchMemoryOptimize(Loader As LoaderTask(Of Integer, Integer))
         McLaunchLog("内存优化开始")
         Dim Finished As Boolean = False
@@ -2129,6 +2155,8 @@ IgnoreCustomSkin:
         StartInfo.Arguments = McLaunchArgument
 
         '开始进程
+        If WorldBackups.IsBusy OrElse InstanceClonerUi.IsBusy OrElse EnvironmentHistoryUi.IsBusy Then Throw New OperationCanceledException("正在备份或修改游戏环境，请稍后再启动。")
+        WorldBackups.RecoverBeforeLaunch(McInstanceSelected.PathIndie, Loader.CreateCancellationToken())
         Dim GameProcess = StartProcess(StartInfo)
         McLaunchLog("已启动游戏进程：" & McLaunchJavaSelected.JavaExePath)
         If Loader.IsCanceled Then
@@ -2185,9 +2213,14 @@ IgnoreCustomSkin:
         WindowTitle = ArgumentReplace(WindowTitle, ReplaceTime:=False)
 
         '初始化等待
-        Dim Personal = CurrentLaunchOptions.PersonalOptions, Quick = CurrentLaunchOptions.QuickPlay
+        Dim Personal = CurrentLaunchOptions.PersonalOptions, Quick = CurrentLaunchOptions.QuickPlay, LaunchInstance = McInstanceSelected
         Dim Watcher As New Watcher(Loader, McInstanceSelected, WindowTitle,
             Sub(Game)
+                Try
+                    WorldBackups.Track(LaunchInstance, Game)
+                Catch ex As Exception
+                    Logger.Warn(ex, "记录存档备份会话失败")
+                End Try
                 Try
                     PersonalGameSettings.Track(Personal, Game)
                 Catch ex As Exception

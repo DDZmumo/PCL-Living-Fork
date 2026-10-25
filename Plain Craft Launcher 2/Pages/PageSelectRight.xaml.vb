@@ -26,12 +26,24 @@ Public Class PageSelectRight
         Try
             '加载 UI
             PanMain.Children.Clear()
-
-            For Each Card As KeyValuePair(Of McInstanceCardType, List(Of McInstance)) In McInstanceList.ToArray
-                '确认是否为隐藏版本显示状态
+            Dim VisibleCards As New Dictionary(Of McInstanceCardType, List(Of McInstance))
+            For Each Card In McInstanceList.ToArray()
                 If Card.Key = McInstanceCardType.Hidden Xor ShowHidden Then Continue For
-                Dim Instances = Card.Value.Where(Function(Instance) Not McInstanceLock.IsLocked(Instance) AndAlso ModModpackMode.AllowsInstance(Instance.PathVersion)).ToList
-                If Not Instances.Any Then Continue For
+                VisibleCards.Add(Card.Key, Card.Value.Where(Function(Instance) Not McInstanceLock.IsLocked(Instance) AndAlso ModModpackMode.AllowsInstance(Instance.PathVersion)).ToList())
+            Next
+            Dim InstancesByPath As New Dictionary(Of String, McInstance)(StringComparer.OrdinalIgnoreCase)
+            For Each Instance In VisibleCards.Values.SelectMany(Function(Items) Items)
+                InstancesByPath(InstanceCloneGroups.Key(Instance.PathVersion)) = Instance
+            Next
+            '先跨普通分类解析关系；收藏夹按自己的可见集合分组，保留收藏入口。
+            Dim MainGroups = InstanceCloneGroups.Build(VisibleCards.Where(Function(Card) Card.Key <> McInstanceCardType.Star).SelectMany(Function(Card) Card.Value).Select(Function(Instance) Instance.PathVersion), CancellationToken.None)
+            Dim StarGroups = InstanceCloneGroups.Build(If(VisibleCards.ContainsKey(McInstanceCardType.Star), VisibleCards(McInstanceCardType.Star).Select(Function(Instance) Instance.PathVersion), Enumerable.Empty(Of String)()), CancellationToken.None)
+            Dim SelectedPath = McInstanceSelected?.PathVersion
+            For Each Card In VisibleCards
+                Dim Groups = If(Card.Key = McInstanceCardType.Star, StarGroups, MainGroups)
+                Dim Roots = Card.Value.Select(Function(Instance) Groups.Find(Instance.PathVersion)).Where(Function(Node) Node IsNot Nothing AndAlso Node.ParentFolder Is Nothing).ToList()
+                If Roots.Count = 0 Then Continue For
+                Dim Instances = Roots.SelectMany(Function(Node) InstanceCloneGroups.Flatten(Node)).Select(Function(Node) InstancesByPath(Node.VersionFolder)).ToList()
 #Region "确认卡片名称"
                 Dim CardName As String = ""
                 Select Case Card.Key
@@ -79,10 +91,10 @@ Public Class PageSelectRight
                 Dim NewStack As New StackPanel With {.Margin = New Thickness(20, MyCard.SwapedHeight, 18, 0), .VerticalAlignment = VerticalAlignment.Top, .RenderTransform = New TranslateTransform(0, 0)}
                 NewCard.Children.Add(NewStack)
                 NewCard.SwapControl = NewStack
-                NewCard.SetContentBuilder(Instances, Function(Instance) Instance.ToListItem(AddressOf McInstanceListContent))
+                NewCard.SetContentBuilder(Roots, Function(Node) BuildCloneChoice(Node, InstancesByPath, SelectedPath))
                 PanMain.Children.Add(NewCard)
                 '确定卡片是否展开
-                If Card.Key = McInstanceCardType.Rubbish OrElse Card.Key = McInstanceCardType.Error OrElse Card.Key = McInstanceCardType.Fool Then
+                If (Card.Key = McInstanceCardType.Rubbish OrElse Card.Key = McInstanceCardType.Error OrElse Card.Key = McInstanceCardType.Fool) AndAlso Not Roots.Any(Function(Node) InstanceCloneGroups.Contains(Node, SelectedPath)) Then
                     NewCard.IsSwapped = True
                 Else
                     NewCard.BuildContent()
@@ -117,6 +129,25 @@ Public Class PageSelectRight
             Logger.Error(ex, "将版本列表转换显示时失败")
         End Try
     End Sub
+    '来源行始终可选；只有下方测试副本使用原生折叠卡片和惰性列表项。
+    Friend Shared Function BuildCloneChoice(Node As InstanceCloneGroupNode, InstancesByPath As Dictionary(Of String, McInstance), SelectedPath As String) As FrameworkElement
+        Dim Instance = InstancesByPath(Node.VersionFolder)
+        Dim Row = Instance.ToListItem(Sub(Item, Args)
+                                          McInstanceListContent(Item, Args)
+                                          If Node.DeclaredSourceFolder IsNot Nothing Then Item.Info = Instance.Info & " · 来源：" & Path.GetFileName(Node.DeclaredSourceFolder)
+                                      End Sub)
+        If Node.Children.Count = 0 Then Return Row
+        Dim Container As New StackPanel With {.Tag = Node.VersionFolder}
+        Container.Children.Add(Row)
+        Dim Card As New MyCard With {.Title = $"测试副本 ({InstanceCloneGroups.Flatten(Node).Count - 1}) · 来源：{Instance.Name}", .Margin = New Thickness(14, 3, 0, 9), .Tag = Node.VersionFolder}
+        Dim Stack As New StackPanel With {.Margin = New Thickness(12, MyCard.SwapedHeight, 12, 0), .VerticalAlignment = VerticalAlignment.Top, .RenderTransform = New TranslateTransform(0, 0)}
+        Card.Children.Add(Stack)
+        Card.SwapControl = Stack
+        Card.SetContentBuilder(Node.Children, Function(Child) BuildCloneChoice(Child, InstancesByPath, SelectedPath))
+        If Node.Children.Any(Function(Child) InstanceCloneGroups.Contains(Child, SelectedPath)) Then Card.BuildContent() Else Card.IsSwapped = True
+        Container.Children.Add(Card)
+        Return Container
+    End Function
     Public Shared Sub McInstanceListContent(sender As MyListItem, e As EventArgs)
         Dim Instance As McInstance = sender.Tag
         '注册点击事件
@@ -196,6 +227,7 @@ Public Class PageSelectRight
     Public Shared Sub DeleteInstance(Item As MyListItem, Instance As McInstance)
         If ModModpackMode.Enabled Then Return
         Try
+            Instance = ResolveDeleteTarget(Item, Instance)
             If McInstanceLock.IsLocked(Instance) Then
                 Hint("该版本正在被修改，请稍后再删除！", HintType.Red)
                 Return
@@ -214,35 +246,38 @@ Public Class PageSelectRight
                     Hint("版本 " & Instance.Name & " 已删除！", HintType.Green)
                 Case 2
                     Return
+                Case Else
+                    Return
             End Select
-            '从 UI 中移除
-            If Instance.DisplayType = McInstanceCardType.Hidden OrElse Not Instance.IsStar Then
-                '仅出现在当前卡片
-                Dim Parent As StackPanel = Item.Parent
-                If Parent.Children.Count > 2 Then '当前的项目与一个占位符
-                    '删除后还有剩
-                    Dim Card As MyCard = Parent.Parent
-                    Card.Title = Card.Title.Replace(Parent.Children.Count - 1, Parent.Children.Count - 2) '有一个占位符
-                    Parent.Children.Remove(Item)
-                    If McInstanceSelected IsNot Nothing AndAlso PathUtils.IsSame(Instance.PathVersion, McInstanceSelected.PathVersion) Then
-                        '删除当前版本就更改选择
-                        McInstanceSelected = MyVirtualizingElement.TryInit(Parent.Children(0)).Tag
-                    End If
-                    LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.UpdateOnly, MaxDepth:=1, ExtraPath:="versions\")
-                Else
-                    '删除后没剩了
-                    LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\")
-                End If
-            Else
-                '同时出现在当前卡片与收藏夹
-                LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\")
-            End If
+            '嵌套卡片、惰性项和收藏夹都从模型刷新；不从控件父级推断版本或删除范围。
+            McInstanceList = WithoutDeletedInstance(McInstanceList, Instance.PathVersion)
+            Dim NextSelection = SelectionAfterDelete(McInstanceSelected, Instance.PathVersion)
+            If NextSelection IsNot McInstanceSelected Then McInstanceSelected = NextSelection
+            If PageInstanceLeft.Instance IsNot Nothing AndAlso PathUtils.IsSame(PageInstanceLeft.Instance.PathVersion, Instance.PathVersion) Then PageInstanceLeft.Instance = Nothing
+            McInstanceListForceRefresh = True
+            LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\")
         Catch ex As OperationCanceledException
-            Logger.Warn(ex, $"删除版本 {Instance.Name} 被主动取消")
+            Logger.Warn(ex, $"删除版本 {If(Instance?.Name, "未知版本")} 被主动取消")
         Catch ex As Exception
-            Logger.Error(ex, $"删除版本 {Instance.Name} 失败", LogBehavior.Alert)
+            Logger.Error(ex, $"删除版本 {If(Instance?.Name, "未知版本")} 失败", LogBehavior.Alert)
         End Try
     End Sub
+    Friend Shared Function ResolveDeleteTarget(Item As MyListItem, Expected As McInstance) As McInstance
+        Dim Actual = If(Item Is Nothing, Nothing, TryCast(Item.Tag, McInstance))
+        If Actual Is Nothing OrElse Expected Is Nothing OrElse Not PathUtils.IsSame(Actual.PathVersion, Expected.PathVersion) Then Throw New IOException("版本列表已变化，请刷新后重新选择要删除的版本。")
+        Return Actual
+    End Function
+    Friend Shared Function WithoutDeletedInstance(Cards As IDictionary(Of McInstanceCardType, List(Of McInstance)), DeletedFolder As String) As Dictionary(Of McInstanceCardType, List(Of McInstance))
+        Dim Result As New Dictionary(Of McInstanceCardType, List(Of McInstance))
+        For Each Card In Cards
+            Dim Remaining = Card.Value.Where(Function(Instance) Not PathUtils.IsSame(Instance.PathVersion, DeletedFolder)).ToList()
+            If Remaining.Count > 0 Then Result.Add(Card.Key, Remaining)
+        Next
+        Return Result
+    End Function
+    Friend Shared Function SelectionAfterDelete(Current As McInstance, DeletedFolder As String) As McInstance
+        Return If(Current IsNot Nothing AndAlso PathUtils.IsSame(Current.PathVersion, DeletedFolder), Nothing, Current)
+    End Function
 
     Public Sub BtnEmptyDownload_Loaded() Handles BtnEmptyDownload.Loaded
         Dim NewVisibility = If((Settings.Get(Of Boolean)("UiHiddenPageDownload") AndAlso Not PageSetupUI.HiddenForceShow) OrElse ShowHidden, Visibility.Collapsed, Visibility.Visible)
