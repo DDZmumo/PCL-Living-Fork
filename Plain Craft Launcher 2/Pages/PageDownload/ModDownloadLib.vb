@@ -2041,7 +2041,7 @@ Retry:
                         Hint(CurrentLoader.Name & "已取消！", HintType.Blue)
                 End Select
             End Sub}
-            Dim Worker As New RedoableWorker(Sub() Loader.WaitForExit(Instance.PathVersion))
+            Dim Worker As New RedoableWorker(LoaderFileOperation.CreateWorkload(Loader, Instance.PathVersion))
             '启动
             If McInstanceLock.TryAcquire(Worker, Instance.PathVersion) Then
                 AddHandler Worker.Stopped, Sub() RunInUi(Sub() LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\"))

@@ -3,11 +3,19 @@ on:
   push:
     paths:
       - 'Plain Craft Launcher 2/**'
+      - 'PCLCS/**'
+      - 'MeloongCore'
+      - '.gitmodules'
+      - '*.sln'
       - '.github/workflows/**'
       - 'scripts/**'
   pull_request:
     paths:
       - 'Plain Craft Launcher 2/**'
+      - 'PCLCS/**'
+      - 'MeloongCore'
+      - '.gitmodules'
+      - '*.sln'
       - '.github/workflows/**'
       - 'scripts/**'
   workflow_dispatch:
@@ -108,6 +116,9 @@ jobs:
 
     - name: Verify modpack updates and personal changes
       run: powershell -NoProfile -STA -File scripts/Test-ModpackUpdate.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
+
+    - name: Verify file-operation cancellation, runtime recovery and redirect credentials
+      run: powershell -NoProfile -STA -File scripts/Test-ReviewFixes.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"
 
     - name: Verify environment restore points
       run: powershell -NoProfile -STA -File scripts/Test-EnvironmentHistory.ps1 -ExecutablePath "Plain Craft Launcher 2\bin\PCL Living Fork.exe"

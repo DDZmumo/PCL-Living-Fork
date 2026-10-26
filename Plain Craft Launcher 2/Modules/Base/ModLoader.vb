@@ -185,6 +185,9 @@ Public Module ModLoader
         Public MustOverride Sub Start(Optional Input As Object = Nothing, Optional IsForceRestart As Boolean = False)
         Public MustOverride Sub Cancel()
         Public MustOverride Sub Failed(Ex As Exception)
+        '仅文件事务入口启用；普通加载器保持原有的中断行为。
+        Friend Overridable Sub GuardFileWorkload(Wrap As Func(Of Action, Action))
+        End Sub
         Private CancellationTokenSource As CancellationTokenSource
         ''' <summary>
         ''' 创建一个随此加载器取消的取消令牌；令牌取消时也会调用此加载器的 Cancel。
@@ -207,9 +210,10 @@ Public Module ModLoader
         ''' <summary>
         ''' 无限期地等待加载器完成，直到结束或抛出异常。若加载器尚未开始，则会开始执行。
         ''' </summary>
+        ''' <param name="StartIfNeeded">文件事务已在独占区启动时设为 False，避免取消后重新启动。</param>
         Public Sub WaitForExit(Optional Input As Object = Nothing, Optional LoaderToSyncProgress As LoaderBase = Nothing, Optional IsForceRestart As Boolean = False,
-                               Optional c As CancellationToken = Nothing, Optional p As ProgressProvider = Nothing)
-            Start(Input, IsForceRestart)
+                               Optional c As CancellationToken = Nothing, Optional p As ProgressProvider = Nothing, Optional StartIfNeeded As Boolean = True)
+            If StartIfNeeded Then Start(Input, IsForceRestart)
             Do While State = LoadState.Loading
                 If LoaderToSyncProgress IsNot Nothing Then LoaderToSyncProgress.Progress = Progress
                 p?.Set(Progress)
@@ -295,6 +299,18 @@ Public Module ModLoader
         ''' 最后一次运行加载器的线程。可能为 Nothing，或线程已结束。
         ''' </summary>
         Public LastRunningThread As Thread = Nothing
+        Friend Property InterruptOnCancel As Boolean = True
+        Friend Overrides Sub GuardFileWorkload(Wrap As Func(Of Action, Action))
+            Dim Work = LoadDelegate
+            InterruptOnCancel = False
+            LoadDelegate = Sub(Current)
+                               Dim Guarded = Wrap(Sub()
+                                                      Current.CreateCancellationToken().ThrowIfCancellationRequested()
+                                                      Work(Current)
+                                                  End Sub)
+                               Guarded()
+                           End Sub
+        End Sub
         '输入输出
         Public Input As TIn = Nothing
         Public Output As TOut = Nothing
@@ -392,7 +408,7 @@ Public Module ModLoader
                 If State <> LoadState.Loading Then Return
                 State = LoadState.Canceled
             End SyncLock
-            TriggerThreadInterrupt()
+            If InterruptOnCancel Then TriggerThreadInterrupt()
         End Sub
         Private Sub TriggerThreadInterrupt()
             If LastRunningThread Is Nothing Then Return
@@ -466,6 +482,12 @@ Public Module ModLoader
     ''' </summary>
     Public Class LoaderCombo(Of InputType)
         Inherits LoaderBase
+
+        Friend Overrides Sub GuardFileWorkload(Wrap As Func(Of Action, Action))
+            For Each Loader In Loaders
+                Loader.GuardFileWorkload(Wrap)
+            Next
+        End Sub
 
         Public Overrides Property Progress() As Double
             Get

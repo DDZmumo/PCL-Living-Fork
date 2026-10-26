@@ -7,7 +7,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "1.3.0" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
+    Public Const VersionBaseName As String = "1.3.1" 'LivingPCL 显示用版本名；内部兼容码沿用代码基线。
     Public Const LauncherDisplayName As String = "PCL Living Fork"
     Public Const LauncherRepository As String = "DDZmumo/PCL-Living-Fork"
     Public Const LauncherRepositoryUrl As String = "https://github.com/" & LauncherRepository

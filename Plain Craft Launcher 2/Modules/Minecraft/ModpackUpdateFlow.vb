@@ -23,7 +23,7 @@ Friend NotInheritable Class ModpackUpdateFlow
         End If
         Dim StepLoader As New LoaderTask(Of String, String)("比较并更新整合包文件", Sub(Task) Execute(Instance, Online, ArchivePath, Task))
         Dim Loader As New LoaderCombo(Of String)("更新整合包：" & Instance.Name, {StepLoader}) With {.OnStateChanged = AddressOf LoaderStateChangedHintOnly}
-        Dim Worker As New RedoableWorker(Sub() Loader.WaitForExit(Instance.PathVersion))
+        Dim Worker As New RedoableWorker(LoaderFileOperation.CreateWorkload(Loader, Instance.PathVersion))
         If Not McInstanceLock.TryAcquire(Worker, Instance.PathVersion) Then
             Interlocked.Exchange(Active, 0)
             Return
@@ -86,11 +86,12 @@ Friend NotInheritable Class ModpackUpdateFlow
     End Function
 
     Private Shared Sub Execute(Instance As McInstance, Online As Boolean, ArchivePath As String, Task As LoaderTask(Of String, String))
-        Dim Token = Task.CreateCancellationToken(), Stage = RequestTaskTempFolder(), Root = Instance.PathIndie
+        Dim Token = Task.CreateCancellationToken(), Stage = RequestTaskTempFolder()
         If ModpackUpdate.Pending(Instance.PathVersion).Any() Then
             If MyMsgBox("上次整合包更新被中断，需要先恢复更新前的文件。", "恢复整合包", "恢复", "取消", IsWarn:=True) <> 1 Then Throw New OperationCanceledException()
-            ModpackUpdate.Recover(Instance.PathVersion, Root)
+            Instance = RecoverInstance(Instance)
         End If
+        Dim Root = Instance.PathIndie
         Dim Baseline = ModpackUpdate.ReadManifest(Instance.PathVersion)
         If Baseline Is Nothing Then
             If MyMsgBox("此版本尚无作者文件记录。请选择当前版本原始整合包，以识别作者文件和个人修改。", "建立整合包记录", "选择原始包", "取消") <> 1 Then Throw New OperationCanceledException()
@@ -123,8 +124,9 @@ Friend NotInheritable Class ModpackUpdateFlow
             Dim Build As New LoaderCombo(Of String)("准备整合包游戏组件", McInstallLoadersGet(New McInstallRequest With {
                 .NewInstanceName = Instance.Name, .InstanceFolder = BuildFolder, .Components = New McComponents(Package.Minecraft, Package.Loaders), .IsIntermediateOutput = True,
                 .MinecraftFolder = Path.GetDirectoryName(Path.GetDirectoryName(Instance.PathVersion.TrimEnd("\"c))) & "\"}))
+            Dim PrepareRuntime = LoaderFileOperation.CreateWorkload(Build, BuildFolder)
             Using Registration = Token.Register(AddressOf Build.Cancel)
-                Build.WaitForExit(BuildFolder, c:=Token)
+                PrepareRuntime()
             End Using
             For Each Extension In {".json", ".jar"}
                 Dim Payload = Path.Combine(BuildFolder, Instance.Name & Extension)
@@ -150,11 +152,22 @@ Friend NotInheritable Class ModpackUpdateFlow
         EnvironmentHistory.CaptureInstance(Instance, "整合包更新前", Token)
         Dim Backup = ModpackUpdate.Commit(Plan, Instance.PathVersion, Token, Extras)
         Task.Output = Backup
+        ReloadInstance(Instance)
+        Logger.Info("整合包更新完成，原文件备份：" & Backup)
+    End Sub
+
+    Friend Shared Function RecoverInstance(Instance As McInstance) As McInstance
+        ModpackUpdate.Recover(Instance.PathVersion, Instance.PathIndie)
+        Return ReloadInstance(Instance)
+    End Function
+
+    Private Shared Function ReloadInstance(Instance As McInstance) As McInstance
+        Instance.ResetSettingsCache()
+        Dim Refreshed = New McInstance(Instance.PathVersion).Load()
         RunInUiWait(Sub()
-                        Dim Refreshed = New McInstance(Instance.PathVersion).Load()
                         If PageInstanceLeft.Instance IsNot Nothing AndAlso PathUtils.IsSame(PageInstanceLeft.Instance.PathVersion, Instance.PathVersion) Then PageInstanceLeft.Instance = Refreshed
                         If McInstanceSelected IsNot Nothing AndAlso PathUtils.IsSame(McInstanceSelected.PathVersion, Instance.PathVersion) Then McInstanceSelected = Refreshed
                     End Sub)
-        Logger.Info("整合包更新完成，原文件备份：" & Backup)
-    End Sub
+        Return Refreshed
+    End Function
 End Class

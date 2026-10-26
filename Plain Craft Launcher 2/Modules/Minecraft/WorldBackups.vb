@@ -670,7 +670,7 @@ Friend NotInheritable Class WorldBackupsUi
                 End If
             End Sub)
         Dim Loader As New LoaderCombo(Of String)(If(Removing, "移除备份：", If(Restoring, "恢复世界：", "备份世界：")) & Instance.Name, {StepLoader}) With {.OnStateChanged = AddressOf LoaderStateChangedHintOnly}
-        Dim Worker As New RedoableWorker(Sub() Loader.WaitForExit(Instance.PathVersion))
+        Dim Worker As New RedoableWorker(LoaderFileOperation.CreateWorkload(Loader, Instance.PathVersion))
         If Not McInstanceLock.TryAcquire(Worker, Instance.PathVersion) Then
             Interlocked.Exchange(Busy, 0)
             Return

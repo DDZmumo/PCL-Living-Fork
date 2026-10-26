@@ -543,8 +543,9 @@ Friend NotInheritable Class InstanceClonerUi
     Private Shared Sub Run(Instance As McInstance, Name As String, StepLoader As LoaderTask(Of String, String), Optional LockSource As Boolean = False)
         Dim Loader As New LoaderCombo(Of String)(Name, {StepLoader}) With {.OnStateChanged = AddressOf LoaderStateChangedHintOnly}
         Dim Abandoned As Boolean
+        Dim Workload = LoaderFileOperation.CreateWorkload(Loader, Instance.PathVersion)
         Dim Worker As New RedoableWorker(Sub()
-                                            If Not Abandoned Then Loader.WaitForExit(Instance.PathVersion)
+                                            If Not Abandoned Then Workload()
                                         End Sub)
         If Not McInstanceLock.TryAcquire(Worker, Instance.PathVersion) Then
             Interlocked.Exchange(Busy, 0)

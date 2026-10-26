@@ -349,7 +349,7 @@ Friend NotInheritable Class ModpackUpdate
         End Using
     End Sub
 
-    '先持久化备份和事务日志；提交出错或进程中断时可从日志恢复。提交期间不接受半途取消。
+    '先持久化备份和事务日志；取消或提交出错先完整回滚，进程中断时可从日志恢复。
     Friend Shared Function Commit(Plan As PackUpdatePlan, VersionFolder As String, Token As CancellationToken,
         Optional ExtraFiles As Dictionary(Of String, String) = Nothing, Optional BeforeApply As Action(Of Integer) = Nothing) As String
         Token.ThrowIfCancellationRequested()
@@ -393,15 +393,18 @@ Friend NotInheritable Class ModpackUpdate
         Dim Log As New JObject(New JProperty("complete", False), New JProperty("gameRoot", Path.GetFullPath(GameRoot)), New JProperty("files", New JArray))
         Dim LogFiles = CType(Log("files"), JArray)
         For Index = 0 To Operations.Count - 1
+            Token.ThrowIfCancellationRequested()
             Dim Op = Operations(Index), Backup = Path.Combine(Path.GetDirectoryName(Box), Index & ".bak")
             If Op.Item3 IsNot Nothing Then File.Copy(Op.Item1, Backup, False)
             LogFiles.Add(New JObject(New JProperty("target", Op.Item1), New JProperty("backup", If(Op.Item3 Is Nothing, Nothing, Backup)), New JProperty("before", Op.Item3), New JProperty("after", If(Op.Item2 Is Nothing, Nothing, Digest(Op.Item2)))))
         Next
+        Token.ThrowIfCancellationRequested()
         File.WriteAllText(Box, Log.ToString())
         Dim Applied As New List(Of Integer)
         Try
             For Index = 0 To Operations.Count - 1
                 BeforeApply?.Invoke(Index)
+                Token.ThrowIfCancellationRequested()
                 Dim Op = Operations(Index)
                 If Digest(Op.Item1) <> Op.Item3 Then Throw New IOException("提交期间文件发生变化，已停止更新。")
                 Applied.Add(Index)
@@ -411,6 +414,7 @@ Friend NotInheritable Class ModpackUpdate
                     ReplaceFrom(Op.Item2, Op.Item1)
                 End If
             Next
+            Token.ThrowIfCancellationRequested()
             Log("complete") = True
             LocalGameData.AtomicWrite(Box, System.Text.Encoding.UTF8.GetBytes(Log.ToString()), Nothing, False)
         Catch

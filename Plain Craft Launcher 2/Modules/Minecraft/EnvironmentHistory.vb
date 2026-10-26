@@ -275,7 +275,7 @@ Friend NotInheritable Class EnvironmentHistoryUi
                 End If
                 If ModpackUpdate.Pending(Instance.PathVersion).Any() Then
                     If MyMsgBox("上次环境修改被中断，需要先恢复到修改前。", "恢复未完成的操作", "恢复", "取消", IsWarn:=True) <> 1 Then Throw New OperationCanceledException()
-                    ModpackUpdate.Recover(Instance.PathVersion, Instance.PathIndie)
+                    Instance = ModpackUpdateFlow.RecoverInstance(Instance)
                 End If
                 If Not Restore Then
                     Task.Output = EnvironmentHistory.CaptureInstance(Instance, "手动还原点", Token)
@@ -312,7 +312,7 @@ Friend NotInheritable Class EnvironmentHistoryUi
                             End Sub)
             End Sub)
         Dim Loader As New LoaderCombo(Of String)(If(Removing, "删除还原点：", If(Restore, "环境恢复：", "保存环境：")) & Instance.Name, {StepLoader}) With {.OnStateChanged = AddressOf LoaderStateChangedHintOnly}
-        Dim Worker As New RedoableWorker(Sub() Loader.WaitForExit(Instance.PathVersion))
+        Dim Worker As New RedoableWorker(LoaderFileOperation.CreateWorkload(Loader, Instance.PathVersion))
         If Not McInstanceLock.TryAcquire(Worker, Instance.PathVersion) Then
             Interlocked.Exchange(Busy, 0)
             Return
