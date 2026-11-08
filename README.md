@@ -13,16 +13,16 @@
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
-[下载 1.4.1 稳定版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
+[下载 1.4.2-pre-1 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
-[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
+[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
 [加入 QQ 群](https://qm.qq.com/q/MX1RivlHeE)
 
 </div>
 
-当前预发布目标为 **1.4.2-pre-1**；Release 尚未发布，以上下载入口仍指向现有稳定版。
+当前预发布版为 1.4.2-pre-1；如需稳定版，可下载 [1.4.1](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1)。
 
 ---
 
