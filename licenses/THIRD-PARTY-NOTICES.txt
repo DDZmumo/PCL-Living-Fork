@@ -676,6 +676,7 @@ PCLCS/Startup/LauncherWindowActivation.cs
 PCLCS/Toolbox/LegacyGameGarbageCleaner.cs
 PCLCS/Toolbox/LegacyGameGarbageCleanupResult.cs
 PCLCS/Toolbox/LegacyToolboxDownloadSession.cs
+PCLCS/Toolbox/SymbioLauncherSwitch.cs
 modern/Main/Controls/LauncherUpdateCardBackground.cs
 modern/Main/Controls/LocalResourceUi.cs
 modern/Main/Controls/ModDependencyCheckView.cs
@@ -746,6 +747,7 @@ modern/Main/Pages/PageInstance/WorldBackupGroup.xaml
 modern/Main/Pages/PageInstance/WorldBackupGroup.xaml.cs
 modern/Main/Pages/PageInstance/WorldBackupSettings.xaml
 modern/Main/Pages/PageInstance/WorldBackupSettings.xaml.cs
+modern/Main/Pages/PageOther/PageOtherTest.Surprise.cs
 modern/Main/Pages/PageSetup/PageSetupPersonal.Draft.cs
 modern/Main/Pages/PageSetup/PageSetupPersonal.Editors.cs
 modern/Main/Pages/PageSetup/PageSetupPersonal.xaml

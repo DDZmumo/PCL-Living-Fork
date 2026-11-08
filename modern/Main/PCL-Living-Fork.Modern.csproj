@@ -70,6 +70,7 @@
 <Compile Include="Modules/Base/GameGarbageCleaner.cs" />
 <Compile Include="Modules/Base/ToolboxDownloadSession.cs" />
 <Compile Include="Pages/PageOther/PageOtherTest.Tools.cs" />
+<Compile Include="Pages/PageOther/PageOtherTest.Surprise.cs" />
 <Compile Include="Modules/ModLauncherUpdate.cs" />
 <Compile Include="Modules/ModLauncherUpdate.ReleaseNotes.cs" />
 <Compile Include="Modules/ModernBundleIdentity.cs" />

@@ -15,7 +15,14 @@ public sealed class LegacyToolboxPageRuntime<TFile, TDownload, TSave, TCombo>
     private LegacySetupPageHost Common => Host.Common;
 
     public LegacyToolboxPageRuntime(LegacyToolboxPageHost<TFile, TDownload, TSave, TCombo> host) => Host = host;
-    public void Jrrp() => Common.Hint("本版本暂未提供今日人品功能。", LegacySetupHint.Blue, true);
+    public void Jrrp() {
+        DateTime date = Host.LuckDate();
+        int score = LegacyDailyLuck.Score(date, Host.LuckIdentify());
+        if (score == 0 && Common.Message("在查看结果前，请先同意以下附加使用条款：\r\n\r\n1. 我知晓并了解 PCL 的今日人品功能完全没有出 Bug。\r\n2. PCL 不对使用本软件所间接造成的一切财产损失（如砸电脑等）等负责。", "今日人品 - 附加使用条款", "同意并查看结果", "再见", warning: true) == 2) return;
+        bool changed = Host.LuckTimeChanged();
+        string text = (changed ? "在这个时候，你的人品值会是：" : "你今天的人品值是：") + score + LegacyDailyLuck.Description(score);
+        Common.Message(text, (changed ? "今日人品? - " : "今日人品 - ") + date.ToString("yyyy'/'M'/'d"), "我知道了", warning: score < 20);
+    }
     public string GetRandomCave() => GetRandomPresetHint();
     public string GetRandomHint() => GetRandomPresetHint();
     public string GetRandomPresetHint() => Host.RandomOne(new[] { "喜欢 PCL 的使用体验？欢迎前往原作者的官方渠道获取 PCL，支持龙腾猫跃持续开发。", "想体验 PCL 官方快照版和更多主题？可以前往龙腾猫跃的爱发电主页，了解赞助与获取方式。", "购买正版 Minecraft，支持 Mojang 继续创造新的冒险！请通过 Minecraft 官网购买并使用自己的微软账号登录。", "PCL Living Fork 是基于 PCL 原项目的第三方修改版本。欢迎了解并支持原作者开发的官方 PCL。", "已经拥有正版 Minecraft？使用购买游戏的微软账号登录，即可使用自己的正版身份开始冒险。" });

@@ -18,6 +18,9 @@ public sealed class LegacyToolboxPageHost<TFile, TDownload, TSave, TCombo>
     where TCombo : class
 {
     public LegacySetupPageHost Common = null!;
+    public Func<DateTime> LuckDate = () => DateTime.Now;
+    public Func<string> LuckIdentify = null!;
+    public Func<bool> LuckTimeChanged = () => false;
     public Func<LegacyToolboxPageController<TFile, TDownload, TSave, TCombo>?> CurrentPage = null!;
     public Func<bool> HasMain = null!, HasRunningGame = null!, LaunchLoading = null!, HasDownloadingTask = null!, HasGameFolders = null!, HasAdminRole = null!;
     public Func<MyExtraButtonView> ExtraDownload = null!;

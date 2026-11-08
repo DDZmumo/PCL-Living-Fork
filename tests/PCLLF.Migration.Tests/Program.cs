@@ -34,6 +34,7 @@ internal static class Program {
             ("resource-metadata", () => InstanceResourceDetailsRulesTests.Cases()
                 .Concat(InstanceResourcePackMetadataTests.Cases()).Concat(InstanceResourceMetadataRuntimeTests.Cases())),
             ("world-backups", WorldBackupPipelineTests.Cases),
+            ("toolbox-surprise", () => SymbioLauncherSwitchTests.Cases().Concat(DailyLuckTests.Cases())),
             ("environment-history", EnvironmentHistoryPipelineTests.Cases),
             ("instance-clone", InstanceClonePipelineTests.Cases),
             ("pack-update", () => PackUpdateThreeWayTests.Cases().Concat(PackUpdateMetadataTests.Cases())

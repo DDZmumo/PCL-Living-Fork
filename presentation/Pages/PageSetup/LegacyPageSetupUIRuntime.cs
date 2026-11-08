@@ -121,7 +121,7 @@ public sealed class LegacyPageSetupUIRuntime {
                 Host.Shell(LegacySetupShellElement.OtherTest).Visibility = Hidden(!HiddenForceShow && Read("UiHiddenOtherTest"));
                 Host.Shell(LegacySetupShellElement.OtherNavigation).Visibility = Hidden(otherAvailable < 2 && !HiddenForceShow);
             }
-            ((MyRadioButtonView)Host.Shell(LegacySetupShellElement.TitleOther)).Text = otherAvailable == 1 && !HiddenForceShow ? !Read("UiHiddenOtherHelp") ? "帮助" : !Read("UiHiddenOtherAbout") ? "关于" : "原版百宝箱" : "更多";
+            ((MyRadioButtonView)Host.Shell(LegacySetupShellElement.TitleOther)).Text = otherAvailable == 1 && !HiddenForceShow ? !Read("UiHiddenOtherHelp") ? "帮助" : !Read("UiHiddenOtherAbout") ? "关于" : "工具百宝箱" : "更多";
             if (Host.IsPage(LegacySetupShellPage.InstanceSelect)) Host.RefreshEmptyDownload();
             if (Host.IsPage(LegacySetupShellPage.Launch)) Host.RefreshLaunchButtons();
             if (Host.IsPage(LegacySetupShellPage.InstanceSetup) && Host.HasDisabledModsPage()) Host.RefreshDisabledModsDownload();
