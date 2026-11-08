@@ -11,6 +11,9 @@ internal static class LaunchMoreSettingsChecks {
     internal static void Run(FixtureEnvironment fixture) {
         using var scope = new LocalFeatureChecks.Scope(fixture, "launch-more-settings");
         using var store = new PreferenceStore();
+        Native.Check(Settings.Entries[Preference].DefaultValue is false &&
+            Settings.Entries["LaunchModDependencyCheck"].DefaultValue is true && Settings.Entries["LaunchModDependencyAutoFill"].DefaultValue is true,
+            "More Settings must default collapsed while its dependency features remain enabled.");
         scope.SetGlobal(Preference, true);
         var previousRight = ModMain.FrmLaunchRight;
         var app = System.Windows.Application.Current; var previousWindow = app.MainWindow;

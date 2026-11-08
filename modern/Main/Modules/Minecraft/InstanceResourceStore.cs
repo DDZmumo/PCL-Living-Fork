@@ -79,9 +79,11 @@ namespace PCL
             return InstanceResourceFileRules.AcceptFile((int)Kind, FileName);
         }
 
-        internal static List<InstanceResourceEntry> Scan(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token)
+        internal static List<InstanceResourceEntry> Scan(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token) => ScanCached(Root, Folder, Kind, Token, null);
+
+        internal static List<InstanceResourceEntry> ScanCached(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token, InstanceResourceScanCache<InstanceResourceEntry> Cache)
         {
-            return InstanceResourceCatalog.Scan(Root, Folder, (int)Kind, Token, MapDownloadInstaller.DownloadFolderName, () => new InstanceResourceEntry(), (Item, FileName, Width) => Item.Icon = LoadImage(FileName, Width), (Item, Input, Width) => Item.Icon = DecodeImage(Input, Width), Value => Value.ReplaceLineEndings(" "), PathUtils.RemoveExtendedPrefix);
+            return InstanceResourceCatalog.ScanCached(Root, Folder, (int)Kind, Token, MapDownloadInstaller.DownloadFolderName, () => new InstanceResourceEntry(), (Item, FileName, Width) => Item.Icon = LoadImage(FileName, Width), (Item, Input, Width) => Item.Icon = DecodeImage(Input, Width), Value => Value.ReplaceLineEndings(" "), PathUtils.RemoveExtendedPrefix, Cache);
         }
 
         private static string FormatSize(long Size)

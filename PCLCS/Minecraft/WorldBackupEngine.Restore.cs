@@ -16,6 +16,60 @@ using Newtonsoft.Json.Linq;
 namespace PCLCS;
 
 public sealed partial class WorldBackupEngine<TInstance> where TInstance : class {
+    private readonly object summaryGate = new();
+    private readonly Dictionary<string, (string Stamp, JObject Point)> summaries = new(StringComparer.OrdinalIgnoreCase);
+
+    public void ClearSummaryCache() { lock (summaryGate) summaries.Clear(); }
+
+    private static string SummaryStamp(string manifest, string archive) {
+        string Stamp(string path) {
+            FileInfo file = new(path);
+            if (!file.Exists) throw new IOException("备份记录或数据已丢失。");
+            return file.Length + ":" + file.LastWriteTimeUtc.Ticks + ":" + file.CreationTimeUtc.Ticks;
+        }
+        return Stamp(manifest) + ":" + Stamp(archive);
+    }
+
+    // Display-only summaries. Restore/delete still read and validate the current
+    // manifest through Metadata; cached data never authorizes a file operation.
+    public List<JObject> Summaries(string gameFolder) {
+        string folder = Safe(Store(gameFolder), "points");
+        List<JObject> result = new();
+        HashSet<string> present = new(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(folder)) foreach (string child in Directory.EnumerateDirectories(folder)) {
+            string id = Path.GetFileName(child);
+            if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z")) continue;
+            present.Add(child);
+            try {
+                // Check point/manifest/archive boundaries even when the content is cached.
+                string pointFolder = PointFolder(gameFolder, id);
+                string manifest = Safe(pointFolder, "manifest.json"), archive = Safe(pointFolder, "world.zip");
+                string stamp = SummaryStamp(manifest, archive);
+                JObject? point = null;
+                lock (summaryGate) if (summaries.TryGetValue(child, out var saved) && saved.Stamp == stamp) point = saved.Point;
+                if (point is null) {
+                    JObject full = Metadata(gameFolder, id);
+                    point = new JObject();
+                    foreach (string key in new[] { "schema", "id", "gameFolder", "world", "label", "created", "reason", "bytes", "archiveBytes", "healthy", "description" })
+                        if (full[key] is JToken value) point[key] = value.DeepClone();
+                    point["fileCount"] = ((JObject)full["files"]!).Count;
+                    if (stamp != SummaryStamp(manifest, archive)) continue;
+                    lock (summaryGate) {
+                        // Keep a bounded stable working set; rotating all entries
+                        // would revalidate every point when a library exceeds it.
+                        if (summaries.Count < 1024 || summaries.ContainsKey(child)) summaries[child] = (stamp, point);
+                    }
+                }
+                result.Add((JObject)point.DeepClone());
+            } catch (Exception ex) {
+                lock (summaryGate) summaries.Remove(child);
+                host.Warn(ex, "忽略不可读取的存档备份记录：" + id);
+            }
+        }
+        lock (summaryGate) foreach (string old in summaries.Keys.Where(path => string.Equals(Path.GetDirectoryName(path), folder, StringComparison.OrdinalIgnoreCase) && !present.Contains(path)).ToArray()) summaries.Remove(old);
+        return result.OrderByDescending(item => item["created"]!.ToObject<DateTime>()).ToList();
+    }
+
     // Public only so LF's existing private reflection/test entry points remain forwarding adapters.
     public JObject Metadata(string gameFolder, string id) {
         string folder = PointFolder(gameFolder, id);

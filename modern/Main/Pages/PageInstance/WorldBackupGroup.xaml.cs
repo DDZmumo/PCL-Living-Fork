@@ -92,6 +92,8 @@ namespace PCL
                 throw new ArgumentException("存档文件夹名称无效。", nameof(WorldFolderName));
             string GameFolder = Value.PathIndie;
             string Key = Path.GetFullPath(PathUtils.RemoveExtendedPrefix(GameFolder)).TrimEnd('\\', '/') + '\0' + WorldFolderName;
+            bool SameWorld = ReferenceEquals(Owner, Value) && string.Equals(StateKey, Key, StringComparison.OrdinalIgnoreCase);
+            List<JObject> PreviousEntries = Entries;
             var PreviousSelection = Selection.ToList();
             if (!string.Equals(StateKey, Key, StringComparison.OrdinalIgnoreCase))
                 Selection.Clear();
@@ -118,6 +120,8 @@ namespace PCL
             this.LabEmpty.Text = Available ? "暂无备份，可先备份此存档。" : "此存档当前没有可用备份。";
             this.LabEmpty.Visibility = Entries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             this.CardBackups.Title = "备份（" + Entries.Count + "）";
+            if (SameWorld && PreviousEntries.Count == Entries.Count && PreviousEntries.Zip(Entries, (Left, Right) => JToken.DeepEquals(Left, Right)).All(Same => Same))
+                return;
             Rendering = true;
             this.PanEntries.Children.Clear();
             Rendering = false;
@@ -234,7 +238,8 @@ namespace PCL
 
         private void ShowDetails(JObject Point)
         {
-            ModMain.MyMsgBox("世界：" + Point["label"].ToString() + Constants.vbCrLf + "文件夹：" + Identifier + Constants.vbCrLf + "备份时间：" + Point["created"].ToObject<DateTime>().ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + Constants.vbCrLf + "备份原因：" + Point["reason"].ToString() + Constants.vbCrLf + "存档大小：" + StringUtils.FormatByteSize(Point["bytes"].ToObject<long>()) + Constants.vbCrLf + "压缩大小：" + StringUtils.FormatByteSize(Point["archiveBytes"].ToObject<long>()) + Constants.vbCrLf + "文件数量：" + ((JObject)Point["files"]).Count + Constants.vbCrLf + Constants.vbCrLf + "恢复时会校验完整备份，并先自动保存当前世界。", "存档备份详情");
+            int FileCount = Point["fileCount"]?.ToObject<int>() ?? ((JObject)Point["files"]).Count;
+            ModMain.MyMsgBox("世界：" + Point["label"].ToString() + Constants.vbCrLf + "文件夹：" + Identifier + Constants.vbCrLf + "备份时间：" + Point["created"].ToObject<DateTime>().ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + Constants.vbCrLf + "备份原因：" + Point["reason"].ToString() + Constants.vbCrLf + "存档大小：" + StringUtils.FormatByteSize(Point["bytes"].ToObject<long>()) + Constants.vbCrLf + "压缩大小：" + StringUtils.FormatByteSize(Point["archiveBytes"].ToObject<long>()) + Constants.vbCrLf + "文件数量：" + FileCount + Constants.vbCrLf + Constants.vbCrLf + "恢复时会校验完整备份，并先自动保存当前世界。", "存档备份详情");
         }
 
         private void OpenBackup(string Id)

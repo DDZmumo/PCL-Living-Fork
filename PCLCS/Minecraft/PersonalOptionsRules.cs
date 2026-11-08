@@ -81,6 +81,12 @@ public static class PersonalOptionsRules {
     /// 保留原文本中的非同步字段及行结构；selected 按原顺序即时查询设置，不缓存类别开关。
     /// </summary>
     public static string MergeText(string text, JObject values, bool isModern, ISet<string> keys, Func<string, bool> selected, bool fovDegrees = true) {
+        return MergeTextCore(text, values, isModern, keys, selected, fovDegrees, false);
+    }
+    public static string MergeInitialText(string text, JObject values, bool isModern, ISet<string> keys, Func<string, bool> selected, bool fovDegrees) {
+        return MergeTextCore(text, values, isModern, keys, selected, fovDegrees, true);
+    }
+    private static string MergeTextCore(string text, JObject values, bool isModern, ISet<string> keys, Func<string, bool> selected, bool fovDegrees, bool initializing) {
         string newline = text.Contains("\r\n") ? "\r\n" : "\n";
         bool finalNewline = text.EndsWith("\n", StringComparison.Ordinal);
         List<string> lines = text.Replace("\r\n", "\n").Split('\n').ToList();
@@ -91,7 +97,7 @@ public static class PersonalOptionsRules {
             string key = CanonicalKey(pair.Name);
             if (!keys.Contains(key) || !selected(key)) continue;
             // 版本专用设置只有在目标已存在该键时才同步；不注入 Mod 或未知配置。
-            if (!present.ContainsKey(key) && !BasicKeys.Contains(key) && !new[] { "mouseSensitivity", "invertYMouse", "fov", "showSubtitles" }.Contains(key)) continue;
+            if (!present.ContainsKey(key) && !(initializing && PersonalOptionsCatalog.Contains(key)) && !BasicKeys.Contains(key) && !new[] { "mouseSensitivity", "invertYMouse", "fov", "showSubtitles" }.Contains(key)) continue;
             string raw = pair.Value.ToString();
             string? converted = raw.Length > 4096 || raw.IndexOfAny(['\0', '\n', '\r']) >= 0 ? null
                 : key.StartsWith("key_", StringComparison.Ordinal) ? BindingForVersion(raw, isModern) : ForVersion(key, raw, isModern);

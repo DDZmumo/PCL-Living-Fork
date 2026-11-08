@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using Newtonsoft.Json.Linq;
@@ -22,6 +23,55 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     private IResourcePageCard? OrphanBackupCard;
     private StackPanel? OrphanBackupPanel;
     private int BottomBarShownCount;
+    private int worldRefreshRevision;
+    private bool worldRefreshQueued;
+    private bool worldRefreshAgain;
+    private bool hasWorldSnapshot;
+    private CancellationTokenSource? worldRefresh;
+
+    private void CancelWorldRefresh() {
+        worldRefreshRevision++;
+        worldRefresh?.Cancel();
+        worldRefresh = null;
+        worldRefreshQueued = worldRefreshAgain = false;
+    }
+
+    public void RefreshChangedResources() {
+        if (Kind != 0 || IsRecycleMode || !hasWorldSnapshot || Owner is null || CurrentRoot is null || CurrentFolder is null) { Refresh(); return; }
+        if (!ReferenceEquals(Owner, Host.CurrentInstance()) || !SamePath(CurrentRoot, System.IO.Path.Combine(Host.GameFolder(Owner), "saves"))) { Refresh(); return; }
+        if (worldRefresh is not null) { worldRefreshAgain = true; return; }
+        if (worldRefreshQueued) return;
+        worldRefreshQueued = true;
+        int revision = worldRefreshRevision;
+        View.Root.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => {
+            if (revision != worldRefreshRevision) return;
+            worldRefreshQueued = false;
+            if (Busy || !View.Root.IsLoaded || IsRecycleMode || Owner is null) return;
+            TInstance target = Owner;
+            string root = CurrentRoot!, folder = CurrentFolder!, game = Host.GameFolder(target);
+            var request = new Request { Instance = target, Root = root, Folder = folder, GameFolder = game, RecycleMode = false, RecycleFolder = RecycleRoot! };
+            CancellationTokenSource source = new();
+            worldRefresh = source;
+            Host.Background(() => {
+                Result? result = null;
+                Exception? failure = null;
+                try { result = Read(request, source.Token, () => source.IsCancellationRequested); }
+                catch (Exception error) { failure = error; }
+                Host.Dispatch(() => {
+                    bool current = ReferenceEquals(worldRefresh, source);
+                    if (current) worldRefresh = null;
+                    bool canceled = source.IsCancellationRequested;
+                    source.Dispose();
+                    if (!current || canceled || revision != worldRefreshRevision || !View.Root.IsLoaded || IsRecycleMode ||
+                        !ReferenceEquals(Owner, target) || !ReferenceEquals(Host.CurrentInstance(), target) ||
+                        !SamePath(CurrentFolder, folder) || !SamePath(Host.GameFolder(target), game)) return;
+                    if (failure is not null) Host.Warn(failure, "增量更新存档列表失败");
+                    else Apply(result);
+                    if (worldRefreshAgain) { worldRefreshAgain = false; RefreshChangedResources(); }
+                });
+            }, "Refresh Changed Worlds");
+        }));
+    }
 
     private IEnumerable<IResourcePageRow<TEntry, TOnline>> VisibleResourceRows() {
         // Preserve visual order from the actual panel. Interface dictionaries are
@@ -88,7 +138,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
                 row = CreateResourceRow();
                 Rows.Add(entry.FullPath!, row);
             }
-            row.Bind(entry, null);
+            if (!ReferenceEquals(row.Entry, entry)) row.Bind(entry, null);
             row.Checked = SelectedPaths.Contains(entry.FullPath!);
             if (!WorldHosts.TryGetValue(entry.FullPath!, out StackPanel? panel)) {
                 panel = new StackPanel();

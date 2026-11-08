@@ -151,6 +151,7 @@ public sealed class ResourcePageHost<TInstance, TEntry, TOnline>
     public Action<TInstance, IEnumerable<string>?, string?> StartBackup = null!;
     public Action<ResourcePageController<TInstance, TEntry, TOnline>.Request> StartLoader = null!;
     public Action CancelLoader = null!;
+    public Action? ClearScanCache;
     public Func<bool> LoaderFailed = null!;
     public Action<bool, Action, KeyEventHandler> BindExternalEvents = null!;
 }

@@ -113,8 +113,7 @@ public sealed class PersonalOptionsFlow {
         string fileName = Path.Combine(folder, "options.txt");
         if (HasActiveSession(folder)) return null;
         byte[]? bytes = PersonalOptionsFiles.Read(fileName);
-        // 首次文件仍由游戏／默认配置 Mod 创建。
-        if (bytes is null) return null;
+        if (bytes is null && !_existingOnly) return null;
         lock (_gate) {
             JObject profile = _data.ReadJson(ProfileName);
             JObject? values = profile["values"] as JObject;
@@ -122,13 +121,35 @@ public sealed class PersonalOptionsFlow {
             HashSet<string> keys = new(values.Properties().Where(pair => _selected(pair.Name)).Select(pair => pair.Name), StringComparer.Ordinal);
             if (profile["conflicts"] is JObject pending) keys.RemoveWhere(key => pending[key] is not null);
             if (!instance.VersionValid) keys.RemoveWhere(key => key.StartsWith("key_", StringComparison.Ordinal));
-            string text = PersonalOptionsRules.Decode(bytes);
-            if (_existingOnly) {
+            string initialText = bytes is null ? "" : PersonalOptionsRules.Decode(bytes);
+            bool initializing = _existingOnly && PersonalOptionsFiles.IsLauncherInitialization(initialText);
+            if (initializing && (!instance.VersionValid || instance.VanillaMajor < 7)) return null;
+            string text = initialText;
+            if (initializing) {
+                keys.RemoveWhere(key => !PersonalOptionsCatalog.Contains(key) || (key == "key_key.fullscreen" && instance.VanillaMajor < 8));
+                if (keys.Count == 0) return null;
+                // Preserve modpack-provided defaults on the first launch.
+                byte[]? template = PersonalOptionsFiles.Read(Path.Combine(folder, "config", "yosbr", "options.txt"));
+                if (template is not null) {
+                    string defaults = PersonalOptionsRules.Decode(template);
+                    text = defaults + (defaults.EndsWith("\n", StringComparison.Ordinal) ? "" : "\n") + text;
+                }
+                JObject valid = new();
+                foreach (string key in keys.ToArray()) {
+                    try { valid[key] = PersonalOptionsCatalog.ValidateValue(key, values[key]!.ToString()); }
+                    catch (IOException) { keys.Remove(key); }
+                }
+                if (keys.Count == 0) return null;
+                values = valid;
+            } else if (_existingOnly) {
                 var present = PersonalOptionsRules.Parse(text);
                 keys.RemoveWhere(key => !present.ContainsKey(PersonalOptionsRules.CanonicalKey(key)));
             }
-            string merged = PersonalOptionsRules.MergeText(text, values, Modern(instance), keys, _selected, instance.VersionValid && instance.VanillaMajor >= 19);
-            PersonalOptionsFiles.ApplyMerged(fileName, bytes, text, merged, _invalidateCache);
+            string merged = initializing
+                ? PersonalOptionsRules.MergeInitialText(text, values, Modern(instance), keys, _selected, instance.VanillaMajor >= 19)
+                : PersonalOptionsRules.MergeText(text, values, Modern(instance), keys, _selected, instance.VersionValid && instance.VanillaMajor >= 19);
+            if (bytes is null) PersonalOptionsFiles.CreateInitial(fileName, merged, _invalidateCache);
+            else PersonalOptionsFiles.ApplyMerged(fileName, bytes, initialText, merged, _invalidateCache);
             JObject baseline = new();
             foreach (KeyValuePair<string, string> pair in PersonalOptionsRules.Parse(merged).Where(item => keys.Contains(item.Key))) {
                 string? value = CaptureValue(pair.Key, pair.Value);

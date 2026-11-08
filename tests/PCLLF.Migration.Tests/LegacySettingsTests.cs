@@ -28,7 +28,7 @@ internal static class LegacySettingsTests {
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
         Equal(214, fixture.Entries.Count);
-        Equal(true, fixture.Entries["UiLaunchMoreSettings"].DefaultValue);
+        Equal(false, fixture.Entries["UiLaunchMoreSettings"].DefaultValue);
         Equal(typeof(bool), fixture.Entries["UiLaunchMoreSettings"].Type);
         Equal("[]", fixture.Entries["LaunchPersonalOptionsExcluded"].DefaultValue);
         Equal(typeof(string), fixture.Entries["LaunchPersonalOptionsExcluded"].Type);

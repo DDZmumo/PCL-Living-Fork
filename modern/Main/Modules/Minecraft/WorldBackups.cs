@@ -112,6 +112,8 @@ namespace PCL
         {
             return Service.Points(GameFolder);
         }
+        internal static List<JObject> Summaries(string GameFolder) => Service.Summaries(GameFolder);
+        internal static void ClearSummaryCache() => Service.ClearSummaryCache();
         private static void ReadArchive(string Folder, JObject Point, CancellationToken Token, string Destination = null)
         {
             Service.ReadArchive(Folder, Point, Token, Destination);

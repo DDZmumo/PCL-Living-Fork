@@ -19,6 +19,10 @@ internal static class PersonalOptionsFlowTests {
         yield return ("personal option flow disabled and running gates short circuit", DisabledAndRunning);
         yield return ("personal option flow import works while sync is disabled", ImportDisabled);
         yield return ("personal option flow missing first-run file is not created", MissingOptions);
+        yield return ("basic sync initializes a missing options file on the first launch", FirstLaunchMissing);
+        yield return ("basic sync initializes the launcher's language-only options before first game load", FirstLaunchStub);
+        yield return ("first launch preserves YOSBR defaults and version-specific key/FOV encoding", FirstLaunchDefaults);
+        yield return ("first launch skips disabled invalid empty and conflicting selections without overwriting a new file", FirstLaunchGuards);
         yield return ("personal option flow profile checks retain object and empty semantics", ProfileChecks);
         yield return ("personal option flow prepares actual BOM file and derived session identity", PrepareFile);
         yield return ("personal option flow preserves lazy version and factory access order", VersionOrder);
@@ -170,6 +174,71 @@ internal static class PersonalOptionsFlowTests {
         fixture.Events.Clear();
         Throws<IOException>(() => fixture.Flow.ImportFrom(fixture.Instance), "该版本尚未生成 options.txt，请先启动一次游戏并保存设置。");
         Equal(false, Directory.Exists(fixture.GameFolder));
+    }
+    private static PersonalOptionsFlow BasicFlow(Fixture f) => new(f.Data,f.Gate,()=>f.Running,_=>f.Instance,
+        key=>f.Select?.Invoke(key) ?? Fixture.Selected(key),file=>f.Invalidate?.Invoke(file),(a,b)=>a==b,(_,_)=>{},()=>new DerivedSession(),existingOnly:true);
+    private static void FirstLaunchMissing() {
+        using Fixture f=new();
+        f.Select=_=>true;
+        f.Profile(JObject.Parse("{\"key_key.forward\":\"key.keyboard.r\",\"fov\":\"90\",\"bobView\":\"false\",\"soundCategory_master\":\"0.3\",\"renderDistance\":\"32\",\"key_mod.magic\":\"key.keyboard.h\"}"));
+        var session=BasicFlow(f).Prepare(f.Instance);
+        Equal(true,session is not null && File.Exists(f.OptionsPath));
+        var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
+        Equal("key.keyboard.r",values["key_key.forward"]); Equal("90",values["fov"]);
+        Equal("false",values["bobView"]); Equal("0.3",values["soundCategory_master"]);
+        Equal(false,values.ContainsKey("renderDistance") || values.ContainsKey("key_mod.magic"));
+        Equal("90",(string?)session!.Baseline!["fov"]);
+        Equal(false,File.Exists(f.OptionsPath+".pcl-backup")); NoStaging(f);
+    }
+    private static void FirstLaunchStub() {
+        using Fixture f=new();
+        byte[] before=f.Options("lang:zh_cn\r\nfullscreen:true\r\n");
+        f.Profile(JObject.Parse("{\"mouseSensitivity\":\"0.8\",\"fov\":\"90\",\"key_key.forward\":\"key.keyboard.r\"}"));
+        var session=BasicFlow(f).Prepare(f.Instance);
+        var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
+        Equal("0.8",values.GetValueOrDefault("mouseSensitivity")); Equal("90",values.GetValueOrDefault("fov"));
+        Equal("zh_cn",values["lang"]); Equal("true",values["fullscreen"]);
+        Equal(3,session!.Keys.Count); Bytes(before,File.ReadAllBytes(f.OptionsPath+".pcl-backup")); NoStaging(f);
+    }
+    private static void FirstLaunchDefaults() {
+        foreach(int major in new[] {7,12,13,18,19,21,26}) {
+            using Fixture f=new(); f.Instance.Major=()=>major;
+            string template=Path.Combine(f.GameFolder,"config","yosbr","options.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(template)!);
+            const string defaults="renderDistance:12\nauthorSetting:keep\nlang:en_us\n";
+            File.WriteAllText(template,defaults,new UTF8Encoding(false));
+            f.Select=_=>true;
+            f.Profile(JObject.Parse("{\"fov\":\"90\",\"key_key.forward\":\"key.keyboard.r\",\"key_key.fullscreen\":\"key.keyboard.f11\",\"soundCategory_master\":\"0.3\",\"bobView\":\"false\"}"));
+            var session=BasicFlow(f).Prepare(f.Instance);
+            var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
+            Equal(major>=13?"key.keyboard.r":"19",values["key_key.forward"]);
+            Equal(major>=19?"90":"0.5",values["fov"]);
+            Equal("0.3",values["soundCategory_master"]); Equal("false",values["bobView"]);
+            Equal("keep",values["authorSetting"]); Equal("12",values["renderDistance"]);
+            Equal(major>=8,values.ContainsKey("key_key.fullscreen"));
+            Equal(defaults,File.ReadAllText(template)); Equal("90",(string?)session!.Baseline!["fov"]); NoStaging(f);
+        }
+    }
+    private static void FirstLaunchGuards() {
+        foreach(string mode in new[] {"disabled","running","invalid-version","empty-selection","invalid-value","conflict","racing-writer","existing-partial"}) {
+            using Fixture f=new(); f.Profile(JObject.Parse("{\"fov\":\"90\"}"));
+            if(mode=="disabled")f.Instance.EnabledValue=false;
+            if(mode=="running")f.Running=true;
+            if(mode=="invalid-version")f.Instance.ValidValue=false;
+            if(mode=="empty-selection")f.Select=_=>false;
+            if(mode=="invalid-value")f.Profile(JObject.Parse("{\"fov\":\"invalid\"}"));
+            if(mode=="conflict")f.Raw(ProfileName,JObject.Parse("{\"values\":{\"fov\":\"90\"},\"conflicts\":{\"fov\":{\"profile\":\"90\",\"game\":\"100\"}}}"));
+            if(mode=="existing-partial")f.Options("renderDistance:16\n");
+            if(mode=="racing-writer")f.OnPath=name=> { if(name==ProfileName) { f.Options("fov:75\n"); f.OnPath=null; } };
+            if(mode=="racing-writer") {
+                Throws<IOException>(()=>BasicFlow(f).Prepare(f.Instance)); Equal("fov:75\n",File.ReadAllText(f.OptionsPath));
+            } else {
+                var session=BasicFlow(f).Prepare(f.Instance);
+                if(mode=="existing-partial") { Equal("renderDistance:16\n",File.ReadAllText(f.OptionsPath)); Equal(0,session!.Keys.Count); }
+                else { Equal<PersonalOptionsSessionData?>(null,session); Equal(false,File.Exists(f.OptionsPath)); }
+            }
+            NoStaging(f);
+        }
     }
 
     private static void ProfileChecks() {

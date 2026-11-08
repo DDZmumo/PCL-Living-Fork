@@ -154,6 +154,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
         StackPanel labels = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
         labels.Children.Add(new TextBlock { Text = entry.Name, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis });
         string? detail = SameText(entry.Owners, "Minecraft") ? "" : entry.Owners;
+        if (!entry.Saved) detail = SameText(detail, "") ? "原版默认值 · 此项尚未保存" : detail + " · 原版默认值 · 此项尚未保存";
         if (entry.Key is not null && personalAnnotations.TryGetValue(PersonalOptionsRules.CanonicalKey(entry.Key), out string? personal)) detail = SameText(detail, "") ? personal : detail + " · " + personal;
         if (!SameText(detail, "")) {
             TextBlock description = new() { Text = detail, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };

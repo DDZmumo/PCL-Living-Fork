@@ -120,7 +120,7 @@ public partial class PageSetupPersonal : MyPageRight {
                 : Target is null ? IsInstanceContext ? "请先打开一个版本的设置。" : "请先在主界面选择一个游戏版本。"
                 : ComboPolicy.SelectedIndex == 1 ? "此版本已单独关闭同步，其他版本不受影响。"
                 : !CurrentPreview.HasProfile ? "尚未建立个人方案，请先从一个已运行过的版本导入。"
-                : !CurrentPreview.HasFile ? "此版本尚未生成游戏设置。先运行一次并正常退出，下一次启动时应用。"
+                : !CurrentPreview.HasFile ? "此版本尚未生成游戏设置。首次启动前将写入所选基础设置，其余默认项目由游戏生成。"
                 : selected == 0 ? "尚未选择同步项目。请勾选类别和具体项目。"
                 : saved == 0 ? "所选项目没有已保存的值，请从来源版本重新导入。"
                 : applicable == 0 ? "此版本未提供所选的基础项目，暂不应用。"

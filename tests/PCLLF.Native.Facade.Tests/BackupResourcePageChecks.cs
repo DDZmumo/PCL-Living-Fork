@@ -1,9 +1,12 @@
 using System.Collections;
+using Expression = System.Linq.Expressions.Expression;
+using Application = System.Windows.Application;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Newtonsoft.Json.Linq;
 using PCL;
+using PCLCS;
 using static PCLLF.Native.Facade.Tests.BackupResourceChecks;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -61,6 +64,56 @@ internal static class BackupResourcePageChecks
         panel.Children.Add(page); panel.Measure(new Size(780, 760)); panel.Arrange(new Rect(0, 0, 780, 760)); panel.UpdateLayout();
         Native.Check(worlds.Children.Count == 3, "Actual integrated saves/backup controls failed layout.");
         panel.Children.Clear();
+        CheckChangedResources(page, controller, owner, saves, points);
         Console.WriteLine("PASS backup-resources page: every original save/backup integration assertion, shared actions, selection exclusivity, orphan search, native headers/settings and legacy navigation.");
+    }
+
+    private static void CheckChangedResources(FrameworkElement page, object controller, ModMinecraft.McInstance owner, string saves, List<JObject> points)
+    {
+        object host = Native.Get(controller, "Host")!, view = Native.Get(controller, "View")!;
+        int scans = 0, fullLoads = 0;
+        Delegate scan = (Delegate)Native.Get(host, "Scan")!;
+        IList entries = (IList)scan.DynamicInvoke(saves, saves, 0, CancellationToken.None)!;
+        Native.Call(page.GetType(), "ShowResources", page, saves, saves, entries);
+        Native.Set(host, "CurrentInstance", new Func<ModMinecraft.McInstance>(() => owner));
+        Native.Set(host, "BackupPoints", new Func<string, List<JObject>>(_ => points.Select(point => (JObject)point.DeepClone()).ToList()));
+        Native.Set(host, "Background", new Action<Action, string>((work, _) => work()));
+        Native.Set(host, "Dispatch", new Action<Action>(work => work()));
+        Native.Set(host, "Warn", new Action<Exception, string>((error, message) => throw new InvalidOperationException(message, error)));
+        // Keep the real cached scan and controller; count whether the full overlay loader is invoked.
+        var scanField = Native.Field(host.GetType(), "Scan");
+        var args = scanField.FieldType.GetMethod("Invoke")!.GetParameters().Select(parameter => Expression.Parameter(parameter.ParameterType)).ToArray();
+        Native.Set(host, "Scan", Expression.Lambda(scanField.FieldType, Expression.Block(Expression.Invoke(Expression.Constant(new Action(() => scans++))), Expression.Invoke(Expression.Constant(scan), args)), args).Compile());
+        var startField = Native.Field(host.GetType(), "StartLoader");
+        var request = Expression.Parameter(startField.FieldType.GenericTypeArguments[0]);
+        Native.Set(host, "StartLoader", Expression.Lambda(startField.FieldType, Expression.Invoke(Expression.Constant(new Action(() => fullLoads++))), request).Compile());
+        StackPanel worlds = Part<StackPanel>(page, "PanWorlds");
+        MyLocalModItem RowB() => worlds.Children.OfType<StackPanel>().SelectMany(panel => panel.Children.OfType<MyLocalModItem>()).Single(row => ((InstanceResourceEntryData)Native.Get(row, "ResourceEntry")!).Name == "Folder B");
+        MyLocalModItem unchanged = RowB(); unchanged.Checked = true;
+        object originalEntry = Native.Get(unchanged, "ResourceEntry")!;
+        Border root = new();
+        Window previous = Application.Current.MainWindow;
+        Window window = new() { Content = root, Width = 80, Height = 80, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        Native.Set(view, "Root", root); // Load only the lifecycle sentinel; real page/account workflows stay detached.
+        try {
+            window.Show(); VisualAssetChecks.Pump(() => root.IsLoaded, "World refresh lifecycle sentinel failed to load.");
+            for (int i = 0; i < 3; i++) Native.Call(controller.GetType(), "RefreshChangedResources", controller);
+            VisualAssetChecks.Pump(() => scans == 1, "Coalesced world refresh did not complete.");
+            Native.Check(fullLoads == 0 && ReferenceEquals(unchanged, RowB()) && ReferenceEquals(originalEntry, Native.Get(RowB(), "ResourceEntry")) && RowB().Checked,
+                "Unchanged world refresh reloaded the overlay, metadata, native row or selection.");
+            Directory.Move(Path.Combine(saves, "Folder A"), Path.Combine(Path.GetDirectoryName(saves)!, "recycled-A"));
+            points.RemoveAll(point => (string?)point["world"] == "Folder A");
+            Native.Call(controller.GetType(), "RefreshChangedResources", controller);
+            VisualAssetChecks.Pump(() => scans == 2, "World deletion did not refresh the listing.");
+            Native.Check(fullLoads == 0 && ((IEnumerable)Native.Get(controller, "Entries")!).Cast<InstanceResourceEntryData>().Count() == 1 && ReferenceEquals(unchanged, RowB()) && RowB().Checked,
+                "Deleting a world reloaded unrelated rows or left a deleted world in the listing.");
+            Native.Call(controller.GetType(), "RefreshChangedResources", controller);
+            Native.Call(controller.GetType(), "PageUnloaded", controller);
+            VisualAssetChecks.Pump(() => !(bool)Native.Get(controller, "worldRefreshQueued")!, "Unloading failed to cancel a queued refresh.");
+            Native.Check(scans == 2, "A queued world refresh ran after the page was unloaded.");
+        } finally {
+            window.Close(); window.Content = null; Application.Current.MainWindow = previous;
+            Native.Set(view, "Root", page);
+        }
     }
 }

@@ -14,6 +14,28 @@ namespace PCLCS;
 /// options.txt 的原始读取与合并写回。调用者管理同步锁、规则选择及会话生命周期。
 /// </summary>
 public static class PersonalOptionsFiles {
+    public static bool IsLauncherInitialization(string text) {
+        string[] lines = text.Replace("\r\n", "\n").Split('\n');
+        foreach (string line in lines) {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            int separator = line.IndexOf(':');
+            if (separator <= 0 || line.Substring(0, separator) is not ("lang" or "fullscreen")) return false;
+        }
+        return true;
+    }
+    public static void CreateInitial(string fileName, string text, Action<string> invalidateCache) {
+        Directory.CreateDirectory(Path.GetDirectoryName(fileName)!);
+        string temporary = fileName + ".pcl-write-" + Guid.NewGuid().ToString("N");
+        try {
+            byte[] bytes = new UTF8Encoding(false).GetBytes(text);
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                output.Write(bytes, 0, bytes.Length); output.Flush(true);
+            }
+            // A file created by another writer wins; never replace it during initialization.
+            File.Move(temporary, fileName);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        invalidateCache(fileName);
+    }
     public static byte[]? Read(string fileName) {
         if (!File.Exists(fileName)) return null;
         if (new FileInfo(fileName).Length > 4 * 1024 * 1024 || (File.GetAttributes(fileName) & FileAttributes.ReparsePoint) != 0)
