@@ -431,7 +431,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: native-main-${{ matrix.configuration }}
+          name: native-main-${{ matrix.configuration }}-${{ github.run_attempt }}
           path: |
             artifacts/native-main/${{ matrix.configuration }}/
             !artifacts/native-main/${{ matrix.configuration }}/interaction/**/Install with spaces/*.exe
@@ -478,7 +478,7 @@ jobs:
           [ordered]@{
             commit = $env:GITHUB_SHA
             currentRun = $env:GITHUB_RUN_ID
-            nativeArtifact = 'native-main-Release'
+            nativeArtifact = 'native-main-Release-' + $env:GITHUB_RUN_ATTEMPT
             nativeArtifactRun = $env:GITHUB_RUN_ID
             legacyRepository = 'DDZmumo/PCL-Living-Fork'
             legacyRun = '41894581233'
@@ -495,7 +495,7 @@ jobs:
       - name: Download the Release matrix artifact from this exact run regardless of independent data results
         uses: actions/download-artifact@v4
         with:
-          name: native-main-Release
+          name: native-main-Release-${{ github.run_attempt }}
           run-id: ${{ github.run_id }}
           github-token: ${{ github.token }}
           path: inputs/native-upgrade/current-release

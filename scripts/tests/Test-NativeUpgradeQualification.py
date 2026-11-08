@@ -141,10 +141,16 @@ def main():
         # Static GitHub dependency/condition contract, not an Actions runner simulation.
         condition=w['jobs']['native-upgrade']['if'];assert "!cancelled()" in condition and "needs.native.result == 'failure'" in condition and "needs.native.result == 'success'" in condition
         assert 'continue-on-error' not in w['jobs']['native'] and not any(s.get('continue-on-error') for s in w['jobs']['native']['steps'])
-        upload=next(s for s in w['jobs']['native']['steps'] if s.get('with',{}).get('name')=='native-main-${{ matrix.configuration }}');assert upload['if'] in ('${{ always() }}', 'always()')
+        upload=next(s for s in w['jobs']['native']['steps'] if s.get('with',{}).get('name')=='native-main-${{ matrix.configuration }}-${{ github.run_attempt }}');assert upload['if'] in ('${{ always() }}', 'always()')
         qualification=next(s for s in w['jobs']['native']['steps'] if s.get('id')=='upgrade_qualification');assert all('steps.'+n+".outcome == 'success'" in qualification['if'] for n in q['requiredSteps'])
         assert w['jobs']['native']['steps'].index(qualification)<next(i for i,s in enumerate(w['jobs']['native']['steps']) if s['name'].startswith('Verify real Registry'))
         consumerIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s.get('id')=='upgrade_inputs');legacyIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s['name']=='Download and verify the fixed original legacy product artifact');assert consumerIndex<legacyIndex
+        producer_name=upload['with']['name'].replace('${{ matrix.configuration }}','Release')
+        consumer_name=next(s for s in w['jobs']['native-upgrade']['steps'] if s.get('uses','').startswith('actions/download-artifact@'))['with']['name']
+        assert producer_name==consumer_name
+        first=producer_name.replace('${{ github.run_attempt }}','1');second=producer_name.replace('${{ github.run_attempt }}','2')
+        assert first!=second and first=='native-main-Release-1' and second=='native-main-Release-2'
+        print('PASS current-attempt artifact names prevent stale same-run rerun downloads')
         print('PASS workflow status, seven actual gates, always upload and fail-closed-before-old-download order')
         summary={'scope':'Actual workflow producer/consumer blocks and explicitly NON-EXECUTABLE offline fixtures only; no Windows product/bridge acceptance claimed','cases':cases,'counts':{'qualified':sum(c['expected']=='qualified' for c in cases),'rejected':sum(c['expected']!='qualified' for c in cases)}}
         summary['pending']=pending
@@ -153,7 +159,7 @@ def main():
         upgrade=w['jobs']['native-upgrade']['steps']
         assert not w['jobs']['native-upgrade'].get('continue-on-error') and not upgrade[consumerIndex].get('continue-on-error')
         download=next(step for step in upgrade if step.get('uses','').startswith('actions/download-artifact@'))
-        assert download['with']['name']=='native-main-Release' and download['with']['run-id']=='${{ github.run_id }}'
+        assert download['with']['name']=='native-main-Release-${{ github.run_attempt }}' and download['with']['run-id']=='${{ github.run_id }}'
         legacy=upgrade[legacyIndex]
         entry=next(step for step in upgrade if step['name']=='Require genuine old bridge and actual Native entry protocol cases')
         assert consumerIndex<legacyIndex<upgrade.index(entry) and not legacy.get('if') and not entry.get('if')
