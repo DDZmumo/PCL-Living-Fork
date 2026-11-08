@@ -13,14 +13,16 @@
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
-[下载 1.4.2-pre-1 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
+[下载 1.4.1 稳定版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
-[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
+[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
 [加入 QQ 群](https://qm.qq.com/q/MX1RivlHeE)
 
 </div>
+
+当前预发布目标为 **1.4.2-pre-1**；Release 尚未发布，以上下载入口仍指向现有稳定版。
 
 ---
 
@@ -53,6 +55,8 @@
 
 ### 游玩体验与个性化
 - **继续上次的世界**：主页卡片与存档管理页可直接通过 Quick Play 进入上次游玩的 Java 版存档（主页卡片可在“个性化 → 主页”中关闭）。
+- **主页更多设置**：默认收起模组依赖与最近存档面板，勾选后通过 PCL 动画滑出。面板内的依赖检查和自动补全默认开启，收起面板不会停用它们。
+- **工具百宝箱**：提供今日人品、内存优化、游戏垃圾清理与自定义文件下载。今日人品按本地日期和设备标识固定计算，重复点击不重新抽取；保留低分、零分和系统时间变化提示，未移植原版隐藏主题解锁。
 - **个人游戏习惯**：全局页记录导入来源，左右对照当前版本与共用基础设置，编辑后点击保存，来源标记为自定义；版本页跟随全局时锁定编辑，选择不同步后可单独编辑并保存本版本设置。按键、开关、拖动条复用 PCL 原生控件；新版本首次启动前即可写入勾选的基础设置并保留整合包默认配置，已有完整配置只修改对应项目。支持备份、冲突处理，按键管理也会标注基础键位的全局设置 ( ´ ▽ ｀ )ﾉ
 - **浅色 / 深色外观与昼夜背景**：可在“设置 → 个性化”中即时切换浅色与深色主题，内置蓝白水晶角色背景会随主题自动切换白天与夜晚姿态；窗口、面板和背景图片的不透明度各自独立调节，不淡化文字与图标。自定义主题色等解锁功能请[赞助原作者龙腾猫跃](https://meloong.com/afd/a/LTCat)获取官方快照版 ♪(^∇^*)
 

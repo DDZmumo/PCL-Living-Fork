@@ -8,6 +8,10 @@
 
 继承的 PCL 主程序、混合来源文件、原控件和迁移适配不整体改为 MPL。MeloongCore WPF、CE、Microsoft/CoreCLR 等实际外源实现保留原协议。图片、头像、商标、Minecraft 资源、字体和第三方图形不因代码的 MPL 标记而取得新授权。
 
+当前 MPL 清单含 177 个原创源码／维护脚本文件，包含 LF 新增的工具箱切换流程。`PCLCS/Toolbox/LegacyDailyLuck.cs` 的算法及结果文案来自对维护者提供的 PCL 2.99 程序的静态分析，保留原 PCL 许可并排除在该清单之外；具体二进制身份及未移植的主题解锁行为见 [来源记录](../modern/Main/SOURCE_PROVENANCE.md)。
+
+PCL Symbio Edition 仅在用户触发工具箱操作后从其官方 Release 另行下载，不随 LF 的 EXE／ZIP 分发；外部程序不因下载入口或启动流程而变为 LF 原创代码。用于分析的 PCL 2.99 程序及提取依赖同样只保留在忽略目录，不进入发行包。
+
 ## 已核实的组件与补充
 
 完整、机器可读的对应关系见 [manifest.json](../licenses/manifest.json)；完整许可文本见 [texts](../licenses/texts)。[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) 为面向分发的索引，并在关于页提供离线许可全文。

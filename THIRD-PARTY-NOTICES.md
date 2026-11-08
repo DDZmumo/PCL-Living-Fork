@@ -12,7 +12,7 @@ PCL、第三方代码、字体图标与其他资产保留各自许可；整个�
 
 | 组件 | 版本／范围 | 适用许可 |
 | --- | --- | --- |
-| [PCL](https://github.com/Meloong-Git/PCL/tree/5ef81e490ae46b1100d61e33d0183094c7a80ca8) | inherited source/assets | LicenseRef-PCL；[LICENCE](LICENCE) |
+| [PCL](https://github.com/Meloong-Git/PCL/tree/5ef81e490ae46b1100d61e33d0183094c7a80ca8) | inherited source/assets; PCL 2.99 daily-luck reconstruction (see modern/Main/SOURCE_PROVENANCE.md) | LicenseRef-PCL；[LICENCE](LICENCE) |
 | [PCL-CE](https://github.com/PCL-Community/PCL-CE/tree/1a7653127d578efdb2a9388999a3fdc67d9e49d5) | reference/selectively adapted source; license depends on path | Apache-2.0 AND LicenseRef-PCL-CE-Application；[PCL-CE-Apache-2.0.txt](licenses/texts/PCL-CE-Apache-2.0.txt)、[PCL-CE-Application-LICENCE.txt](licenses/texts/PCL-CE-Application-LICENCE.txt) |
 | [MeloongCore](https://github.com/Meloong-Git/MeloongCore/tree/c774ae4c85fd94e0eaa171db21e78a65870df19b) | c774ae4c85fd94e0eaa171db21e78a65870df19b | Apache-2.0；[MeloongCore-Apache-2.0.txt](licenses/texts/MeloongCore-Apache-2.0.txt) |
 | [Markdig](https://github.com/xoofx/markdig/tree/8b4ffd59be3c5d7e80b5c097ec384e7c583ceb0f) | 1.6.0 | BSD-2-Clause；[Markdig-BSD-2-Clause.txt](licenses/texts/Markdig-BSD-2-Clause.txt) |
