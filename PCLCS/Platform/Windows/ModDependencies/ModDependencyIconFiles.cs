@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -8,9 +13,9 @@ using System.Windows.Media.Imaging;
 namespace PCLCS;
 
 // LF Controls/ModDependencyIcon.vb at f4aa0fae62c3ee8af24c81e61844c8fdd13c8983,
-// unchanged through the C016 starting tree; LF LICENCE. PCL 5ef81e4 has no equivalent.
+// unchanged through the C016 starting tree; MPL-2.0 for PCLLF-original code. PCL 5ef81e4 has no equivalent.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 MyLocalModItem.xaml.cs was reviewed
-// for C#/WPF image construction only (CE Plain Craft Launcher 2/LICENCE; LF LICENCE); no CE cache policy is used.
+// for C#/WPF image construction only (CE Plain Craft Launcher 2/LICENCE; MPL-2.0 for PCLLF-original code); no CE cache policy is used.
 public static class ModDependencyIconFiles {
     // Read-only archive access; eager decoding owns the pixels before both streams close.
     // The original has no shared icon cache: graph-level caching remains in its own controller.

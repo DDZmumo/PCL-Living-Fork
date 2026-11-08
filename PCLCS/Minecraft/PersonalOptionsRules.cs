@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -87,7 +92,9 @@ public static class PersonalOptionsRules {
             if (!keys.Contains(key) || !selected(key)) continue;
             // 版本专用设置只有在目标已存在该键时才同步；不注入 Mod 或未知配置。
             if (!present.ContainsKey(key) && !BasicKeys.Contains(key) && !new[] { "mouseSensitivity", "invertYMouse", "fov", "showSubtitles" }.Contains(key)) continue;
-            string? converted = ForVersion(key, pair.Value.ToString(), isModern);
+            string raw = pair.Value.ToString();
+            string? converted = raw.Length > 4096 || raw.IndexOfAny(['\0', '\n', '\r']) >= 0 ? null
+                : key.StartsWith("key_", StringComparison.Ordinal) ? BindingForVersion(raw, isModern) : ForVersion(key, raw, isModern);
             if (key == "fov" && converted is not null) {
                 bool usesDegrees = fovDegrees;
                 if (present.TryGetValue(key, out string? existing) && TryLegacyExistingFov(existing, out double numeric)) usesDegrees = Math.Abs(numeric) > 1;

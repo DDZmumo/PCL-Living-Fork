@@ -28,6 +28,9 @@ namespace PCL
             using var license = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/LivingPCL;component/Licenses/Markdig.txt")).Stream;
             using var reader = new System.IO.StreamReader(license);
             LabMarkdigLicense.Text = reader.ReadToEnd();
+            using var notices = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/LivingPCL;component/Licenses/ThirdParty.txt")).Stream;
+            using var noticesReader = new System.IO.StreamReader(notices);
+            LabThirdPartyLicenses.Text = noticesReader.ReadToEnd();
         }
 
         private void PageOtherAbout_Loaded(object sender, RoutedEventArgs e)

@@ -23,7 +23,8 @@ internal static class LocalFeatureOptionsChecks
         foreach (string name in new[] { "Id", "VersionPath", "GameFolder", "Baseline", "Keys", "Tracked" }) L(44, session!.GetType().GetField(name, Native.Flags) is not null, name);
         L(45, (string)Native.Get(session!, "VersionPath")! == target.PathVersion && (string)Native.Get(session!, "GameFolder")! == target.PathIndie && !(bool)Native.Get(session!, "Tracked")!);
         string merged = File.ReadAllText(targetFile);
-        L(47, merged.Contains("mouseSensitivity:0.8", StringComparison.Ordinal) && merged.Contains("key_key.forward:key.keyboard.r", StringComparison.Ordinal) && merged.Contains("showSubtitles:true", StringComparison.Ordinal));
+        // The user-requested basic-only scope supersedes the historical subtitle-copy expectation.
+        L(47, merged.Contains("mouseSensitivity:0.8", StringComparison.Ordinal) && merged.Contains("key_key.forward:key.keyboard.r", StringComparison.Ordinal) && merged.Contains("showSubtitles:false", StringComparison.Ordinal), "Basic-only policy must preserve version-specific subtitle settings.");
         foreach (string line in new[] { "renderDistance:32", "resourcePacks:[\"author-target.zip\"]", "key_mod.magic:key.keyboard.v" }) L(48, merged.Contains(line, StringComparison.Ordinal), line);
         L(49, merged.EndsWith("\r\n", StringComparison.Ordinal) && File.ReadAllText(targetFile + ".pcl-backup") == original);
         Put(targetFile, merged.Replace("mouseSensitivity:0.8", "mouseSensitivity:0.6").Replace("renderDistance:32", "renderDistance:20"));
@@ -76,7 +77,7 @@ internal static class LocalFeatureOptionsChecks
         L(129, recent.Count == 1 && (string)Native.Get(recent[0]!, "VersionPath")! == target.PathVersion && (string)Native.Get(recent[0]!, "Identifier")! == "World with spaces");
         L(130, File.ReadAllText(Path.Combine(world, "region", "keep.txt")) == "world-data-preserve"); File.Delete(Path.Combine(world, "level.dat")); L(132, ((IList)Quick("Recent")!).Count == 0);
         BindingFiles(target, targetFile);
-        Console.WriteLine("PASS local-features personal/QuickPlay: original options/session/file/argument/mod binding assertions and independent CLR4 FOV/path comparisons.");
+        Console.WriteLine("PASS local-features personal/QuickPlay: basic-only options policy plus session/file/argument/mod binding assertions and independent CLR4 FOV/path comparisons.");
     }
     private static void BindingFiles(ModMinecraft.McInstance target, string file)
     {

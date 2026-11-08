@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Windows;
 using System.Windows.Controls;
@@ -6,7 +11,7 @@ using System.Windows.Media;
 
 namespace PCLCS;
 
-// LF-only ModpackUpdateViews.vb, LF LICENCE. No PCL/CE equivalent update-dialog
+// LF-only ModpackUpdateViews.vb, MPL-2.0 for PCLLF-original code. No PCL/CE equivalent update-dialog
 // transaction UI is adopted. Real LF MyButton/MyScrollViewer identity comes from the typed host.
 public sealed class ModpackDialogHost<TButton, TScroll> where TButton : FrameworkElement where TScroll : ScrollViewer {
     public Func<string> AnimationName = null!;

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -13,7 +18,7 @@ using Newtonsoft.Json.Linq;
 using Microsoft.VisualBasic.CompilerServices;
 using static PCLCS.ModDependencyVersions;
 namespace PCLCS;
-// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (LF LICENCE).
+// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (MPL-2.0 for PCLLF-original code).
 // PCL/CE fixed-source provenance remains in Contracts; no CE policy imported.
 #nullable enable
 /// <summary>Only the original live instance reads cross this boundary; local declarations stay in the inspector.</summary>
@@ -167,6 +172,7 @@ public static global::System.String FilePathKey(global::System.String fullPath)
         {
             var Paths = new global::System.Collections.Generic.HashSet<global::System.String>(Requirement.EnabledPaths.Concat(Requirement.MatchedPaths).Concat(Requirement.ProjectPaths).Select(FilePathKey), global::System.StringComparer.OrdinalIgnoreCase);
             var Ids = new global::System.Collections.Generic.HashSet<global::System.String>(Report.Mods.Where(Item => ((!(Item.IsMetadataOnly)) && (Paths.Contains(FilePathKey(Item.RootPath))))).SelectMany(Item => Identities(Item).Keys), global::System.StringComparer.Ordinal);
+            Ids.UnionWith(Requirement.VerifiedLoaderIds);
             if (((Ids.Count) == (0)))
                 return new global::System.Collections.Generic.List<TMod>();
             return Report.Edges.Where(Edge => (((((((((Edge.Owner.Enabled) && (SameFilePath(Edge.Owner.RootPath, OwnerPath))) && (Edge.Evaluated)) && (!(Edge.ConditionBypassed))) && (Edge.StateValue == ModDependencyMatchState.Satisfied)) && ((Edge.Requirement.Children.Count) == (0))) && (Edge.Requirement.KindValue != ModDependencyKind.Conflict)) && (Edge.Requirement.KindValue != ModDependencyKind.Incompatible)) && (Ids.Contains(Edge.Requirement.Id)))).SelectMany(Edge => Edge.Providers).Where(Item => (((((Item.Enabled) && (!(Item.IsBuiltin))) && (!(Item.IsMetadataOnly))) && (!(Item.IsCandidate))) && (!(Item.IncompatibleLoader)))).Distinct().ToList();

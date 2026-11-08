@@ -18,7 +18,7 @@ internal static class Program
         ["world-details"] = WorldChecks.Run,
         ["registry-names"] = RegistryChecks.Run,
         ["registry-data"] = RegistryDataChecks.Run,
-        ["theme"] = environment => { ThemeColdSettingsChecks.Run(environment); ThemeScenarios.Run(Application.Current, Path.Combine(AppContext.BaseDirectory, "assets")); },
+        ["theme"] = environment => { ThemeColdSettingsChecks.Run(environment); TooltipThemeChecks.Run(environment); ThemeScenarios.Run(Application.Current, Path.Combine(AppContext.BaseDirectory, "assets")); },
         ["file-tasks"] = FileTaskScenarios.Run,
         ["mod-dependencies"] = NativeDependencyChecks.Local,
         ["mod-dependency-online"] = NativeDependencyChecks.Online,

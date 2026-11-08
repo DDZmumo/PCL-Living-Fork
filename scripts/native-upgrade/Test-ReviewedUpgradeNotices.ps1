@@ -47,8 +47,9 @@ function Message-Log([string]$Title,[string]$Body,[string]$Kind='普通'){
 $legacyHighlights='- 主产品迁移至 C#/.NET 10，精简版需 .NET 10 Desktop Runtime'+$nl+'- 更新页新增版本搜索、当前版本标记与 Markdown 说明'+$nl+'- 修复图片、中文搜索、资源详情异常及删除版本卡顿'
 $previousHighlights='- 汇总四个预发布版本，包含依赖、主题、登录隔离与本次实机修复'+$nl+'- C#/.NET 10 与 Windows x64；运行前需 .NET 10 Desktop Runtime'+$nl+'- 完善依赖索引、内嵌前置识别与补全、深浅色主题和面板不透明度'+$nl+'- 原生更新页支持版本搜索、通道选择与 Markdown 更新说明'+$nl+'- 备份、克隆、恢复显示实际进度；存档与资源支持正倒序'+$nl+'- 微软登录缓存使用 _LF 隔离；修复图标、中文搜索与删除卡顿'+$nl+'- 整包更新保护个人修改和世界数据，修复配置误关联与冲突预览'
 $currentHighlights='- 全局项目收藏：下载、版本资源管理与收藏页同步，跨文件和版本去重'+$nl+'- 整合包更新独立侧栏，预览中处理缺失前置与不兼容模组'+$nl+'- 更新任务分项显示原生进度，增加文件读取和写入速度'+$nl+'- 顶栏快捷切换深浅色，圆角侧栏、渐变光圈与夜间星光'+$nl+'- 更新公告可选择下次更新前不再弹出，暂缓更新后可从顶栏重开'+$nl+'- 改善部分 Windows 10 启动兼容性，更新 README 与项目日历'+$nl+'- 精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
-foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1')){
- $highlights=if($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
+$newHighlights='- PCLLF 原创独立代码采用 MPL-2.0，关于页可离线查看许可与来源'+$nl+'- 个人基础设置同步独立侧栏，全局和版本设置均支持编辑后保存'+$nl+'- 修复跨平台前置误报和模组更新漏报，保留本地依赖版本范围检查'+$nl+'- 首页更多设置可统一收起面板，展开沿用 PCL 回弹动画'+$nl+'- 修复深色主题提示框，完善原生开关、键位和拖动条对照'+$nl+'- 预发布精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
+foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1')){
+ $highlights=if($version -cin @('dev_edition','1.4.2-pre-1')){$newHighlights}elseif($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
  $script:nativeProof=[pscustomobject]@{versionBaseName=$version;displayName='PCL Living Fork';buildType=50;startupNoticeStyle='plain';startupNoticeSource='local';startupNoticeTitle=('PCL Living Fork '+$version+' 版本说明')}
  $script:newNotice='PCL Living Fork '+$version+' 版本说明'
  if((& $titleExpression $nativeProof) -cne $newNotice){throw 'Actual native title assignment ignored plain metadata.'};$count++
@@ -92,6 +93,7 @@ foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1')){
 }
 foreach($route in @(
  @{Version='dev_edition';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
+ @{Version='1.4.2-pre-1';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
  @{Version='1.4.0';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
  @{Version='1.4.0';Style='markdown';Source='published-or-local';Local='暂未读取到当前版本的完整发布说明，以下为本地简述。'},
  @{Version='1.4.1';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},

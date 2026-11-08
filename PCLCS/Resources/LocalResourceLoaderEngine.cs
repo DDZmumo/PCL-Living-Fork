@@ -115,12 +115,12 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         bool failed = false;
         Thread currentTaskThread = Thread.CurrentThread;
         host.StartThread(() => {
-            try { LoadModrinth(mods, vanillaVersion, task, currentTaskThread); }
+            try { LoadModrinth(mods, vanillaVersion, loaders, task, currentTaskThread); }
             catch (Exception ex) { host.Warn(ex, "从 Modrinth 获取本地 Mod 信息失败"); failed = true; }
             finally { endedThreadCount += 1; }
         }, "Mod List Detail Loader Modrinth");
         host.StartThread(() => {
-            try { LoadCurseForge(mods, vanillaVersion, task, currentTaskThread); }
+            try { LoadCurseForge(mods, vanillaVersion, loaders, task, currentTaskThread); }
             catch (Exception ex) { host.Warn(ex, "从 CurseForge 获取本地 Mod 信息失败"); failed = true; }
             finally { endedThreadCount += 1; }
         }, "Mod List Detail Loader CurseForge");
@@ -137,5 +137,10 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         FileUtils.Write(host.TempPath() + @"Cache\LocalMod.json", cache.ToString(host.DebugMode() ? Formatting.Indented : Formatting.None));
         if (task.IsCanceled()) return;
         if (host.IsUpdateFilter()) host.RefreshUi(); else host.RefreshBars();
+    }
+    private static ModLoaders UpdateLoaders(ModLoaders target,ModLoaders installed) => target==ModLoaders.None ? installed : target & ModLoaders.All;
+    private static bool SupportsUpdateLoader(ModLoaders candidate,ModLoaders target,ModLoaders installed) {
+        ModLoaders expected=UpdateLoaders(target,installed);
+        return expected==ModLoaders.None ? candidate==ModLoaders.None : (candidate & expected)!=0;
     }
 }

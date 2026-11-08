@@ -8,13 +8,14 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/DDZmumo/PCL-Living-Fork?style=flat-square&label=Release&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/DDZmumo/PCL-Living-Fork/build.yml?branch=main&style=flat-square&label=Build)](https://github.com/DDZmumo/PCL-Living-Fork/actions/workflows/build.yml)
+[![MPL-2.0 原创代码许可](https://img.shields.io/badge/License-MPL--2.0%20%28PCLLF%20original%20code%29-3b82f6?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64%20%7C%20.NET%2010-64748b?style=flat-square)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
-[下载 1.4.1](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
+[下载 1.4.2-pre-1 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
-[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1) ·
+[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
 [加入 QQ 群](https://qm.qq.com/q/MX1RivlHeE)
@@ -52,7 +53,7 @@
 
 ### 游玩体验与个性化
 - **继续上次的世界**：主页卡片与存档管理页可直接通过 Quick Play 进入上次游玩的 Java 版存档（主页卡片可在“个性化 → 主页”中关闭）。
-- **个人游戏习惯**：按类别跨版本同步按键、鼠标、视野、字幕等设置，单版本可单独设例外；按键管理支持搜索、同键占用检查与重新绑定，换新包也不必重头调键位 ( ´ ▽ ｀ )ﾉ
+- **个人游戏习惯**：全局页记录导入来源，左右对照当前版本与共用基础设置，编辑后点击保存，来源标记为自定义；版本页跟随全局时锁定编辑，选择不同步后可单独编辑并保存本版本设置。按键、开关、拖动条复用 PCL 原生控件，只修改版本已有的对应项目；支持备份、冲突处理，按键管理也会标注基础键位的全局设置 ( ´ ▽ ｀ )ﾉ
 - **浅色 / 深色外观与昼夜背景**：可在“设置 → 个性化”中即时切换浅色与深色主题，内置蓝白水晶角色背景会随主题自动切换白天与夜晚姿态；窗口、面板和背景图片的不透明度各自独立调节，不淡化文字与图标。自定义主题色等解锁功能请[赞助原作者龙腾猫跃](https://meloong.com/afd/a/LTCat)获取官方快照版 ♪(^∇^*)
 
 ## 运行环境与更新说明
@@ -100,3 +101,5 @@ dotnet restore .\PCL-Living-Fork.Modern.slnx
 原作作者为 **龙腾猫跃** 及 PCL 原项目贡献者，原作版权归 **成都瓜皮龙科技有限公司** 所有。本项目早期以 PCL `2.14.0.0` 为起点独立演进并完成 C# / .NET 10 架构重构（部分兼容实现曾参考 [PCL-CE](https://github.com/PCL-Community/PCL-CE)），完整保留原作与第三方组件的署名和许可。
 
 - [上游 PCL 仓库](https://github.com/Meloong-Git/PCL) · [来源与版权声明](NOTICE.md) · [许可与使用指南](LICENCE) · [爱发电支持原作者](https://meloong.com/afd/a/LTCat)
+
+PCLLF 确认原创的独立源码采用 **[Mozilla Public License 2.0（MPL-2.0）](LICENSE)**，仓库根目录提供完整协议，范围见 [文件清单](licenses/MPL-COVERED-FILES.txt)。PCL 继承代码、混合来源及第三方组件保留各自许可，详见 [原 PCL 许可](LICENCE)、[第三方声明](THIRD-PARTY-NOTICES.md) 与 [许可审计](docs/licensing-audit.md)。

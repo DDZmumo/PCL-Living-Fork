@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
@@ -7,7 +12,7 @@ using Newtonsoft.Json.Linq;
 namespace PCLCS;
 
 // LF ModpackUpdate/ModpackUpdateFlow at f4aa0fae62c3ee8af24c81e61844c8fdd13c8983
-// and LF fixes at 07dd3503b38b39095c8b92b40ae0454907387f9f; LF LICENCE. Both modules are LF
+// and LF fixes at 07dd3503b38b39095c8b92b40ae0454907387f9f; MPL-2.0 for PCLLF-original code. Both modules are LF
 // additions, absent in PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8. Fixed CE stable
 // 1a7653127d578efdb2a9388999a3fdc67d9e49d5 Plain Craft Launcher 2/Modules/Minecraft/
 // ModModpack.cs reviewed for same-source importing only (that directory's LICENCE).

@@ -33,10 +33,12 @@ internal sealed record StartupNoticeMetadata(string Title, string Style, string 
         Expect("1.4.0", 0, false, false, true, "plain", "local");
         Expect("1.4.0", 50, true, false, true, "plain", "local");
         Expect("1.4.0", 50, false, false, false, "plain", "local");
+        Expect("1.4.2-pre-1", 50, true, true, true, "markdown-suppress", "local");
+        Expect("1.4.2-pre-1", 50, true, false, true, "plain", "local");
         bool refused = false;
         try { Describe("PCL Living Fork", "dev_edition", 50, false, true, false); }
         catch (InvalidOperationException) { refused = true; }
         if (!refused) throw new InvalidOperationException("Inconsistent prompt/renderer metadata was accepted.");
-        Console.WriteLine("PASS 14 metadata-only startup notice checks: new Markdown/suppression, earlier stable Markdown, legacy plain and inconsistent-type refusal; no product code or profile loaded.");
+        Console.WriteLine("PASS 16 metadata-only startup notice checks: new Markdown/suppression, earlier stable Markdown, legacy plain and inconsistent-type refusal; no product code or profile loaded.");
     }
 }

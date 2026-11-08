@@ -124,6 +124,7 @@ internal static class MapResourceChecks
     {
         DesktopCompatibilityChecks.SearchAndLegacyEncoding(fixture.Root);
         LocalResourceCacheCompatibilityChecks.Run(fixture.Root);
+        LocalResourceUpdateDiscoveryChecks.Run(fixture.Root);
         Type module = Native.Type("PCL.ModMain");
         object queue = Native.Field(module, "WaitingMyMsgBox").GetValue(null)!;
         Native.Check((int)Native.Property(queue.GetType(), "Count").GetValue(queue)! == 0, "Unexpected existing dialog queue.");

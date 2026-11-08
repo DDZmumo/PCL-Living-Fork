@@ -28,8 +28,8 @@ namespace PCL
         #region 声明
 
         // 下列版本信息由更新器自动修改
-        public const string ReleaseBaselineVersion = "1.4.1";
-        public const bool ReleaseBaselineIsPrerelease = false;
+        public const string ReleaseBaselineVersion = "1.4.2-pre-1";
+        public const bool ReleaseBaselineIsPrerelease = true;
 #if OFFICIAL_RELEASE
         public const string VersionBaseName = ReleaseBaselineVersion;
 #else
@@ -45,9 +45,9 @@ namespace PCL
         public const string LauncherCnbUrl = "https://cnb.cool/" + LauncherCnbRepository;
         public const string CommitHash = ""; // Commit Hash，由 GitHub Workflow 自动替换
 #if RELEASE
-        public const int VersionCode = 416; // 正式版
+        public const int VersionCode = 418; // 发布版（含预发布）
 #else
-        public const int VersionCode = 417; // 快照版
+        public const int VersionCode = 419; // 快照版
 #endif
         public const string VersionDisplay = BuildTypeDisplay + " " + VersionBaseName;
 #if DEBUG
@@ -164,6 +164,7 @@ namespace PCL
         /// 图标按钮，刷新，0.85x
         /// </summary>
             public const string IconButtonRefresh = LegacyBaseIcons.IconButtonRefresh;
+            public const string IconButtonPersonalSettings = "M2,5 H6 V3 H8 V9 H6 V7 H2 Z M10,5 H22 V7 H10 Z M2,11 H14 V9 H16 V15 H14 V13 H2 Z M18,11 H22 V13 H18 Z M2,17 H4 V15 H6 V21 H4 V19 H2 Z M8,17 H22 V19 H8 Z";
             /// <summary>
         /// 图标按钮，软盘，1x
         /// </summary>

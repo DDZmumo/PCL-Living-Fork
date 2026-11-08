@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,7 +18,7 @@ namespace PCLCS;
 // blob 4a112a072c8cd30cfba21d272167f97c6bf5ddab, under the repository LICENCE.
 // Absent from PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 ModLocalComp.cs/GetLogo was
-// checked as C# reference (CE Plain Craft Launcher 2/LICENCE; LF LICENCE); there is no
+// checked as C# reference (CE Plain Craft Launcher 2/LICENCE; MPL-2.0 for PCLLF-original code); there is no
 // equivalent graph view. No CE implementation or graph policy is copied.
 public partial class ModDependencyGraphController<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile, TNode>
     where TContext : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.ContextData, new()

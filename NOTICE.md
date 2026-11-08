@@ -24,6 +24,10 @@
 
 本项目保留原仓库的《PCL 分发有限许可》链接与《PCL 存储库合理使用指南》，见 [LICENCE](LICENCE)。更名、重新编译或添加本地修改不改变原作与第三方资产的版权归属，也不授予原许可未授予的权利。本项目修改部分的权利归相应贡献者所有，不主张对原作拥有版权。
 
+经维护者确认，PCLLF 原创独立源码采用 [Mozilla Public License 2.0](LICENSE-MPL-2.0.txt)，以 [逐文件清单](licenses/MPL-COVERED-FILES.txt) 与文件头通知确定范围。该授权不覆盖继承的 PCL 代码、未分离的混合来源文件或第三方图形／字体／商标等资产。已有外源署名与适用许可继续保留；这不是将整个仓库统一改为 MPL。
+
+完整组件索引和离线协议见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)、[许可清单](licenses/manifest.json) 与 [许可审计](docs/licensing-audit.md)。其中未确认的授权、历史二进制对应源码和资产出处仍明确列为待核实项，不以复制通用协议替代相应证据。
+
 MeloongCore、第三方库、图标、字体、帮助文件及其他资源分别遵循其自身的许可与版权声明；保留关于页的原作者、协力开发者、资源贡献者和第三方许可列表。MeloongCore 的声明见 [MeloongCore/LICENSE.txt](MeloongCore/LICENSE.txt)。
 
 Minecraft、Mojang 和 Microsoft 的名称与相关资产归相应权利人所有。本项目不是 Minecraft 官方产品，未经 Mojang 或 Microsoft 批准，也不与其关联。

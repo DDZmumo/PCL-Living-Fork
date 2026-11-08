@@ -20,6 +20,7 @@ namespace PCL
         private readonly LegacyLaunchRight<ModMinecraft.McInstance, RecentWorld, ModAnimation.AniData> Native;
         // 保留真实下载任务与输入身份；读取/版本/缓存/内容处理在 C# 中。
         private ModLoader.LoaderTask<(string Address, bool ShouldRefresh), int> OnlineLoader;
+        private bool? moreSettingsVisible;
         public PageLaunchRight()
         {
             __LfAttachOwnHandles();
@@ -29,6 +30,8 @@ namespace PCL
             };
             Native = new LegacyLaunchRight<ModMinecraft.McInstance, RecentWorld, ModAnimation.AniData>(CreateView(), CreateHost(), LaunchPageRuntime.Animations(), () => RecentWorldService);
             this.InitializeComponent();
+            DisabledPageAnimControls.Add(PanMoreSettings);
+            RefreshMoreSettings(false);
         }
 
         private LegacyLaunchRightView CreateView()
@@ -161,12 +164,42 @@ namespace PCL
 
         private void RecentPageEntered()
         {
+            RefreshMoreSettings(false);
             Native.PageEntered();
         }
 
         private void Init()
         {
+            RefreshMoreSettings(false);
             Native.Loaded();
+        }
+
+        internal void RefreshMoreSettings(bool animate = true)
+        {
+            bool visible = Settings.Get<bool>("UiLaunchMoreSettings");
+            string name = "Launch More Settings " + PageUuid;
+            if (animate && moreSettingsVisible == visible && (ModAnimation.AniIsRun(name) ||
+                PanMoreSettings.Visibility == (visible ? Visibility.Visible : Visibility.Collapsed))) return;
+            moreSettingsVisible = visible;
+            ModAnimation.AniStop(name);
+            PanMoreSettings.IsHitTestVisible = visible;
+            double target = visible ? 0 : -300;
+            if (!animate || !PanMoreSettings.IsLoaded || ModAnimation.AniControlEnabled != 0)
+            {
+                PanMoreSettings.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                PanMoreSettings.Opacity = visible ? 1 : 0;
+                TransMoreSettings.X = target;
+                return;
+            }
+            PanMoreSettings.Visibility = Visibility.Visible;
+            ModAnimation.AniStart(new[] {
+                ModAnimation.AaTranslateX(PanMoreSettings, target - TransMoreSettings.X, visible ? 280 : 150,
+                    Ease: visible ? new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak) : new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)),
+                ModAnimation.AaOpacity(PanMoreSettings, (visible ? 1 : 0) - PanMoreSettings.Opacity, visible ? 180 : 100),
+                ModAnimation.AaCode(() => {
+                    if (moreSettingsVisible == false) PanMoreSettings.Visibility = Visibility.Collapsed;
+                }, After: true)
+            }, name);
         }
 
         internal void RefreshRecentWorlds()
@@ -217,6 +250,7 @@ namespace PCL
         private void ReleaseRecentWorlds()
         {
             Native.Unloaded();
+            RefreshMoreSettings(false);
         }
 
         private void Refresh()

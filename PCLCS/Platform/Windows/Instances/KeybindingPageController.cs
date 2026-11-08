@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,6 +63,8 @@ public sealed class KeybindingPageHost<TInstance> where TInstance : class {
     public Func<string, string, string, string, bool, int> Message = null!;
     public Action<string, bool> Hint = null!;
     public Action<Exception, string> Warn = null!, Error = null!;
+    public Func<TInstance, IReadOnlyDictionary<string, string>>? PersonalBindingAnnotations;
+    public bool CapturePersonalOnEdit = true;
 }
 
 /// <summary>LF 按键页的列表、分组、捕获与保存生命周期。</summary>
@@ -74,6 +81,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
     public bool ConflictsOnly;
     private int captureBarShownCount;
     public readonly Dictionary<string, KeybindingPageButton> KeyButtons = new(StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, string> personalAnnotations = new Dictionary<string, string>();
 
     public KeybindingPageController(KeybindingPageView<TEntry> view, KeybindingPageHost<TInstance> host) {
         this.view = view; this.host = host;
@@ -122,6 +130,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
         if (view.Bindings is null) return;
         view.Bindings.Children.Clear();
         KeyButtons.Clear();
+        personalAnnotations = Owner is null ? new Dictionary<string, string>() : host.PersonalBindingAnnotations?.Invoke(Owner) ?? new Dictionary<string, string>();
         string query = view.Search().Trim();
         InstanceKeybindingViewResult<TEntry> result = InstanceKeybindingView.BuildView(Entries, query, ConflictsOnly);
         view.SetAllText((query == "" ? "全部" : "搜索结果") + $" ({result.MatchingCount})");
@@ -145,6 +154,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
         StackPanel labels = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
         labels.Children.Add(new TextBlock { Text = entry.Name, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis });
         string? detail = SameText(entry.Owners, "Minecraft") ? "" : entry.Owners;
+        if (entry.Key is not null && personalAnnotations.TryGetValue(PersonalOptionsRules.CanonicalKey(entry.Key), out string? personal)) detail = SameText(detail, "") ? personal : detail + " · " + personal;
         if (!SameText(detail, "")) {
             TextBlock description = new() { Text = detail, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };
             description.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray4");
@@ -231,7 +241,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
             string? encoded = host.BindingForVersion(value, host.VersionValid(Owner!) && host.VersionMajor(Owner!) >= 13);
             if (encoded is null) throw new IOException("此游戏版本无法使用这个按键。");
             host.Save(GameFolder!, entry.Key!, entry.Saved ? entry.Value : null, encoded);
-            try { host.CaptureEditedBinding(Owner!, entry.Key!, encoded); }
+            try { if (host.CapturePersonalOnEdit) host.CaptureEditedBinding(Owner!, entry.Key!, encoded); }
             catch (Exception error) { host.Warn(error, "按键已保存，但更新个人同步档案失败"); }
             CancelCapture();
             host.Hint("按键已保存。", true);

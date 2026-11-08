@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -146,7 +151,7 @@ namespace PCL
         }
         internal static global::PCL.FormMain.PageSubType NormalizeSetupPage(global::PCL.FormMain.PageSubType Page)
         {
-            if (Page == FormMain.PageSubType.SetupUpdate) return Page;
+            if (Page == FormMain.PageSubType.SetupUpdate || Page == FormMain.PageSubType.SetupPersonal) return Page;
             return ((global::PCL.FormMain.PageSubType)(global::PCL.ModModpackMode.Service.NormalizeSetupPage((global::System.Int32)Page)));
         }
         internal static global::System.Boolean BlocksPage(global::PCL.FormMain.PageType Page)

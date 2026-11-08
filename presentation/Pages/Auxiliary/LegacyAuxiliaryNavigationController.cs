@@ -140,6 +140,8 @@ public sealed class LegacyAuxiliaryNavigationController
                     return host.LauncherSettingsPage();
                 case 4:
                     return host.Update.Get();
+                case 5:
+                    return host.Personal.Get();
             }
 
             throw new Exception("未知的设置子页面种类：" + host.FormatNumber(id));

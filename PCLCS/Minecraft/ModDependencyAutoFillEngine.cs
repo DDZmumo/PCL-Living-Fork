@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -12,7 +17,7 @@ using Newtonsoft.Json.Linq;
 namespace PCLCS;
 
 // LF ModDependencyAutoFill.vb at 50b028da5fcad2226d74d901a41d8c43a249bfb2 and
-// original LaunchDependencyCheck.vb, under the LF LICENCE.
+// original LaunchDependencyCheck.vb, under the MPL-2.0 for PCLLF-original code.
 // PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8 has neither module.
 // Reviewed CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5
 // Plain Craft Launcher 2/Modules/Minecraft/ModCompDependency.cs and

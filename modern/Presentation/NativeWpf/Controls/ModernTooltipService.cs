@@ -75,6 +75,8 @@ public static class ModernTooltipService {
     private static Border? popupCard;
     // Actual LF palette adapter in this same Presentation assembly; no popup replacement.
     internal static Border? ThemeCard => popupCard;
+    // LF: notify the palette adapter before the first frame and on content replacement.
+    internal static event Action<Border>? ThemeCardChanged;
     private static ScaleTransform? popupScale;
     private static FrameworkElement? currentOwner;
     private static FrameworkElement? observedToolTipOwner;
@@ -370,6 +372,7 @@ public static class ModernTooltipService {
                 Content = content, ContentTemplate = sourceToolTip?.ContentTemplate, ContentTemplateSelector = sourceToolTip?.ContentTemplateSelector,
                 ContentStringFormat = sourceToolTip?.ContentStringFormat, Margin = contentMargin, MaxWidth = contentMaxWidth
             };
+        ThemeCardChanged?.Invoke(popupCard);
     }
 
     private static void ObserveToolTip(FrameworkElement owner) {

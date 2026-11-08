@@ -1,0 +1,16 @@
+' Author: uye (owner of the MaaAssistantArknights team)
+' Original Source: MaaAssistantArknights project - https://github.com/MaaAssistantArknights/MaaAssistantArknights
+' License: Apache License 2.0 (this file only)
+'
+' This file is originally developed for MaaAssistantArknights and licensed under AGPL v3.0.
+' As the original author and copyright holder,
+' I hereby re-license this file under the Apache License 2.0 for use in the Plain Craft Launcher project.
+'
+' This file is contributed under the spirit of good faith and open cooperation.
+' It does not implement any core launcher functions of PCL.
+'
+' Description:
+' Provides a WPF clipboard handling fix to avoid OpenClipboard exceptions
+' in TextBox, RichTextBox, and DataGrid under Windows focus issues or clipboard hooks.
+'
+' Date: 2025-07-03

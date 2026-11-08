@@ -72,6 +72,7 @@ public sealed class InstanceNavigationController<TInstance, TId, TItem, TButton,
             case 12: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(view.RestorePoints, true); break;
             case 14: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(view.Clone, true); break;
             case 15: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(NavigationItem(id), true); break;
+            case 16: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(NavigationItem(id), true); break;
             case 11: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(view.Keybindings, true); break;
             case >= 6 and <= 10: host.RefreshSpecial[code](PageGet(id)); host.SetChecked(NavigationItem(id), true); break;
         }

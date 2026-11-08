@@ -10,6 +10,11 @@ internal static class PersonalOptionsFlowTests {
     private const string RecoveryWarning = "恢复个人游戏设置同步会话失败";
 
     internal static IEnumerable<(string Name, Action Run)> Cases() {
+        yield return ("personal option import preserves unchecked categories", ImportPreservesUnselected);
+        yield return ("global personal option import reads all basic fields independently of sync selection", ImportGlobalBasic);
+        yield return ("global import provenance changes only on a successful import and survives edits", ImportProvenance);
+        yield return ("personal option capture preserves a newer profile and records conflicts", CaptureConcurrentProfile);
+        yield return ("personal option import and launch preserve legacy modifier bindings", ImportLegacyModifiedBinding);
         yield return ("personal option flow construction and null paths stay lazy", ConstructionAndNulls);
         yield return ("personal option flow disabled and running gates short circuit", DisabledAndRunning);
         yield return ("personal option flow import works while sync is disabled", ImportDisabled);
@@ -37,6 +42,73 @@ internal static class PersonalOptionsFlowTests {
         yield return ("personal option flow stale-file simulation rejects write before cache and session", PrepareStale);
         yield return ("personal option flow cache failure keeps committed file without creating session", PrepareCacheFailure);
         yield return ("personal option flow reenters original Monitor during callback and recovery", GateReentry);
+    }
+
+    private static void ImportPreservesUnselected() {
+        using Fixture fixture = new();
+        fixture.Options("mouseSensitivity:0.7\nfov:90\n");
+        fixture.Profile(JObject.Parse("{\"mouseSensitivity\":\"0.2\",\"fov\":\"82\",\"key_key.forward\":\"key.keyboard.k\"}"));
+        fixture.Select = key => key == "mouseSensitivity";
+        fixture.Flow.ImportFrom(fixture.Instance);
+        Equal("0.7", (string?)fixture.Profile()["values"]!["mouseSensitivity"]);
+        Equal("82", (string?)fixture.Profile()["values"]!["fov"]);
+        Equal("key.keyboard.k", (string?)fixture.Profile()["values"]!["key_key.forward"]);
+    }
+    private static void ImportGlobalBasic() {
+        using Fixture fixture = new();
+        fixture.Select = _ => false;
+        fixture.Options("mouseSensitivity:0.7\nfov:90\nsoundCategory_master:0.5\nshowSubtitles:true\nrenderDistance:32\n");
+        fixture.Flow.ImportFrom(fixture.Instance, PersonalOptionsCatalog.Contains);
+        var values = fixture.Profile()["values"]!;
+        Equal("0.7", (string?)values["mouseSensitivity"]);
+        Equal("0.5", (string?)values["soundCategory_master"]);
+        Equal<JToken?>(null, values["showSubtitles"]);
+        Equal<JToken?>(null, values["renderDistance"]);
+    }
+
+    private static void ImportProvenance() {
+        using Fixture fixture = new();
+        fixture.Options("mouseSensitivity:0.7\nfov:90\n");
+        fixture.Flow.ImportFrom(fixture.Instance, PersonalOptionsCatalog.Contains, "Source");
+        JObject origin = (JObject)fixture.Profile()["importSource"]!;
+        Equal("Source", (string?)origin["name"]);
+        Equal(fixture.VersionPath, (string?)origin["versionPath"]);
+        Equal(true, DateTime.TryParse((string?)origin["importedUtc"], out _));
+        var management = new PersonalOptionsManagement(fixture.Data, fixture.Gate, _ => true, () => false, _ => { });
+        management.EditValues([new("fov", "100", "90")]);
+        Equal(true, JToken.DeepEquals(origin, fixture.Profile()["importSource"]));
+        Equal("custom", (string?)fixture.Profile()["sourceKind"]);
+        fixture.Running = true;
+        Throws<IOException>(() => fixture.Flow.ImportFrom(fixture.Instance, PersonalOptionsCatalog.Contains, "Rejected"));
+        fixture.Running = false;
+        fixture.Options("renderDistance:32\n");
+        Throws<IOException>(() => fixture.Flow.ImportFrom(fixture.Instance, PersonalOptionsCatalog.Contains, "Empty"));
+        Equal(true, JToken.DeepEquals(origin, fixture.Profile()["importSource"]));
+        fixture.Options("fov:95\n");
+        fixture.Flow.ImportFrom(fixture.Instance, PersonalOptionsCatalog.Contains, "Next source");
+        Equal("Next source", (string?)fixture.Profile()["importSource"]!["name"]);
+        Equal("version", (string?)fixture.Profile()["sourceKind"]);
+        Equal("95", (string?)fixture.Profile()["values"]!["fov"]);
+    }
+
+    private static void CaptureConcurrentProfile() {
+        using Fixture fixture = new();
+        fixture.Options("mouseSensitivity:0.6\n");
+        fixture.Profile(JObject.Parse("{\"mouseSensitivity\":\"0.9\"}"));
+        fixture.Flow.Finish(fixture.Session());
+        Equal("0.9", (string?)fixture.Profile()["values"]!["mouseSensitivity"]);
+        Equal("0.8", (string?)fixture.Profile()["conflicts"]!["mouseSensitivity"]!["baseline"]);
+        Equal("0.6", (string?)fixture.Profile()["conflicts"]!["mouseSensitivity"]!["game"]);
+    }
+    private static void ImportLegacyModifiedBinding() {
+        using Fixture fixture = new();
+        fixture.Options("key_key.forward:19:ALT:SHIFT\n");
+        fixture.Flow.ImportFrom(fixture.Instance);
+        Equal("key.keyboard.r:ALT:SHIFT", (string?)fixture.Profile()["values"]!["key_key.forward"]);
+        fixture.Options("key_key.forward:17\n");
+        fixture.Instance.Major = () => 12;
+        fixture.Flow.Prepare(fixture.Instance);
+        Equal("key_key.forward:19:ALT:SHIFT\n", File.ReadAllText(fixture.OptionsPath));
     }
 
     private static void ConstructionAndNulls() {
