@@ -104,6 +104,10 @@ def main() -> int:
     registry = re.findall(r'^\s+\("([a-z0-9-]+)",', registry_block.group(1), re.MULTILINE)
     require(registry and len(registry) == len(set(registry)), "Production migration test registry is empty or contains duplicate keys.")
     require(registry == GOLD["scopes"]["complete"]["groups"], "Complete CI scope does not contain exactly the production migration test groups in canonical order.")
+    toolbox_path = "PCLCS/Toolbox/SymbioLauncherSwitch.cs"
+    toolbox_plan = cli([toolbox_path])
+    expect(toolbox_plan, "complete", True, "new toolbox code retains complete product validation", [toolbox_path])
+    require("toolbox-surprise" in toolbox_plan["groups"], "Toolbox production changes must run their registered migration tests.")
     # No event is deliberately conservative; it must not be mistaken for a
     # valid, empty git diff (the latter is exercised below).
 
