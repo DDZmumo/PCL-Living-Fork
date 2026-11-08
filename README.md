@@ -8,7 +8,6 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/DDZmumo/PCL-Living-Fork?style=flat-square&label=Release&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/DDZmumo/PCL-Living-Fork/build.yml?branch=main&style=flat-square&label=Build)](https://github.com/DDZmumo/PCL-Living-Fork/actions/workflows/build.yml)
-[![MPL-2.0 原创代码许可](https://img.shields.io/badge/License-MPL--2.0%20%28PCLLF%20original%20code%29-3b82f6?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64%20%7C%20.NET%2010-64748b?style=flat-square)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
@@ -28,13 +27,27 @@
 
 ## 项目简介
 
-**PCL Living Fork（PCLLF，原 LivingPCL）** 是由 [DDZmumo](https://github.com/DDZmumo) 独立维护的 Minecraft 启动器。项目最初源自 [Plain Craft Launcher (PCL)](https://github.com/Meloong-Git/PCL)，经过全量 **C# / .NET 10** 架构重写与持续迭代，现已在底层架构、界面主题与核心功能体系上走出了独立于 **PCL 原版** 与 **PCL-CE** 的演进路线。
+**PCL Living Fork（PCLLF，原 LivingPCL）** 是由 [DDZmumo](https://github.com/DDZmumo) 独立维护的 Minecraft 启动器。项目最初源自 [Plain Craft Launcher (PCL)](https://github.com/Meloong-Git/PCL)，在完成全量 **C# / .NET 10** 现代化架构迁移的过程中，曾以 [PCL-CE](https://github.com/PCL-Community/PCL-CE) 作为同源迁移的工程示例与部分结构参考。
 
-在延续丝滑动效与原有目录兼容的同时，PCLLF 围绕**本地资源全生命周期管理、模组依赖图谱与启动前补全、整合包三方差异更新、环境还原点与存档自动备份、跨版本个人习惯同步**以及**原生深浅色昼夜外观**构建了完整的功能闭环，让日常游玩与折腾整合包都更省心 (｡•̀ᴗ-)✧
+目前，PCLLF 与现代版 PCL-CE 虽然**同源且采用同一代底层技术栈（C# + .NET 10 + WPF）**，但在**工程模块划分、配置与数据契约、任务生命周期以及核心功能矩阵上已形成较大差异**。在延续原生丝滑动效与目录兼容的同时，PCLLF 围绕**全局资源收藏与本地管理、模组依赖图谱与启动前补全、整合包三方差异更新、环境还原点与存档自动备份、跨版本个人习惯同步**以及**原生深浅色昼夜外观**构建了独立的功能闭环，让日常游玩与折腾整合包都更省心 (｡•̀ᴗ-)✧
 
 > **使用前请注意**
-> - **独立项目定位**：PCLLF 与 **PCL 官方版**、**PCL-CE** 均为各自独立演进的不同项目，底层实现、功能设计与版本号互不相同；遇到问题或有功能建议请在[本仓库 Issues](https://github.com/DDZmumo/PCL-Living-Fork/issues) 反馈或[加入 QQ 交流群](https://qm.qq.com/q/MX1RivlHeE)，**请勿向 PCL 官方或 PCL-CE 仓库提交本项目的任何问题** (´-ω-｀)
+> - **独立项目定位**：PCLLF 与 **PCL 官方版**、**PCL-CE** 均为各自独立维护的不同项目，内部实现、配置契约与版本号互不相同；遇到问题或有功能建议请在[本仓库 Issues](https://github.com/DDZmumo/PCL-Living-Fork/issues) 反馈或[加入 QQ 交流群](https://qm.qq.com/q/MX1RivlHeE)，**请勿向 PCL 官方或 PCL-CE 仓库提交本项目的任何问题** (´-ω-｀)
 > - **Minecraft API 与 CurseForge 第三方 API 均已获批**：正式发行版内置本项目自有 Client ID 与正式 API Key，开箱即用（接口可用性以后续平台授权及服务政策为准）。
+
+### 与 PCL 原版及 PCL-CE 的架构对比
+
+| 维度 | 官方 PCL | PCL Living Fork (PCLLF) | PCL-CE（.NET 10 版） |
+| --- | --- | --- | --- |
+| **主体语言** | `VB.NET` 主程序 + 少量 C# 库 | 全量 `C#`（旧 VB 源码已退役归档） | 全量 `C#` |
+| **目标运行时** | `.NET Framework 4.8` | `.NET 10`（含 `net48 → .NET 10` 自动升级桥） | `.NET 10` |
+| **界面与交互** | WPF 自有控件与动效，逻辑集中于页面后台 | WPF，保留原生动效手感，内置深浅色实时切换、昼夜背景与独立透明度 | WPF，部分页面引入 MVVM（`ViewModel`）与界面服务抽象 |
+| **核心工程结构** | 主程序、`PCLCS`、`MeloongCore` | `Main`、`PCLCS`（业务引擎/控制器）、`Presentation`（控件/动效表现层）、`MeloongCore.Shared` | 主程序、`PCL.Launcher.Core`、`PCL.Core.Wpf`、`PCL.Core` |
+| **配置与数据契约** | `Setup.ini` 与注册表存储 | 完整兼容原有 `Setup.ini` 与游戏目录；微软登录使用 `_LF` 独立注册表键隔离 | 自建 IoC 生命周期、`JSON / YAML` 配置服务与独立 Profile 模型 |
+| **演进方向与重心** | 官方主线基线与快照功能 | **严守数据/交互兼容 + 整合包更新、依赖图谱、还原点、备份与个人习惯闭环** | 通用基础设施抽离、核心与 UI 严格解耦及社区化扩展 |
+
+- **同源同栈的迁移参考**：PCLLF 与现代版 PCL-CE 具有共同的 PCL 血统，且均演进至 **C# + .NET 10 + WPF** 技术栈；在 PCLLF 推进 C# 转换与运行时升级期间，PCL-CE 提供了重要的现代化迁移示例与局部结构参考。
+- **独立演进的架构差异**：PCLLF 选择了**“保留原有数据格式与操作直觉，按业务引擎与表现层逐步解耦”**的务实路线，重点深耕整合包三方更新、模组依赖预检、环境还原点与存档保护等自研功能链；而 PCL-CE 则更侧重于底层 IoC 容器、新配置体系与通用核心隔离。两者在代码结构与业务契约上已显著分化。
 
 ## 功能亮点
 
@@ -57,7 +70,7 @@
 - **继续上次的世界**：主页卡片与存档管理页可直接通过 Quick Play 进入上次游玩的 Java 版存档（主页卡片可在“个性化 → 主页”中关闭）。
 - **主页更多设置**：默认收起模组依赖与最近存档面板，勾选后通过 PCL 动画滑出。面板内的依赖检查和自动补全默认开启，收起面板不会停用它们。
 - **工具百宝箱**：提供今日人品、内存优化、游戏垃圾清理与自定义文件下载。今日人品按本地日期和设备标识固定计算，重复点击不重新抽取；保留低分、零分和系统时间变化提示，未移植原版隐藏主题解锁。
-- **个人游戏习惯**：全局页记录导入来源，左右对照当前版本与共用基础设置，编辑后点击保存，来源标记为自定义；版本页跟随全局时锁定编辑，选择不同步后可单独编辑并保存本版本设置。按键、开关、拖动条复用 PCL 原生控件；新版本首次启动前即可写入勾选的基础设置并保留整合包默认配置，已有完整配置只修改对应项目。支持备份、冲突处理，按键管理也会标注基础键位的全局设置 ( ´ ▽ ｀ )ﾉ
+- **个人游戏习惯**：按类别跨版本同步基础按键、鼠标、视场角、视角摇晃和音量，编辑后显式保存；版本跟随全局时锁定编辑，不跟随时可独立保存此版本设置；按键管理支持搜索、同键占用检查与重新绑定，换新包也不必重头调键位 ( ´ ▽ ｀ )ﾉ
 - **浅色 / 深色外观与昼夜背景**：可在“设置 → 个性化”中即时切换浅色与深色主题，内置蓝白水晶角色背景会随主题自动切换白天与夜晚姿态；窗口、面板和背景图片的不透明度各自独立调节，不淡化文字与图标。自定义主题色等解锁功能请[赞助原作者龙腾猫跃](https://meloong.com/afd/a/LTCat)获取官方快照版 ♪(^∇^*)
 
 ## 运行环境与更新说明
@@ -102,8 +115,10 @@ dotnet restore .\PCL-Living-Fork.Modern.slnx
 
 ## 来源与许可
 
-原作作者为 **龙腾猫跃** 及 PCL 原项目贡献者，原作版权归 **成都瓜皮龙科技有限公司** 所有。本项目早期以 PCL `2.14.0.0` 为起点独立演进并完成 C# / .NET 10 架构重构（部分兼容实现曾参考 [PCL-CE](https://github.com/PCL-Community/PCL-CE)），完整保留原作与第三方组件的署名和许可。
+- **原作与上游**：原作作者为 **龙腾猫跃** 及 PCL 原项目贡献者，原作版权归 **成都瓜皮龙科技有限公司** 所有。本项目以 [Plain Craft Launcher (PCL)](https://github.com/Meloong-Git/PCL) `2.14.0.0` 为起点独立演进。
+- **迁移参考与来源**：在完成全量 **C# / .NET 10** 现代化架构迁移与部分兼容实现的过程中，本项目以社区版 [PCL-CE (PCL Community Edition)](https://github.com/PCL-Community/PCL-CE) 作为同源迁移工程示例与结构参考，感谢 **PCL-Community** 及相关贡献者的开源工作。
+- **许可与署名**：本项目完整保留 PCL 原作、PCL-CE 参考实现及各第三方组件的署名、版权声明与对应分发/开源许可。
 
-- [上游 PCL 仓库](https://github.com/Meloong-Git/PCL) · [来源与版权声明](NOTICE.md) · [许可与使用指南](LICENCE) · [爱发电支持原作者](https://meloong.com/afd/a/LTCat)
+- [上游 PCL 仓库](https://github.com/Meloong-Git/PCL) · [PCL-CE 仓库](https://github.com/PCL-Community/PCL-CE) · [来源与版权声明](NOTICE.md) · [许可与使用指南](LICENCE) · [爱发电支持原作者](https://meloong.com/afd/a/LTCat)
 
 PCLLF 确认原创的独立源码采用 **[Mozilla Public License 2.0（MPL-2.0）](LICENSE)**，仓库根目录提供完整协议，范围见 [文件清单](licenses/MPL-COVERED-FILES.txt)。PCL 继承代码、混合来源及第三方组件保留各自许可，详见 [原 PCL 许可](LICENCE)、[第三方声明](THIRD-PARTY-NOTICES.md) 与 [许可审计](docs/licensing-audit.md)。
