@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -11,7 +16,7 @@ using MeloongCore.Extensions;
 namespace PCLCS;
 
 // LF-only ModModpackMode.vb at f4aa0fae62c3ee8af24c81e61844c8fdd13c8983,
-// under LF LICENCE; absent from fixed PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8.
+// under MPL-2.0 for PCLLF-original code; absent from fixed PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8.
 // No equivalent CE stable 1a7653127d578efdb2a9388999a3fdc67d9e49d5 pack-mode
 // implementation is reused. Original LF page identities and WPF views are hosted.
 public sealed class ModpackModeController<TPage, TFolder, TInstance>

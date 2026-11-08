@@ -11,7 +11,7 @@ namespace PCLCS;
 public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion>
     where TLocal : LocalResourceFileData<TProject, TVersion>
     where TProject : ResourceProjectModelData where TVersion : ResourceVersionModelData {
-    private void LoadModrinth(List<TLocal> mods, string vanillaVersion, LocalResourceOnlineTask<TLocal> task, Thread currentTaskThread) {
+    private void LoadModrinth(List<TLocal> mods, string vanillaVersion, ModLoaders targetLoaders, LocalResourceOnlineTask<TLocal> task, Thread currentTaskThread) {
         var hashes = mods.Select(m => m.ModrinthHash).ToList();
         JObject versions = (JObject)host.Request("https://api.modrinth.com/v2/version_files", HttpMethod.Post,
             "{\"hashes\": [\"" + string.Join("\",\"", hashes) + "\"], \"algorithm\": \"sha1\"}", "application/json");
@@ -19,16 +19,23 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         if (versions.Count == 0) return;
         Dictionary<string, List<TLocal>> mapping = new();
         Dictionary<TLocal, List<string>> loaders = new();
+        Dictionary<TLocal, TVersion> installed = new();
         foreach (TLocal entry in mods) {
             if (!versions.ContainsKey(entry.ModrinthHash)) continue;
-            if ((string?)versions[entry.ModrinthHash]!["files"]![0]!["hashes"]!["sha1"] != entry.ModrinthHash) continue;
+            JToken? matchingFile = versions[entry.ModrinthHash]!["files"]?.FirstOrDefault(file=>(string?)file["hashes"]?["sha1"]==entry.ModrinthHash);
+            if (matchingFile is null) continue;
             string projectId = versions[entry.ModrinthHash]!["project_id"]!.ToString();
             string key = ResourceProjectKey.Get(ResourcePlatforms.Modrinth, projectId);
             if (host.ProjectCache().TryGetValue(key, out TProject? cached) && cached.Platform == ResourcePlatforms.Modrinth && entry.Project is null) entry.Project = cached;
             if (!mapping.ContainsKey(projectId)) mapping[projectId] = new List<TLocal>();
             mapping[projectId].Add(entry);
-            TVersion file = host.ReadVersion((JObject)versions[entry.ModrinthHash]!, ResourceTypes.Mod);
-            loaders[entry] = versions[entry.ModrinthHash]!["loaders"]!.Select(l => l.ToString().Lower()).Distinct().OrderBy(l => l).ToList();
+            JObject matchedVersion=(JObject)versions[entry.ModrinthHash]!.DeepClone();
+            matchedVersion["files"]=new JArray(matchingFile.DeepClone());
+            TVersion file = host.ReadVersion(matchedVersion, ResourceTypes.Mod);
+            installed[entry]=file;
+            loaders[entry] = targetLoaders==ModLoaders.None ? versions[entry.ModrinthHash]!["loaders"]!.Select(l => l.ToString().Lower()).Distinct().OrderBy(l => l).ToList()
+                : Enum.GetValues<ModLoaders>().Where(loader=>loader!=ModLoaders.None && loader!=ModLoaders.All && (loader & targetLoaders)!=0)
+                    .Select(loader=>loader.ToString().ToLowerInvariant()).ToList();
             if (entry.ProjectVersion is null || entry.ProjectVersion.ReleaseDate < file.ReleaseDate) entry.ProjectVersion = file;
             else entry.ProjectVersion.Version = file.Version;
         }
@@ -47,13 +54,13 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         JObject updates = (JObject)host.Request("https://api.modrinth.com/v2/version_files/update_individual", HttpMethod.Post,
             "{\"algorithm\": \"sha1\", \"hashes\": [" + updateData + "]}", "application/json");
         foreach (TLocal entry in mods) {
-            if (!updates.ContainsKey(entry.ModrinthHash) || entry.ProjectVersion is null) continue;
+            if (!updates.ContainsKey(entry.ModrinthHash) || !installed.TryGetValue(entry,out TVersion? current)) continue;
+            if (updates[entry.ModrinthHash]!["game_versions"]?.Any(version=>version.ToString()==vanillaVersion)!=true) continue;
             TVersion update = host.ReadVersion((JObject)updates[entry.ModrinthHash]!, ResourceTypes.Mod);
             if (!update.DownloadAvailable) continue;
-            var updateLoaders = updates[entry.ModrinthHash]!["loaders"]!.Select(l => l.ToString().Lower()).Distinct().OrderBy(l => l).ToList();
-            if (!updateLoaders.SequenceEqual(loaders[entry])) continue;
-            host.Trace(() => $"本地文件 {entry.ProjectVersion.FileName} 在 Modrinth 上的最新版为 {update.FileName}");
-            if (entry.ProjectVersion.ReleaseDate >= update.ReleaseDate || (entry.ProjectVersion.Hash ?? "") == (update.Hash ?? "")) continue;
+            if (!SupportsUpdateLoader(update.ModLoaders,targetLoaders,current.ModLoaders)) continue;
+            host.Trace(() => $"本地文件 {current.FileName} 在 Modrinth 上的最新版为 {update.FileName}");
+            if (current.ReleaseDate >= update.ReleaseDate || (current.Hash ?? "") == (update.Hash ?? "")) continue;
             string changelog = $"https://modrinth.com/mod/{updates[entry.ModrinthHash]!["project_id"]}/changelog?g={vanillaVersion}";
             if (entry.UpdateFile is not null && (update.Hash ?? "") == (entry.UpdateFile.Hash ?? "")) {
                 entry.ChangelogUrls.Add(changelog);

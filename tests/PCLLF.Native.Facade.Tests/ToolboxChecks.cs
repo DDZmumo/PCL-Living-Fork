@@ -20,6 +20,8 @@ internal static class ToolboxChecks
     internal static void Run(FixtureEnvironment environment)
     {
         VerifyChild(environment);
+        ToolboxSurpriseChecks.Run();
+        DailyLuckChecks.Run();
         Seen.Clear(); assertions = 0;
         foreach (string script in Expected.Keys) Seen.Add(script, new());
         ToolboxCleanupChecks.Run(Native.Main);

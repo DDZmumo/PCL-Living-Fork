@@ -19,7 +19,7 @@ internal static class Program {
             ("world-metadata", () => WorldMetadataCases().Concat(WorldMetadataFileTests.Cases())),
             ("local-data", LocalGameDataTests.Cases),
             ("personal-options", () => PersonalOptionsRulesTests.Cases()
-                .Concat(PersonalOptionsFileTests.Cases()).Concat(PersonalOptionsFlowTests.Cases())),
+                .Concat(PersonalOptionsFileTests.Cases()).Concat(PersonalOptionsFlowTests.Cases()).Concat(PersonalOptionsManagementTests.Cases())),
             ("keybindings", () => InstanceKeybindingFileTests.Cases()
                 .Concat(InstanceKeybindingReaderTests.Cases()).Concat(InstanceKeybindingViewTests.Cases())),
             ("quick-play", () => QuickPlayWorldRulesTests.Cases()
@@ -34,6 +34,7 @@ internal static class Program {
             ("resource-metadata", () => InstanceResourceDetailsRulesTests.Cases()
                 .Concat(InstanceResourcePackMetadataTests.Cases()).Concat(InstanceResourceMetadataRuntimeTests.Cases())),
             ("world-backups", WorldBackupPipelineTests.Cases),
+            ("toolbox-surprise", () => SymbioLauncherSwitchTests.Cases().Concat(DailyLuckTests.Cases())),
             ("environment-history", EnvironmentHistoryPipelineTests.Cases),
             ("instance-clone", InstanceClonePipelineTests.Cases),
             ("pack-update", () => PackUpdateThreeWayTests.Cases().Concat(PackUpdateMetadataTests.Cases())

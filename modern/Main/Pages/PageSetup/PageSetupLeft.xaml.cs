@@ -39,6 +39,8 @@ namespace PCL
             this.InitializeComponent();
             ItemUpdate.Logo = ModBase.Logo.IconButtonRefresh;
             ItemUpdate.Check += (sender, args) => PageCheck((MyListItem)sender, args);
+            ItemPersonal.Logo = ModBase.Logo.IconButtonPersonalSettings;
+            ItemPersonal.Check += (sender, args) => PageCheck((MyListItem)sender, args);
             Controller.InitializePageId();
         }
 

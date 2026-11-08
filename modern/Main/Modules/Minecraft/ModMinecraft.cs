@@ -46,6 +46,7 @@ namespace PCL
     {
         private static global::System.String _McFolderSelected;
         private static global::PCL.ModMinecraft.McInstance _McInstanceSelected;
+        internal static event Action InstanceSelectionChanged;
         public static global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder> McFolderList = new global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder>();
         public static global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>> McInstanceList = new global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>>();
         public static global::System.Boolean McInstanceListForceRefresh = false;
@@ -154,7 +155,9 @@ namespace PCL
             }
             set
             {
+                var previous = _McInstanceSelected;
                 global::PCL.ModMinecraft.Service.SelectInstance(value);
+                if (!ReferenceEquals(previous, _McInstanceSelected)) InstanceSelectionChanged?.Invoke();
             }
         }
 

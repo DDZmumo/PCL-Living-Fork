@@ -27,10 +27,18 @@ internal static class LocalFeatureChecks
         Native.Static("PCL.ModSecret", "ThemeRefresh", 0); // Original UI fixtures use the real palette setup.
         using (Scope scope = new(fixture, "groups")) LocalFeatureKeybindingChecks.Run(scope);
         using (Scope scope = new(fixture, "recent")) LocalFeatureRecentChecks.Run(scope);
+        LaunchMoreSettingsChecks.Run(fixture);
         foreach (var (family, original) in LocalFeatureOriginalChecks.Cases)
             Native.Check(Seen[family].SetEquals(original.Keys), "Incomplete original local-feature assertion selection: " + family + " missing " + string.Join(',', original.Keys.Except(Seen[family])));
+        PersonalOptionsPageChecks.Run(fixture);
+        var about = new PageOtherAbout();
+        string notices = ((MyTextBox)about.FindName("LabThirdPartyLicenses")).Text;
+        Native.Check(notices.Contains("Mozilla Public License Version 2.0",StringComparison.Ordinal) &&
+            notices.Contains("licenses/MPL-COVERED-FILES.txt",StringComparison.Ordinal) &&
+            notices.Contains("MeloongCore",StringComparison.Ordinal) && notices.Contains("MICROSOFT .NET LIBRARY",StringComparison.Ordinal) &&
+            notices.Contains("GNU GENERAL PUBLIC LICENSE",StringComparison.Ordinal), "The actual about page is missing offline scope or third-party license texts.");
         fixture.AssertNoForbiddenIo();
-        Console.WriteLine("PASS local-features: every selected original assertion ID covered (" + LocalFeatureOriginalChecks.Cases.Sum(p => p.Value.Count) + " sites, " + executed + " executions); actual Main files/DTO/UI, real Core controller and independent Windows CLR4 FOV/path API oracle. No real game/account/network.");
+        Console.WriteLine("PASS local-features: mapped source assertion IDs covered (" + LocalFeatureOriginalChecks.Cases.Sum(p => p.Value.Count) + " sites, " + executed + " executions), including the approved basic-only sync policy; actual Main files/DTO/UI, real Core controller and independent Windows CLR4 FOV/path API oracle. No real game/account/network.");
     }
     internal static void Check(string family, int line, bool condition, string? detail = null)
     {

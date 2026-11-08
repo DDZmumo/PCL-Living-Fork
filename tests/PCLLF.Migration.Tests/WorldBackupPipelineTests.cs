@@ -13,9 +13,42 @@ internal static class WorldBackupPipelineTests {
         yield return ("world backup pipeline cancellation and bad destinations release busy state and owned staging", CaptureFailureCleanup);
         yield return ("world backup pipeline commit faults cancellation and persisted journal recovery preserve current world", RestoreFailureAndRecovery);
         yield return ("world backup workflow keeps confirmation output stopped and rejected-worker boundaries", WorkflowLifecycle);
+        yield return ("world backup display summaries reuse validated metadata and invalidate changed corrupt or deleted points", DisplaySummaries);
         if (OperatingSystem.IsWindows())
             yield return ("world backup Windows session lock prevents capture and restore until the holder releases it", WindowsSessionLock);
         foreach (var check in FileTaskProgressTests.WorldCases()) yield return check;
+    }
+
+    private static void DisplaySummaries() {
+        using Fixture fixture = new();
+        Context context = new(fixture);
+        string game = context.Owner.GameFolder;
+        context.World("A", [1]); context.World("B", [2]);
+        string a = context.Engine.CaptureWorld(game, "A", "manual", 5, CancellationToken.None);
+        string b = context.Engine.CaptureWorld(game, "B", "manual", 5, CancellationToken.None);
+        int reads = 0;
+        context.Host.FormatSize = size => { reads++; return size + " bytes"; };
+        List<JObject> first = context.Engine.Summaries(game);
+        Equal(2, reads); Equal(2, first.Count);
+        Equal(true, first.All(point => point["files"] is null && point["directories"] is null && (int)point["fileCount"]! == 1));
+        first.Single(point => (string?)point["id"] == a)["label"] = "caller mutation";
+        Equal("A", (string?)context.Engine.Summaries(game).Single(point => (string?)point["id"] == a)["label"]);
+        Equal(2, reads);
+        string points = Path.Combine(context.Engine.Store(game), "points");
+        string manifest = Path.Combine(points, a, "manifest.json");
+        JObject edited = JObject.Parse(File.ReadAllText(manifest));
+        edited["label"] = "renamed display label";
+        File.WriteAllText(manifest, edited.ToString());
+        Equal("renamed display label", (string?)context.Engine.Summaries(game).Single(point => (string?)point["id"] == a)["label"]);
+        Equal(3, reads);
+        context.Engine.ClearSummaryCache(); context.Engine.Summaries(game); Equal(5, reads);
+        File.Delete(Path.Combine(points, b, "world.zip"));
+        Equal(1, context.Engine.Summaries(game).Count); Equal(5, reads);
+        // A cached display record must never hide a malformed current manifest.
+        edited["bytes"] = -1;
+        File.WriteAllText(manifest, edited.ToString());
+        Equal(0, context.Engine.Summaries(game).Count);
+        Throws<IOException>(() => context.Engine.Metadata(game, a));
     }
 
     private static void CaptureRestoreRoundTrip() {

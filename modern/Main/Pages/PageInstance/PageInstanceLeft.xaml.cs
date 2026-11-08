@@ -44,6 +44,7 @@ namespace PCL
         private global::PCL.PageInstanceRestorePoints RestorePointsPage;
         private global::PCL.PageInstanceClone ClonePage;
         private PageInstancePackUpdate PackUpdatePage;
+        private PageSetupPersonal PersonalPage;
         private readonly global::PCLCS.InstanceNavigationView<global::PCL.MyListItem> NavigationView;
         private global::PCLCS.InstanceNavigationController<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> PageController;
         private global::PCLCS.InstanceNavigationController<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> Controller
@@ -94,6 +95,8 @@ namespace PCL
             this.InitializeComponent();
             this.ItemPackUpdate.Logo = ModBase.Logo.IconButtonRefresh;
             this.ItemPackUpdate.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
+            this.ItemPersonal.Logo = ModBase.Logo.IconButtonPersonalSettings;
+            this.ItemPersonal.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
         }
 
         private global::PCLCS.InstanceNavigationHost<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> CreateHost()
@@ -104,6 +107,10 @@ namespace PCL
             result.WritePage[15] = page => PackUpdatePage = (PageInstancePackUpdate)page;
             result.CreatePage[15] = () => new PageInstancePackUpdate();
             result.RefreshSpecial[15] = page => ((PageInstancePackUpdate)page).Refresh();
+            result.ReadPage[16] = () => PersonalPage;
+            result.WritePage[16] = page => PersonalPage = (PageSetupPersonal)page;
+            result.CreatePage[16] = () => new PageSetupPersonal { IsInstanceContext = true };
+            result.RefreshSpecial[16] = page => ((PageSetupPersonal)page).RefreshPage();
             return result;
         }
 

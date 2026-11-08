@@ -1,0 +1,69 @@
+<!--
+SPDX-License-Identifier: MPL-2.0
+Copyright (c) 2026 PCL Living Fork contributors.
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<local:MyPageRight xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                   xmlns:local="clr-namespace:PCL" x:Class="PCL.PageSetupPersonal" PanScroll="PanBack">
+    <Grid>
+    <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="25,25,25,10">
+            <local:MyCard Title="个人游戏设置同步" Margin="0,0,0,15">
+                <StackPanel Margin="25,40,25,20">
+                    <local:MyCheckBox x:Name="CheckEnabled" Text="同步个人游戏设置" Height="22" Margin="0,0,0,14"
+                                      ToolTip="只同步各版本通用的基础个人设置，且目标版本必须已有对应项目。未选中的设置和模组配置保持原样。" />
+                    <local:MyHint x:Name="HintStatus" Text="跟随主界面当前选择的游戏版本。" Theme="Blue" Margin="0,0,0,14" />
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock x:Name="LabInstanceCaption" Text="当前游戏版本" VerticalAlignment="Center" Margin="0,0,20,12"/>
+                        <Grid Grid.Column="1" Margin="0,0,0,12" Height="28">
+                            <TextBlock x:Name="LabInstance" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="尚未选择游戏版本" />
+                        </Grid>
+                        <TextBlock x:Name="LabImportedInstanceCaption" Text="目前导入来源版本" Grid.Row="1" VerticalAlignment="Center" Margin="0,0,20,12"/>
+                        <TextBlock x:Name="LabImportedInstance" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,0,12" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="LabPolicyCaption" Text="此版本策略" Grid.Row="2" VerticalAlignment="Center" Margin="0,0,20,12"/>
+                        <local:MyComboBox x:Name="ComboPolicy" Grid.Row="2" Grid.Column="1" Margin="0,0,0,12" Height="28">
+                            <local:MyComboBoxItem Content="跟随全局设置"/>
+                            <local:MyComboBoxItem Content="不同步，保留此版本的个人设置"/>
+                        </local:MyComboBox>
+                        <TextBlock x:Name="LabCaptureCaption" Text="共用方案回写" Grid.Row="3" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                        <local:MyComboBox x:Name="ComboCapture" Grid.Row="3" Grid.Column="1" Height="28">
+                            <local:MyComboBoxItem Content="保存游戏中的个人设置修改"/>
+                            <local:MyComboBoxItem Content="保留个人方案，仅在启动前应用"/>
+                        </local:MyComboBox>
+                    </Grid>
+                    <WrapPanel Margin="0,15,0,0">
+                        <local:MyButton x:Name="BtnImport" Text="从当前版本导入全局设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
+                        <local:MyButton x:Name="BtnSaveGlobal" Text="保存全局设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
+                        <local:MyButton x:Name="BtnApply" Text="保存此版本个人设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
+                        <local:MyButton x:Name="BtnRefresh" Text="放弃修改" Height="35" Padding="14,0" Margin="0,0,0,8"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="LabSummary" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray2}"/>
+                    <TextBlock x:Name="LabEditScope" Text="右侧编辑的是共用个人方案，修改会对所有参与同步的版本生效。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray2}" Margin="0,8,0,0" Visibility="Collapsed"/>
+                </StackPanel>
+            </local:MyCard>
+            <local:MyCard x:Name="CardConflicts" Title="待处理的同步冲突" Visibility="Collapsed" Margin="0,0,0,15">
+                <StackPanel x:Name="PanConflicts" Margin="25,40,25,18"/>
+            </local:MyCard>
+            <local:MyCard x:Name="CardSearch" Title="选择同步项目" Margin="0,0,0,15">
+                <StackPanel Margin="25,40,25,18">
+                    <local:MySearchBox x:Name="TextSearch" HintText="搜索基础按键、鼠标、视场角或音量设置" Height="30"/>
+                </StackPanel>
+            </local:MyCard>
+            <StackPanel x:Name="PanGroups"/>
+        </StackPanel>
+    </local:MyScrollViewer>
+        <local:MyCard x:Name="CardCapture" Visibility="Collapsed" Opacity="0" Margin="25,25,25,0" VerticalAlignment="Bottom" HorizontalAlignment="Center" UseAnimation="False">
+            <local:MyCard.RenderTransform><TranslateTransform x:Name="TransCapture" Y="-10" /></local:MyCard.RenderTransform>
+            <TextBlock x:Name="LabCapture" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="12,9" Foreground="{DynamicResource ColorBrush2}" />
+            <StackPanel Orientation="Horizontal" Margin="5,30,5,5" HorizontalAlignment="Center">
+                <local:MyIconTextButton x:Name="BtnClearBinding" Text="取消绑定" />
+                <local:MyIconTextButton x:Name="BtnCancelBinding" Text="取消修改" />
+            </StackPanel>
+        </local:MyCard>
+    </Grid>
+</local:MyPageRight>

@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System.Net.Http;
 using System.Threading;
 using Newtonsoft.Json.Linq;
@@ -21,7 +26,7 @@ namespace PCL
         {
         }
         private static readonly LookupCache SharedCache = new LookupCache();
-        private static readonly OnlineCore Pipeline = new OnlineCore(SharedCache, DefaultRequest);
+        private static readonly OnlineCore Pipeline = new OnlineCore(SharedCache, DefaultRequest, ModDependencyTransport.ReadArchive);
 
         // 保留原反射注入的异常类型和构造签名，C# Session 捕获同一基类及实际字段。
         private class HttpFailure : ModDependencyHttpFailure

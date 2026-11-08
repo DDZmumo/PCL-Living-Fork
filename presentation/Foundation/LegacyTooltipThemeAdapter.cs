@@ -15,7 +15,11 @@ public sealed class LegacyTooltipThemeAdapter {
     public LegacyTooltipThemeAdapter(Func<Border?> currentCard) => this.currentCard = currentCard;
 #if !NETFRAMEWORK
     // NativeWpf is source-compiled into modern Presentation; its card stays internal.
-    public static LegacyTooltipThemeAdapter ForNativeTooltip() => new(() => MeloongCore.Wpf.ModernTooltipService.ThemeCard);
+    public static LegacyTooltipThemeAdapter ForNativeTooltip() {
+        var adapter = new LegacyTooltipThemeAdapter(() => MeloongCore.Wpf.ModernTooltipService.ThemeCard);
+        MeloongCore.Wpf.ModernTooltipService.ThemeCardChanged += adapter.NativeCardChanged;
+        return adapter;
+    }
 #endif
     public void Install() {
         if (!installed) {
@@ -23,6 +27,9 @@ public sealed class LegacyTooltipThemeAdapter {
             EventManager.RegisterClassHandler(typeof(Border), FrameworkElement.LoadedEvent, new RoutedEventHandler(CardLoaded));
         }
         ApplyCard(currentCard());
+    }
+    private void NativeCardChanged(Border card) {
+        if (installed) ApplyCard(card);
     }
     private void ApplyCard(Border? card) {
         if (card is null) return;

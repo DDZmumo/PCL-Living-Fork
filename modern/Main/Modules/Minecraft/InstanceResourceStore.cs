@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -74,9 +79,11 @@ namespace PCL
             return InstanceResourceFileRules.AcceptFile((int)Kind, FileName);
         }
 
-        internal static List<InstanceResourceEntry> Scan(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token)
+        internal static List<InstanceResourceEntry> Scan(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token) => ScanCached(Root, Folder, Kind, Token, null);
+
+        internal static List<InstanceResourceEntry> ScanCached(string Root, string Folder, InstanceResourceKind Kind, CancellationToken Token, InstanceResourceScanCache<InstanceResourceEntry> Cache)
         {
-            return InstanceResourceCatalog.Scan(Root, Folder, (int)Kind, Token, MapDownloadInstaller.DownloadFolderName, () => new InstanceResourceEntry(), (Item, FileName, Width) => Item.Icon = LoadImage(FileName, Width), (Item, Input, Width) => Item.Icon = DecodeImage(Input, Width), Value => Value.ReplaceLineEndings(" "), PathUtils.RemoveExtendedPrefix);
+            return InstanceResourceCatalog.ScanCached(Root, Folder, (int)Kind, Token, MapDownloadInstaller.DownloadFolderName, () => new InstanceResourceEntry(), (Item, FileName, Width) => Item.Icon = LoadImage(FileName, Width), (Item, Input, Width) => Item.Icon = DecodeImage(Input, Width), Value => Value.ReplaceLineEndings(" "), PathUtils.RemoveExtendedPrefix, Cache);
         }
 
         private static string FormatSize(long Size)

@@ -17,6 +17,9 @@
             </local:MyCard>
         </StackPanel>
     </local:MyScrollViewer>
+    <Grid ClipToBounds="True">
+    <Grid x:Name="PanMoreSettings">
+    <Grid.RenderTransform><TranslateTransform x:Name="TransMoreSettings"/></Grid.RenderTransform>
     <Grid x:Name="PanDependencyOptionsAnchor" Width="260" Margin="20,0,0,108" HorizontalAlignment="Left" VerticalAlignment="Bottom">
     <local:MyCard x:Name="CardDependencyChecks" Width="260" HorizontalAlignment="Left" VerticalAlignment="Top"
                   Visibility="Collapsed" Opacity="0">
@@ -41,5 +44,7 @@
                               Logo="/LivingPCL;component/Images/Blocks/Grass.png" />
         </StackPanel>
     </local:MyCard>
+    </Grid>
+    </Grid>
     </Grid>
 </local:MyPageRight>

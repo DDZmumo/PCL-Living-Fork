@@ -15,6 +15,7 @@
                     <Binding ElementName="ItemSetup" Path="Visibility" />
                     <Binding ElementName="ItemModify" Path="Visibility" />
                     <Binding ElementName="ItemKeybindings" Path="Visibility" />
+                    <Binding ElementName="ItemPersonal" Path="Visibility" />
                 </MultiBinding>
             </TextBlock.Visibility>
         </TextBlock>
@@ -35,6 +36,7 @@
             </local:MyListItem.Buttons>
         </local:MyListItem>
         <local:MyListItem x:Name="ItemKeybindings" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="11" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="按键管理" Logo="{x:Static local:InstanceSidebarIcons.Keyboard}" />
+        <local:MyListItem x:Name="ItemPersonal" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="16" MinPaddingRight="35" Height="36" Title="基础设置同步" LogoScale="0.85" />
         <TextBlock x:Name="LabVersionTools" Text="版本工具" FontSize="12" Foreground="{DynamicResource ColorBrush1}" Opacity="0.6" Margin="16,17,0,5">
             <TextBlock.Visibility>
                 <MultiBinding Converter="{StaticResource SidebarGroupVisibility}">

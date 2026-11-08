@@ -13,7 +13,7 @@ namespace PCLCS;
 public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion>
     where TLocal : LocalResourceFileData<TProject, TVersion>
     where TProject : ResourceProjectModelData where TVersion : ResourceVersionModelData {
-    private void LoadCurseForge(List<TLocal> mods, string vanillaVersion, LocalResourceOnlineTask<TLocal> task, Thread currentTaskThread) {
+    private void LoadCurseForge(List<TLocal> mods, string vanillaVersion, ModLoaders targetLoaders, LocalResourceOnlineTask<TLocal> task, Thread currentTaskThread) {
         List<uint> hashes = new();
         foreach (TLocal entry in mods) {
             hashes.Add(entry.CurseForgeHash);
@@ -25,6 +25,7 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         if (!raw.Any()) return;
         Dictionary<int, List<TLocal>> mapping = new();
         Dictionary<TLocal, ModLoaders> loaders = new();
+        Dictionary<TLocal,TVersion> installed = new();
         foreach (JToken project in raw) {
             string projectId = project["id"]!.ToString();
             uint hash = (uint)project["file"]!["fileFingerprint"]!;
@@ -36,6 +37,7 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
                 if (!mapping.ContainsKey(id)) mapping[id] = new List<TLocal>();
                 mapping[id].Add(entry);
                 TVersion file = host.ReadVersion((JObject)project["file"]!, ResourceTypes.Mod);
+                installed[entry]=file;
                 loaders[entry] = file.ModLoaders;
                 if (entry.ProjectVersion is null || entry.ProjectVersion.ReleaseDate < file.ReleaseDate) entry.ProjectVersion = file;
             }
@@ -53,10 +55,9 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
             foreach (TLocal local in mapping[Conversions.ToInteger(project.Id)]) {
                 if (local.Project?.Platform == ResourcePlatforms.Modrinth) local.Project = local.Project;
                 else local.Project = project;
-                var latest = json["latestFilesIndexes"]!.Where(entry => {
+                var latest = (json["latestFilesIndexes"] as JArray ?? new JArray()).Where(entry => {
                     ModLoaders entryLoader = entry["modLoader"] is null ? ModLoaders.None : Resource.FromCurseForgeModLoaderType(entry["modLoader"]!.ToObject<int>());
-                    if (loaders[local] == ModLoaders.None) { if (entryLoader != ModLoaders.None) return false; }
-                    else if (!loaders[local].HasFlagF(entryLoader)) return false;
+                    if (!SupportsUpdateLoader(entryLoader,targetLoaders,loaders[local])) return false;
                     string? entryVersion = (string?)entry["gameVersion"];
                     return entryVersion is not null && entryVersion == vanillaVersion;
                 }).MaxByAll(entry => entry["gameVersion"]!.ToString(), Comparer<string>.Create(McUtils.CompareVersion));
@@ -76,8 +77,9 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         foreach (JToken json in files) {
             TVersion file = host.ReadVersion((JObject)json, ResourceTypes.Mod);
             if (!file.DownloadAvailable) continue;
+            if (json["gameVersions"]?.Any(version=>version.ToString()==vanillaVersion)!=true) continue;
             foreach (TLocal entry in updateFileIds[Conversions.ToInteger(file.Id)]) {
-                if (file.ModLoaders != loaders[entry]) {
+                if (!SupportsUpdateLoader(file.ModLoaders,targetLoaders,loaders[entry])) {
                     host.WarnQuiet($"从 CurseForge 获取到的更新文件 {file.FileName} 加载器为 {file.ModLoaders}，与本地文件 {entry.File.Name} 的加载器 {loaders[entry]} 不一致，已忽略"); continue;
                 }
                 if (updates.ContainsKey(entry) && updates[entry].ReleaseDate >= file.ReleaseDate) continue;
@@ -87,8 +89,9 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
         foreach (var pair in updates) {
             TLocal entry = pair.Key;
             TVersion update = pair.Value;
-            host.Trace(() => $"本地文件 {entry.ProjectVersion!.FileName} 在 CurseForge 上的最新版为 {update.FileName}");
-            if (entry.ProjectVersion!.ReleaseDate >= update.ReleaseDate || (entry.ProjectVersion.Hash ?? "") == (update.Hash ?? "")) continue;
+            TVersion current=installed[entry];
+            host.Trace(() => $"本地文件 {current.FileName} 在 CurseForge 上的最新版为 {update.FileName}");
+            if (current.ReleaseDate >= update.ReleaseDate || (current.Hash ?? "") == (update.Hash ?? "")) continue;
             string changelog = $"https://www.curseforge.com/minecraft/mc-mods/{slugs[Conversions.ToInteger(update.Id)]}/files/{update.Id}";
             if (entry.UpdateFile is not null && (update.Hash ?? "") == (entry.UpdateFile.Hash ?? "")) {
                 entry.ChangelogUrls.Add(changelog);

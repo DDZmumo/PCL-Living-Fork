@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,9 +14,9 @@ using System.Windows.Media;
 namespace PCLCS;
 
 // LF Controls/ModDependencyImpactView.vb at f4aa0fae62c3ee8af24c81e61844c8fdd13c8983,
-// unchanged at the C016 start; LF LICENCE. No PCL 5ef81e4 counterpart exists.
+// unchanged at the C016 start; MPL-2.0 for PCLLF-original code. No PCL 5ef81e4 counterpart exists.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 ModCompDependency.cs was reviewed
-// (CE Plain Craft Launcher 2/LICENCE; LF LICENCE); platform candidates remain references, not new hard constraints.
+// (CE Plain Craft Launcher 2/LICENCE; MPL-2.0 for PCLLF-original code); platform candidates remain references, not new hard constraints.
 public static class ModDependencyImpactViewController<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile, TItem>
     where TContext : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.ContextData, new()
     where TMod : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.ModData, new()

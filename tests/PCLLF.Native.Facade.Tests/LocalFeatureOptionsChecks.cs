@@ -18,12 +18,14 @@ internal static class LocalFeatureOptionsChecks
         string targetFile = Path.Combine(target.PathVersion, "options.txt"); Put(targetFile, original);
         scope.SetGlobal("LaunchPersonalOptionsSync", true);
         Options("ImportFrom", source);
+        FirstLaunch(scope);
         object session = Options("Prepare", target)!;
         L(43, session is not null && session.GetType().FullName == "PCL.PersonalOptionsSession");
         foreach (string name in new[] { "Id", "VersionPath", "GameFolder", "Baseline", "Keys", "Tracked" }) L(44, session!.GetType().GetField(name, Native.Flags) is not null, name);
         L(45, (string)Native.Get(session!, "VersionPath")! == target.PathVersion && (string)Native.Get(session!, "GameFolder")! == target.PathIndie && !(bool)Native.Get(session!, "Tracked")!);
         string merged = File.ReadAllText(targetFile);
-        L(47, merged.Contains("mouseSensitivity:0.8", StringComparison.Ordinal) && merged.Contains("key_key.forward:key.keyboard.r", StringComparison.Ordinal) && merged.Contains("showSubtitles:true", StringComparison.Ordinal));
+        // The user-requested basic-only scope supersedes the historical subtitle-copy expectation.
+        L(47, merged.Contains("mouseSensitivity:0.8", StringComparison.Ordinal) && merged.Contains("key_key.forward:key.keyboard.r", StringComparison.Ordinal) && merged.Contains("showSubtitles:false", StringComparison.Ordinal), "Basic-only policy must preserve version-specific subtitle settings.");
         foreach (string line in new[] { "renderDistance:32", "resourcePacks:[\"author-target.zip\"]", "key_mod.magic:key.keyboard.v" }) L(48, merged.Contains(line, StringComparison.Ordinal), line);
         L(49, merged.EndsWith("\r\n", StringComparison.Ordinal) && File.ReadAllText(targetFile + ".pcl-backup") == original);
         Put(targetFile, merged.Replace("mouseSensitivity:0.8", "mouseSensitivity:0.6").Replace("renderDistance:32", "renderDistance:20"));
@@ -76,8 +78,31 @@ internal static class LocalFeatureOptionsChecks
         L(129, recent.Count == 1 && (string)Native.Get(recent[0]!, "VersionPath")! == target.PathVersion && (string)Native.Get(recent[0]!, "Identifier")! == "World with spaces");
         L(130, File.ReadAllText(Path.Combine(world, "region", "keep.txt")) == "world-data-preserve"); File.Delete(Path.Combine(world, "level.dat")); L(132, ((IList)Quick("Recent")!).Count == 0);
         BindingFiles(target, targetFile);
-        Console.WriteLine("PASS local-features personal/QuickPlay: original options/session/file/argument/mod binding assertions and independent CLR4 FOV/path comparisons.");
+        Console.WriteLine("PASS local-features personal/QuickPlay: basic-only options policy plus session/file/argument/mod binding assertions and independent CLR4 FOV/path comparisons.");
     }
+    private static void FirstLaunch(Scope scope)
+    {
+        foreach (string mode in new[] { "missing", "launcher-stub", "yosbr" }) {
+            ModMinecraft.McInstance fresh = Instance(scope, "first-" + mode, "1.20.1");
+            string file = Path.Combine(fresh.PathIndie, "options.txt");
+            string defaults = Path.Combine(fresh.PathIndie, "config/yosbr/options.txt");
+            if (mode == "launcher-stub") Put(file, "lang:zh_cn\nfullscreen:false\n");
+            if (mode == "yosbr") Put(defaults, "renderDistance:17\nkey_mod.action:key.keyboard.z\n");
+            Native.Check(Options("Prepare", fresh) is not null, "First launch did not create a personal options session: " + mode);
+            string actual = File.ReadAllText(file);
+            Native.Check(actual.Contains("mouseSensitivity:0.8", StringComparison.Ordinal) && actual.Contains("key_key.forward:key.keyboard.r", StringComparison.Ordinal),
+                "First launch skipped selected basic settings: " + mode);
+            if (mode == "launcher-stub") Native.Check(actual.Contains("lang:zh_cn", StringComparison.Ordinal) && File.Exists(file + ".pcl-backup"), "Launcher defaults or original-file backup were lost.");
+            else Native.Check(!File.Exists(file + ".pcl-backup"), "A previously absent options file acquired a fictitious backup.");
+            if (mode == "yosbr") Native.Check(actual.Contains("renderDistance:17", StringComparison.Ordinal) && actual.Contains("key_mod.action:key.keyboard.z", StringComparison.Ordinal) &&
+                File.ReadAllText(defaults) == "renderDistance:17\nkey_mod.action:key.keyboard.z\n", "First launch discarded or rewrote modpack defaults.");
+            File.Delete(file);
+            IList bindings = (IList)Bindings("ReadBindings", fresh.PathIndie, CancellationToken.None)!;
+            Native.Check(bindings.Count == 31 && bindings.Cast<object>().All(row => !(bool)Native.Get(row, "Saved")!) && !File.Exists(file),
+                "Reading deleted options must return unsaved vanilla defaults without recreating the file.");
+        }
+    }
+
     private static void BindingFiles(ModMinecraft.McInstance target, string file)
     {
         Put(file, File.ReadAllText(file) + "key_fixture.action:key.keyboard.r\r\nkey_other.action:key.keyboard.r\r\nkey_unknown.action:key.keyboard.t\r\n");

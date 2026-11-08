@@ -15,6 +15,7 @@ internal static class InstanceKeybindingReaderTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("keybinding reader default fields, order and derived identity stay compatible", DefaultsAndFields);
         yield return ("keybinding reader missing options ignores cancellation and bad mods", MissingOptions);
+        yield return ("deleted options clears old custom bindings and returns unsaved vanilla defaults", DeletedOptions);
         yield return ("keybinding reader constructs all defaults before matching existing rows", FactorySequence);
         yield return ("keybinding reader duplicates move to last position and keep raw values", Duplicates);
         yield return ("keybinding reader swap aliases keep first matching original row", AliasOrder);
@@ -90,6 +91,19 @@ internal static class InstanceKeybindingReaderTests {
         Equal(0, fixture.Guards.Count);
         Equal(0, fixture.Warnings.Count);
         Equal(false, File.Exists(fixture.OptionsPath));
+    }
+    private static void DeletedOptions() {
+        using Fixture fixture=new();
+        fixture.Options("key_key.forward:key.keyboard.r\nkey_fixture.action:key.keyboard.h\n");
+        var saved=fixture.Read();
+        Equal("key.keyboard.r",Find(saved,"key_key.forward").Value);
+        Equal(true,Find(saved,"key_key.forward").Saved);
+        File.Delete(fixture.OptionsPath);
+        var current=fixture.Read();
+        Equal(31,current.Count); Equal(true,current.All(row=>!row.Saved));
+        Equal("key.keyboard.w",Find(current,"key_key.forward").Value);
+        Equal(false,current.Any(row=>row.Key=="key_fixture.action"));
+        Equal(false,File.Exists(fixture.OptionsPath));
     }
 
     private static void FactorySequence() {

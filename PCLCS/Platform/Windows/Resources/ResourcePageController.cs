@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -57,7 +62,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         InstanceResourceEntryValidator.ValidateEntry(root, entry, (parent, file) => EnsureWithin(parent, file));
 
     public void PageLoaded() {
-        Host.BindExternalEvents(true, Refresh, MainKeyDown);
+        Host.BindExternalEvents(true, RefreshChangedResources, MainKeyDown);
         ClearSelection(); View.ScrollHome(); Refresh();
     }
     public void ClearSelection() {
@@ -67,7 +72,8 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         Rendering = false; SelectResource(null);
     }
     public void PageUnloaded() {
-        Host.BindExternalEvents(false, Refresh, MainKeyDown);
+        CancelWorldRefresh();
+        Host.BindExternalEvents(false, RefreshChangedResources, MainKeyDown);
         Host.CancelLoader();
         foreach (var tile in ScreenshotRows.Values) tile.ReleaseThumbnail();
         Operation?.Cancel(); CancelOnline(); View.StopSelectionBar();
@@ -75,6 +81,8 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         View.CardSelect.Opacity = 0; View.TransSelect.Y = -10;
     }
     public void Refresh() {
+        CancelWorldRefresh();
+        Host.ClearScanCache?.Invoke();
         TInstance? instance = Host.CurrentInstance();
         if (instance is null || !Host.AllowsInstance(instance)) return;
         string gameFolder = Host.GameFolder(instance);
@@ -113,6 +121,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         ShowResources(result.Request.Root, result.Request.Folder, result.Entries); CheckUpdates();
     }
     public void ShowResources(string root, string folder, IEnumerable<TEntry> items) {
+        hasWorldSnapshot = Kind == 0 && !IsRecycleMode;
         CurrentRoot = root; CurrentFolder = folder; Entries = items.ToList();
         View.BackupSettings.Visibility = Kind == 0 ? Visibility.Visible : Visibility.Collapsed;
         View.BtnBackupAll.Visibility = View.BackupSettings.Visibility;
@@ -372,6 +381,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     }
     private bool ConfirmImport() => !Host.ModpackEnabled() || Host.Message("更改整合包的本地资源可能影响整合包运行。是否继续导入？", "整合包资源管理", "继续", "取消", true) == 1;
     private void RunOperation(string name, Action<CancellationToken> work) {
+        CancelWorldRefresh();
         CancelOnline(); Busy = true; Operation = new CancellationTokenSource(); CancellationToken token = Operation.Token; TInstance? target = Owner;
         SetStatus("正在" + name + "……"); UpdateButtons();
         Thread worker = new(() => {
@@ -383,7 +393,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
                     else SetStatus(name + "完成。");
                 } else if (failure is OperationCanceledException) SetStatus("操作已取消，已完成的内容会保留。");
                 else { SetStatus(failure.Message); Host.Error(failure, name + "失败"); }
-                if (ReferenceEquals(Owner, target) && View.Root.IsLoaded) Refresh();
+                if (ReferenceEquals(Owner, target) && View.Root.IsLoaded) RefreshChangedResources();
             });
         }) { Name = "Resource " + name, IsBackground = true };
         worker.Start();

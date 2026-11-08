@@ -41,6 +41,9 @@ internal static class BackupResourceGroupChecks
             MyLocalModItem row = (MyLocalModItem)rows.Children[0];
             row.Checked = true;
             Native.Check(Selected(group) == 1 && events == 1, "Backup selection did not notify its parent exactly once.");
+            Native.Call(group.GetType(), "Bind", group, owner, "Folder A", points.Select(point => (JObject)point.DeepClone()).ToList());
+            Native.Check(ReferenceEquals(row, rows.Children[0]) && row.Checked && Selected(group) == 1 && events == 1 && !card.IsSwapped,
+                "Refreshing unchanged backup records rebuilt native rows or lost selection/expansion.");
             Native.Call(group.GetType(), "ClearSelection", group, false);
             Native.Check(Selected(group) == 0 && !row.Checked && events == 1, "Silent backup deselection was not silent or failed to clear rows.");
             row.Checked = true;

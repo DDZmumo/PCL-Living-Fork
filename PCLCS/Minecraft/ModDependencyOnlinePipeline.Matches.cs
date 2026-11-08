@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -195,6 +200,7 @@ public sealed partial class ModDependencyOnlinePipeline<TContext,TMod,TDependenc
                         continue;
                     string Name = Caption(S(Version["version_number"]));
                     Work.Cache.Write("version|Modrinth|" + Id, new JObject(new JProperty("project", Project), new JProperty("name", Name)), Work.Now(), Work.Lifetime(true));
+                    Work.Cache.Write("archive-version|Modrinth|" + Id, Version, Work.Now(), Work.Lifetime(true));
                     foreach (var Requirement in Requirements.Where(Item => (Item.VersionId ?? "") == (Id ?? "")))
                     {
                         if (string.IsNullOrEmpty(Requirement.ProjectId) || (Requirement.ProjectId ?? "") == (Project ?? ""))
@@ -361,7 +367,12 @@ public sealed partial class ModDependencyOnlinePipeline<TContext,TMod,TDependenc
                                     Requirement.EnabledPaths.Add(Provider.FullPath);
                             }
                         }
-                        if (Requirement.EnabledPaths.Count > 0)
+                        var runtime = ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.RuntimeProvidersForPlatformDependency(Report, File.FullPath, Requirement);
+                        bool loaderSatisfied = Requirement.Kind == "required" && runtime.Count > 0;
+                        if (loaderSatisfied && Requirement.MatchedPaths.Count == 0) {
+                            Requirement.Status = "本地加载器声明已满足：" + string.Join("、", runtime.Select(item=>item.RootPath).Distinct(StringComparer.OrdinalIgnoreCase).Select(Path.GetFileName)) + "；平台指定文件仅作参考。";
+                        }
+                        else if (Requirement.EnabledPaths.Count > 0)
                         {
                             Requirement.Status = "精确映射到启用文件：" + string.Join("、", Requirement.EnabledPaths.Select(Value => Path.GetFileName(Value)));
                         }

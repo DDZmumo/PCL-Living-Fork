@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 全局项目收藏：下载、版本资源管理与收藏页同步，跨文件和版本去重\r\n- 整合包更新独立侧栏，预览中处理缺失前置与不兼容模组\r\n- 更新任务分项显示原生进度，增加文件读取和写入速度\r\n- 顶栏快捷切换深浅色，圆角侧栏、渐变光圈与夜间星光\r\n- 更新公告可选择下次更新前不再弹出，暂缓更新后可从顶栏重开\r\n- 改善部分 Windows 10 启动兼容性，更新 README 与项目日历\r\n- 精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- PCLLF 原创独立代码采用 MPL-2.0，关于页可离线查看许可与来源\r\n- 个人基础设置同步独立侧栏，全局和版本设置均支持编辑后保存\r\n- 修复跨平台前置误报和模组更新漏报，保留本地依赖版本范围检查\r\n- 首页更多设置可统一收起面板，展开沿用 PCL 回弹动画\r\n- 修复深色主题提示框，完善原生开关、键位和拖动条对照\r\n- 预发布精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());

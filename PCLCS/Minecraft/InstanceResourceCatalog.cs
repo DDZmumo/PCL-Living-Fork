@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,6 +13,34 @@ using Newtonsoft.Json;
 
 namespace PCLCS;
 
+/// <summary>Page-owned world metadata/icon cache; file stamps are checked on each directory listing.</summary>
+public sealed class InstanceResourceScanCache<TEntry> where TEntry : InstanceResourceEntryData {
+    private readonly object gate = new();
+    private readonly Dictionary<string, (string Stamp, TEntry Entry)> values = new(StringComparer.OrdinalIgnoreCase);
+    public void Clear() { lock (gate) values.Clear(); }
+    private static string FileStamp(string path) {
+        var file = new FileInfo(path);
+        return file.Exists ? file.Length + ":" + file.LastWriteTimeUtc.Ticks + ":" + file.CreationTimeUtc.Ticks + ":" + (int)file.Attributes : "missing";
+    }
+    internal static string Stamp(FileSystemInfo directory) {
+        // Windows enumeration can lag the directory timestamp after closing a new file.
+        directory.Refresh();
+        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException("不能缓存链接目录中的存档。");
+        return directory.LastWriteTimeUtc.Ticks + ":" + directory.CreationTimeUtc.Ticks + ":" +
+            FileStamp(Path.Combine(directory.FullName, "level.dat")) + ":" + FileStamp(Path.Combine(directory.FullName, "icon.png"));
+    }
+    internal bool TryGet(string path, string stamp, out TEntry? entry) {
+        lock (gate) {
+            if (values.TryGetValue(path, out var cached) && cached.Stamp == stamp) { entry = cached.Entry; return true; }
+        }
+        entry = null; return false;
+    }
+    internal void Store(string path, string stamp, TEntry entry) { lock (gate) values[path] = (stamp, entry); }
+    internal void Prune(string folder, ISet<string> current) {
+        lock (gate) foreach (string path in values.Keys.Where(path => string.Equals(Path.GetDirectoryName(path), folder, StringComparison.OrdinalIgnoreCase) && !current.Contains(path)).ToArray()) values.Remove(path);
+    }
+}
+
 /// <summary>LF 本地资源扫描、包信息与图片文件读取；图片呈现由原宿主同步完成。</summary>
 public static class InstanceResourceCatalog {
     // LF f4aa0fae62c3ee8af24c81e61844c8fdd13c8983 InstanceResourceStore:
@@ -16,7 +49,13 @@ public static class InstanceResourceCatalog {
     public static List<TEntry> Scan<TEntry>(string root, string folder, int kind, CancellationToken token,
             string downloadFolderName, Func<TEntry> factory, Action<TEntry, string, int> loadFileIcon,
             Action<TEntry, Stream, int> decodeStreamIcon, Func<string, string> normalizeLineEndings,
-            Func<string, string> removeExtendedPrefix) where TEntry : InstanceResourceEntryData {
+            Func<string, string> removeExtendedPrefix) where TEntry : InstanceResourceEntryData =>
+        ScanCached(root, folder, kind, token, downloadFolderName, factory, loadFileIcon, decodeStreamIcon, normalizeLineEndings, removeExtendedPrefix, null);
+
+    public static List<TEntry> ScanCached<TEntry>(string root, string folder, int kind, CancellationToken token,
+            string downloadFolderName, Func<TEntry> factory, Action<TEntry, string, int> loadFileIcon,
+            Action<TEntry, Stream, int> decodeStreamIcon, Func<string, string> normalizeLineEndings,
+            Func<string, string> removeExtendedPrefix, InstanceResourceScanCache<TEntry>? cache) where TEntry : InstanceResourceEntryData {
         InstanceResourcePaths.EnsureWithin(root, folder, true, removeExtendedPrefix);
         var result = new List<TEntry>();
         if (!Directory.Exists(folder)) return result;
@@ -38,6 +77,8 @@ public static class InstanceResourceCatalog {
                     continue;
                 }
 
+                string? worldStamp = kind == 0 && isDirectory && cache is not null ? InstanceResourceScanCache<TEntry>.Stamp(child) : null;
+                if (worldStamp is not null && cache!.TryGet(child.FullName, worldStamp, out TEntry? unchanged)) { result.Add(unchanged!); continue; }
                 TEntry entry = factory();
                 entry.Name = child.Name;
                 entry.FullPath = child.FullName;
@@ -63,10 +104,12 @@ public static class InstanceResourceCatalog {
                     (entry.LastPlayedUtc.HasValue ? entry.LastPlayedUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "未知") :
                     detail + " · " + child.LastWriteTime.ToString("yyyy-MM-dd HH:mm");
                 result.Add(entry);
+                if (worldStamp is not null) cache!.Store(child.FullName, worldStamp, entry);
             } catch (Exception error) when (error is IOException or UnauthorizedAccessException) {
                 // Moving/unreadable individual children do not hide other entries.
             }
         }
+        if (kind == 0 && cache is not null) cache.Prune(folder, new HashSet<string>(result.Select(entry => entry.FullPath!), StringComparer.OrdinalIgnoreCase));
         if (kind != 0 && kind != 1)
             return result.OrderByDescending(item => item.IsDirectory)
                 .ThenBy(item => item.Name, Comparer<string?>.Create(InstanceResourcePathText.ComparePathText)).ToList();

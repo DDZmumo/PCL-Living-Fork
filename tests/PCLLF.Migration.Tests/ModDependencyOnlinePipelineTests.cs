@@ -20,6 +20,10 @@ using Online = PCLCS.ModDependencyOnlinePipeline<ModDependencyInspectorPipelineT
 internal static class ModDependencyOnlinePipelineTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("platform review uses exact active files and keeps local errors authoritative", PlatformReview);
+        yield return ("mixed-source GeckoLib satisfying loader ranges does not trigger a pinned platform warning", MixedSourceCompatiblePin);
+        yield return ("CurseForge-only GeckoLib is verified through hashed reference metadata without name guessing", MixedSourceArchiveIdentity);
+        if (Environment.GetEnvironmentVariable("PCLLF_ISSUE16_REAL_DIR") is string real && !string.IsNullOrWhiteSpace(real))
+            yield return ("issue16 actual Modrinth Mowzie 1.7.3 and CurseForge GeckoLib 4.8.4",()=>RealMixedSource(real));
         yield return ("mod online pipeline maps real SHA1 matches without promoting project IDs into the local graph", ExactModrinth);
         yield return ("mod online pipeline streams real fingerprints and requires content size game and project identity", ContentGuards);
         yield return ("mod online pipeline clones cached JSON and expires content results while remapping current paths", CacheAndFreshPaths);
@@ -56,7 +60,118 @@ internal static class ModDependencyOnlinePipelineTests {
         Equal(before, report.HasErrors);
     }
     private static void Equal<T>(T expected, T actual) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"Expected {expected}, got {actual}."); }
+    private static void MixedSourceCompatiblePin() {
+        using Fixture fixture = new();
+        string folder = fixture.Folder("issue16-mixed-sources");
+        string owner = fixture.ForgeJar(folder,"mowziesmobs.jar","mowziesmobs","1.7.3","geckolib","[4.5,5)");
+        string peer = fixture.ForgeJar(folder,"geckolib-curseforge.jar","geckolib","4.7.2");
+        Context context = new() { MinecraftVersion="1.20.1",JavaVersion="17",LoaderKnown=true }; context.LoaderVersions["forge"]="47.3.0";
+        Report local = Local.Inspect(folder,context);
+        True(!local.HasErrors && local.Edges.Any(edge=>edge.Requirement.Id=="geckolib" && edge.StateValue==ModDependencyMatchState.Satisfied),"The mixed-source fixture must satisfy actual Forge declarations.");
+        Network network = new();
+        network.Versions = new JObject {
+            [Sha1(owner)] = MrVersion(owner,"BFbX9xcm","WMCZ4t5U",new JArray(new JObject { ["project_id"]="8BmcQJ2H",["version_id"]="RBA7lJaW",["dependency_type"]="required" })),
+            [Sha1(peer)] = MrVersion(peer,"8BmcQJ2H","GeckoNew")
+        };
+        network.Projects = new JArray(Project("BFbX9xcm"),Project("8BmcQJ2H"));
+        network.VersionProjects = new JArray(new JObject { ["id"]="RBA7lJaW",["project_id"]="8BmcQJ2H",["version_number"]="4.5.0" });
+        network.CfProjects = new JObject { ["data"] = new JArray(new JObject { ["id"]=388172,["name"]="GeckoLib",["classId"]=6,
+            ["links"]=new JObject { ["websiteUrl"]="https://www.curseforge.com/minecraft/mc-mods/geckolib" } }) };
+        network.Respond = (url,_,_,_) => url != Network.CfFingerprints ? network.Response(url) : new JObject {
+            ["data"] = new JObject { ["exactMatches"] = new JArray(new JObject { ["id"]=388172,["file"] = new JObject {
+                ["id"]=6000001,["modId"]=388172,["gameId"]=432,["fileLength"]=new FileInfo(peer).Length,["fileFingerprint"]=17,
+                ["hashes"]=new JArray(new JObject { ["algo"]=1,["value"]=Sha1(peer) }) } }) }
+        };
+        Options options=network.CreateOptions(); options.ComparePlatformDependencies=true;
+        Report report = Engine(network).Enrich(local,folder,options:options);
+        var requirement = OnlineFileInfo(report,owner).Matches.Single(match=>match.Platform=="Modrinth").Dependencies.Single();
+        True(OnlineFileInfo(report,peer).Matches.Any(match=>match.Platform=="CurseForge" && match.IsExact),"The provider must also be identified as a genuine CurseForge content match.");
+        Equal(peer,requirement.ProjectPaths.Single());
+        Equal(1,Local.RuntimeProvidersForPlatformDependency(report,owner,requirement).Count);
+        string pinnedVersion=requirement.VersionId;
+        requirement.VersionId=""; Online.MapRelations(report);
+        True(requirement.EnabledPaths.Contains(peer) && report.PlatformReviewNotes().Count==0,"An unpinned mixed-source requirement must be found without changing files or loader declarations.");
+        requirement.VersionId=pinnedVersion; Online.MapRelations(report);
+        True(report.PlatformReviewNotes().Count==0,"Issue #16: a compatible installed GeckoLib still triggers a required-platform prompt: "+string.Join("; ",report.PlatformReviewNotes()));
+        network.Healthy();
+    }
+    private static void MixedSourceArchiveIdentity() {
+        foreach (string mode in new[] { "valid", "wrong-hash", "wrong-id", "disabled", "old-version", "incompatible-loader", "oversized", "untrusted-url", "timeout" }) {
+            using Fixture fixture = new(); string folder=fixture.Folder("cross-source-"+mode);
+            string owner=fixture.ForgeJar(folder,"mowziesmobs.jar","mowziesmobs","1.7.3","geckolib","[4.4.2,)");
+            string peer=fixture.ForgeJar(folder,"geckolib-curseforge.jar"+(mode=="disabled"?".disabled":""),"geckolib",mode=="old-version"?"3.0.0":"4.8.4");
+            string reference=fixture.ForgeJar(fixture.Folder("reference"),"reference.jar",mode=="wrong-id"?"another_library":"geckolib","4.4.9");
+            if(mode=="incompatible-loader") {
+                File.Delete(reference); reference=fixture.Jar(fixture.Folder("fabric-reference"),"reference.jar","geckolib");
+            }
+            Context context=new() { MinecraftVersion="1.20.1",JavaVersion="17",LoaderKnown=true }; context.LoaderVersions["forge"]="47.3.0";
+            Network network=new();
+            network.Versions=new JObject { [Sha1(owner)]=MrVersion(owner,"BFbX9xcm","WMCZ4t5U",new JArray(new JObject { ["project_id"]="8BmcQJ2H",["version_id"]="RBA7lJaW",["dependency_type"]="required" })) };
+            JObject referenceVersion=MrVersion(reference,"8BmcQJ2H","RBA7lJaW"); referenceVersion["version_number"]="4.4.9";
+            referenceVersion["files"]![0]!["url"]="https://cdn.modrinth.com/data/8BmcQJ2H/versions/RBA7lJaW/reference.jar";
+            if(mode=="oversized") referenceVersion["files"]![0]!["size"]=4*1024*1024+1;
+            if(mode=="untrusted-url") referenceVersion["files"]![0]!["url"]="https://example.invalid/reference.jar";
+            network.VersionProjects=new JArray(referenceVersion); network.Projects=new JArray(Project("BFbX9xcm"),Project("8BmcQJ2H"));
+            network.CfProjects=new JObject { ["data"]=new JArray(new JObject { ["id"]=388172,["name"]="GeckoLib",["classId"]=6,["links"]=new JObject { ["websiteUrl"]="https://www.curseforge.com/minecraft/mc-mods/geckolib" } }) };
+            network.Respond=(url,_,_,_)=>url!=Network.CfFingerprints?network.Response(url):new JObject { ["data"]=new JObject { ["exactMatches"]=new JArray(new JObject { ["id"]=388172,["file"]=new JObject {
+                ["id"]=8285794,["modId"]=388172,["gameId"]=432,["fileLength"]=new FileInfo(peer).Length,["fileFingerprint"]=17,["hashes"]=new JArray(new JObject { ["algo"]=1,["value"]=Sha1(peer) }) } }) } };
+            Options options=network.CreateOptions(); options.ComparePlatformDependencies=true;
+            int archiveReads=0;
+            options.ArchiveRequest=(url,maximum,token)=> {
+                archiveReads++; token.ThrowIfCancellationRequested();
+                if(mode=="timeout")throw new OperationCanceledException();
+                True(ModDependencyTransport.IsAllowedArchive(url) && maximum==new FileInfo(reference).Length,"Unbounded or untrusted archive metadata read.");
+                byte[] bytes=File.ReadAllBytes(reference); if(mode=="wrong-hash")bytes[^1]^=1; return bytes;
+            };
+            var report=Engine(network).Enrich(Local.Inspect(folder,context),folder,options:options);
+            var requirement=OnlineFileInfo(report,owner).Matches.Single(match=>match.Platform=="Modrinth").Dependencies.Single();
+            Equal(0,requirement.ProjectPaths.Count);
+            bool compatible=mode=="valid";
+            Equal(0,requirement.EnabledPaths.Count);
+            Equal(compatible,Local.RuntimeProvidersForPlatformDependency(report,owner,requirement).Any(mod=>mod.RootPath==peer));
+            Equal(compatible,report.PlatformReviewNotes().Count==0);
+            True(archiveReads<=1 && (!compatible || archiveReads==1),"Cross-platform verification did not use a bounded content check.");
+            if(mode is "disabled" or "old-version")True(report.HasErrors,"A real local loader error was erased.");
+            if(compatible) {
+                Equal("geckolib",requirement.VerifiedLoaderIds.Single());
+                report=Engine(network).Enrich(Local.Inspect(folder,context),folder,options:options);
+                Equal(1,archiveReads);
+                True(report.PlatformReviewNotes().Count==0,"Cached cross-platform result lost proof: "+string.Join(";",report.PlatformReviewNotes())+" / ids="+
+                    string.Join(",",OnlineFileInfo(report,owner).Matches.Single(match=>match.Platform=="Modrinth").Dependencies.Single().VerifiedLoaderIds)+" / edges="+
+                    string.Join(",",report.Edges.Select(edge=>edge.Owner.Id+"/"+edge.Owner.Enabled+"->"+edge.Requirement.Id+"/"+edge.StateValue+"/"+edge.Providers.Count))+" / cached="+
+                    network.Cache.Read("loader-ids|Modrinth|8BmcQJ2H|RBA7lJaW|1.20.1|forge",network.Now)+" / notes="+string.Join(";",report.OnlineNotes));
+            }
+            network.Healthy();
+        }
+    }
     private static void True(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
+    private static void RealMixedSource(string source) {
+        using Fixture fixture=new(); string folder=fixture.Folder("real-mixed-source");
+        JObject metadata=JObject.Parse(File.ReadAllText(Path.Combine(source,"platform-metadata.json")));
+        JObject ownerVersion=(JObject)metadata["owner"]!, provider=(JObject)metadata["provider"]!, referenceVersion=(JObject)metadata["reference"]!;
+        string owner=Path.Combine(folder,(string)ownerVersion["files"]![0]!["filename"]!), peer=Path.Combine(folder,(string)provider["fileName"]!);
+        File.Copy(Path.Combine(source,Path.GetFileName(owner)),owner); File.Copy(Path.Combine(source,Path.GetFileName(peer)),peer);
+        Context context=new() { MinecraftVersion="1.20.1",JavaVersion="17",LoaderKnown=true }; context.LoaderVersions["forge"]="47.3.0";
+        Report local=Local.Inspect(folder,context); True(!local.HasErrors,"Actual published JARs have local loader errors: "+local.ToSummary());
+        Network network=new() { Versions=new JObject { [Sha1(owner)]=ownerVersion },VersionProjects=new JArray(referenceVersion),Projects=new JArray(Project("BFbX9xcm"),Project("8BmcQJ2H")),
+            CfProjects=new JObject { ["data"]=new JArray(new JObject { ["id"]=388172,["name"]="GeckoLib",["classId"]=6,["links"]=new JObject { ["websiteUrl"]="https://www.curseforge.com/minecraft/mc-mods/geckolib" } }) } };
+        network.Respond=(url,_,_,_)=>url==Network.CfFingerprints ? new JObject { ["data"]=new JObject { ["exactMatches"]=new JArray(new JObject { ["id"]=388172,["file"]=provider }) } }:network.Response(url);
+        Options options=network.CreateOptions(); options.ComparePlatformDependencies=true; options.Fingerprint=null;
+        int references=0;
+        options.ArchiveRequest=(url,maximum,token)=> {
+            references++; token.ThrowIfCancellationRequested();
+            Equal((string)referenceVersion["files"]![0]!["url"]!,url);
+            byte[] bytes=File.ReadAllBytes(Path.Combine(source,(string)referenceVersion["files"]![0]!["filename"]!));
+            Equal(maximum,bytes.LongLength); return bytes;
+        };
+        var report=Engine(network).Enrich(local,folder,options:options);
+        True(OnlineFileInfo(report,peer).Matches.Any(match=>match.Platform=="CurseForge" && match.IsExact) && OnlineFileInfo(report,peer).Matches.All(match=>match.Platform!="Modrinth"),
+            "The reference case must identify CurseForge while retaining the missing Modrinth hash match.");
+        Equal(1,references); True(report.PlatformReviewNotes().Count==0,"Actual mixed-source review failed: "+string.Join(";",report.PlatformReviewNotes())+" / "+string.Join(";",report.OnlineNotes)); True(!report.HasErrors,"The real loader report changed.");
+        var dependency=OnlineFileInfo(report,owner).Matches.Single().Dependencies.Single();
+        Equal(peer,Local.RuntimeProvidersForPlatformDependency(report,owner,dependency).Single().RootPath); Equal("geckolib",dependency.VerifiedLoaderIds.Single());
+        network.Healthy();
+    }
     private static Report Scan(string folder) {
         Context context = new() { MinecraftVersion = "1.20.1", JavaVersion = "17", LoaderKnown = true }; context.LoaderVersions["fabricloader"] = "0.16";
         return Local.Inspect(folder, context);
@@ -262,6 +377,14 @@ internal static class ModDependencyOnlinePipelineTests {
             string path = Path.Combine(folder, name); using ZipArchive archive = ZipFile.Open(path, ZipArchiveMode.Create);
             using StreamWriter writer = new(archive.CreateEntry(id is null ? "fixture.txt" : "fabric.mod.json").Open(), new UTF8Encoding(false));
             writer.Write(id is null ? "unrecognized fixture " + name : new JObject { ["schemaVersion"] = 1, ["id"] = id, ["version"] = "1.0" }.ToString(Formatting.None)); return path;
+        }
+        internal string ForgeJar(string folder,string name,string id,string version,string? dependency=null,string range="*") {
+            string path=Path.Combine(folder,name);
+            using ZipArchive archive=ZipFile.Open(path,ZipArchiveMode.Create);
+            using StreamWriter writer=new(archive.CreateEntry("META-INF/mods.toml").Open(),new UTF8Encoding(false));
+            writer.Write("modLoader=\"javafml\"\nloaderVersion=\"[47,)\"\n[[mods]]\nmodId=\""+id+"\"\nversion=\""+version+"\"\n");
+            if(dependency is not null)writer.Write("[[dependencies."+id+"]]\nmodId=\""+dependency+"\"\nmandatory=true\nversionRange=\""+range+"\"\n");
+            return path;
         }
         public void Dispose() {
             Local.Index.ClearMemory();

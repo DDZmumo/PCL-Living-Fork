@@ -106,7 +106,10 @@ public static class LegacySettingsDefinitions {
         Add("LaunchPersonalOptionsView", true, LegacySettingSource.Registry);
         Add("LaunchPersonalOptionsAccessibility", true, LegacySettingSource.Registry);
         Add("LaunchPersonalOptionsAudio", false, LegacySettingSource.Registry);
+        Add("LaunchPersonalOptionsExcluded", "[]", LegacySettingSource.Registry);
+        Add("LaunchPersonalOptionsCapture", true, LegacySettingSource.Registry);
         Add("LaunchRecentWorlds", true, LegacySettingSource.Registry);
+        Add("UiLaunchMoreSettings", false, LegacySettingSource.Registry);
         Add("LaunchArgumentInfo", "PCL");
         Add("LaunchArgumentJavaSelect", "", LegacySettingSource.Registry);
         Add("LaunchArgumentJavaAll", "[]", LegacySettingSource.Registry);

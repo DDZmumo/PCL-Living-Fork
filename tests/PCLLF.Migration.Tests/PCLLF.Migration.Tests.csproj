@@ -7,6 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../PCLCS/Toolbox/SymbioLauncherSwitch.cs" Link="Production/SymbioLauncherSwitch.cs" />
+    <Compile Include="../../PCLCS/Toolbox/LegacyDailyLuck.cs" Link="Production/LegacyDailyLuck.cs" />
     <!-- Run production rules without the launcher's Windows/WPF dependencies. -->
     <Compile Include="../../PCLCS/Minecraft/WorldMetadataReader.cs" Link="Production/WorldMetadataReader.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldMetadataFiles.cs" Link="Production/WorldMetadataFiles.cs" />
@@ -14,6 +16,8 @@
     <Compile Include="../../PCLCS/Minecraft/PersonalOptionsRules.cs" Link="Production/PersonalOptionsRules.cs" />
     <Compile Include="../../PCLCS/Minecraft/PersonalOptionsFiles.cs" Link="Production/PersonalOptionsFiles.cs" />
     <Compile Include="../../PCLCS/Minecraft/PersonalOptionsFlow.cs" Link="Production/PersonalOptionsFlow.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PersonalOptionsManagement.cs" Link="Production/PersonalOptionsManagement.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PersonalOptionsCatalog.cs" Link="Production/PersonalOptionsCatalog.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceKeybindingFiles.cs" Link="Production/InstanceKeybindingFiles.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceKeybindingReader.cs" Link="Production/InstanceKeybindingReader.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceKeybindingView.cs" Link="Production/InstanceKeybindingView.cs" />
@@ -79,6 +83,7 @@
     <Compile Include="../../PCLCS/Minecraft/ModDependencyVersions.cs" Link="Production/ModDependencyVersions.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.cs" Link="Production/ModDependencyOnlinePipeline.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.Files.cs" Link="Production/ModDependencyOnlinePipeline.Files.cs" />
+    <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.Runtime.cs" Link="Production/ModDependencyOnlinePipeline.Runtime.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.Matches.cs" Link="Production/ModDependencyOnlinePipeline.Matches.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyTransport.cs" Link="Production/ModDependencyTransport.cs" />
     <Compile Include="../../PCLCS/Startup/*.cs" Link="Production/Startup/%(Filename)%(Extension)" />

@@ -39,7 +39,7 @@ internal static class InstanceSidebarChecks
             var host = (Host)Native.Get(controller, "host")!;
             var panel = Part<StackPanel>(page, "PanItem");
             var items = panel.Children.OfType<MyListItem>().ToArray();
-            string[] order = ["0", "1", "2", "11", "15", "5", "12", "14", "6", "7", "3", "4", "8", "9", "10"];
+            string[] order = ["0", "1", "2", "11", "16", "15", "5", "12", "14", "6", "7", "3", "4", "8", "9", "10"];
             Native.Check(items.Select(item => item.Tag.ToString()).SequenceEqual(order), "Actual sidebar order/tag identity changed.");
             Native.Check(items.All(item => ReferenceEquals(item.Parent, panel)), "Radio items no longer share their native parent.");
             Native.Check(panel.Children.OfType<TextBlock>().Select(label => label.Text).SequenceEqual(new[] { "版本配置", "版本工具", "游戏资源" }), "Native sidebar group order differs.");
@@ -140,7 +140,7 @@ internal static class InstanceSidebarChecks
 
     private static void CheckGroups(PageInstanceLeft page, Controller controller)
     {
-        foreach (var (name, tags) in new[] { ("LabVersionConfiguration", new[] { 1, 2, 11 }), ("LabVersionTools", new[] { 15, 5, 12, 14 }), ("LabGameResources", new[] { 6, 7, 3, 4, 8, 9, 10 }) })
+        foreach (var (name, tags) in new[] { ("LabVersionConfiguration", new[] { 1, 2, 11, 16 }), ("LabVersionTools", new[] { 15, 5, 12, 14 }), ("LabGameResources", new[] { 6, 7, 3, 4, 8, 9, 10 }) })
         {
             var label = Part<TextBlock>(page, name); var values = tags.Select(tag => (Item: Item(controller, tag), Visibility: Item(controller, tag).Visibility)).ToArray();
             var binding = BindingOperations.GetMultiBindingExpression(label, UIElement.VisibilityProperty) ?? throw new InvalidOperationException("Header is not bound to actual item visibility.");

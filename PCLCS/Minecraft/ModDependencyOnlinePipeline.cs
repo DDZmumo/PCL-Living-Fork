@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,6 +18,7 @@ namespace PCLCS;
 
 public class ModDependencyLookupOptions<TCache> where TCache : ModDependencyLookupCache {
     public Func<string, HttpMethod, string?, CancellationToken, JToken?>? Request;
+    public Func<string, long, CancellationToken, byte[]?>? ArchiveRequest;
     public Func<string, uint>? Fingerprint;
     public Func<DateTime>? Clock = () => DateTime.UtcNow;
     public TCache? Cache;
@@ -54,7 +60,7 @@ public class ModDependencyHttpFailure : Exception {
 }
 
 // LF Modules/Minecraft/vb at 50b028da5fcad2226d74d901a41d8c43a249bfb2,
-// is the behavior source (LF LICENCE). PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8 has no such module.
+// is the behavior source (MPL-2.0 for PCLLF-original code). PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8 has no such module.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 Plain Craft Launcher 2/Modules/Minecraft/ModCompDependency.cs
 // and PCL.Core/Minecraft/ResourceProject/ModDependencyResolver.cs were reviewed (CE LICENSE/PCL LICENCE).
 // Their platform project/version selection differs from LF's bounded exact-content supplement; no policy is copied.
@@ -73,9 +79,12 @@ public sealed partial class ModDependencyOnlinePipeline<TContext, TMod, TDepende
     where TCache : ModDependencyLookupCache, new() {
     private readonly TCache sharedCache;
     private readonly Func<string, HttpMethod, string?, CancellationToken, JToken?> defaultRequest;
+    private readonly Func<string, long, CancellationToken, byte[]?>? defaultArchiveRequest;
     public ModDependencyOnlinePipeline(TCache sharedCache, Func<string, HttpMethod, string?, CancellationToken, JToken?> defaultRequest) {
         this.sharedCache = sharedCache; this.defaultRequest = defaultRequest;
     }
+    public ModDependencyOnlinePipeline(TCache sharedCache, Func<string, HttpMethod, string?, CancellationToken, JToken?> defaultRequest,
+        Func<string, long, CancellationToken, byte[]?> archiveRequest) : this(sharedCache, defaultRequest) { defaultArchiveRequest = archiveRequest; }
 
 #nullable disable
         public void ResetIndexLookups()
@@ -104,13 +113,17 @@ public sealed partial class ModDependencyOnlinePipeline<TContext, TMod, TDepende
             public readonly CancellationTokenSource Deadline;
             public readonly string TargetFile;
             public readonly Stopwatch Timer = Stopwatch.StartNew();
+            public readonly Func<string, long, CancellationToken, byte[]> ArchiveRequest;
+            public int ArchiveReads;
             private readonly HashSet<string> Blocked = new HashSet<string>(StringComparer.Ordinal);
             private readonly Func<string,HttpMethod,string,CancellationToken,JToken> nativeRequest;
-            public Session(TReport Report, CancellationToken Token, TOptions Options, string TargetFile, TCache sharedCache, Func<string,HttpMethod,string,CancellationToken,JToken> nativeRequest)
+            public Session(TReport Report, CancellationToken Token, TOptions Options, string TargetFile, TCache sharedCache, Func<string,HttpMethod,string,CancellationToken,JToken> nativeRequest,
+                Func<string,long,CancellationToken,byte[]> nativeArchiveRequest)
             {
                 this.Report = Report;
                 this.nativeRequest = nativeRequest;
                 this.Options = Options;
+                ArchiveRequest = Options.ArchiveRequest ?? (Options.Request is null ? nativeArchiveRequest : null);
                 this.TargetFile = TargetFile;
                 CallerToken = Token;
                 Cache = Options.Cache ?? sharedCache;
@@ -266,7 +279,7 @@ public sealed partial class ModDependencyOnlinePipeline<TContext, TMod, TDepende
             report.OnlineRequests = 0;
             report.OnlineFiles.Clear();
             report.OnlineNotes.Clear();
-            using (var Work = new Session(report, token, Settings, TargetFile, sharedCache, defaultRequest))
+            using (var Work = new Session(report, token, Settings, TargetFile, sharedCache, defaultRequest, defaultArchiveRequest))
             {
                 report.OnlineCheckedAtUtc = Work.Now();
                 try
@@ -285,6 +298,8 @@ public sealed partial class ModDependencyOnlinePipeline<TContext, TMod, TDepende
                     ResolveProjects(Files, "Modrinth", Work);
                     ResolveProjects(Files, "CurseForge", Work);
                     SearchCandidates(Files, Work);
+                    MapRelations(report);
+                    VerifyRuntimeIdentities(Work);
                 }
                 catch (OperationCanceledException )
                 {

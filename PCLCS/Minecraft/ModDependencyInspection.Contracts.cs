@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,7 +18,7 @@ public enum ModDependencyKind { Required, Optional, Recommended, Suggested, Inco
 public enum ModDependencyIssueKind { MissingRequired, DuplicateId, VersionMismatch, Incompatible, Recommendation, LoaderMismatch }
 
 // LF Modules/Minecraft/ModDependencyInspector.vb at 50b028da5fcad2226d74d901a41d8c43a249bfb2
-// (LF LICENCE) is the behavior source; the existing migrated LF DTO storage remains unique.
+// (MPL-2.0 for PCLLF-original code) is the behavior source; the existing migrated LF DTO storage remains unique.
 // This LF-specific inspector is absent from PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 ModJarInJar.cs,
 // ModJarInJarDependency.cs and ModLocalComp.cs are C# reference only (CE LICENSE
@@ -109,6 +114,7 @@ public sealed partial class ModDependencyInspection<TContext, TMod, TDependency,
     public class OnlineDependencyData {
         public string Platform = null!, ProjectId = null!, VersionId = null!, VersionName = null!, ProjectName = null!, Website = null!, FileName = null!, Kind = null!;
         public List<string> ProjectPaths = new(), MatchedPaths = new(), EnabledPaths = new();
+        public List<string> VerifiedLoaderIds = new();
         public string Status = "尚未映射到本地文件，需核对";
         [JsonIgnore]
         public string DisplayName => new[] { ProjectName, ProjectId, FileName, VersionName, VersionId }.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "未命名依赖";
@@ -146,7 +152,7 @@ public sealed partial class ModDependencyInspection<TContext, TMod, TDependency,
                     foreach (TOnlineDependency dependency in project.Dependencies) {
                         string source = System.IO.Path.GetFileName(file.FullPath) + " · " + project.Platform + " 版本 " + project.VersionId;
                         string requested = dependency.DisplayName + (string.IsNullOrEmpty(dependency.VersionId) ? "" : "（平台版本 " + dependency.VersionId + "）");
-                        if (dependency.Kind == "required" && dependency.EnabledPaths.Count == 0)
+                        if (dependency.Kind == "required" && dependency.EnabledPaths.Count == 0 && RuntimeProvidersForPlatformDependency((TReport)this,file.FullPath,dependency).Count == 0)
                             notes.Add(source + "\r\n平台声明必需：" + requested + "\r\n" + dependency.Status + "。请结合内嵌声明核对，未据此判定加载器错误。");
                         else if (dependency.Kind == "incompatible" && dependency.EnabledPaths.Count > 0)
                             notes.Add(source + "\r\n平台声明不兼容：" + requested + "\r\n当前启用：" + string.Join("、", dependency.EnabledPaths.Select(System.IO.Path.GetFileName)) + "。请核对平台与内嵌声明的差异。");

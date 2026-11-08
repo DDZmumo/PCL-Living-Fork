@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,7 +14,7 @@ using Newtonsoft.Json.Linq;
 
 namespace PCLCS;
 
-// LF-only installed-component read model, LF LICENCE. PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8
+// LF-only installed-component read model, MPL-2.0 for PCLLF-original code. PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8
 // and CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 do not replace this LF saved-isolation/manifest policy.
 public class InstalledComponentSummaryItemData {
     public readonly string Name, Version, Icon;

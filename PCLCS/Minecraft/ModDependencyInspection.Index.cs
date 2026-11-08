@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -13,13 +18,13 @@ using Newtonsoft.Json.Linq;
 using Microsoft.VisualBasic.CompilerServices;
 using static PCLCS.ModDependencyVersions;
 namespace PCLCS;
-// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (LF LICENCE).
+// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (MPL-2.0 for PCLLF-original code).
 // PCL/CE fixed-source provenance remains in Contracts; no CE policy imported.
 public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile> {
 
  public static class Index {
 
-        public const global::System.Int32 Schema = 3;
+        public const global::System.Int32 Schema = 4;
         public const global::System.Int64 MaxBytes = (((32L) * 1024L) * 1024L);
         public static string CacheDirectory { get; set; } = global::System.IO.Path.Combine(global::System.Environment.GetFolderPath(global::System.Environment.SpecialFolder.LocalApplicationData), "PCLLivingFork", "Cache", "ModDependencyIndex");
         private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim> Gates = new global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim>(global::System.StringComparer.Ordinal);
@@ -207,6 +212,8 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                             return false;
                         foreach (var Requirement in Match.Dependencies)
                         {
+                            if (Requirement?.VerifiedLoaderIds is null || Requirement.VerifiedLoaderIds.Count > 512 ||
+                                Requirement.VerifiedLoaderIds.Any(Id => string.IsNullOrWhiteSpace(Id) || Id.Length > 256 || Id.Any(char.IsControl))) return false;
                             if (((((Requirement is null || Requirement.ProjectPaths is null) || Requirement.MatchedPaths is null) || Requirement.EnabledPaths is null) || (Requirement.ProjectPaths.Concat(Requirement.MatchedPaths).Concat(Requirement.EnabledPaths).Any(Value => !(Files.Files.Contains(FilePathKey(Value)))))))
                                 return false;
                         }

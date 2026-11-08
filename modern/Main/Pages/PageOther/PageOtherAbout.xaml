@@ -54,10 +54,11 @@
             <local:MyCard Margin="0,0,0,15" Title="本项目">
                 <StackPanel Margin="25,40,25,20">
                     <TextBlock Text="PCL Living Fork 是基于 PCL 原项目的第三方修改版本，由 DDZmumo 维护。源码基线与逆向参考说明见项目 NOTICE。" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="PCLLF 确认原创的独立源码采用 MPL-2.0；继承的 PCL 代码、混合来源及第三方组件保留各自许可。具体范围和完整协议可在本页下方离线查看。" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <TextBlock Text="CurseForge 第三方 API 申请已获批。&#xa;本版已接入正式 API Key。" TextWrapping="Wrap" Margin="0,0,0,12" />
                     <WrapPanel>
                         <local:MyButton Text="项目仓库" Width="140" Height="32" Margin="0,0,10,0" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/DDZmumo/PCL-Living-Fork" />
-                        <local:MyButton Text="PCL 开源仓库" Width="140" Height="32" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
+                        <local:MyButton Text="PCL 原作仓库" Width="140" Height="32" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/Meloong-Git/PCL" />
                     </WrapPanel>
                 </StackPanel>
             </local:MyCard>
@@ -284,6 +285,14 @@
                         <TextBlock x:Name="LabMarkdigLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
                     </Expander>
                 </Grid>
+            </local:MyCard>
+            <local:MyCard Margin="0,0,0,15" Title="离线许可与来源" IsSwapped="True" CanSwap="True">
+                <StackPanel Margin="25,40,25,20">
+                    <TextBlock Text="包含 PCLLF 原创代码的 MPL-2.0 范围、PCL／第三方来源与完整许可，以及仍待核实的授权项目。对应源码可从项目仓库按发行标签或提交取得。" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <local:MyTextBox x:Name="LabThirdPartyLicenses" IsReadOnly="True" IsUndoEnabled="False" AcceptsReturn="True"
+                                     TextWrapping="Wrap" FontSize="12" MaxHeight="420" Padding="8" HasBackground="False"
+                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"/>
+                </StackPanel>
             </local:MyCard>
         </StackPanel>
     </local:MyScrollViewer>

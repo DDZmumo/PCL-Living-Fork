@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -13,7 +18,7 @@ using Newtonsoft.Json.Linq;
 using Microsoft.VisualBasic.CompilerServices;
 
 namespace PCLCS;
-// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (LF LICENCE).
+// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (MPL-2.0 for PCLLF-original code).
 // PCL/CE fixed-source provenance remains in Contracts; no CE policy imported.
 public static class ModDependencyVersions {
         public static ModDependencyMatchState Combine(global::System.Collections.Generic.IEnumerable<ModDependencyMatchState> states, global::System.Boolean all)

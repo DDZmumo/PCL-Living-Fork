@@ -8,11 +8,13 @@
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel Margin="25,10">
-            <local:MyCard Title="原版百宝箱" Margin="0,15,0,15">
+            <local:MyCard Title="工具百宝箱" Margin="0,15,0,15">
                 <Grid Margin="25,40,25,20">
-                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="15" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                    <local:MyButton x:Name="BtnMemory" Text="内存优化" Height="36" Grid.Column="0" ToolTip="整理系统工作集和缓存，需要管理员权限，可能短暂影响系统响应。" />
-                    <local:MyButton x:Name="BtnClear" Text="清理游戏垃圾" Height="36" Grid.Column="2" ToolTip="清理已添加游戏目录中的日志、崩溃报告和可重建的临时文件。" />
+                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="15" /><ColumnDefinition /><ColumnDefinition Width="15" /><ColumnDefinition /><ColumnDefinition Width="15" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                    <local:MyButton x:Name="BtnJrrp" Text="今日人品" Height="36" Grid.Column="0" Click="BtnJrrp_Click" ToolTip="看看今天的运气；同一天、同一设备的结果保持一致。" />
+                    <local:MyButton x:Name="BtnMemory" Text="内存优化" Height="36" Grid.Column="2" ToolTip="整理系统工作集和缓存，需要管理员权限，可能短暂影响系统响应。" />
+                    <local:MyButton x:Name="BtnClear" Text="清理游戏垃圾" Height="36" Grid.Column="4" ToolTip="清理已添加游戏目录中的日志、崩溃报告和可重建的临时文件。" />
+                    <local:MyButton x:Name="BtnSurprise" Text="千万别点" ColorType="Red" Height="36" Grid.Column="6" Click="BtnSurprise_Click" />
                 </Grid>
             </local:MyCard>
             <local:MyCard Title="下载自定义文件" Margin="0,0,0,15">

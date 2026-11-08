@@ -21,6 +21,7 @@ internal static class InstanceResourcePipelineTests {
         yield return ("resource pipeline image file limit ownership and exception boundary stay distinct", ImageFileBoundary);
         yield return ("resource catalog canceled empty and missing directories remain lazy", CatalogCancellation);
         yield return ("resource catalog preserves derived snapshots filtering and directory-first order", CatalogEntries);
+        yield return ("resource world cache reuses unchanged metadata and invalidates changed moved deleted and explicitly refreshed worlds", WorldCache);
         yield return ("resource catalog screenshot preview budget counts eighty attempts without an image", CatalogPreviewBudget);
         yield return ("resource catalog skips per-entry IO failures but propagates decoder format failures", CatalogExceptionBoundary);
         if (OperatingSystem.IsWindows()) {
@@ -220,6 +221,36 @@ internal static class InstanceResourcePipelineTests {
         fixture.Bytes(".pcl-hidden.png", [1]);
         Throws<OperationCanceledException>(() => ScanAt(fixture.Root));
         Equal(0, factories);
+    }
+
+    private static void WorldCache() {
+        using Fixture fixture = new();
+        string worlds = fixture.Directory("saves");
+        string a = fixture.Bytes("saves/A/level.dat", [1]);
+        fixture.Bytes("saves/B/level.dat", [1]);
+        InstanceResourceScanCache<DerivedEntry> cache = new();
+        int factories = 0, icons = 0;
+        List<DerivedEntry> Read() => InstanceResourceCatalog.ScanCached(worlds, worlds, 0, CancellationToken.None, "downloads",
+            () => { factories++; return new DerivedEntry(); }, (_, _, _) => icons++, (_, _, _) => { }, Normalize, text => text, cache);
+        List<DerivedEntry> first = Read();
+        List<DerivedEntry> second = Read();
+        Equal(2, factories); Equal(2, icons);
+        foreach (DerivedEntry entry in first) Equal(true, ReferenceEquals(entry, second.Single(item => item.Name == entry.Name)));
+        // Changing level.dat must invalidate even if the containing directory's timestamp stays unchanged.
+        DateTime directoryTime = Directory.GetLastWriteTimeUtc(Path.GetDirectoryName(a)!);
+        File.WriteAllBytes(a, [1, 2]);
+        Directory.SetLastWriteTimeUtc(Path.GetDirectoryName(a)!, directoryTime);
+        List<DerivedEntry> changed = Read();
+        Equal(3, factories); Equal(3, icons);
+        Equal(false, ReferenceEquals(first.Single(item => item.Name == "A"), changed.Single(item => item.Name == "A")));
+        Equal(true, ReferenceEquals(first.Single(item => item.Name == "B"), changed.Single(item => item.Name == "B")));
+        fixture.Bytes("saves/A/icon.png", [1, 2, 3]); Read(); Equal(4, icons);
+        // Native delete moves the owned world into the resource recycle store.
+        Directory.Move(Path.Combine(worlds, "A"), Path.Combine(fixture.Root, "recycled-A"));
+        Equal(1, Read().Count); Equal(4, icons);
+        Directory.Move(Path.Combine(fixture.Root, "recycled-A"), Path.Combine(worlds, "Renamed"));
+        Equal(2, Read().Count); Equal(5, icons);
+        cache.Clear(); Read(); Equal(7, icons);
     }
 
     private static void CatalogEntries() {

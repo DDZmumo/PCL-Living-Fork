@@ -249,9 +249,10 @@ internal static class ModDependencyInspectorPipelineTests {
 
     internal sealed class Context : Inspector.ContextData { public Context() { } }
     internal sealed class Mod : Inspector.ModData { public Mod() { } }
-    internal sealed class Dependency : Inspector.DependencyData { public Dependency() { } public override ModDependencyKind KindValue { get; set; } }
-    internal sealed class Edge : Inspector.EdgeData { public Edge() { } public override ModDependencyMatchState StateValue { get; set; } }
-    internal sealed class Issue : Inspector.IssueData { public Issue() { } public override ModDependencyIssueKind KindValue { get; set; } }
+    // Match Main's persisted enum fields; the base accessors are JsonIgnore.
+    internal sealed class Dependency : Inspector.DependencyData { public Dependency() { } public ModDependencyKind Kind; public override ModDependencyKind KindValue { get=>Kind; set=>Kind=value; } }
+    internal sealed class Edge : Inspector.EdgeData { public Edge() { } public ModDependencyMatchState State; public override ModDependencyMatchState StateValue { get=>State; set=>State=value; } }
+    internal sealed class Issue : Inspector.IssueData { public Issue() { } public ModDependencyIssueKind Kind; public override ModDependencyIssueKind KindValue { get=>Kind; set=>Kind=value; } }
     internal sealed class Impact : Inspector.ImpactData { public Impact() { } }
     internal sealed class Report : Inspector.ReportData { public Report() { } }
     internal sealed class OnlineProject : Inspector.OnlineProjectData { public OnlineProject() { } }

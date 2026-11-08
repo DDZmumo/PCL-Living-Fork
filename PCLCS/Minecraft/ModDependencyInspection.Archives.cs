@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 PCL Living Fork contributors.
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -13,7 +18,7 @@ using Newtonsoft.Json.Linq;
 using Microsoft.VisualBasic.CompilerServices;
 using static PCLCS.ModDependencyVersions;
 namespace PCLCS;
-// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (LF LICENCE).
+// Full LF declarations at 50b028da5fcad2226d74d901a41d8c43a249bfb2 (MPL-2.0 for PCLLF-original code).
 // PCL/CE fixed-source provenance remains in Contracts; no CE policy imported.
 public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile> {
 
@@ -57,6 +62,16 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             {
                 Incomplete(result, Path.GetFileName(fileName) + "：无法完整读取元数据（" + error.Message + "）。");
             }
+            return result;
+        }
+        internal static TReport ReadArchiveBytes(byte[] bytes, TContext context, CancellationToken token) {
+            var result = new TReport { Context = context };
+            result.Builtins = CreateBuiltins(context);
+            using var stream = new MemoryStream(bytes, false);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
+            ReadArchive(archive, Path.Combine(Path.GetTempPath(), "PCL-platform-metadata.jar"), "", true, false, 0, result,
+                new ReadBudget { ForceFresh = true, NoCache = true }, token);
+            BuildReport(result, token);
             return result;
         }
         public static TReport ScanRaw(global::System.String ModsFolder, TContext Context, global::System.Threading.CancellationToken Token, global::System.Boolean ForceFresh = false)

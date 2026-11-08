@@ -70,6 +70,7 @@
 <Compile Include="Modules/Base/GameGarbageCleaner.cs" />
 <Compile Include="Modules/Base/ToolboxDownloadSession.cs" />
 <Compile Include="Pages/PageOther/PageOtherTest.Tools.cs" />
+<Compile Include="Pages/PageOther/PageOtherTest.Surprise.cs" />
 <Compile Include="Modules/ModLauncherUpdate.cs" />
 <Compile Include="Modules/ModLauncherUpdate.ReleaseNotes.cs" />
 <Compile Include="Modules/ModernBundleIdentity.cs" />
@@ -169,6 +170,9 @@
 <Compile Include="Pages/PageSetup/PageSetupLaunch.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupUpdate.xaml.cs" />
+<Compile Include="Pages/PageSetup/PageSetupPersonal.xaml.cs" />
+<Compile Include="Pages/PageSetup/PageSetupPersonal.Editors.cs" />
+  <Compile Include="Pages/PageSetup/PageSetupPersonal.Draft.cs" />
 <Compile Include="Pages/PageSetup/PageSetupModpack.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupLink.xaml.cs" Condition="'$(EnableLegacyLink)' == 'true'" />
 <Compile Include="Pages/PageSetup/SetupPageRuntime.cs" />
@@ -241,6 +245,7 @@
 <Page Include="Pages/PageSetup/PageSetupLaunch.xaml" />
 <Page Include="Pages/PageSetup/PageSetupSystem.xaml" />
 <Page Include="Pages/PageSetup/PageSetupUpdate.xaml" />
+<Page Include="Pages/PageSetup/PageSetupPersonal.xaml" />
 <Page Include="Pages/PageSetup/PageSetupModpack.xaml" />
 <Page Include="Pages/PageSetup/PageSetupLink.xaml" Condition="'$(EnableLegacyLink)' == 'true'" />
 <Page Include="Pages/PageSetup/PageSetupUI.xaml" />
@@ -318,6 +323,7 @@
 <Resource Include="Images/Branding/LivingPCL-256.png" />
 <Resource Include="Images/Branding/LivingPCL.ico" />
 <Resource Include="../ThirdParty/Markdig/LICENSE.txt"><Link>Licenses/Markdig.txt</Link></Resource>
+<Resource Include="../../licenses/THIRD-PARTY-NOTICES.txt"><Link>Licenses/ThirdParty.txt</Link></Resource>
 </ItemGroup><ItemGroup><PackageReference Include="Markdig" Version="1.6.0"/><PackageReference Include="Newtonsoft.Json" Version="13.0.3"/><PackageReference Include="System.Runtime.Caching" Version="10.0.0"/><PackageReference Include="Ookii.Dialogs.Wpf" Version="5.0.1"/></ItemGroup><ItemGroup><Reference Include="CacheCow.Client"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Client.dll</HintPath><Private>true</Private></Reference><Reference Include="CacheCow.Client.FileStore"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Client.FileStore.dll</HintPath><Private>true</Private></Reference><Reference Include="CacheCow.Common"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Common.dll</HintPath><Private>true</Private></Reference><Reference Include="ThrottleDebounce"><HintPath>../../Plain Craft Launcher 2/Resources/ThrottleDebounce.dll</HintPath><Private>true</Private></Reference><Reference Include="Imazen.WebP"><HintPath>../../Plain Craft Launcher 2/Resources/Imazen.WebP.dll</HintPath><Private>true</Private></Reference><Reference Include="NAudio"><HintPath>../../Plain Craft Launcher 2/Resources/NAudio.dll</HintPath><Private>true</Private></Reference><Reference Include="System.Net.Http.Formatting"><HintPath>../../Plain Craft Launcher 2/Resources/System.Net.Http.Formatting.dll</HintPath><Private>true</Private></Reference></ItemGroup><ItemGroup><Using Remove="System.Windows.Forms;System.Drawing"/><Using Include="MeloongCore"/><Using Include="MeloongCore.Extensions"/><Using Include="MeloongCore.Wpf"/><Using Include="MeloongCore.Wpf.Extensions"/><Using Include="Newtonsoft.Json"/><Using Include="Newtonsoft.Json.Linq"/><Using Include="PCLCS"/><Using Include="System"/><Using Include="System.Collections.Concurrent"/><Using Include="System.Collections.Generic"/><Using Include="System.IO"/><Using Include="System.IO.Compression"/><Using Include="System.Linq"/><Using Include="System.Net"/><Using Include="System.Net.Http"/><Using Include="System.Text"/><Using Include="System.Threading"/><Using Include="System.Threading.Tasks"/><Using Include="System.Xml.Linq"/><Using Include="System.Collections"/><Using Include="System.Diagnostics"/><Using Include="System.Windows"/><Using Include="System.Windows.Controls"/><Using Include="System.Windows.Data"/><Using Include="System.Windows.Documents"/><Using Include="System.Windows.Input"/><Using Include="System.Windows.Media"/><Using Include="System.Windows.Media.Imaging"/><Using Include="ThrottleDebounce"/></ItemGroup>
 <!-- Generate the original LF resource interface from actual resolved modern payloads. -->
 <PropertyGroup>

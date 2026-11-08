@@ -87,14 +87,14 @@ public sealed class LegacyPageSetupLaunchController<TInstance, TSkin> where TIns
     }
     public void Refresh() {
         try {
-            Common.RefreshSettings(View.Page()); CheckPersonalOptionsSync.Checked = Conversions.ToBoolean(Common.Read("LaunchPersonalOptionsSync"));
+            Common.RefreshSettings(View.Page());
             runtime.UpdateSkinType(); runtime.UpdateRamType(); UpdateJavaList();
         } catch (NullReferenceException error) { Logger.Error(error, "启动设置项存在异常，已被自动重置", LogBehavior.Alert); Reset(); }
         catch (Exception error) { Logger.Error(error, "重载启动设置时出错"); }
     }
     public void Reset() {
         try {
-            Common.ResetSettings(View.Page()); Common.Reset("LaunchPersonalOptionsSync"); Common.Write("LaunchArgumentIndieV2", Common.Default("LaunchArgumentIndieV2"));
+            Common.ResetSettings(View.Page()); Common.Write("LaunchArgumentIndieV2", Common.Default("LaunchArgumentIndieV2"));
             Configs.JavaList.Reset(); Configs.JavaRemovedList.Reset(); Host.StartJavaRefresh(); Common.Hint("已初始化启动设置！", LegacySetupHint.Green, true);
         } catch (Exception error) { Logger.Error(error, "初始化启动设置失败", LogBehavior.Alert); }
         Refresh();

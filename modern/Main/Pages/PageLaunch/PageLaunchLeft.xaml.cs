@@ -42,6 +42,10 @@ namespace PCL
             __LfAttachOwnHandles();
             this.Native = new global::PCLLF.Presentation.Launch.LegacyLaunchLeft<global::PCL.ModMinecraft.McInstance, global::PCL.ModAnimation.AniData>(this.CreateView(), this.CreateHost(), global::PCL.LaunchPageRuntime.Animations());
             this.InitializeComponent();
+            CheckMoreSettings.Checked = Settings.Get<bool>("UiLaunchMoreSettings");
+            CheckMoreSettings.Change += (_, user) => {
+                if (user) ModMain.FrmLaunchRight?.RefreshMoreSettings();
+            };
         }
 
         private global::PCLLF.Presentation.Launch.LegacyLaunchLeftView CreateView()
@@ -150,6 +154,7 @@ namespace PCL
 
         public void PageLaunchLeft_Loaded()
         {
+            CheckMoreSettings.Checked = Settings.Get<bool>("UiLaunchMoreSettings");
             this.Native.Loaded();
         }
 
