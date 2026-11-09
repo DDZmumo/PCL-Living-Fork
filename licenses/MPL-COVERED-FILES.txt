@@ -1,3 +1,4 @@
+PCLCS/Minecraft/BackupStorageLocation.cs
 PCLCS/Minecraft/DependencyActivationEngine.cs
 PCLCS/Minecraft/EnvironmentHistoryContracts.cs
 PCLCS/Minecraft/EnvironmentHistoryEngine.Restore.cs
@@ -118,6 +119,7 @@ modern/Main/Modules/Base/SafeRedirectHandler.cs
 modern/Main/Modules/Base/ToolboxDownloadSession.cs
 modern/Main/Modules/LauncherSessionLock.cs
 modern/Main/Modules/LauncherWindowActivation.cs
+modern/Main/Modules/Minecraft/BackupStorage.cs
 modern/Main/Modules/Minecraft/EnvironmentHistory.cs
 modern/Main/Modules/Minecraft/ExportedVersionIsolation.cs
 modern/Main/Modules/Minecraft/InstalledComponentSummary.cs
@@ -173,5 +175,6 @@ modern/Main/Pages/PageSetup/PageSetupPersonal.Draft.cs
 modern/Main/Pages/PageSetup/PageSetupPersonal.Editors.cs
 modern/Main/Pages/PageSetup/PageSetupPersonal.xaml
 modern/Main/Pages/PageSetup/PageSetupPersonal.xaml.cs
+modern/Main/Pages/PageSetup/PageSetupSystem.BackupStorage.cs
 scripts/Build-LicenseNotices.py
 scripts/Check-Licenses.py

@@ -46,6 +46,18 @@
                     </Grid>
                 </StackPanel>
             </local:MyCard>
+            <local:MyCard Margin="0,0,0,15" Title="世界备份与环境还原点">
+                <StackPanel Margin="25,40,25,20">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Name" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="存储位置" VerticalAlignment="Center" Margin="0,0,25,0" />
+                        <local:MyTextBox x:Name="TextBackupStoragePath" Grid.Column="1" MinHeight="30" IsReadOnly="True" ToolTip="世界备份与环境还原点的实际存储目录。点击右侧选择按钮更改位置。" />
+                        <local:MyButton x:Name="BtnBackupStorageChoose" Text="选择" Grid.Column="3" Height="30" Click="BtnBackupStorageChoose_Click" />
+                    </Grid>
+                    <TextBlock x:Name="LabBackupStorageStatus" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,10,0,12" />
+                    <local:MyButton x:Name="BtnBackupStorageOpen" Text="打开文件夹" Width="140" Height="35" HorizontalAlignment="Center" Click="BtnBackupStorageOpen_Click" />
+                </StackPanel>
+            </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="社区资源">
                 <StackPanel Margin="25,37,25,12">
                     <Grid>

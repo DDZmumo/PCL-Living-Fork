@@ -67,7 +67,7 @@ namespace PCL
         {
             return new global::PCLCS.EnvironmentHistoryHost<global::PCL.ModMinecraft.McInstance>()
             {
-                DataRoot = new Func<global::System.String>(() => global::PCL.LocalGameData.Root),
+                DataRoot = new Func<global::System.String>(() => global::PCL.BackupStorage.Root),
                 Hash = global::PCL.LocalGameData.Hash,
                 AtomicWrite = new Action<global::System.String, global::System.Byte[]>((FileName, Bytes) => global::PCL.LocalGameData.AtomicWrite(FileName, Bytes, (global::System.String)null, false)),
                 Target = global::PCL.ModpackUpdate.Target,

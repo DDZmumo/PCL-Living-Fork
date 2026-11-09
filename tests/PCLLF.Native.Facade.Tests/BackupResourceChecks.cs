@@ -17,6 +17,7 @@ internal static class BackupResourceChecks
     internal static void Run(FixtureEnvironment environment)
     {
         using Scope scope = new(environment);
+        BackupStorageChecks.Run(scope);
         BackupResourceWorldChecks.Run(scope);
         BackupResourceGroupChecks.Run(scope);
         BackupResourcePageChecks.Run(scope);
