@@ -11,6 +11,9 @@ internal static class BackupStorageLocationTests {
         yield return ("backup storage detects source edits before commit", SourceChanged);
         yield return ("backup storage config failure rolls back published copies", PersistFailure);
         yield return ("backup storage rejects malformed and stale config without falling back", BadConfig);
+        yield return ("backup storage imports legacy JSON once and gives dedicated preferences priority", DedicatedPreference);
+        yield return ("backup storage preference write failure preserves source and rolls back copies", PreferenceFailure);
+        yield return ("backup storage uncertain preference commits keep both complete data copies", UncertainPreference);
     }
     private static void Legacy() {
         using Fixture f = new(); var store = new BackupStorageLocation(f.Profile);
@@ -66,6 +69,41 @@ internal static class BackupStorageLocationTests {
         var store=new BackupStorageLocation(f.Profile);
         f.Put("profile/backup-storage.json","external edit");Throws(()=>store.MoveTo(f.Directory("other"),CancellationToken.None));
         Equal(f.Target,store.Root);Equal("external edit",File.ReadAllText(Path.Combine(f.Profile,"backup-storage.json")));
+    }
+    private static void DedicatedPreference() {
+        using Fixture f=new();f.Seed();
+        string json=new JObject(new JProperty("schema",1),new JProperty("root",f.Profile)).ToString();
+        f.Put("profile/backup-storage.json",json);var preference=new Preference();
+        var store=new BackupStorageLocation(f.Profile,preference);
+        Equal(f.Profile,preference.Value);Equal(1,preference.Writes);
+        store.MoveTo(f.Target,CancellationToken.None);
+        Equal(f.Target,preference.Value);Equal(json,File.ReadAllText(Path.Combine(f.Profile,"backup-storage.json")));
+        f.Put("profile/backup-storage.json","obsolete invalid JSON");
+        Equal(f.Target,new BackupStorageLocation(f.Profile,preference).Root);
+    }
+    private static void PreferenceFailure() {
+        using Fixture f=new();f.Seed();var preference=new Preference { Fail=true };
+        var store=new BackupStorageLocation(f.Profile,preference);
+        Throws(()=>store.MoveTo(f.Target,CancellationToken.None));
+        Equal(f.Profile,store.Root);Equal<string?>(null,preference.Value);Equal(0,Directory.EnumerateFileSystemEntries(f.Target).Count());
+        Equal(true,File.Exists(Path.Combine(f.Profile,"world-backups/game/points/one/world.zip")));
+    }
+    private static void UncertainPreference() {
+        using Fixture f=new();f.Seed();var preference=new Preference { Uncertain=true };
+        var store=new BackupStorageLocation(f.Profile,preference);
+        Throws(()=>store.MoveTo(f.Target,CancellationToken.None));
+        Equal(true,File.Exists(Path.Combine(f.Profile,"world-backups/game/points/one/world.zip")));
+        Equal(true,File.Exists(Path.Combine(f.Target,"world-backups/game/points/one/world.zip")));
+        Equal(f.Target,new BackupStorageLocation(f.Profile,preference).Root);
+    }
+    private sealed class Preference:IBackupStoragePreference {
+        internal string? Value;internal int Writes;internal bool Fail,Uncertain;
+        public string? Read()=>Value;
+        public void Write(string value,string? expected) {
+            if(Value!=expected||Fail)throw new IOException("simulated preference failure");
+            Value=value;Writes++;
+            if(Uncertain)throw new BackupStoragePreferenceUncertainException(new IOException("simulated uncertain write"));
+        }
     }
     private static void Equal<T>(T expected,T actual) {if(!Equals(expected,actual))throw new Exception($"Expected [{expected}], got [{actual}].");}
     private static void Throws(Action work) {try{work();}catch(IOException){return;}throw new Exception("Expected guarded failure.");}

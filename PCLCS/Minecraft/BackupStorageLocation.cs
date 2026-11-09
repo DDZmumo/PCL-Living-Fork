@@ -14,6 +14,15 @@ using Newtonsoft.Json.Linq;
 
 namespace PCLCS;
 
+public interface IBackupStoragePreference {
+    string? Read();
+    // A failed write must keep the previous value, or report an uncertain commit.
+    void Write(string root, string? expected);
+}
+public sealed class BackupStoragePreferenceUncertainException : IOException {
+    public BackupStoragePreferenceUncertainException(Exception error) : base("存储位置保存结果无法确认，原目录和新目录的数据均已保留，请重启后检查。", error) { }
+}
+
 public sealed class BackupStorageMoveResult {
     public string PreviousRoot = "", Root = "";
     public int Files;
@@ -30,11 +39,17 @@ public sealed class BackupStorageLocation {
     private readonly string profileRoot, configPath;
     private string currentRoot;
     private byte[]? configuration;
+    private readonly IBackupStoragePreference? preference;
+    private string? expectedPreference;
     public string Root => Volatile.Read(ref currentRoot);
 
-    public BackupStorageLocation(string profileRoot) {
+    public BackupStorageLocation(string profileRoot) : this(profileRoot, null) { }
+    public BackupStorageLocation(string profileRoot, IBackupStoragePreference? preference) {
         this.profileRoot = Full(profileRoot);
+        this.preference = preference;
         configPath = Path.Combine(this.profileRoot, "backup-storage.json");
+        string? saved = preference?.Read();
+        if (saved is not null) { currentRoot = Full(saved); expectedPreference = saved; return; }
         NoLinks(configPath);
         if (Directory.Exists(configPath)) throw new IOException("备份位置配置被同名文件夹占用，请检查 backup-storage.json。");
         if (File.Exists(configPath)) {
@@ -45,6 +60,9 @@ public sealed class BackupStorageLocation {
             catch (Exception error) when (error is Newtonsoft.Json.JsonException or DecoderFallbackException) { throw new IOException("备份位置配置损坏，请检查 backup-storage.json。", error); }
             if ((int?)data["schema"] != 1 || data["root"]?.Type != JTokenType.String) throw new IOException("备份位置配置无效。");
             currentRoot = Full(data["root"]!.ToString());
+            // Read the former JSON once for compatibility. The dedicated store
+            // is authoritative after import; future moves never rewrite JSON.
+            if (preference is not null) { preference.Write(currentRoot, null); expectedPreference = currentRoot; }
         } else currentRoot = this.profileRoot;
     }
 
@@ -130,6 +148,12 @@ public sealed class BackupStorageLocation {
         return complete;
     }
     private void Persist(string target) {
+        if (preference is not null) {
+            preference.Write(target, expectedPreference);
+            expectedPreference = target;
+            Volatile.Write(ref currentRoot, target);
+            return;
+        }
         byte[] content = Encoding.UTF8.GetBytes(new JObject(new JProperty("schema", 1), new JProperty("root", target)).ToString());
         NoLinks(configPath);
         if (configuration is not null) LocalGameDataStore.AtomicWrite(configPath, content, LocalGameDataStore.Hash(configuration), false);
@@ -199,7 +223,12 @@ public sealed class BackupStorageLocation {
                 foreach (string category in Categories) if (Directory.Exists(Path.Combine(stage, category))) {
                     Directory.Move(Path.Combine(stage, category), Path.Combine(target, category)); published.Add(category);
                 }
-                Persist(target); committed = true;
+                try { Persist(target); committed = true; }
+                catch (BackupStoragePreferenceUncertainException) {
+                    // A pointer may already refer to target. Preserve both copies.
+                    committed = true;
+                    throw;
+                }
                 // After the durable pointer commits, cancellation only stops cleanup.
                 // New data is already complete and the active root must stay at target.
                 result.CleanupComplete = RemoveCopied(source, files, folders, token);

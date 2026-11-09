@@ -36,14 +36,14 @@ public partial class PageSetupSystem {
             if (!ConfirmBackupMove(current, target)) return;
             if (!BackupStorage.StartMove(target, (result, failure, canceled) => {
                 RefreshBackupStorage();
-                if (failure is not null) { Logger.Warn(failure, "迁移备份存储位置失败"); ModMain.MyMsgBox(failure.Message, "未切换备份位置", IsWarn: true); }
+                if (failure is not null) { Logger.Warn(failure, "迁移备份存储位置失败"); ModMain.MyMsgBox(failure.Message, "备份迁移未完成", IsWarn: true); }
                 else if (result is not null) {
                     ModMain.Hint(result.CleanupComplete ? "备份与还原点已迁移，新位置已生效。" : "新位置已生效，旧目录部分文件未清理，请保留并检查：" + result.PreviousRoot,
                         result.CleanupComplete ? ModMain.HintType.Green : ModMain.HintType.Red);
                 } else if (canceled) ModMain.Hint("迁移已取消，原备份位置保持有效。");
             })) ModMain.Hint("备份数据正在迁移，请稍候。");
             RefreshBackupStorage();
-        } catch (Exception error) { Logger.Warn(error, "更改备份存储位置失败"); ModMain.MyMsgBox(error.Message, "未切换备份位置", IsWarn: true); RefreshBackupStorage(); }
+        } catch (Exception error) { Logger.Warn(error, "更改备份存储位置失败"); ModMain.MyMsgBox(error.Message, "备份迁移未完成", IsWarn: true); RefreshBackupStorage(); }
     }
     private void BtnBackupStorageOpen_Click(object sender, MouseButtonEventArgs e) {
         try {

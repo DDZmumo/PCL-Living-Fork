@@ -18,6 +18,8 @@ internal static class BackupResourceChecks
     {
         using Scope scope = new(environment);
         BackupStorageChecks.Run(scope);
+        BackupStorageRegistryChecks.Run(scope);
+        LfRegistryMigrationChecks.Run();
         BackupResourceWorldChecks.Run(scope);
         BackupResourceGroupChecks.Run(scope);
         BackupResourcePageChecks.Run(scope);

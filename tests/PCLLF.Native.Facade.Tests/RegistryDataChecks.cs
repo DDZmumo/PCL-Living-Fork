@@ -25,6 +25,7 @@ internal static class RegistryDataChecks
         // this check needs only the real schema keys, whose Keys collection yields strings.
         var expected = Native.Entries.Keys.Cast<string>().Where(key => key == "LoginMsJson" || key.StartsWith("CacheMs", StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
         Native.Check(expected.SetEquals(MicrosoftNames), "The genuine Main schema is not the thirteen reviewed Microsoft records.");
+        AutomaticLfNamespaceUpgrade(registry, identify);
         RoundtripAndForeign(registry, identify);
         UpgradeAndLogout(registry, identify);
         NonMicrosoftImport(registry, identify);
@@ -34,10 +35,26 @@ internal static class RegistryDataChecks
             ((string[])registry.Official.GetValue("UnknownFutureRegistrySetting")!).SequenceEqual(new[] { "future", "保留" }),
             "Unknown real Registry data was changed by account/settings operations.");
         platform.AssertScope(); fixture.AssertNoForbiddenIo();
-        Console.WriteLine("PASS registry-data: actual Main Settings/CurrentIdentify/DES and Windows adapter; thirteen _LF values/kinds, protected foreign sentinels, same-namespace upgrade/logout, other-account import, real rejected-plan restore, prewrite validation/cancellation, and INI/JSON unknown fields. Registry access was confined to newly acquired marker-owned roots.");
+        Console.WriteLine("PASS registry-data: actual Main Settings/CurrentIdentify/DES and Windows adapter; thirteen _LF values/kinds, protected foreign sentinels, dedicated-namespace upgrade/logout, other-account import, real rejected-plan restore, prewrite validation/cancellation, and INI/JSON unknown fields. Registry access was confined to newly acquired marker-owned roots.");
     }
     private static string Encrypt(string text, string identify) => (string)Native.Static("PCL.Settings", "DesEncrypt", text, "PCL" + identify)!;
     private static string Decrypt(object value, string identify) => (string)Native.Static("PCL.Settings", "DesDecrypt", (string)value, "PCL" + identify)!;
+    private static void AutomaticLfNamespaceUpgrade(RegistryNamespaceLease registry, string identify) {
+        string lf = Encrypt("lf-upgrade-session", identify), foreign = Encrypt("official-sentinel", identify);
+        registry.Official.SetValue("CacheMsV2OAuthRefresh_LF", lf, RegistryValueKind.String);
+        registry.Official.SetValue("CacheMsV2OAuthRefresh", foreign, RegistryValueKind.String);
+        registry.Official.SetValue("UiLaunchMoreSettings", "True", RegistryValueKind.String);
+        registry.Legacy.SetValue("ToolLauncherUpdateIgnoredTag", "v1.0.0", RegistryValueKind.String);
+        using (RegistryDataPlatformScope firstAccess = new(registry)) {
+            Native.Check(PCL.Settings.HasSaved("UiLaunchMoreSettings"), "First actual Main preference access did not perform automatic namespace migration.");
+            Native.Check(registry.Official.GetValue("UiLaunchMoreSettings", null) is null && registry.Official.GetValue("CacheMsV2OAuthRefresh_LF", null) is null &&
+                registry.Legacy.GetValue("ToolLauncherUpdateIgnoredTag", null) is null, "Automatic migration did not clean verified LF-only old values.");
+            Native.Check((string?)registry.LfOnly.GetValue("CacheMsV2OAuthRefresh_LF") == lf && (string?)registry.LfOnly.GetValue("UiLaunchMoreSettings") == "True" &&
+                (string?)registry.Official.GetValue("CacheMsV2OAuthRefresh") == foreign, "Automatic migration changed a cipher or official credential sentinel.");
+            firstAccess.AssertScope();
+        }
+        foreach (string name in new[] { "CacheMsV2OAuthRefresh_LF", "UiLaunchMoreSettings", "ToolLauncherUpdateIgnoredTag" }) registry.LfOnly.DeleteValue(name, false);
+    }
     private static Dictionary<string, object> AccountValues(string identifyTag) => new(StringComparer.Ordinal)
     {
         ["LoginMsJson"] = "{\"Fork\":\"fork-refresh\"}", ["CacheMsOAuthRefresh"] = "lf-old-refresh", ["CacheMsAccess"] = "lf-old-access",
@@ -63,15 +80,15 @@ internal static class RegistryDataChecks
             Native.Check(!PCL.Settings.HasSaved(key), "Foreign existence selected as saved LF data.");
             Native.Check(Equals(PCL.Settings.Get(key), Native.Get(Native.Entries[key]!, "DefaultValue")), "Foreign shared credential selected by real Main.Get.");
         }
-        var raw = (IDictionary)Native.Static("PCL.Settings", "ReadPclAccountRegistrySnapshot", registry.Official, false)!;
+        var raw = (IDictionary)Native.Static("PCL.Settings", "ReadPclAccountRegistrySnapshot", registry.LfOnly, false)!;
         Native.Check(MicrosoftNames.All(key => !raw.Contains(key)), "The actual snapshot selected shared Microsoft values.");
         Dictionary<string, object> values = AccountValues("current");
         PCL.Settings.SaveAccountGroup(values);
         foreach (string key in MicrosoftNames)
         {
             string stored = key + "_LF";
-            Native.Check(registry.Official.GetValueKind(stored) == RegistryValueKind.String, "Actual Registry write changed the reviewed physical value kind.");
-            string plain = key == "CacheMsV2Migrated" ? Convert.ToString(registry.Official.GetValue(stored), CultureInfo.InvariantCulture)! : Decrypt(registry.Official.GetValue(stored)!, identify);
+            Native.Check(registry.LfOnly.GetValueKind(stored) == RegistryValueKind.String, "Actual Registry write changed the reviewed physical value kind.");
+            string plain = key == "CacheMsV2Migrated" ? Convert.ToString(registry.LfOnly.GetValue(stored), CultureInfo.InvariantCulture)! : Decrypt(registry.LfOnly.GetValue(stored)!, identify);
             Native.Check(plain == Convert.ToString(values[key], CultureInfo.InvariantCulture), "Actual DES/Registry account roundtrip changed a value.");
             Native.Check(Equals(PCL.Settings.Get(key), values[key]), "Actual facade account readback selected a different value/type.");
         }
@@ -80,12 +97,12 @@ internal static class RegistryDataChecks
     private static void UpgradeAndLogout(RegistryNamespaceLease registry, string identify)
     {
         var foreign = Snapshot(registry.Official);
-        foreach (string key in MicrosoftNames.Where(key => key.StartsWith("CacheMsV2", StringComparison.Ordinal))) registry.Official.DeleteValue(key + "_LF", false);
+        foreach (string key in MicrosoftNames.Where(key => key.StartsWith("CacheMsV2", StringComparison.Ordinal))) registry.LfOnly.DeleteValue(key + "_LF", false);
         Native.Static("PCL.Settings", "EnsureMicrosoftCacheUpgrade");
         Native.Check(PCL.Settings.Get<string>("CacheMsV2OAuthRefresh") == "lf-old-refresh" && PCL.Settings.Get<bool>("CacheMsV2Migrated"), "Actual upgrade did not select only the LF old-format cache.");
-        var upgraded = Snapshot(registry.Official);
+        var upgraded = Snapshot(registry.LfOnly);
         Native.Static("PCL.Settings", "EnsureMicrosoftCacheUpgrade");
-        AssertSame(upgraded, Snapshot(registry.Official));
+        AssertSame(upgraded, Snapshot(registry.LfOnly));
         PCL.Settings.UpdateMicrosoftAccounts(accounts => { accounts.RemoveAll(); accounts["Keep"] = "keep-refresh"; accounts["OldUser"] = "old-refresh"; });
         var session = AccountValues("fresh").Where(item => item.Key.StartsWith("CacheMsV2", StringComparison.Ordinal) && item.Key != "CacheMsV2Migrated").ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         PCL.Settings.SaveMicrosoftSession(session, "OldUser");
@@ -94,11 +111,11 @@ internal static class RegistryDataChecks
         var logout = MicrosoftNames.Where(key => key.StartsWith("CacheMsV2", StringComparison.Ordinal)).ToDictionary(key => key, key => Native.Get(Native.Entries[key]!, "DefaultValue")!, StringComparer.Ordinal);
         logout["LoginMsJson"] = "{}"; logout["CacheMsV2Migrated"] = true;
         PCL.Settings.SaveAccountGroup(logout);
-        registry.Official.DeleteValue("CacheMsV2Migrated_LF", false); // Exercise explicit empty V2 guard even without its marker.
+        registry.LfOnly.DeleteValue("CacheMsV2Migrated_LF", false); // Exercise explicit empty V2 guard even without its marker.
         Native.Static("PCL.Settings", "EnsureMicrosoftCacheUpgrade");
         Native.Check(PCL.Settings.Get<string>("CacheMsV2OAuthRefresh") == "" && PCL.Settings.Get<string>("LoginMsJson") == "{}" && PCL.Settings.Get<bool>("CacheMsV2Migrated"), "Same-namespace old cache revived an explicit logout.");
-        Native.Static("PCL.Settings", "ResetRegistryPreference", registry.Official, Native.Entries["LoginMsJson"]);
-        Native.Check(registry.Official.GetValue("LoginMsJson_LF", null) is null, "Reset did not remove only the LF physical key.");
+        Native.Static("PCL.Settings", "ResetRegistryPreference", registry.LfOnly, Native.Entries["LoginMsJson"]);
+        Native.Check(registry.LfOnly.GetValue("LoginMsJson_LF", null) is null, "Reset did not remove only the LF physical key.");
         AssertUnchanged(foreign, registry.Official, MicrosoftNames);
     }
     private static void NonMicrosoftImport(RegistryNamespaceLease registry, string identify)
@@ -137,9 +154,9 @@ internal static class RegistryDataChecks
         Native.Check(platform.Opens == opens, "Public invalid JSON was not rejected before opening its transaction store.");
         AssertSame(before, Snapshot(registry.Official)); // Prewrite rejection, deliberately not described as rollback.
 
-        registry.Official.SetValue("CacheMsV2Name_LF", Encrypt("before-plan", identify), RegistryValueKind.ExpandString);
-        registry.Official.SetValue("CacheMsV2Migrated_LF", 0, RegistryValueKind.DWord);
-        before = Snapshot(registry.Official);
+        registry.LfOnly.SetValue("CacheMsV2Name_LF", Encrypt("before-plan", identify), RegistryValueKind.ExpandString);
+        registry.LfOnly.SetValue("CacheMsV2Migrated_LF", 0, RegistryValueKind.DWord);
+        before = Snapshot(registry.LfOnly);
         object plan = Activator.CreateInstance(Native.Type("PCL.Settings+PclAccountMigrationPlan"), true)!;
         Native.Set(plan, "CurrentIdentify", identify);
         var values = (IDictionary<string, string>)Native.Get(plan, "Values")!;
@@ -150,10 +167,10 @@ internal static class RegistryDataChecks
         // This low-level plan differs from public Save's earlier validation: its
         // invalid second item is rejected during persisted readback verification.
         // There is no substituted store or claimed per-write callback counter.
-        InvalidOperationException failure = Throws<InvalidOperationException>(() => Native.Static("PCL.Settings", "ApplyPclAccountMigration", plan, registry.Official, null));
+        InvalidOperationException failure = Throws<InvalidOperationException>(() => Native.Static("PCL.Settings", "ApplyPclAccountMigration", plan, registry.LfOnly, null));
         Native.Check(failure.Message == "账号格式转换校验失败", "Unexpected actual plan failure stage.");
-        AssertSame(before, Snapshot(registry.Official));
-        Native.Check(registry.Official.GetValueKind("CacheMsV2Name_LF") == RegistryValueKind.ExpandString && registry.Official.GetValueKind("CacheMsV2Migrated_LF") == RegistryValueKind.DWord, "Actual failed-plan recovery lost original Registry kinds.");
+        AssertSame(before, Snapshot(registry.LfOnly));
+        Native.Check(registry.LfOnly.GetValueKind("CacheMsV2Name_LF") == RegistryValueKind.ExpandString && registry.LfOnly.GetValueKind("CacheMsV2Migrated_LF") == RegistryValueKind.DWord, "Actual failed-plan recovery lost original Registry kinds.");
     }
     private static void IniAndUnknownFields(FixtureEnvironment fixture, RegistryNamespaceLease registry, string identify)
     {

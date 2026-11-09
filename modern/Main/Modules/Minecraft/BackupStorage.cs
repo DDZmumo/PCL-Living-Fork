@@ -17,13 +17,16 @@ internal static class BackupStorage {
     private static BackupStorageLocation location;
     private static string profile;
     private static int changing;
+    // Production uses the LF-only HKCU key. TestRoot keeps existing isolated
+    // filesystem fixtures from accessing a real user's Registry namespace.
+    internal static Func<IBackupStoragePreference> PreferenceFactory = () => LocalGameData.TestRoot is null ? new BackupStorageRegistryStore() : null;
     internal static bool IsChanging => Volatile.Read(ref changing) != 0;
     internal static BackupStorageLocation Location {
         get {
             lock (resolverGate) {
                 string currentProfile = Path.GetFullPath(LocalGameData.Root);
                 if (location is null || !string.Equals(profile, currentProfile, StringComparison.OrdinalIgnoreCase)) {
-                    location = new BackupStorageLocation(currentProfile); profile = currentProfile;
+                    location = new BackupStorageLocation(currentProfile, PreferenceFactory()); profile = currentProfile;
                 }
                 return location;
             }
