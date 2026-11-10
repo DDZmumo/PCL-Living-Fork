@@ -188,7 +188,7 @@ internal static class RegistryDataChecks
         Native.Check(PCL.Settings.Get<int>("WindowWidth") == 1042 && PCL.ModBase.ReadIni("Setup", "UnknownFutureSetting") == unknown, "Real settings writeback lost the unknown INI JSON value.");
         const string profile = "{\"id\":\"synthetic\",\"unknown_future\":{\"keep\":[1,true,\"留\"]}}";
         PCL.Settings.SaveAccountGroup(new Dictionary<string, object> { ["CacheMsV2ProfileJson"] = profile });
-        Native.Check(PCL.Settings.Get<string>("CacheMsV2ProfileJson") == profile && Decrypt(registry.Official.GetValue("CacheMsV2ProfileJson_LF")!, identify) == profile, "Actual Registry/JSON writeback removed unknown profile members.");
+        Native.Check(PCL.Settings.Get<string>("CacheMsV2ProfileJson") == profile && registry.LfOnly.GetValue("CacheMsV2ProfileJson_LF") is string raw && Decrypt(raw, identify) == profile && registry.Official.GetValue("CacheMsV2ProfileJson_LF", null) is null, "Actual Registry/JSON writeback removed unknown profile members.");
     }
     private static void ClearCache(string key) => ((IDictionary)Native.Get(Native.Entries[key]!, "ValueCache")!).Clear();
     private sealed record Value(RegistryValueKind Kind, object Data);
