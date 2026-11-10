@@ -30,7 +30,7 @@ internal static class EnvironmentHistoryRetentionChecks
         Put(Path.Combine(version, "mods/library.jar"), "recoverable-deleted"); string removed = CaptureInstance("整合包更新前"); JObject deletedPoint = Current().Single(p => (string?)p["id"] == removed); string deletedBlob = Blob(instance.PathVersion, deletedPoint, "g/mods/library.jar");
         string deletedFolder = (string)History("DeletePoints", instance.PathVersion, new[] { removed })!;
         for (int i = 6; i <= 8; i++) { Put(Path.Combine(version, "mods/library.jar"), "auto-" + i); CaptureInstance("游戏启动前"); }
-        Check("T074", File.Exists(deletedBlob) && File.Exists(Path.Combine(deletedFolder, removed + ".json")));
+        Check("T074", !File.Exists(deletedBlob) && !File.Exists(Path.Combine(deletedFolder, "points", removed + ".json")) && !Directory.Exists(Path.Combine(deletedFolder, "deleted")));
         int count = Current().Count;
         using (CancellationTokenSource cancel = new()) { cancel.Cancel(); Native.Check(Reject("T077", () => History("CaptureInstance", instance, "游戏启动前", cancel.Token)) is OperationCanceledException, "Retention capture cancellation changed exception kind."); }
         Reject("T078", () => History("PruneAutomatic", instance.PathVersion, 0, latest, None)); Check("T079", Current().Count == count);
@@ -43,7 +43,7 @@ internal static class EnvironmentHistoryRetentionChecks
         try { Reject("T093", () => History("PruneAutomatic", instance.PathVersion, 1, undo, None)); Check("T094", Current().Count == count); }
         finally { Put(manualFile, valid); }
         RetentionPage(instance, mc, Current);
-        Console.WriteLine("PASS environment-history retention: opt-in/defaults, legacy manuals, newest automatic limit, deleted/shared objects, cancel/invalid-prune atomicity, target/undo protection and real owner-scoped page.");
+        Console.WriteLine("PASS environment-history retention: opt-in/defaults, legacy manuals, newest automatic limit, permanently deleted/shared objects, cancel/invalid-prune atomicity, target/undo protection and real owner-scoped page.");
     }
 
     private static void RetentionPage(ModMinecraft.McInstance instance, string mc, Func<List<JObject>> points)

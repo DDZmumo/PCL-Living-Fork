@@ -66,8 +66,8 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
 
     private sealed class StoreLease : IDisposable {
         private readonly Mutex mutex;
-        public StoreLease(EnvironmentHistoryEngine<TInstance> owner, string versionFolder) {
-            string root = owner.Store(versionFolder);
+        public StoreLease(EnvironmentHistoryEngine<TInstance> owner, string versionFolder, bool directStore = false) {
+            string root = directStore ? versionFolder : owner.Store(versionFolder);
             owner.host.EnsureNoLinks(root);
             string key = owner.host.Hash(Encoding.UTF8.GetBytes(Path.GetFullPath(root).ToLowerInvariant())).Replace("/", "_").Replace("+", "-").TrimEnd('=');
             mutex = new Mutex(false, "Local\\PCLLF.EnvironmentHistory." + key);
@@ -203,9 +203,10 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
         progress?.Invoke(1);
         return id;
     }
-    public List<JObject> Points(string versionFolder) {
+    public List<JObject> Points(string versionFolder) => ReadStorePoints(Store(versionFolder));
+    private List<JObject> ReadStorePoints(string storeRoot) {
         // LF atomically publishes manifests; published-list readers do not take snapshot leases.
-        string storeRoot = Store(versionFolder), folder = Path.Combine(storeRoot, "points");
+        string folder = Path.Combine(storeRoot, "points");
         List<JObject> result = new();
         host.EnsureWithin(storeRoot, folder);
         if (!Directory.Exists(folder)) return result;
@@ -266,31 +267,8 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
                 if (automatic.Count <= count) return 0;
                 HashSet<string> keep = new(automatic.Where(point => SameText(point["id"]!.ToString(), newestId)).Concat(automatic.Where(point => !SameText(point["id"]!.ToString(), newestId))).Take(count).Select(point => point["id"]!.ToString()));
                 List<JObject> expired = automatic.Where(point => !keep.Contains(point["id"]!.ToString())).ToList();
-                references.Clear();
-                foreach (JObject point in all.Where(item => IsManualPoint(item) || keep.Contains(item["id"]!.ToString()))) AddReferences(point, references);
-                string deleted = Path.Combine(storeRoot, "deleted");
-                host.EnsureNoLinks(deleted);
-                if (Directory.Exists(deleted)) {
-                    foreach (string batch in Directory.GetDirectories(deleted)) {
-                        host.EnsureNoLinks(batch);
-                        if (Directory.GetDirectories(batch).Any()) throw new IOException("删除记录的目录结构未知，未清理旧还原点。");
-                        foreach (string address in Directory.GetFiles(batch, "*.json")) {
-                            host.EnsureNoLinks(address);
-                            if (new FileInfo(address).Length > 32 * 1024 * 1024) throw new IOException("删除记录过大，未清理旧还原点。");
-                            AddReferences(JObject.Parse(File.ReadAllText(address)), references);
-                        }
-                    }
-                }
-                string objects = Path.Combine(storeRoot, "objects");
-                List<string> unused = new();
-                host.EnsureNoLinks(objects);
-                if (Directory.Exists(objects)) {
-                    foreach (string address in Directory.GetFiles(objects)) {
-                        host.EnsureNoLinks(address);
-                        string hash = Path.GetFileName(address);
-                        if (Regex.IsMatch(hash, @"\A[a-f0-9]{40}\z") && !references.Contains(hash)) unused.Add(address);
-                    }
-                }
+                List<string> unused = UnreferencedObjects(storeRoot,
+                    all.Where(item => IsManualPoint(item) || keep.Contains(item["id"]!.ToString())), token);
                 token.ThrowIfCancellationRequested();
                 foreach (JObject point in expired) { token.ThrowIfCancellationRequested(); File.Delete(Safe(storeRoot, "points/" + point["id"]!.ToString() + ".json")); }
                 foreach (string address in unused) { token.ThrowIfCancellationRequested(); host.EnsureNoLinks(address); File.Delete(address); }
@@ -316,32 +294,80 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
         if (Directory.Exists(folder)) host.OpenFolder(folder);
         else host.Hint("此版本还没有环境还原点。");
     }
-    public string? DeletePoints(string versionFolder, IEnumerable<string> ids) {
+    private List<JObject> ValidatedPoints(string storeRoot) {
+        List<JObject> all = ReadStorePoints(storeRoot);
+        HashSet<string> seen = new(StringComparer.Ordinal), references = new(StringComparer.Ordinal);
+        foreach (JObject point in all) {
+            AddReferences(point, references);
+            string id = point["id"]!.ToString(), path = Safe(storeRoot, "points/" + id + ".json");
+            if (!seen.Add(id) || !File.Exists(path) || !JToken.DeepEquals(JObject.Parse(File.ReadAllText(path)), point))
+                throw new IOException("还原点列表已变化，请刷新后再删除。");
+        }
+        return all;
+    }
+    private List<string> UnreferencedObjects(string storeRoot, IEnumerable<JObject> retained, CancellationToken token) {
+        HashSet<string> references = new(StringComparer.Ordinal);
+        foreach (JObject point in retained) { token.ThrowIfCancellationRequested(); AddReferences(point, references); }
+        string objects = Path.Combine(storeRoot, "objects");
+        host.EnsureNoLinks(objects);
+        List<string> unused = new();
+        if (Directory.Exists(objects)) foreach (string path in Directory.GetFiles(objects)) {
+            token.ThrowIfCancellationRequested(); host.EnsureNoLinks(path);
+            string hash = Path.GetFileName(path);
+            if (Regex.IsMatch(hash, @"\A[a-f0-9]{40}\z") && !references.Contains(hash)) unused.Add(path);
+        }
+        return unused;
+    }
+    private void MarkCleanupPending(string root) => host.AtomicWrite(Safe(root, "cleanup-pending"), Array.Empty<byte>());
+    private void SweepUnused(string root, List<string> unused, CancellationToken token) {
+        PermanentResourceDeletion.Delete(root, unused, token);
+        File.Delete(Safe(root, "cleanup-pending"));
+    }
+    public string? DeletePoints(string versionFolder, IEnumerable<string> ids) => DeletePointsWithCancellation(versionFolder, ids, CancellationToken.None);
+    public string? DeletePointsWithCancellation(string versionFolder, IEnumerable<string> ids, CancellationToken token) {
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
+                if (RestoringCount > 0) throw new IOException("正在恢复环境，请等待恢复任务结束后再删除还原点。");
                 List<string> selected = ids.Distinct(StringComparer.Ordinal).ToList();
-                string storeRoot = Store(versionFolder);
                 if (selected.Count == 0) return null;
-                List<Tuple<string, string>> moves = new();
-                string deleted = "deleted/" + Guid.NewGuid().ToString("N") + "/";
+                token.ThrowIfCancellationRequested();
+                string root = Store(versionFolder);
+                List<JObject> all = ValidatedPoints(root);
                 foreach (string id in selected) {
-                    if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z")) throw new IOException("还原点编号无效。");
-                    string source = Safe(storeRoot, "points/" + id + ".json"), destination = Safe(storeRoot, deleted + id + ".json");
-                    if (!File.Exists(source)) throw new IOException("还原点已变化，请刷新列表。");
-                    moves.Add(Tuple.Create(source, destination));
+                    if (!Regex.IsMatch(id, @"\A[a-f0-9]{32}\z") || !all.Any(point => SameText(point["id"]!.ToString(), id)))
+                        throw new IOException("还原点编号无效或记录已变化，请刷新列表。");
                 }
-                List<Tuple<string, string>> moved = new();
+                List<string> unused = UnreferencedObjects(root, all.Where(point => !selected.Contains(point["id"]!.ToString())), token);
+                token.ThrowIfCancellationRequested(); MarkCleanupPending(root);
+                PermanentResourceDeletion.Delete(root, selected.Select(id => Safe(root, "points/" + id + ".json")), token);
+                SweepUnused(root, unused, token);
+                return root;
+            }
+        }
+    }
+    public void CleanupDeletedStores(CancellationToken token) {
+        lock (Gate) {
+            string category = TestRoot ?? Path.Combine(host.DataRoot(), "environment-history");
+            host.EnsureNoLinks(category);
+            if (RestoringCount > 0 || !Directory.Exists(category)) return;
+            int keyLength = host.Hash(Array.Empty<byte>()).TrimEnd('=').Length;
+            foreach (string root in Directory.GetDirectories(category)) {
+                token.ThrowIfCancellationRequested();
+                string key = Path.GetFileName(root);
+                if (key.Length != keyLength || !Regex.IsMatch(key, @"\A[A-Za-z0-9_-]+\z")) continue;
                 try {
-                    foreach (Tuple<string, string> pair in moves) {
-                        Directory.CreateDirectory(Path.GetDirectoryName(pair.Item2)!);
-                        File.Move(pair.Item1, pair.Item2);
-                        moved.Add(pair);
+                    using (new StoreLease(this, root, true)) {
+                        string deleted = Path.Combine(root, "deleted"), pending = Safe(root, "cleanup-pending");
+                        host.EnsureWithin(root, deleted); host.EnsureNoLinks(deleted);
+                        if (!Directory.Exists(deleted) && !File.Exists(pending)) continue;
+                        List<string> unused = UnreferencedObjects(root, ValidatedPoints(root), token);
+                        token.ThrowIfCancellationRequested(); MarkCleanupPending(root);
+                        if (Directory.Exists(deleted)) PermanentResourceDeletion.Delete(root, new[] { deleted }, token);
+                        SweepUnused(root, unused, token);
                     }
-                } catch {
-                    foreach (Tuple<string, string> pair in moved.AsEnumerable().Reverse()) File.Move(pair.Item2, pair.Item1);
-                    throw;
+                } catch (Exception error) when (error is IOException or UnauthorizedAccessException or Newtonsoft.Json.JsonException) {
+                    host.Warn(error, "旧还原点删除目录暂未清理，下次启动重试");
                 }
-                return Path.GetDirectoryName(moves[0].Item2);
             }
         }
     }

@@ -43,7 +43,7 @@ internal static class EnvironmentHistoryEngineChecks
         FileLocksAndCancellation(version, mc, first);
         int blobs = BlobCount(); Reject("E071", () => History("DeletePoints", version, new[] { first, "../invalid" })); Check("E072", Points(version).Any(p => (string?)p["id"] == first));
         string deleted = (string)History("DeletePoints", version, new[] { second })!;
-        Check("E074", !Points(version).Any(p => (string?)p["id"] == second)); Check("E075", File.Exists(Path.Combine(deleted, second + ".json"))); Check("E076", BlobCount() == blobs); Check("E077", File.ReadAllText(Path.Combine(version, "mods/new.jar")) == "added-mod");
+        Check("E074", !Points(version).Any(p => (string?)p["id"] == second)); Check("E075", !File.Exists(Path.Combine(deleted, "points", second + ".json")) && !Directory.Exists(Path.Combine(deleted, "deleted"))); Check("E076", BlobCount() <= blobs && Points(version).All(point => ((JObject)point["files"]!).Properties().All(file => File.Exists(Blob(version, point, file.Name))))); Check("E077", File.ReadAllText(Path.Combine(version, "mods/new.jar")) == "added-mod");
         JObject firstPoint = Points(version).Single(p => (string?)p["id"] == first); Put(Blob(version, firstPoint, "v/example.jar"), "corrupted");
         int pointsBeforeCorruption = Points(version).Count; Reject("E083", () => Restore(version, version, mc, first)); Check("E084", File.ReadAllText(Path.Combine(version, "example.jar")) == "minecraft-new");
         Native.Check(Points(version).Count == pointsBeforeCorruption, "Corrupt restore published a safety snapshot before validating all payloads."); NotRestoring();

@@ -71,7 +71,7 @@ try{
  Put (Join-Path $version 'mods/library.jar') 'recoverable-deleted';$removed=Capture '整合包更新前';$deletedPoint=(Points)|Where-Object {$_['id'].ToString() -eq $removed}|Select-Object -First 1;$deletedBlob=Blob $deletedPoint 'g/mods/library.jar'
  $deletedFolder=Call $history 'DeletePoints' @($instance.PathVersion,[string[]]@($removed))
  for($i=6;$i -le 8;$i++){Put (Join-Path $version 'mods/library.jar') ('auto-'+$i);Capture '游戏启动前'|Out-Null}
- if(-not [IO.File]::Exists($deletedBlob) -or -not [IO.File]::Exists((Join-Path $deletedFolder ($removed+'.json')))){throw 'Cleanup invalidated a recoverable deleted record'}
+ if([IO.File]::Exists($deletedBlob) -or [IO.File]::Exists((Join-Path $deletedFolder ('points/'+$removed+'.json'))) -or [IO.Directory]::Exists((Join-Path $deletedFolder 'deleted'))){throw 'Deleted restore data remains'}
  # Cancellation and invalid limits cannot trigger cleanup.
  $count=(Points).Count;$cancel=[Threading.CancellationTokenSource]::new();$cancel.Cancel()
  Reject {Call $history 'CaptureInstance' @($instance,'游戏启动前',$cancel.Token)} 'Canceled capture succeeded'
@@ -106,7 +106,7 @@ try{
  $page.FindName('TextRetention').Text='0';Set-RestorePageState $page 'RetentionDirty' $true
  if((Call $page 'CommitRetention' @()) -or $page.FindName('TextRetention').Text -ne '3'){throw 'Invalid UI limit was persisted'}
  if($PreviewDirectory){$card=$page.FindName('CardRetention');$caption=$card.MainTextBlock;$card.Parent.Children.Remove($card);$card.Margin=[Windows.Thickness]::new(15);$card.VerticalAlignment=[Windows.VerticalAlignment]::Top;Render $card 'restore-point-retention.png' 740 175;$worldSettings=[Activator]::CreateInstance($asm.GetType('PCL.WorldBackupSettings'));Call $worldSettings 'BindOwner' @($instance)|Out-Null;$backupCard=$worldSettings.FindName('CardSettings');$caption=$backupCard.MainTextBlock;$backupCard.IsSwapped=$false;$backupCard.TriggerForceResize();$worldSettings.VerticalAlignment=[Windows.VerticalAlignment]::Top;Render $worldSettings 'manual-world-backup-protection.png' 740 155}
- Write-Output 'PASS: opt-in/per-instance limits, legacy manual exemption, newest-first automatic retention, shared-object cleanup, deleted-reference protection, cancellation, restore/undo, invalid metadata and native settings UI.'
+ Write-Output 'PASS: opt-in/per-instance limits, legacy manual exemption, newest-first automatic retention, shared-object cleanup, permanent deletion and shared-reference protection, cancellation, restore/undo, invalid metadata and native settings UI.'
 }finally{
  $app.Shutdown();$history.GetProperty('TestRoot',$flags).SetValue($null,$null,$null)
  $resolved=[IO.Path]::GetFullPath($fixture);$temp=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\'

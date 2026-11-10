@@ -72,8 +72,8 @@ try{
  if(-not ((Call 'Points' @($version))|Where-Object {$_['id'].ToString() -eq $first})){throw 'Invalid batch partly deleted a valid point'}
  $deleted=Call 'DeletePoints' @($version,[string[]]@($second))
  if((Call 'Points' @($version))|Where-Object {$_['id'].ToString() -eq $second}){throw 'Deleted restore point remained visible'}
- if(-not [IO.File]::Exists((Join-Path $deleted ($second+'.json')))){throw 'Deleted point record is not recoverable'}
- if(@(Get-ChildItem (Join-Path $fixture 'history') -Recurse -File|Where-Object {$_.Directory.Name -eq 'objects'}).Count -ne $blobCount){throw 'Deleting a point removed shared payloads'}
+ if([IO.File]::Exists((Join-Path $deleted ('points/'+$second+'.json'))) -or [IO.Directory]::Exists((Join-Path $deleted 'deleted'))){throw 'Deleted point record remains'}
+ if(@(Get-ChildItem (Join-Path $fixture 'history') -Recurse -File|Where-Object {$_.Directory.Name -eq 'objects'}).Count -gt $blobCount){throw 'Deleting a point created additional payloads'}
  if([IO.File]::ReadAllText((Join-Path $game 'mods/new.jar')) -cne 'added-mod'){throw 'Deleting a point modified game files'}
  # Corrupt snapshot data must fail before replacing any environment files.
  $point=(Call 'Points' @($version))|Where-Object {$_['id'].ToString() -eq $first}|Select-Object -First 1

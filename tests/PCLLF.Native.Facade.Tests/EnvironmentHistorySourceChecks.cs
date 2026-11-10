@@ -73,12 +73,19 @@ internal static class EnvironmentHistorySourceChecks
         ["C046"] = "Test-EnvironmentCoverage.ps1:46 Reject {Call $history 'Restore' @($modern,$modern,$mc,$newId,$token,$null,$null)} 'Unknown coverage version was guessed'",
         ["C047"] = "Test-EnvironmentCoverage.ps1:47 if([IO.File]::ReadAllText((Join-Path $modern 'coremods/preserve-unknown.jar')) -cne 'do-not-touch'){throw 'Unknown coverage modified the environment'}",
     };
+    // Historical source IDs remain anchors; these expectations follow the
+    // approved permanent-deletion policy instead of preserving deleted records.
+    private static readonly Dictionary<string,string> CurrentPolicy = new(StringComparer.Ordinal) {
+        ["E075"] = "Deleted restore-point records must be removed permanently without a deleted directory.",
+        ["E076"] = "Reclaim unreferenced objects while preserving every object referenced by remaining points.",
+        ["T074"] = "Deleted restore-point records and unique objects must not remain recoverable."
+    };
     private static readonly HashSet<string> Seen = new(StringComparer.Ordinal);
     internal static void Reset() => Seen.Clear();
     internal static void Check(string id, bool condition)
     {
         Native.Check(Original.TryGetValue(id, out string? original), "Unknown original environment assertion: " + id);
-        Native.Check(condition, id + " " + original);
+        Native.Check(condition, id + " " + CurrentPolicy.GetValueOrDefault(id, original!));
         Seen.Add(id);
     }
     internal static void Complete()

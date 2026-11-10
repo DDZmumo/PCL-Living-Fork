@@ -311,7 +311,7 @@ End Module
  Reject {Call 'DeletePoints' @($game,[string[]]@($selected[0],'../invalid'))} 'Invalid delete batch was accepted'
  if(-not ((Call 'Points' @($game))|Where-Object {$_['id'].ToString() -eq $selected[0]})){throw 'Invalid batch partly removed a valid backup'}
  $deleted=Call 'DeletePoints' @($game,[string[]]@($selected[0]))
- if(-not [IO.File]::Exists((Join-Path $deleted ($selected[0]+'/world.zip')))){throw 'Removed backup is not recoverable'}
+ if([IO.Directory]::Exists((Join-Path $deleted ('points/'+$selected[0]))) -or [IO.Directory]::Exists((Join-Path $deleted 'deleted'))){throw 'Deleted backup payload remains'}
  AssertText (Join-Path $world 'level.dat') 'retention-3'
  # Backups now live below each world in the saves page, using native collapsible groups.
  $groupXml=[xml](Read-LfFixedSourceText -Name 'backup-group-xaml-f4')

@@ -23,3 +23,5 @@
 该独立节点同时接收 LF 专用设置的一次性兼容迁移，包括 `LaunchPersonalOptions*`、`LaunchRecentWorlds`、`UiLaunchMoreSettings`、LF 更新忽略标记及 `_LF` 后缀的 13 项微软账号记录。精确范围、事务校验与回滚规则见[微软登录存储隔离](microsoft-account-storage.md)。`Identify`、通用兼容偏好、未加后缀的官方账号值与未确认来源的历史凭据保留原有规则。
 
 `Test-BackupTaskProgress.ps1` 使用独立目录和真实 UI 任务负载，验证连续进度、两种恢复、快照期间浏览、读写互斥、列表读取与取消清理。`Test-CloneTaskProgress.ps1` 验证原生克隆任务、单个大文件复制时的进度、各阶段取消和提交边界；`Test-FileTaskNavigation.ps1` 重放原生返回操作并检查选中项与页面内容。`Test-WorldBackups.ps1`、`Test-EnvironmentHistory.ps1`、`Test-ReviewFixes.ps1` 验证存档、共享文件、校验、中断恢复与回滚。
+
+备份与环境还原点确认后永久删除，不再移动到 `deleted`。批量操作在删除前检查全部编号和记录；环境还原点只回收未被其余还原点引用的数据。恢复期间禁止删除，存档恢复事务引用的目标及恢复前备份也受到保护。升级后后台清理旧删除目录，失败时保留未清理内容待下次启动重试；此过程不删除当前存档或游戏环境文件。
