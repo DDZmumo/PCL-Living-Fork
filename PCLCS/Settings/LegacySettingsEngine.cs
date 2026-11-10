@@ -49,11 +49,14 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
     public static string RegistryValueName(TEntry entry) => entry.Key + (IsMicrosoftAccountSetting(entry) ? "_LF" : "");
     public static bool IsCompatibleSetting(TEntry entry) {
         if (entry.GetSourceCode() != LegacySettingSource.Registry || entry.Encrypted) return false;
+        if (LfRegistryStorage.IsOwned(RegistryValueName(entry))) return false;
         if (entry.Key == "ToolLauncherUpdateIgnoredTag") return false;
         return entry.Key.StartsWith("Launch", StringComparison.Ordinal) || entry.Key.StartsWith("Tool", StringComparison.Ordinal) ||
             entry.Key.StartsWith("Ui", StringComparison.Ordinal) || entry.Key.StartsWith("SystemDebug", StringComparison.Ordinal) || entry.Key == "SystemSystemCache";
     }
-    public string RegistryFolderFor(TEntry entry) => IsAccountSetting(entry) || entry.Key == "Identify" || IsCompatibleSetting(entry) ? "PCL" : host.RegistryFolder();
+    public string RegistryFolderFor(TEntry entry) => entry.GetSourceCode() == LegacySettingSource.Registry && LfRegistryStorage.IsOwned(RegistryValueName(entry))
+        ? LfRegistryStorage.Folder
+        : IsAccountSetting(entry) || entry.Key == "Identify" || IsCompatibleSetting(entry) ? "PCL" : host.RegistryFolder();
     public string? ReadRegistrySetting(TEntry entry, string? defaultValue) =>
         host.ReadRegistry("HKEY_CURRENT_USER\\Software\\" + RegistryFolderFor(entry), RegistryValueName(entry), null) ?? defaultValue;
 

@@ -15,11 +15,12 @@ internal sealed class RegistryNamespaceLease : IDisposable
     internal const string Marker = "LivingPclNativeRegistryFixtureOwner";
     private readonly string token = Guid.NewGuid().ToString("N");
     private readonly Dictionary<string, RegistryKey> owned = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> folders = ["PCL", "PCLDebug", "LivingPCL"];
+    private readonly List<string> folders = ["PCL", "PCLDebug", "LivingPCL", LfRegistryStorage.Folder];
     private bool disposed;
     internal RegistryKey Official => owned["PCL"];
     internal RegistryKey Legacy => owned["PCLDebug"];
     internal RegistryKey OlderPrivate => owned["LivingPCL"];
+    internal RegistryKey LfOnly => owned[LfRegistryStorage.Folder];
     internal RegistryNamespaceLease()
     {
         Native.Check(OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" &&
@@ -103,29 +104,32 @@ internal sealed class RegistryDataPlatformScope : IDisposable
         this.lease = lease;
         backend = Native.Field(Native.Type("PCL.Settings"), "Backend").GetValue(null)!;
         object host = Native.Get(backend, "host")!;
+        var router = new LfRegistryStorage((folder, writable, create) => {
+            Guard(() => lease.ValidateFolder(folder)); Opens++;
+            ILegacySettingsStore? store = LegacySettingsRegistryStore.Open(folder, writable, create);
+            Native.Check(store is not null && store.GetType() == typeof(LegacySettingsRegistryStore), "Expected the genuine Windows Registry adapter.");
+            return store;
+        });
         try
         {
             Replace(host, "ReadRegistry", new Func<string, string, string?, string?>((path, key, fallback) =>
             {
                 Guard(() => lease.ValidatePath(path, key)); Reads++;
-                return Conversions.ToString(RegistryUtils.TryRead(path, key, fallback));
+                return router.ReadRegistry(path, key, fallback);
             }));
             Replace(host, "WriteRegistry", new Action<string, string, string?>((path, key, value) =>
             {
                 Guard(() => lease.ValidatePath(path, key)); Writes++;
-                RegistryUtils.Write(path, key, value);
+                router.WriteRegistry(path, key, value);
             }));
             Replace(host, "HasRegistry", new Func<string, string, bool>((path, key) =>
             {
                 Guard(() => lease.ValidatePath(path, key)); Has++;
-                return RegistryUtils.Has(path, key);
+                return router.HasRegistry(path, key);
             }));
             Replace(host, "OpenRegistry", new Func<string, bool, bool, ILegacySettingsStore?>((folder, writable, create) =>
             {
-                Guard(() => lease.ValidateFolder(folder)); Opens++;
-                ILegacySettingsStore? store = LegacySettingsRegistryStore.Open(folder, writable, create);
-                Native.Check(store is not null && store.GetType() == typeof(LegacySettingsRegistryStore), "Expected the genuine Windows Registry adapter.");
-                return store;
+                return router.OpenRegistry(folder, writable, create);
             }));
             // The same actual SourceIdentify primitive with synthetic input only;
             // never invoke the hardware-enumerating Windows IdentifyCandidates.

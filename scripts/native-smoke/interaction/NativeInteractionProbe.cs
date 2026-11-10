@@ -133,7 +133,7 @@ internal sealed class Probe
         if (clock.Elapsed.TotalSeconds > 80) throw new InvalidOperationException("PENDING: bounded interaction budget exhausted.");
         string workspace = Path.GetFullPath(args["workspace"]).TrimEnd(Path.DirectorySeparatorChar);
         if (!fixture.StartsWith(workspace + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !exe.StartsWith(fixture + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || File.ReadAllText(Path.Combine(fixture, "owner.txt")) != owner) throw new InvalidOperationException("Fixture path/owner differs.");
-        foreach (string name in new[] { "Software\\PCL", "Software\\PCLDebug" })
+        foreach (string name in new[] { "Software\\PCL", "Software\\PCLDebug", "Software\\PCL Living Fork" })
         {
             using RegistryKey? store = Registry.CurrentUser.OpenSubKey(name, false);
             if (store?.GetValue("__PclLfNativeSmokeOwner") as string != owner) throw new InvalidOperationException("Synthetic profile ownership differs.");

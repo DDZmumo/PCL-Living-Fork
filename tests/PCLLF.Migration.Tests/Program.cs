@@ -17,7 +17,7 @@ internal static class Program {
         // select groups, so overlapping/repeated selectors cannot duplicate cases.
         (string Key, Func<IEnumerable<(string Name, Action Run)>> Cases)[] groups = [
             ("world-metadata", () => WorldMetadataCases().Concat(WorldMetadataFileTests.Cases())),
-            ("local-data", LocalGameDataTests.Cases),
+            ("local-data", () => LocalGameDataTests.Cases().Concat(BackupStorageLocationTests.Cases()).Concat(LfRegistryStorageTests.Cases())),
             ("personal-options", () => PersonalOptionsRulesTests.Cases()
                 .Concat(PersonalOptionsFileTests.Cases()).Concat(PersonalOptionsFlowTests.Cases()).Concat(PersonalOptionsManagementTests.Cases())),
             ("keybindings", () => InstanceKeybindingFileTests.Cases()

@@ -12,4 +12,14 @@
 
 显示摘要不参与恢复和删除的授权或内容校验；实际操作仍重新读取当前清单，并保留原有完整备份校验、回滚和路径保护。
 
+## 备份与还原点的存储位置
+
+在“设置 → 其他 → 世界备份与环境还原点”的路径输入框右侧点击“选择”，通过 PCL 现有文件夹窗口选择一个空文件夹，并在确认窗口中确认迁移。世界备份与还原点共同使用所选目录，分别保存在 `world-backups`、`environment-history` 子目录中。未更改时继续读取原有 `%LOCALAPPDATA%\PCL Living Fork\GameData`，兼容旧备份。
+
+迁移作为原生文件任务在后台运行，期间持有两个备份引擎的操作锁；复制、哈希校验和源目录复核完成后才原子保存位置配置。失败或在提交前取消时保留原位置，已有目标文件不会被覆盖。新位置提交后仅清理内容仍与迁移快照一致的旧文件，未能清理的文件会保留并提示。个人方案、账号和游戏目录不随这两个备份目录移动。
+
+位置配置保存在当前用户的独立注册表节点 `HKEY_CURRENT_USER\Software\PCL Living Fork` 中，值名为 `BackupStorageRoot`，类型为 `REG_SZ`。同一 Windows 用户下的新版 PCLLF 共用该值，不写入官方 `Software\PCL` 节点，也不随普通设置的导入或重置改变。已使用开发测试包 JSON 配置的用户，首次读取会自动导入 `backup-storage.json` 中的位置；注册表值优先，之后不再回写 JSON。自定义位置不可用时不自动改回 C 盘；请先连接原存储设备。变更位置时应等待当前游戏和文件任务结束。
+
+该独立节点同时接收 LF 专用设置的一次性兼容迁移，包括 `LaunchPersonalOptions*`、`LaunchRecentWorlds`、`UiLaunchMoreSettings`、LF 更新忽略标记及 `_LF` 后缀的 13 项微软账号记录。精确范围、事务校验与回滚规则见[微软登录存储隔离](microsoft-account-storage.md)。`Identify`、通用兼容偏好、未加后缀的官方账号值与未确认来源的历史凭据保留原有规则。
+
 `Test-BackupTaskProgress.ps1` 使用独立目录和真实 UI 任务负载，验证连续进度、两种恢复、快照期间浏览、读写互斥、列表读取与取消清理。`Test-CloneTaskProgress.ps1` 验证原生克隆任务、单个大文件复制时的进度、各阶段取消和提交边界；`Test-FileTaskNavigation.ps1` 重放原生返回操作并检查选中项与页面内容。`Test-WorldBackups.ps1`、`Test-EnvironmentHistory.ps1`、`Test-ReviewFixes.ps1` 验证存档、共享文件、校验、中断恢复与回滚。

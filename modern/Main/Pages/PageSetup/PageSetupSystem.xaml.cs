@@ -31,6 +31,7 @@ namespace PCL
             Initialized += InitLauncherUpdateSource;
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            Loaded += (_, _) => RefreshBackupStorage();
         }
 
         private void InitLauncherUpdateSource(object sender, EventArgs e) => Controller.InitializeLauncherUpdates();

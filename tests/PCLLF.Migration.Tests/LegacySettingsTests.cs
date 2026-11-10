@@ -53,9 +53,9 @@ internal static class LegacySettingsTests {
         Equal(typeof(LoginKind), fixture.Entries["LoginType"].Type);
         Equal(typeof(long), fixture.Entries["CacheMsV2Expires"].Type);
         Equal(LegacySettingSource.Instance, fixture.Entries["VersionWorldBackupRetention"].Source);
-        Equal("PCL", fixture.Engine.RegistryFolderFor(fixture.Entries["LoginMsJson"]));
+        Equal(LfRegistryStorage.Folder, fixture.Engine.RegistryFolderFor(fixture.Entries["LoginMsJson"]));
         Equal("PCL", fixture.Engine.RegistryFolderFor(fixture.Entries["LaunchFolders"]));
-        Equal("LivingPCL", fixture.Engine.RegistryFolderFor(fixture.Entries["ToolLauncherUpdateIgnoredTag"]));
+        Equal(LfRegistryStorage.Folder, fixture.Engine.RegistryFolderFor(fixture.Entries["ToolLauncherUpdateIgnoredTag"]));
         Equal("LivingPCL", fixture.Engine.RegistryFolderFor(fixture.Entries["UiLauncherThemeHide"]));
         Equal(LegacySettingSource.Normal, fixture.Entries["WindowWidth"].Source);
         Equal(225, fixture.Entries["UiLauncherHue"].DefaultValue);
