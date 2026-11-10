@@ -141,19 +141,10 @@ namespace PCL
             Transactions.ExportMany(Root, Items, Folder, Token);
         }
 
-        internal static void RecycleMany(string Root, IEnumerable<InstanceResourceEntry> Items, string RecycleRoot, CancellationToken Token)
+        internal static void DeleteMany(string Root, IEnumerable<InstanceResourceEntry> Items, CancellationToken Token)
         {
-            Transactions.RecycleMany(Root, Items, RecycleRoot, Token);
+            Transactions.DeleteMany(Root, Items, Token);
         }
 
-        internal static string MoveToRecycle(string Root, InstanceResourceEntry Entry, string RecycleRoot)
-        {
-            return Transactions.MoveToRecycle(Root, Entry, RecycleRoot);
-        }
-
-        internal static string RestoreLast(string Root, string RecycleRoot)
-        {
-            return Transactions.RestoreLast(Root, RecycleRoot);
-        }
     }
 }

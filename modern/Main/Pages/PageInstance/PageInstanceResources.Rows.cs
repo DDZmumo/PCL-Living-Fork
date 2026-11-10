@@ -14,39 +14,6 @@ namespace PCL
 {
     public partial class PageInstanceResources
     {
-        internal bool IsRecycleMode
-        {
-            get
-            {
-                return Controller.IsRecycleMode;
-            }
-
-            set
-            {
-                Controller.IsRecycleMode = value;
-            }
-        }
-
-        internal void SetRecycleMode(bool Value)
-        {
-            Controller.SetRecycleMode(Value);
-        }
-
-        private void ReturnToResources()
-        {
-            Controller.ReturnToResources();
-        }
-
-        private void RestoreDeleted()
-        {
-            Controller.SetRecycleMode(!Controller.IsRecycleMode);
-        }
-
-        private void RestoreRecycleSelection(IEnumerable<InstanceResourceEntry> Items = null)
-        {
-            Controller.RestoreRecycleSelection(Items);
-        }
-
         private void RefreshResourceToolbar()
         {
             Controller?.RefreshResourceToolbar();
@@ -115,27 +82,6 @@ namespace PCL
 
         private static List<MyIconButton> NativeRowButtons(InstanceResourceKind Kind, MyLocalModItem Row, ResourceRowActions Actions)
         {
-            if (Actions.IsRecycle())
-            {
-                var Restore = new MyIconButton()
-                {
-                    Logo = ModBase.Logo.IconButtonRefresh,
-                    ToolTip = "还原"
-                };
-                Restore.Click += (Sender, Args) => Actions.Restore(Row.ResourceEntry);
-                var Purge = new MyIconButton()
-                {
-                    Logo = ModBase.Logo.IconButtonDelete,
-                    ToolTip = "彻底删除"
-                };
-                Purge.Click += (Sender, Args) => Actions.Purge(Row.ResourceEntry);
-                return new List<MyIconButton>()
-                {
-                    Restore,
-                    Purge
-                };
-            }
-
             var Buttons = new List<MyIconButton>();
             if (Actions.CanPlay())
             {

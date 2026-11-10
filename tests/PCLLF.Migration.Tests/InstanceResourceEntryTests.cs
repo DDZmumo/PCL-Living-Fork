@@ -6,7 +6,7 @@ internal static class InstanceResourceEntryTests {
     private const string Stale = "资源已变化，请刷新列表后重试。";
 
     internal static IEnumerable<(string Name, Action Run)> Cases() {
-        yield return ("resource entry data preserves eight inherited fields and defaults", FieldShape);
+        yield return ("resource entry data preserves resource fields and defaults without recycle metadata", FieldShape);
         yield return ("resource entry validates actual file snapshot without replacing derived object", ValidFile);
         yield return ("resource entry original guard receives raw root and path before stat", GuardFirst);
         yield return ("resource entry null semantics do not add parameter validation", NullInputs);
@@ -24,7 +24,7 @@ internal static class InstanceResourceEntryTests {
 
     private static void FieldShape() {
         foreach ((string name, Type type) in new[] {
-            ("RecycleId", typeof(string)), ("Name", typeof(string)), ("FullPath", typeof(string)), ("Description", typeof(string)),
+            ("Name", typeof(string)), ("FullPath", typeof(string)), ("Description", typeof(string)),
             ("IsDirectory", typeof(bool)), ("ModifiedUtc", typeof(DateTime)), ("CreatedUtc", typeof(DateTime)), ("Length", typeof(long))
         }) {
             FieldInfo field = typeof(DerivedEntry).GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!;
@@ -32,7 +32,6 @@ internal static class InstanceResourceEntryTests {
             Equal(typeof(InstanceResourceEntryData), field.DeclaringType);
         }
         DerivedEntry blank = new();
-        Equal<string?>(null, blank.RecycleId);
         Equal<string?>(null, blank.Name);
         Equal<string?>(null, blank.FullPath);
         Equal<string?>(null, blank.Description);
@@ -47,13 +46,11 @@ internal static class InstanceResourceEntryTests {
     private static void ValidFile() {
         using Fixture fixture = new();
         DerivedEntry entry = fixture.FileEntry("file.bin", [1, 2, 3]);
-        entry.RecycleId = "existing recycle marker";
         entry.Description = "existing description";
         entry.CreatedUtc = DateTime.MinValue;
         object marker = entry.Marker;
         Validate(fixture, entry);
         Equal(true, ReferenceEquals(marker, entry.Marker));
-        Equal("existing recycle marker", entry.RecycleId);
         Equal("existing description", entry.Description);
         Equal("file.bin", entry.Name);
         Equal(3L, entry.Length);

@@ -38,7 +38,7 @@ function Zip([string]$path,[string]$content,[bool]$shader=$false){
  try{$writer=[IO.StreamWriter]::new($archive.CreateEntry($(if($shader){'shaders/test.fsh'}else{'pack.mcmeta'})).Open());try{$writer.Write($content)}finally{$writer.Dispose()}}finally{$archive.Dispose()}
 }
 function Check($kind=$packKind){return ,(Invoke-Static $updates 'Check' @($packs,$items,$kind,'1.20.1',$none,$request,$fingerprint))}
-function Install($result,$downloader=$download){Invoke-Static $updates 'Install' @($packs,$result,$recycle,$packKind,'1.20.1',$none,$downloader)|Out-Null}
+function Install($result,$downloader=$download){Invoke-Static $updates 'Install' @($packs,$result,$packKind,'1.20.1',$none,$downloader)|Out-Null}
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('PclResourceUpdates-'+[Guid]::NewGuid().ToString('N'))
 try{
  $packs=Join-Path $fixture 'resourcepacks';$original=Join-Path $packs 'My selected pack.zip';$newFile=Join-Path $fixture 'download/new.zip'
@@ -111,8 +111,7 @@ try{
  Install $result $download
  if((Get-FileHash -LiteralPath $original -Algorithm SHA1).Hash.ToLowerInvariant() -cne $newHash){throw 'Resource update did not replace file contents'}
  if([IO.File]::Exists((Join-Path $packs 'New.zip'))){throw 'Update broke the selected resource-pack filename'}
- $backup=@([IO.Directory]::EnumerateFiles($recycle,'content',[IO.SearchOption]::AllDirectories))
- if($backup.Count -ne 1 -or (Get-FileHash -LiteralPath $backup[0] -Algorithm SHA1).Hash.ToLowerInvariant() -cne $hash){throw 'Original resource was not preserved for restore'}
+ if([IO.Directory]::Exists($recycle)){throw 'Successful update recreated the retired resource recycle bin'}
  [IO.File]::WriteAllBytes($original,$oldBytes)
  $items=Invoke-Static $store 'Scan' @($packs,$packs,$packKind,$none);$result=Check
  $badDownload=[Management.Automation.LanguagePrimitives]::ConvertTo([scriptblock]{param($files,$token)foreach($file in $files){[IO.File]::WriteAllText($file.LocalPath,'corrupt-download')}},$downloadType)
@@ -121,11 +120,11 @@ try{
  $failedDownload=[Management.Automation.LanguagePrimitives]::ConvertTo([scriptblock]{param($files,$token)throw 'Synthetic download failure'},$downloadType)
  Assert-Rejected {Install $result $failedDownload} 'Download failure was not propagated'
  $cancel=[Threading.CancellationTokenSource]::new();$cancel.Cancel()
- Assert-Rejected {Invoke-Static $updates 'Install' @($packs,$result,$recycle,$packKind,'1.20.1',$cancel.Token,$download)} 'Cancelled update was installed';$cancel.Dispose()
+ Assert-Rejected {Invoke-Static $updates 'Install' @($packs,$result,$packKind,'1.20.1',$cancel.Token,$download)} 'Cancelled update was installed';$cancel.Dispose()
  [IO.File]::AppendAllText($original,'changed-after-check')
  Assert-Rejected {Install $result $download} 'Changed local file was replaced through a stale match'
  if(@([IO.Directory]::EnumerateDirectories($packs,'.pcl-import-*')).Count -ne 0){throw 'Update staging files remained'}
- Write-Output 'Resource updates passed: Modrinth/CurseForge exact matches, Minecraft/type/loader/channel/date/variant guards, collision and blocked-download checks, outage visibility, validated replacement with preserved filename/backup, cancellation, stale file and failed-download preservation. No network or real games used.'
+ Write-Output 'Resource updates passed: Modrinth/CurseForge exact matches, Minecraft/type/loader/channel/date/variant guards, collision and blocked-download checks, outage visibility, validated replacement with preserved filename without recycle copies, cancellation, stale file and failed-download preservation. No network or real games used.'
 }finally{
  $full=[IO.Path]::GetFullPath($fixture);$prefix=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')+'\'
  if(-not $full.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($full) -notmatch '\APclResourceUpdates-[a-f0-9]{32}\z'){throw 'Unsafe resource update fixture cleanup'}

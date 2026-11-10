@@ -22,7 +22,7 @@ internal static class ResourceSortChecks
         foreach (string kind in new[] { "ResourcePacks", "ShaderPacks" }) CheckPackages(root, kind);
         CheckWorlds(root);
         CheckScreenshots(root);
-        Console.WriteLine("PASS native resource-sort: compact right-aligned vector/text buttons, real clicks/filter/search/selection, default LastPlayed worlds and unknowns, screenshots and recycle guard.");
+        Console.WriteLine("PASS native resource-sort: compact right-aligned vector/text buttons, real clicks/filter/search/selection, default LastPlayed worlds and unknowns, screenshots and default sorting.");
     }
     private static void CheckPackages(string root, string kind)
     {
@@ -72,12 +72,7 @@ internal static class ResourceSortChecks
                 "Compact resource header clipped the sort action or overlapped content.");
             CheckButtonLayout(page);
         });
-        Native.Set(Controller(page), "IsRecycleMode", true);
-        Show(page, folder, entries);
-        int before = Mode(page); ClickSort(page);
-        Native.Check(!sort.IsEnabled && Mode(page) == before && (sort.ToolTip?.ToString() ?? "").Contains("删除", StringComparison.Ordinal), "Recycle records incorrectly expose installation/play-time sorting.");
-        Native.Set(Controller(page), "IsRecycleMode", false); Show(page, folder, entries);
-        Native.Check(sort.IsEnabled, "Leaving recycle mode failed to restore resource sorting.");
+        Native.Check(sort.IsEnabled, "Resource sorting must remain enabled.");
     }
     private static void CheckWorlds(string root)
     {

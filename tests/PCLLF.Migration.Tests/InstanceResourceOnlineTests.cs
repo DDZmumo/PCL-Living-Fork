@@ -17,10 +17,10 @@ internal static class InstanceResourceOnlineTests {
         if (OperatingSystem.IsWindows()) {
             yield return ("resource online Windows checks retain per-entry results and batch distinct requests at 100", BatchedRequests);
             yield return ("resource online Windows candidate matching clones selected files and preserves outage status", MatchingAndCandidates);
-            yield return ("resource online Windows install preserves selected filename and original recycle payload", InstallRoundTrip);
+            yield return ("resource online Windows install preserves selected filename without a recycle payload", InstallRoundTrip);
             yield return ("resource online Windows all downloads validate before replacement and failure cleans staging", InstallPrecommitFailures);
             yield return ("resource online Windows stale content hash stops installation before downloader", StaleBeforeDownload);
-            yield return ("resource online Windows failed staged move restores the recycled original", ReplacementRollback);
+            yield return ("resource online Windows failed staged move preserves the original in place", ReplacementRollback);
         }
     }
 
@@ -161,14 +161,11 @@ internal static class InstanceResourceOnlineTests {
         int conversions = 0;
         var originalConversion = host.ToNetFile;
         host.ToNetFile = (version, path, game) => { conversions++; Equal("1.20.1", game); return originalConversion(version, path, game); };
-        Engine(host).Install(scenario.Root, new[] { scenario.Info() }, scenario.Recycle, 2, "1.20.1", CancellationToken.None, (files, token) => scenario.CopyDownloads(files, token));
+        Engine(host).Install(scenario.Root, new[] { scenario.Info() }, 2, "1.20.1", CancellationToken.None, (files, token) => scenario.CopyDownloads(files, token));
         Equal(1, conversions);
         Sequence(scenario.NewBytes, File.ReadAllBytes(scenario.Original));
         Equal(false, File.Exists(Path.Combine(scenario.Root, "Remote.zip")));
-        string backup = Directory.GetDirectories(scenario.Recycle).Single();
-        Sequence(scenario.OldBytes, File.ReadAllBytes(Path.Combine(backup, "content")));
-        JObject metadata = JObject.Parse(File.ReadAllText(Path.Combine(backup, "resource.json")));
-        Equal("Selected.zip", (string?)metadata["name"]);
+        Equal(false, Directory.Exists(scenario.Recycle));
         Equal(0, Directory.GetDirectories(scenario.Root, ".pcl-import-*").Length);
     }
 
@@ -187,7 +184,7 @@ internal static class InstanceResourceOnlineTests {
                 if (mode == "corrupt-second") File.WriteAllBytes(files[1].LocalPath, new byte[scenario.NewBytes.Length]);
                 if (mode == "cancel-after-download") source.Cancel();
             }
-            Exception error = Throws<Exception>(() => Engine(Host()).Install(scenario.Root, infos, scenario.Recycle, 2, "1.20.1", source.Token, DownloadFiles));
+            Exception error = Throws<Exception>(() => Engine(Host()).Install(scenario.Root, infos, 2, "1.20.1", source.Token, DownloadFiles));
             if (mode == "cancel-after-download") Equal(typeof(OperationCanceledException), error.GetType());
             else Equal(true, error is IOException);
             if (mode == "download-error") Equal(true, ReferenceEquals(sentinel, error));
@@ -205,7 +202,7 @@ internal static class InstanceResourceOnlineTests {
         File.WriteAllBytes(scenario.Original, new byte[scenario.OldBytes.Length]);
         File.SetLastWriteTimeUtc(scenario.Original, info.Entry.ModifiedUtc);
         int downloads = 0;
-        Throws<IOException>(() => Engine(Host()).Install(scenario.Root, new[] { info }, scenario.Recycle, 2, "1.20.1", CancellationToken.None, (_, _) => downloads++));
+        Throws<IOException>(() => Engine(Host()).Install(scenario.Root, new[] { info }, 2, "1.20.1", CancellationToken.None, (_, _) => downloads++));
         Equal(0, downloads);
         Sequence(new byte[scenario.OldBytes.Length], File.ReadAllBytes(scenario.Original));
         Equal(false, Directory.Exists(scenario.Recycle));
@@ -228,15 +225,14 @@ internal static class InstanceResourceOnlineTests {
             return path;
         }
         var engine = Engine(Host(), RemovePrefix);
-        Throws<IOException>(() => engine.Install(scenario.Root, new[] { scenario.Info() }, scenario.Recycle, 2, "1.20.1", CancellationToken.None, (files, token) => {
+        Throws<IOException>(() => engine.Install(scenario.Root, new[] { scenario.Info() }, 2, "1.20.1", CancellationToken.None, (files, token) => {
             scenario.CopyDownloads(files, token);
             staged = files.Single().LocalPath;
             armed = true;
         }));
         Equal(true, removed);
         Sequence(scenario.OldBytes, File.ReadAllBytes(scenario.Original));
-        Equal(true, Directory.Exists(scenario.Recycle));
-        Equal(0, Directory.GetDirectories(scenario.Recycle).Length);
+        Equal(false, Directory.Exists(scenario.Recycle));
         Equal(0, Directory.GetDirectories(scenario.Root, ".pcl-import-*").Length);
     }
 

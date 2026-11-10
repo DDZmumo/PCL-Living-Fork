@@ -138,6 +138,8 @@ namespace PCL
         private static void McFolderListLoadSub()
         {
             global::PCL.ModMinecraft.Service.McFolderListLoad();
+            LegacyResourceRecycleCleanup.Schedule(McFolderList.Select(folder => folder.Location),
+                new[] { ModBase.PathTemp, System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PCL") });
         }
         internal static void RepairSharedMinecraftIcons()
         {

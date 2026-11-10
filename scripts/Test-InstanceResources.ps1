@@ -181,7 +181,7 @@ try{
  if($worlds.Count -ne 1 -or $worlds[0].Name -ne 'Test World'){throw 'World folders were not listed'}
  $resourceType=$worlds[0].GetType()
  if($resourceType.FullName -cne 'PCL.InstanceResourceEntry' -or -not $resourceType.IsSealed -or $resourceType.BaseType.FullName -cne 'PCLCS.InstanceResourceEntryData'){throw 'Resource rows lost their original sealed VB type or production DTO base'}
- $resourceFields=@{RecycleId=[string];Name=[string];FullPath=[string];Description=[string];IsDirectory=[bool];ModifiedUtc=[DateTime];CreatedUtc=[DateTime];Length=[long]}
+ $resourceFields=@{Name=[string];FullPath=[string];Description=[string];IsDirectory=[bool];ModifiedUtc=[DateTime];CreatedUtc=[DateTime];Length=[long]}
  foreach($name in $resourceFields.Keys){$field=$resourceType.GetField($name,$flags);if($null -eq $field -or $field.FieldType -ne $resourceFields[$name] -or $field.DeclaringType -ne $resourceType.BaseType){throw ('Inherited resource field contract changed: '+$name)}}
  $iconField=$resourceType.GetField('Icon',$flags)
  if($null -eq $iconField -or $iconField.FieldType -ne [Windows.Media.ImageSource] -or $iconField.DeclaringType -ne $resourceType -or $null -eq $worlds[0].Icon -or -not $worlds[0].Icon.IsFrozen){throw 'Resource row did not retain its original WPF Icon field and loaded image'}
@@ -259,13 +259,12 @@ try{
  $renamed=Invoke-Store 'Rename' @($packs,$packEntries[0],'Renamed.zip')
  if(-not [IO.File]::Exists($renamed)){throw 'Resource rename failed or retained an archive handle'}
  $trash=Join-Path $mc 'PCL/ResourceRecycle/ResourcePacks'
- $renamedEntry=(Scan $packs $packKind)[0]
- Invoke-Store 'MoveToRecycle' @($packs,$renamedEntry,$trash)|Out-Null
- if([IO.File]::Exists($renamed)){throw 'Deleted resource remained in the live folder'}
- $restored=Invoke-Store 'RestoreLast' @($packs,$trash)
- if(-not [IO.File]::Exists($restored) -or (Get-FileHash -LiteralPath $restored).Hash -ne (Get-FileHash -LiteralPath $pack).Hash){throw 'Restore did not preserve resource bytes'}
- $stale=(Scan $packs $packKind)[0];[IO.File]::AppendAllText($stale.FullPath,'changed-after-listing')
- Assert-Rejected {Invoke-Store 'MoveToRecycle' @($packs,$stale,$trash)} 'A changed resource was deleted through a stale selection'
+ $deleteEntries=Scan $packs $packKind
+ Invoke-Store 'DeleteMany' @($packs,$deleteEntries.PSObject.BaseObject,$none)|Out-Null
+ if([IO.File]::Exists($renamed) -or [IO.Directory]::Exists($trash)){throw 'Direct deletion retained resource payload'}
+ Invoke-Store 'ImportFile' @($packs,$packs,$packKind,$pack,$none)|Out-Null
+ $stale=Scan $packs $packKind;[IO.File]::AppendAllText($stale[0].FullPath,'changed-after-listing')
+ Assert-Rejected {Invoke-Store 'DeleteMany' @($packs,$stale.PSObject.BaseObject,$none)} 'A changed resource was deleted through a stale selection'
  $shots=Invoke-Store 'Root' @($mc,$imageKind);Write-Png (Join-Path $shots 'screenshot.png')
  $images=Scan $shots $imageKind
  $preview=Invoke-Store 'LoadImage' @($images[0].FullPath,1200)
@@ -302,7 +301,7 @@ try{
  $pageType.GetMethod('ShowResources',$flags).Invoke($packPage,@([string]$packs,[string]$packs,$items.PSObject.BaseObject))|Out-Null
  if($packPage.FindName('CardSelected') -or $packPage.FindName('LabFolder')){throw 'Old separate details/path card remains'}
  foreach($name in @('BtnImportFolder','BtnCheckUpdates','BtnRefresh')){if($packPage.FindName($name)){throw 'Extra toolbar icons remain'}}
- if(@($packPage.FindName('BtnOpenFolder').Parent.Children|Where-Object {$_.Visibility -ne 'Collapsed'}).Count -ne 5 -or $packPage.FindName('BtnRestore').Text -ne '回收站'){throw 'Resource toolbar lost its native actions or top recycle-bin entry'}
+ if(@($packPage.FindName('BtnOpenFolder').Parent.Children|Where-Object {$_.Visibility -ne 'Collapsed'}).Count -ne 4 -or $packPage.FindName('BtnRestore')){throw 'Resource toolbar lost its native actions or top recycle-bin entry'}
  if($packPage.FindName('BtnFilterAll').Text -notmatch '3' -or $packPage.FindName('BtnDownload').Visibility -ne 'Visible'){throw 'Native count filter or resource download action missing'}
  $rowType=$asm.GetType('PCL.MyLocalModItem')
  foreach($row in $packPage.FindName('PanList').Children){if($row.GetType() -ne $rowType -or $row.Height -ne 44 -or @($row.Buttons).Count -ne 4){throw 'Resource rows do not reuse the native mod item and hover actions'}}
@@ -343,15 +342,14 @@ try{
  if(@([IO.Directory]::EnumerateFiles($exportMany)).Count -ne 3){throw 'Batch export did not include files and zipped folders'}
  Assert-Rejected {Invoke-Store 'ExportMany' @($packs,$items.PSObject.BaseObject,$exportMany,$none)} 'Batch export overwrote an existing destination'
  $recycleEntries=Scan $packs $packKind
- Invoke-Store 'RecycleMany' @($packs,$recycleEntries.PSObject.BaseObject,$trash,$none)|Out-Null
+ Invoke-Store 'DeleteMany' @($packs,$recycleEntries.PSObject.BaseObject,$none)|Out-Null
  if((Scan $packs $packKind).Count -ne 0){throw 'Batch deletion left selected resources live'}
- foreach($item in $recycleEntries){Invoke-Store 'RestoreLast' @($packs,$trash)|Out-Null}
  $items=Scan $packs $packKind
  $pageType.GetMethod('ShowResources',$flags).Invoke($packPage,@([string]$packs,[string]$packs,$items.PSObject.BaseObject))|Out-Null
  $emptyPage=$left.PageGet([Enum]::ToObject($subType,7))
  $emptyItems=[Activator]::CreateInstance([Collections.Generic.List``1].MakeGenericType($asm.GetType('PCL.InstanceResourceEntry')))
  $pageType.GetMethod('ShowResources',$flags).Invoke($emptyPage,@([string]$shots,[string]$shots,$emptyItems.PSObject.BaseObject))|Out-Null
- if($emptyPage.FindName('PanEmpty').Visibility -ne 'Collapsed' -or $emptyPage.FindName('PanBack').Visibility -ne 'Visible' -or $emptyPage.FindName('BtnRestore').Visibility -ne 'Visible'){throw 'Empty resources lost the toolbar and recycle-bin entry'}
+ if($emptyPage.FindName('PanEmpty').Visibility -ne 'Collapsed' -or $emptyPage.FindName('PanBack').Visibility -ne 'Visible' -or $emptyPage.FindName('BtnRestore')){throw 'Empty resources lost the toolbar and recycle-bin entry'}
  if($PreviewDirectory){
   $nav=$left.GetType().GetMethod('NavigationItem',$flags).Invoke($left,@([Enum]::ToObject($subType,8)))
   $savedTag=$nav.Tag;$nav.Tag=$null;$nav.SetChecked($true,$false,$false);$nav.Tag=$savedTag
