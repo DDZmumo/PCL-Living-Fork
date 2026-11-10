@@ -10,7 +10,6 @@
     <Compile Include="../../PCLCS/Toolbox/SymbioLauncherSwitch.cs" Link="Production/SymbioLauncherSwitch.cs" />
     <Compile Include="../../PCLCS/Toolbox/LegacyDailyLuck.cs" Link="Production/LegacyDailyLuck.cs" />
     <Compile Include="../../PCLCS/Minecraft/BackupStorageLocation.cs" Link="Production/BackupStorageLocation.cs" />
-    <Compile Include="../../PCLCS/Settings/LfRegistryStorage.cs" Link="Production/LfRegistryStorage.cs" />
     <!-- Run production rules without the launcher's Windows/WPF dependencies. -->
     <Compile Include="../../PCLCS/Minecraft/WorldMetadataReader.cs" Link="Production/WorldMetadataReader.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldMetadataFiles.cs" Link="Production/WorldMetadataFiles.cs" />

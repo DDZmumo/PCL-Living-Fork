@@ -146,13 +146,13 @@ try {
  $evidence.NativeProof=$nativeProof;$evidence.LegacyProof=$legacyProof;$evidence.BridgeProof=$bridgeProof
  & (Join-Path $tools 'LegacyValidation/LegacyBridgeValidation.exe') $LegacyExecutablePath $BridgeExecutablePath $NativeExecutablePath
  if($LASTEXITCODE -ne 0){throw 'Genuine pinned old product validator did not accept canonical bridge/reject raw native.'}
- foreach($key in @('Software\PCL','Software\PCLDebug')){if(Existing-Key $key){Pending ('Existing product store: HKCU\'+$key)}}
+ foreach($key in @('Software\PCL','Software\PCLDebug','Software\PCL Living Fork')){if(Existing-Key $key){Pending ('Existing product store: HKCU\'+$key)}}
  $appData=[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
  if([string]::IsNullOrEmpty($appData) -or -not [IO.Path]::IsPathRooted($appData)){Pending 'Actual Windows AppData is unavailable.'}
  foreach($directory in @((Join-Path $appData 'PCL'),(Join-Path $appData '.minecraft'))){if([IO.Directory]::Exists($directory) -or [IO.File]::Exists($directory)){Pending ('Existing user/game path: '+$directory)}}
  $osDrive=@([Environment]::GetLogicalDrives()|Where-Object {[IO.Directory]::Exists($_)})[0];$globalTaskTemp=Join-Path $osDrive 'ProgramData/PCL/TaskTemp';if([IO.Directory]::Exists($globalTaskTemp) -or [IO.File]::Exists($globalTaskTemp)){Pending 'Original startup clears global ProgramData/PCL/TaskTemp; require a pristine disposable machine.'}
  foreach($name in @('PCL_SingletonMutex','LivingPCL_SingletonMutex')){if(Existing-Mutex $name){Pending ('Pre-existing launcher lock '+$name)}}
- foreach($keyName in @('Software\PCL','Software\PCLDebug')){$key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName);try{if($key.ValueCount -ne 0 -or $key.SubKeyCount -ne 0){Pending 'Product store appeared concurrently.'};$key.SetValue($marker,$id,[Microsoft.Win32.RegistryValueKind]::String);$ownedRegistry.Add($keyName)}finally{$key.Dispose()}}
+ foreach($keyName in @('Software\PCL','Software\PCLDebug','Software\PCL Living Fork')){$key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName);try{if($key.ValueCount -ne 0 -or $key.SubKeyCount -ne 0){Pending 'Product store appeared concurrently.'};$key.SetValue($marker,$id,[Microsoft.Win32.RegistryValueKind]::String);$ownedRegistry.Add($keyName)}finally{$key.Dispose()}}
  $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\PCLDebug',$true);try{$key.SetValue('SystemEulaVersion','2',[Microsoft.Win32.RegistryValueKind]::String)}finally{$key.Dispose()}
  $ownedAppData=Join-Path $appData 'PCL';[IO.Directory]::CreateDirectory($ownedAppData)|Out-Null;[IO.File]::WriteAllText((Join-Path $ownedAppData $marker),$id)
  Add-Type -Path (Join-Path $SmokeSupportRoot 'NativeSmokeWin32.cs') -ReferencedAssemblies System.Drawing.dll
