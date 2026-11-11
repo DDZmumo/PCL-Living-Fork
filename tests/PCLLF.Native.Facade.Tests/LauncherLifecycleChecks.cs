@@ -110,7 +110,7 @@ internal static partial class LauncherLifecycleChecks
         raw["CacheMsV2OAuthRefresh"] = "invalid-cipher"; Check("audit:29", Plan().Count == 1);
         raw.Remove("CacheMsV2OAuthRefresh"); raw.Remove("CacheMsV2Expires"); result = Plan(); Check("audit:33", result.Count == 7 && Decrypt(result["CacheMsV2Expires"]) == "0");
         raw["CacheMsOAuthRefresh"] = "invalid-cipher"; Check("audit:35", Plan().Count == 0);
-        Check("audit:37", (string)SettingsCall("RegistryFolderFor", Settings.Entries["CacheMsV2Migrated"])! == "PCL");
+        Check("audit:37", (string)SettingsCall("RegistryFolderFor", Settings.Entries["CacheMsV2Migrated"])! == "PCL Living Fork");
         var entry = Settings.Entries["LoginMsJson"]; bool had = entry.ValueCache.TryGetValue("", out object? old);
         entry.ValueCache[""] = "{\"stale\":\"cached-token\"}";
         string fakeRaw = Encrypt("{\"first\":\"token-1\"}");

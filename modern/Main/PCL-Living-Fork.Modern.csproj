@@ -101,6 +101,7 @@
 <Compile Include="Pages/PageInstance/MyScreenshotItem.xaml.cs" />
 <Compile Include="Modules/Minecraft/ModpackUpdateFlow.cs" />
 <Compile Include="Modules/Minecraft/LocalGameData.cs" />
+<Compile Include="Modules/Minecraft/BackupStorage.cs" />
 <Compile Include="Modules/Minecraft/PersonalGameSettings.cs" />
 <Compile Include="Modules/Minecraft/QuickPlayWorlds.cs" />
 <Compile Include="Modules/Minecraft/WorldMetadata.cs" />
@@ -169,6 +170,7 @@
 <Compile Include="Pages/PageSetup/Settings.cs" />
 <Compile Include="Pages/PageSetup/PageSetupLaunch.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.xaml.cs" />
+<Compile Include="Pages/PageSetup/PageSetupSystem.BackupStorage.cs" />
 <Compile Include="Pages/PageSetup/PageSetupUpdate.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupPersonal.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupPersonal.Editors.cs" />

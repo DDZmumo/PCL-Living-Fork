@@ -131,16 +131,18 @@ function Write-OwnedCloseDiagnostic([object]$exitCode,[string]$text,[string]$pha
 }
 
 function Assert-SyntheticPreferenceImport([bool]$expected,[string]$phase){
- $official=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\PCL',$false);$legacy=$null
+ $official=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\PCL',$false);$legacy=$null;$dedicated=$null
  try{
   $legacy=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\PCLDebug',$false)
   if($null -eq $official -or $null -eq $legacy -or $official.GetValue($marker,$null) -cne $id -or $legacy.GetValue($marker,$null) -cne $id){throw 'Synthetic startup preference namespaces are not owned by this fixture.'}
   if($legacy.GetValue('ToolDownloadThread',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne '9' -or $legacy.GetValueKind('ToolDownloadThread') -ne [Microsoft.Win32.RegistryValueKind]::String){throw 'Synthetic old preference source changed during actual entry.'}
-  $migrated=$legacy.GetValue('LivingPclSharedPreferencesMigrated',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  $dedicated=Open-OwnedRegistry 'Software\PCL Living Fork' $false
+  if($null -ne $legacy.GetValue('LivingPclSharedPreferencesMigrated',$null)){throw 'LF migration marker remained in the legacy shared namespace.'}
+  $migrated=$dedicated.GetValue('LivingPclSharedPreferencesMigrated',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
   $current=$official.GetValue('ToolDownloadThread',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-  if($expected){if($migrated -cne 'True' -or $current -cne '9' -or $legacy.GetValueKind('LivingPclSharedPreferencesMigrated') -ne [Microsoft.Win32.RegistryValueKind]::String -or $official.GetValueKind('ToolDownloadThread') -ne [Microsoft.Win32.RegistryValueKind]::String){throw ('Actual normal Main did not demonstrate that the preference fixture can observe import: '+$phase)}}
+  if($expected){if($migrated -cne 'True' -or $current -cne '9' -or $dedicated.GetValueKind('LivingPclSharedPreferencesMigrated') -ne [Microsoft.Win32.RegistryValueKind]::String -or $official.GetValueKind('ToolDownloadThread') -ne [Microsoft.Win32.RegistryValueKind]::String){throw ('Actual normal Main did not demonstrate that the preference fixture can observe import: '+$phase)}}
   elseif($null -ne $migrated -or $null -ne $current){throw ('Actual --update utility imported old shared preferences: '+$phase)}
- }finally{if($null -ne $legacy){$legacy.Dispose()};if($null -ne $official){$official.Dispose()}}
+ }finally{if($null -ne $dedicated){$dedicated.Dispose()};if($null -ne $legacy){$legacy.Dispose()};if($null -ne $official){$official.Dispose()}}
 }
 function Test-SafeUtilityImportExclusion {
  # The real current Main rejects the original official --update option and
@@ -173,16 +175,20 @@ function Open-OwnedRegistry([string]$name,[bool]$writable){
  if($node.GetValue($marker,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne $id){$node.Dispose();throw 'Owned startup Registry marker changed.'}
  return $node
 }
-function Assert-StartupAccounts([string]$phase){
+function Assert-StartupAccounts([string]$phase,[bool]$migrated=$false){
  if($accountSentinels.Count -ne 13){throw 'All thirteen reviewed LF Microsoft sentinels are mandatory.'}
- $node=Open-OwnedRegistry 'Software\PCL' $false
+ $official=Open-OwnedRegistry 'Software\PCL' $false;$dedicated=$null
  try{
-  if($node.GetValue('Identify',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne $startupSeed -or $node.GetValueKind('Identify') -ne [Microsoft.Win32.RegistryValueKind]::String){throw 'Synthetic identity seed changed during genuine startup.'}
+  $dedicated=Open-OwnedRegistry 'Software\PCL Living Fork' $false
+  if($official.GetValue('Identify',$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne $startupSeed -or $official.GetValueKind('Identify') -ne [Microsoft.Win32.RegistryValueKind]::String){throw 'Synthetic identity seed changed during genuine startup.'}
   foreach($record in $accountSentinels){
-   $raw=$node.GetValue($record.physicalName,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+   $source=$official.GetValue($record.physicalName,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+   $target=$dedicated.GetValue($record.physicalName,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+   $node=if($migrated){$dedicated}else{$official};$raw=if($migrated){$target}else{$source}
    if($raw -isnot [string] -or $raw -cne $record.raw -or $node.GetValueKind($record.physicalName) -ne [Microsoft.Win32.RegistryValueKind]::String){throw ('Genuine startup changed an authoritative LF account raw value/kind: '+$record.logicalName+' / '+$phase)}
+   if(($migrated -and $null -ne $source) -or (-not $migrated -and $null -ne $target)){throw ('Startup account namespace migration ordering differs: '+$phase)}
   }
- }finally{$node.Dispose()}
+ }finally{if($null -ne $dedicated){$dedicated.Dispose()};$official.Dispose()}
  $evidence.StartupContracts.Accounts.CheckedPhases+=,$phase
 }
 
@@ -223,7 +229,7 @@ try{
  if($proof.buildType -notin @(0,50)){Pending 'Debug/unknown builds may invoke original developer tests; smoke requires actual Release or Snapshot product.'}
  $expectedNotice=Get-ReviewedNativeStartupNotice $proof
  # Existence only: do not read any pre-existing settings/accounts/game files.
- foreach($keyName in @('Software\PCL','Software\PCLDebug')){if(Existing-Key $keyName){Pending ('Pre-existing user/product store: HKCU\'+$keyName)}}
+ foreach($keyName in @('Software\PCL','Software\PCLDebug','Software\PCL Living Fork')){if(Existing-Key $keyName){Pending ('Pre-existing user/product store: HKCU\'+$keyName)}}
  $appData=[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
  if([string]::IsNullOrEmpty($appData) -or -not [IO.Path]::IsPathRooted($appData)){Pending 'Actual Windows profile AppData path is unavailable.'}
  foreach($directory in @((Join-Path $appData 'PCL'),(Join-Path $appData '.minecraft'))){if([IO.Directory]::Exists($directory) -or [IO.File]::Exists($directory)){Pending ('Pre-existing user/game path: '+$directory)}}
@@ -232,7 +238,7 @@ try{
  if([IO.Directory]::Exists($globalTaskTemp) -or [IO.File]::Exists($globalTaskTemp)){Pending 'Original startup clears ProgramData/PCL/TaskTemp; this is not a pristine disposable machine.'}
  $mutexNames=@('PCL_SingletonMutex','LivingPCL_SingletonMutex')
  foreach($name in $mutexNames){if(Existing-Mutex $name){Pending ('Existing launcher lock: '+$name)}}
- foreach($keyName in @('Software\PCL','Software\PCLDebug')){
+ foreach($keyName in @('Software\PCL','Software\PCLDebug','Software\PCL Living Fork')){
   $node=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($keyName)
   try{if($node.ValueCount -ne 0 -or $node.SubKeyCount -ne 0){Pending 'Profile store appeared concurrently; refusing to modify it.'};$node.SetValue($marker,$id,[Microsoft.Win32.RegistryValueKind]::String);$ownedRegistry.Add($keyName)}finally{$node.Dispose()}
  }
@@ -316,9 +322,9 @@ try{
   $run.ExpectedInformationNoticeVisible=Test-ReviewedStartupNotice -Text $text -Notice $expectedNotice -NativeVersion $proof.versionBaseName -NativePhase -NativeStyle $proof.startupNoticeStyle -NativeSource $proof.startupNoticeSource
   foreach($name in $mutexNames){Check-Mutex $name $true}
   Assert-SyntheticPreferenceImport $true ('normal-ready-'+$pass)
-  Assert-StartupAccounts ('normal-ready-'+$pass);$run.AuthoritativeAccountsPreservedAtReady=$true
+  Assert-StartupAccounts ('normal-ready-'+$pass) $true;$run.AuthoritativeAccountsPreservedAtReady=$true
   $run.SyntheticPreferenceImportObserved=$true
-  if($ExerciseInteraction){Invoke-OwnedInteraction $pass $mainWindow;Assert-StartupAccounts ('after-interaction-'+$pass)}
+  if($ExerciseInteraction){Invoke-OwnedInteraction $pass $mainWindow;Assert-StartupAccounts ('after-interaction-'+$pass) $true}
   $run.Screenshot=[PclLfNativeSmoke.Win32]::CaptureOwnWindow($mainWindow.Handle,(Join-Path $fixture ('main-'+$pass+'.png')))
   if($pass -eq 2){$rotated=Join-Path $install 'PCL/Log2.txt';if(-not [IO.File]::Exists($rotated) -or (Hash-OwnedFile $rotated) -cne $previousLogHash){throw 'Reopen did not preserve original LF log rotation.'}}
   $closeWatch=[Diagnostics.Stopwatch]::StartNew();$closeBudget=$CloseTimeoutSeconds*1000
@@ -337,7 +343,7 @@ try{
   [IO.File]::WriteAllText((Join-Path $fixture ('file-release-'+$pass+'-diagnostics.json')),($release|ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false))
   Write-Output ('Actual Native exclusive file release: '+($release|ConvertTo-Json -Depth 7 -Compress))
   if(-not $release.Succeeded){throw ('Actual owned EXE failed exclusive ReadWrite/FileShare.None release within close deadline: '+$release.ErrorType+'; Win32='+$release.LastWin32Error+'; HResult='+$release.LastHResult+'; '+$release.Error)}
-  Assert-StartupAccounts ('normal-close-'+$pass);$run.AuthoritativeAccountsPreservedAfterClose=$true
+  Assert-StartupAccounts ('normal-close-'+$pass) $true;$run.AuthoritativeAccountsPreservedAfterClose=$true
   if([IO.File]::ReadAllText($gameSentinel) -cne $id -or -not [IO.File]::ReadAllText((Join-Path $install 'PCL/Setup.ini')).Contains('NativeSmokeSentinel:'+$id)){throw 'Actual startup/close lost fixture settings/game sentinel.'}
   $updateFolder=Join-Path $install 'PCL/Updates';if([IO.Directory]::Exists($updateFolder) -and @([IO.Directory]::EnumerateFiles($updateFolder,'*.exe',[IO.SearchOption]::AllDirectories)).Count -gt 0){throw 'An update payload appeared without any acceptance action.'}
   Copy-Item -LiteralPath $log -Destination (Join-Path $fixture ('startup-'+$pass+'.log'))

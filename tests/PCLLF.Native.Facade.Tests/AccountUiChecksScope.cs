@@ -250,7 +250,7 @@ internal sealed class AccountUiChecksScope : IDisposable
     }
     private void CheckRegistry(string folder, string key)
     {
-        if (folder != @"HKEY_CURRENT_USER\Software\PCL") Forbidden("unexpected account Registry folder");
+        if (folder != (key == "LoginType" ? @"HKEY_CURRENT_USER\Software\PCL" : @"HKEY_CURRENT_USER\Software\PCL Living Fork")) Forbidden("unexpected account Registry folder");
         CheckKey(key);
     }
     internal void CheckKey(string physical)

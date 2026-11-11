@@ -10,6 +10,7 @@ namespace PCL
     // LF 的原名记录、枚举、回调与实际宿主边界；全部存储/转换/迁移业务在 C#。
     public partial class Settings
     {
+        private static readonly LfRegistryStorage LfRegistry = new LfRegistryStorage(LegacySettingsRegistryStore.Open, ModSecret.RegFolder);
         private static readonly LegacySettingsEngine<ModMinecraft.McInstance, Setting, PclAccountMigrationPlan> Backend = new LegacySettingsEngine<ModMinecraft.McInstance, Setting, PclAccountMigrationPlan>(() => Entries, () => SharedAccountSync, () => new PclAccountMigrationPlan(), new LegacySettingsHost<ModMinecraft.McInstance>()
         {
             InstancePath = new Func<ModMinecraft.McInstance, string>(Instance => Instance.PathVersion),
@@ -19,10 +20,10 @@ namespace PCL
             WriteIni = new Action<string, string, string>((File, Key, Value) => ModBase.WriteIni(File, Key, Value)),
             DeleteIni = new Action<string, string>((File, Key) => ModBase.DeleteIniKey(File, Key)),
             HasIni = new Func<string, string, bool>((File, Key) => ModBase.HasIniKey(File, Key)),
-            ReadRegistry = new Func<string, string, string, string>((Folder, Key, Fallback) => Conversions.ToString(RegistryUtils.TryRead(Folder, Key, Fallback))),
-            WriteRegistry = new Action<string, string, string>((Folder, Key, Value) => RegistryUtils.Write(Folder, Key, Value)),
-            HasRegistry = new Func<string, string, bool>((Folder, Key) => RegistryUtils.Has(Folder, Key)),
-            OpenRegistry = LegacySettingsRegistryStore.Open,
+            ReadRegistry = (Folder, Key, Fallback) => LfRegistry.ReadRegistry(Folder, Key, Fallback),
+            WriteRegistry = LfRegistry.WriteRegistry,
+            HasRegistry = LfRegistry.HasRegistry,
+            OpenRegistry = LfRegistry.OpenRegistry,
             IdentifyCandidates = LegacySettingsRegistryStore.IdentifyCandidates,
             Log = LogSettings
         });
