@@ -20,7 +20,86 @@ internal static class LaunchProcessChecks
         RunExit(environment, 0);
         RunExit(environment, 23);
         RunCancel(environment);
+        RunForcedExit(environment);
+        RunQuietExit(environment);
+        RunClosingNotice(environment);
         environment.AssertNoForbiddenIo();
+    }
+
+    private static void RunForcedExit(FixtureEnvironment environment)
+    {
+        using LaunchProcessChecksScope scope = new(environment, "forced-stop-no-final-log", 0);
+        try
+        {
+            scope.Prepare(); scope.Start();
+            scope.Wait(() => ModLaunch.McLaunchWatcher is not null, "forced-stop watcher construction");
+            scope.Child.StandardInput.WriteLine("begin"); scope.Child.StandardInput.Flush();
+            scope.Wait(() => scope.Plan.State == ModBase.LoadState.Finished && ModLaunch.McLaunchWatcher.State == ModWatcher.Watcher.MinecraftState.Running &&
+                ModLaunch.McLaunchWatcher.WaitingLog.Count == 0, "forced-stop Running and drained output");
+            scope.CheckTracked();
+            ModLaunch.McLaunchWatcher.Kill();
+            scope.WaitStopped();
+            Native.Check(scope.Child.HasExited && !ModWatcher.HasRunningMinecraft &&
+                scope.ProcessStopped == 1 && scope.PersonalFinished == 1 && scope.QuickFinished == 1 && scope.HealthyCalls == 1 && !scope.LastHealthy && !scope.HasSessionFiles(),
+                "Forced-stop real Watcher skipped exactly-once exit/session cleanup after the last log was drained.");
+            Native.Check(scope.Analyzers == 0 && scope.CrashHints == 0,
+                "Explicit forced stop must not produce a crash analysis or a healthy checkpoint.");
+            scope.CheckLaunchProtection();
+            Console.WriteLine("PASS native launch-process forced stop: real Kill/exit without final logs cleans sessions exactly once after process exit.");
+        }
+        catch (Exception error) { scope.RecordPrimary(error); throw; }
+    }
+
+    private static void RunQuietExit(FixtureEnvironment environment)
+    {
+        using LaunchProcessChecksScope scope = new(environment, "physical-exit-empty-log-tail", 0);
+        try
+        {
+            scope.Prepare(); scope.Start();
+            scope.Wait(() => ModLaunch.McLaunchWatcher is not null, "quiet-exit watcher construction");
+            scope.Child.StandardInput.WriteLine("begin"); scope.Child.StandardInput.Flush();
+            scope.Wait(() => scope.Plan.State == ModBase.LoadState.Finished && ModLaunch.McLaunchWatcher.State == ModWatcher.Watcher.MinecraftState.Running,
+                "quiet-exit Running");
+            object monitor = Native.Get(ModLaunch.McLaunchWatcher, "Native")!;
+            // Serialize the real log handoff so the owned process has exited
+            // but EOF notifications cannot serve as an accidental exit trigger.
+            lock (Native.Get(monitor, "waitingLogLock")!)
+            {
+                scope.Child.StandardInput.WriteLine("finish"); scope.Child.StandardInput.Flush(); scope.Child.StandardInput.Close();
+                Native.Check(scope.Child.WaitForExit(5000), "Owned quiet-exit process did not end.");
+                ModLaunch.McLaunchWatcher.WaitingLog.Clear();
+                Native.Call(monitor.GetType(), "TimerLog", monitor);
+                Native.Check(scope.ProcessStopped == 1 && scope.PersonalFinished == 1 && scope.QuickFinished == 1 && scope.LastHealthy,
+                    "An empty log queue prevented physical-exit cleanup.");
+            }
+            scope.WaitStopped(); scope.CheckFinished(true);
+            Native.Check(scope.ProcessStopped == 1 && scope.HealthyCalls == 1, "Delayed EOF repeated stopped callbacks.");
+            Console.WriteLine("PASS native launch-process quiet exit: physical exit with an empty real log handoff completes once before delayed EOF.");
+        }
+        catch (Exception error) { scope.RecordPrimary(error); throw; }
+    }
+
+    private static void RunClosingNotice(FixtureEnvironment environment)
+    {
+        using LaunchProcessChecksScope scope = new(environment, "closing-notice-before-process-exit", 0);
+        try
+        {
+            scope.PrepareClosingNotice(); scope.Start();
+            scope.Wait(() => ModLaunch.McLaunchWatcher is not null, "closing-notice watcher construction");
+            scope.Child.StandardInput.WriteLine("begin"); scope.Child.StandardInput.Flush();
+            scope.Wait(() => scope.Plan.State == ModBase.LoadState.Finished && ModLaunch.McLaunchWatcher.State == ModWatcher.Watcher.MinecraftState.Running,
+                "closing-notice Running");
+            scope.Child.StandardInput.WriteLine("closing"); scope.Child.StandardInput.Flush();
+            scope.Wait(() => ModLaunch.McLaunchWatcher.LatestLog.Contains("Someone is closing me!"), "real early closing notice");
+            Native.Check(!scope.Child.HasExited && ModWatcher.HasRunningMinecraft && scope.ProcessStopped == 0 && scope.HasSessionFiles(),
+                "A closing notice released a still-live process or completed its sessions early.");
+            scope.Child.StandardInput.WriteLine("finish"); scope.Child.StandardInput.Flush(); scope.Child.StandardInput.Close();
+            scope.WaitStopped(); scope.CheckFinished(true);
+            Native.Check(!ModWatcher.HasRunningMinecraft && scope.ProcessStopped == 1 && scope.PersonalFinished == 1 && scope.QuickFinished == 1,
+                "Early closing notice lost the later physical-exit cleanup.");
+            Console.WriteLine("PASS native launch-process early closing notice: ownership remains until actual process exit and callbacks complete once.");
+        }
+        catch (Exception error) { scope.RecordPrimary(error); throw; }
     }
 
     private static void RunExit(FixtureEnvironment environment, int code)

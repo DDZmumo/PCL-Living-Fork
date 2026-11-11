@@ -200,6 +200,39 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
         try { operation.Start(); } catch { schedulingFailed = true; throw; }
     }
 
+    internal void PrepareClosingNotice()
+    {
+        Prepare();
+        string file = Path.Combine(instance.PathIndie, "launch-owned.cmd"); CheckOwned(file);
+        string script = File.ReadAllText(file);
+        script = script.Replace("set /p PCLLF_FINISH=\r\n", "set /p PCLLF_FINISH=\r\nif /i \"%PCLLF_FINISH%\"==\"closing\" (\r\necho Someone is closing me!\r\nset /p PCLLF_AFTER_NOTICE=\r\n)\r\n", StringComparison.Ordinal);
+        Put(file, script);
+    }
+
+    internal void CheckLaunchProtection()
+    {
+        Native.Check(service.GetLaunchBlockReason() is null, "A stopped owned process left a launch-blocking task.");
+        Func<bool> original = launch.WorldBackupsBusy;
+        try {
+            launch.WorldBackupsBusy = () => true;
+            string reason = service.GetLaunchBlockReason() ?? "";
+            Native.Check(reason.Contains("存档", StringComparison.Ordinal) && !reason.Contains("被修改", StringComparison.Ordinal),
+                "Backup work is still reported as an unexplained version modification.");
+        } finally { launch.WorldBackupsBusy = original; }
+        using ManualResetEventSlim entered = new(false), release = new(false), stopped = new(false);
+        MeloongCore.RedoableWorker worker = new(() => { entered.Set(); release.Wait(); });
+        Native.Check(ModMinecraft.McInstanceLock.TryAcquire(worker, instance.PathVersion), "Could not acquire the owned file-task reservation.");
+        worker.Stopped += stopped.Set;
+        try {
+            worker.Start(); Native.Check(entered.Wait(5000), "Owned file-task worker did not enter.");
+            Native.Check(worker.Running && (service.GetLaunchBlockReason() ?? "").Contains("文件任务", StringComparison.Ordinal),
+                "Exited-game cleanup bypassed an actual active file-task reservation.");
+        } finally {
+            release.Set(); Native.Check(stopped.Wait(5000), "Owned file-task worker did not finish its reservation.");
+        }
+        Native.Check(service.GetLaunchBlockReason() is null, "Completed file-task reservation remained locked.");
+    }
+
     private void ObserveTask(ModLoader.LoaderBase task)
     {
         FieldInfo field = Native.Field(task.GetType(), "LoadDelegate"); Delegate work = (Delegate)field.GetValue(task)!;
