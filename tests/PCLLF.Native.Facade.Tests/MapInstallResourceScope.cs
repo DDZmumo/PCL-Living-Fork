@@ -56,13 +56,17 @@ internal sealed class MapInstallResourceScope : IDisposable
     internal void ObservePage(object page)
     {
         pages.Add(page); Track((ModLoader.LoaderBase)Native.Get(page,"ResourceLoader")!); object controller = Native.Get(page, "Controller")!, host = Native.Get(controller, "Host")!;
-        var recycle = (Action<string,string,IEnumerable<string>,CancellationToken>)Native.Get(host, "RestoreRecycle")!;
-        Replace(host, "RestoreRecycle", new Action<string,string,IEnumerable<string>,CancellationToken>((root, trash, ids, token) => { pageThreads.TryAdd(Thread.CurrentThread,0); recycle(root,trash,ids,token); }));
+        Thread uiThread = Thread.CurrentThread;
+        var dispatch = (Action<Action>)Native.Get(host, "Dispatch")!;
+        Replace(host, "Dispatch", new Action<Action>(work => {
+            if (!ReferenceEquals(Thread.CurrentThread, uiThread)) pageThreads.TryAdd(Thread.CurrentThread, 0);
+            dispatch(work);
+        }));
         var background = (Action<Action,string>)Native.Get(host, "Background")!;
         Replace(host, "Background", new Action<Action,string>((work,name) => ScheduleBackground(background, work, name)));
         FieldInfo check = Native.Field(host.GetType(), "CheckOnline");
         ParameterExpression[] parameters = check.FieldType.GetMethod("Invoke")!.GetParameters().Select(p => Expression.Parameter(p.ParameterType)).ToArray();
-        Action refused = () => { Interlocked.Increment(ref forbiddenOnline); throw new InvalidOperationException("Recycle fixture must never perform an online update lookup."); };
+        Action refused = () => { Interlocked.Increment(ref forbiddenOnline); throw new InvalidOperationException("Resource fixture must never perform an online update lookup."); };
         Replace(host,"CheckOnline",Expression.Lambda(check.FieldType,Expression.Block(Expression.Invoke(Expression.Constant(refused)),Expression.Default(check.FieldType.GetMethod("Invoke")!.ReturnType)),parameters).Compile());
     }
     private void ScheduleBackground(Action<Action,string> background, Action work, string name)
@@ -128,7 +132,7 @@ internal sealed class MapInstallResourceScope : IDisposable
             foreach(object page in pages) { Native.Call(page.GetType(),"PageUnloaded",page); ((MyPageRight)page).PageOnForceExit(); }
             WaitUntil(()=>pages.All(page=>{object controller=Native.Get(page,"Controller")!;return !(bool)Native.Get(controller,"Busy")!&&!(bool)Native.Get(controller,"Checking")!&&Native.Get(controller,"Operation") is null&&Native.Get(controller,"OnlineCancellation") is null;}));
             ReleaseNeverStartedPageRegistrations();
-            tasks.FinishActualTasks(); Native.Check(Volatile.Read(ref forbiddenOnline)==0,"Recycle guard observed an unintended online lookup, even if Main caught its error."); fixture.AssertNoForbiddenIo();
+            tasks.FinishActualTasks(); Native.Check(Volatile.Read(ref forbiddenOnline)==0,"Resource guard observed an unintended online lookup, even if Main caught its error."); fixture.AssertNoForbiddenIo();
             while(restore.Count>0)restore.Pop()();tasks.Dispose();
         }
         catch(Exception error) { Native.Call(typeof(FileTaskScope),"FailClosed",tasks,"Map/resource completion barrier failed before restoring context.",error);throw; }

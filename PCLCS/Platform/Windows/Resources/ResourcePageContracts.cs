@@ -80,8 +80,8 @@ public interface IResourcePageCard {
 public sealed class ResourcePageRowActions<TEntry, TOnline> where TEntry : InstanceResourceEntryData where TOnline : class {
     public Func<IResourcePageRow<TEntry, TOnline>, bool> SelectionChanged = null!;
     public Action<IResourcePageRow<TEntry, TOnline>> Click = null!;
-    public Action<TEntry> Details = null!, Open = null!, Rename = null!, Delete = null!, Update = null!, Play = null!, EnterFolder = null!, Restore = null!, Purge = null!;
-    public Func<bool> CanPlay = null!, IsRecycle = null!;
+    public Action<TEntry> Details = null!, Open = null!, Rename = null!, Delete = null!, Update = null!, Play = null!, EnterFolder = null!;
+    public Func<bool> CanPlay = null!;
 }
 
 public sealed class ResourcePageView<TInstance, TEntry, TOnline>
@@ -102,7 +102,7 @@ public sealed class ResourcePageView<TInstance, TEntry, TOnline>
     public Action FocusViewport = null!, ScrollHome = null!;
     public Action<TInstance?> BindBackupOwner = null!;
     public Func<bool> CommitBackupSettings = null!;
-    public ResourcePageButton BtnOpenFolder = null!, BtnImportFile = null!, BtnDownload = null!, BtnSelectAll = null!, BtnBackupAll = null!, BtnRestore = null!, BtnUp = null!, BtnCancel = null!, BtnHintDownload = null!, BtnHintRestore = null!, BtnRecycleBack = null!, BtnUpdate = null!, BtnBackupRestore = null!, BtnExport = null!, BtnDelete = null!, BtnDeselect = null!;
+    public ResourcePageButton BtnOpenFolder = null!, BtnImportFile = null!, BtnDownload = null!, BtnSelectAll = null!, BtnBackupAll = null!, BtnUp = null!, BtnCancel = null!, BtnHintDownload = null!, BtnUpdate = null!, BtnBackupRestore = null!, BtnExport = null!, BtnDelete = null!, BtnDeselect = null!;
     public ResourcePageFilter FilterAll = null!, FilterUpdates = null!, FilterFiles = null!, FilterFolders = null!;
     public IEnumerable<ResourcePageFilter> Filters = null!;
     public Func<ResourcePageRowActions<TEntry, TOnline>, IResourcePageRow<TEntry, TOnline>> CreateRow = null!;
@@ -138,11 +138,9 @@ public sealed class ResourcePageHost<TInstance, TEntry, TOnline>
     public Action<TInstance, string> QuickPlay = null!;
     public Func<string, string> DescribeWorld = null!;
     public Func<string, string, int, CancellationToken, List<TEntry>> Scan = null!;
-    public Func<string, string, int, List<TEntry>> RecycleList = null!;
-    public Action<string, string, IEnumerable<string>, CancellationToken> RestoreRecycle = null!, PurgeRecycle = null!;
     public Func<int, bool> UpdatesSupported = null!;
     public Func<string, IEnumerable<TEntry>, int, string, CancellationToken, List<TOnline>> CheckOnline = null!;
-    public Action<string, IEnumerable<TOnline>, string, int, string, CancellationToken> InstallOnline = null!;
+    public Action<string, IEnumerable<TOnline>, int, string, CancellationToken> InstallOnline = null!;
     public Func<TOnline, TEntry> OnlineEntry = null!;
     public Func<TOnline, bool> HasUpdate = null!;
     public Func<TOnline, string?> ProjectName = null!, Website = null!, Status = null!;

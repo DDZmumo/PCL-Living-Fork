@@ -14,10 +14,10 @@ using Newtonsoft.Json.Linq;
 
 namespace PCLCS;
 
-/// <summary>LF 本地资源的导入、导出和可恢复删除；不引用页面或图片类型。</summary>
+/// <summary>LF 本地资源的导入、导出和直接删除。</summary>
 public sealed class InstanceResourceTransactions {
     // LF f4aa0fae62c3ee8af24c81e61844c8fdd13c8983 InstanceResourceStore:
-    // DeleteStage and Rename..RestoreLast. Existing path/rule adapters keep the
+    // DeleteStage, Rename, import/export and direct deletion. Existing path/rule adapters keep the
     // original LF host's PathUtils.RemoveExtendedPrefix dependency one-way.
     private readonly Func<string, string> removeExtendedPrefix;
 
@@ -249,59 +249,10 @@ public sealed class InstanceResourceTransactions {
         }
     }
 
-    public void RecycleMany<TEntry>(string root, IEnumerable<TEntry> items, string recycleRoot, CancellationToken token) where TEntry : InstanceResourceEntryData {
+    public void DeleteMany<TEntry>(string root, IEnumerable<TEntry> items, CancellationToken token) where TEntry : InstanceResourceEntryData {
         List<TEntry> list = items.ToList();
         foreach (TEntry entry in list) ValidateEntry(root, entry);
-        foreach (TEntry entry in list) {
-            token.ThrowIfCancellationRequested();
-            MoveToRecycle(root, entry, recycleRoot);
-        }
+        PermanentResourceDeletion.Delete(root, list.Select(entry => entry.FullPath!), token);
     }
 
-    public string MoveToRecycle(string root, InstanceResourceEntryData entry, string recycleRoot) {
-        ValidateEntry(root, entry);
-        string box = Path.Combine(recycleRoot, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(box);
-        string payload = Path.Combine(box, "content");
-        string metadata = Path.Combine(box, "resource.json");
-        try {
-            File.WriteAllText(metadata, new JObject(new JProperty("root", Normalize(root)),
-                new JProperty("name", Path.GetFileName(entry.FullPath)), new JProperty("folder", Path.GetDirectoryName(entry.FullPath)),
-                new JProperty("directory", entry.IsDirectory)).ToString());
-            if (entry.IsDirectory) Directory.Move(entry.FullPath!, payload);
-            else File.Move(entry.FullPath!, payload);
-            return box;
-        } catch {
-            if (!File.Exists(payload) && !Directory.Exists(payload)) {
-                if (File.Exists(metadata)) File.Delete(metadata);
-                Directory.Delete(box, false);
-            }
-            throw;
-        }
-    }
-
-    public string RestoreLast(string root, string recycleRoot) {
-        if (!Directory.Exists(recycleRoot)) throw new IOException("没有可恢复的删除记录。");
-        foreach (DirectoryInfo box in new DirectoryInfo(recycleRoot).GetDirectories().OrderByDescending(item => item.CreationTimeUtc)) {
-            if (!Regex.IsMatch(box.Name, @"\A[0-9a-f]{32}\z") || (box.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-            string metadata = Path.Combine(box.FullName, "resource.json");
-            string payload = Path.Combine(box.FullName, "content");
-            if (!File.Exists(metadata) || new FileInfo(metadata).Length > 65536 || (!File.Exists(payload) && !Directory.Exists(payload))) continue;
-            EnsureWithin(recycleRoot, payload);
-            EnsureWithin(recycleRoot, metadata);
-            JObject json = JObject.Parse(File.ReadAllText(metadata));
-            if (!InstanceResourcePathText.SamePathText(Normalize(root), json["root"]?.ToString())) continue;
-            string destination = Path.Combine(json["folder"]!.ToString(), SafeName(json["name"]!.ToString()));
-            EnsureWithin(root, destination);
-            if (File.Exists(destination) || Directory.Exists(destination))
-                throw new IOException("原位置已有同名资源，请先重命名该资源，再恢复删除。");
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            if (Directory.Exists(payload)) Directory.Move(payload, destination);
-            else File.Move(payload, destination);
-            File.Delete(metadata);
-            Directory.Delete(box.FullName, false);
-            return destination;
-        }
-        throw new IOException("当前资源目录没有可恢复的删除记录。");
-    }
 }

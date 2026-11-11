@@ -38,9 +38,9 @@ public sealed class EnvironmentHistoryWorkflow<TInstance> where TInstance : clas
             Execute = (token, setOutput) => {
                 Action<double>? progress = work.Progress;
                 if (removing) {
-                    if (host.Confirm($"删除选中的 {ids!.Count} 个还原点？\r\n不会删除游戏文件或其他还原点。删除记录将保留在还原点文件夹的 deleted 目录中。", "删除还原点", "删除", "取消", true) != 1) throw new OperationCanceledException();
+                    if (host.Confirm($"永久删除选中的 {ids!.Count} 个还原点？\r\n还原点记录及不再使用的数据将直接删除，无法还原。不会删除游戏文件或其他还原点。", "删除还原点", "删除", "取消", true) != 1) throw new OperationCanceledException();
                     token.ThrowIfCancellationRequested();
-                    setOutput(engine.DeletePoints(host.VersionPath(instance), ids));
+                    setOutput(engine.DeletePointsWithCancellation(host.VersionPath(instance), ids, token));
                     return;
                 }
                 if (host.HasPending(host.VersionPath(instance))) {

@@ -78,7 +78,7 @@
 <Compile Include="Modules/Minecraft/InstalledComponentSummary.cs" />
 <Compile Include="Modules/Minecraft/InstanceResourceStore.cs" />
 <Compile Include="Modules/Minecraft/MapDownloadInstaller.cs" />
-<Compile Include="Modules/Minecraft/ResourceRecycleStore.cs" />
+<Compile Include="Modules/Minecraft/LegacyResourceRecycleCleanup.cs" />
 <Compile Include="Modules/Minecraft/InstanceResourceUpdates.cs" />
 <Compile Include="Modules/Minecraft/ModpackUpdate.cs" />
 <Compile Include="Modules/Minecraft/EnvironmentHistory.cs" />
@@ -93,7 +93,7 @@
 <Compile Include="Pages/PageInstance/WorldBackupGroup.xaml.cs" />
 <Compile Include="Pages/PageInstance/WorldBackupSettings.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceResources.Backups.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceResources.Recycle.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceResources.Rows.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceClone.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstancePackUpdate.xaml.cs" />
 <Compile Include="Pages/PageDownload/Resource/PageDownloadMap.xaml.cs" />

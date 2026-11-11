@@ -36,14 +36,14 @@ public sealed class WorldBackupWorkflow<TInstance> where TInstance : class {
         WorldBackupWork work = null!;
         work = new() {
             SnapshotReservation = () => !restoring && (removing || !_engine.HasPendingRecovery(_host.GameFolder(instance))),
-            StepName = removing ? "移除存档备份" : restoring ? "恢复世界" : "备份世界",
+            StepName = removing ? "删除存档备份" : restoring ? "恢复世界" : "备份世界",
             Execute = (token, setOutput) => {
                 Action<double>? progress = work.Progress;
                 if (removing) {
-                    if (_host.Confirm($"移除选中的 {ids!.Length} 份存档备份？\r\n备份将移动到本机备份目录的 deleted 文件夹。",
-                        "移除存档备份", "移除") != 1) throw new OperationCanceledException();
+                    if (_host.Confirm($"永久删除选中的 {ids!.Length} 份存档备份？\r\n备份文件将直接删除，无法还原。不会删除当前存档。",
+                        "删除存档备份", "删除") != 1) throw new OperationCanceledException();
                     token.ThrowIfCancellationRequested();
-                    setOutput(_engine.DeletePoints(_host.GameFolder(instance), ids!));
+                    setOutput(_engine.DeletePointsWithCancellation(_host.GameFolder(instance), ids!, token));
                     return;
                 }
                 if (restoring) {
@@ -68,7 +68,7 @@ public sealed class WorldBackupWorkflow<TInstance> where TInstance : class {
                 setOutput(saved.Count.ToString());
                 if (saved.Count == 0) _host.Dispatch(() => _host.Hint("此游戏目录没有可备份的存档。", false));
             },
-            Title = (removing ? "移除备份：" : restoring ? "恢复世界：" : "备份世界：") + _host.InstanceName(instance),
+            Title = (removing ? "删除备份：" : restoring ? "恢复世界：" : "备份世界：") + _host.InstanceName(instance),
             Stopped = () => {
                 Interlocked.Exchange(ref BusyCount, 0);
                 _engine.NotifyChanged();

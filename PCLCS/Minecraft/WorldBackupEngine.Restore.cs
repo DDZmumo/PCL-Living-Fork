@@ -314,27 +314,40 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
         }
     }
 
-    public string? DeletePoints(string gameFolder, IEnumerable<string> ids) {
+    public string? DeletePoints(string gameFolder, IEnumerable<string> ids) => DeletePointsWithCancellation(gameFolder, ids, CancellationToken.None);
+    public string? DeletePointsWithCancellation(string gameFolder, IEnumerable<string> ids, CancellationToken token) {
         lock (Gate) {
             using BusyScope scope = new(this);
             List<string> selected = ids.Distinct(StringComparer.Ordinal).ToList();
             string root = Store(gameFolder);
             if (selected.Count == 0) return null;
             foreach (string id in selected) Metadata(gameFolder, id);
-            string deleted = Safe(root, "deleted/" + Guid.NewGuid().ToString("N"));
-            List<string> moved = new();
-            try {
-                Directory.CreateDirectory(deleted);
-                foreach (string id in selected) {
-                    Directory.Move(PointFolder(gameFolder, id), Safe(deleted, id));
-                    moved.Add(id);
-                }
-            } catch {
-                foreach (string id in moved.AsEnumerable().Reverse()) Directory.Move(Safe(deleted, id), PointFolder(gameFolder, id));
-                throw;
+            string transactions = Safe(root, "transactions");
+            if (Directory.Exists(transactions)) foreach (string journalPath in Directory.GetFiles(transactions, "*.json")) {
+                JObject journal = ReadJson(journalPath);
+                if (selected.Contains(journal["point"]?.ToString()!) || selected.Contains(journal["undo"]?.ToString()!))
+                    throw new IOException("选中的备份仍被存档恢复事务使用，请先完成恢复后再删除。");
             }
+            PermanentResourceDeletion.Delete(root, selected.Select(id => PointFolder(gameFolder, id)), token);
             NotifyChanged();
-            return deleted;
+            return root;
+        }
+    }
+
+    public void CleanupDeletedStores(CancellationToken token) {
+        lock (Gate) {
+            using BusyScope scope = new(this);
+            string category = TestRoot ?? host.ProfileAddress("world-backups");
+            NoLinks(category);
+            if (!Directory.Exists(category)) return;
+            foreach (string store in Directory.GetDirectories(category)) {
+                token.ThrowIfCancellationRequested();
+                if (!Regex.IsMatch(Path.GetFileName(store), @"\A[a-f0-9]{64}\z")) continue;
+                try {
+                    string deleted = Path.Combine(store, "deleted");
+                    if (Directory.Exists(deleted)) PermanentResourceDeletion.Delete(category, new[] { deleted }, token);
+                } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { host.Warn(error, "旧存档备份删除目录暂未清理，下次启动重试"); }
+            }
         }
     }
 }

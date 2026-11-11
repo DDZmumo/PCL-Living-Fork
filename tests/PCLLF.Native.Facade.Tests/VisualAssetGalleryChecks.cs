@@ -74,9 +74,9 @@ internal static class VisualAssetGalleryChecks
         // Real Main card with its original host delegates: genuine async Task.Run decode,
         // RunInUi dispatch and real XAML; no readonly host replacement or manual Source assignment.
         RealCard(scope, entries[0]);
-        CancellationAndRecycle(scope, shots, kind, items, entries[0]);
+        CancellationAndDelete(scope, shots, kind, items, entries[0]);
     }
-    private static void CancellationAndRecycle(VisualAssetChecks.Scope scope, string shots, object kind, object items, object first)
+    private static void CancellationAndDelete(VisualAssetChecks.Scope scope, string shots, object kind, object items, object first)
     {
         string path = (string)Native.Get(first, "FullPath")!, recycle = Path.Combine(scope.Root, "screenshot-recycle");
         byte[] original = File.ReadAllBytes(path);
@@ -84,26 +84,18 @@ internal static class VisualAssetGalleryChecks
         {
             canceled.Cancel();
             bool observed = false;
-            try { Native.Static("PCL.InstanceResourceStore", "RecycleMany", shots, items, recycle, canceled.Token); }
+            try { Native.Static("PCL.InstanceResourceStore", "DeleteMany", shots, items, canceled.Token); }
             catch (OperationCanceledException error) { observed = error.CancellationToken == canceled.Token; }
-            Native.Check(observed && File.ReadAllBytes(path).SequenceEqual(original) && !Directory.Exists(recycle), "Actual screenshot pre-canceled recycle changed payload/created recycle entries or lost token identity.");
+            Native.Check(observed && File.ReadAllBytes(path).SequenceEqual(original) && !Directory.Exists(recycle), "Actual screenshot pre-canceled deletion changed payload/created recycle entries or lost token identity.");
             string source = Path.Combine(scope.Root, "input/canceled.png"); VisualAssetChecks.WritePng(source);
             observed = false;
             try { Native.Static("PCL.InstanceResourceStore", "ImportFile", shots, shots, kind, source, canceled.Token); }
             catch (OperationCanceledException error) { observed = error.CancellationToken == canceled.Token; }
             Native.Check(observed && File.Exists(source) && !File.Exists(Path.Combine(shots, "canceled.png")) && !Directory.EnumerateFiles(shots, "*.pcl-copy-*").Any(), "Actual screenshot canceled import lost its original source/left destination or staging bytes.");
         }
-        string box = (string)Native.Static("PCL.InstanceResourceStore", "MoveToRecycle", shots, first, recycle)!;
-        Native.Check(!File.Exists(path) && File.ReadAllBytes(Path.Combine(box, "content")).SequenceEqual(original) && File.Exists(Path.Combine(box, "resource.json")), "Actual screenshot recycle failed to preserve payload and recovery record.");
-        // Restore must refuse to overwrite an existing same-name resource.
-        byte[] collision = { 7, 8, 9 }; File.WriteAllBytes(path, collision); bool refused = false;
-        try { Native.Static("PCL.InstanceResourceStore", "RestoreLast", shots, recycle); }
-        catch (IOException) { refused = true; }
-        Native.Check(refused && File.ReadAllBytes(path).SequenceEqual(collision) && File.ReadAllBytes(Path.Combine(box, "content")).SequenceEqual(original), "Screenshot restore overwrote a collision or discarded recoverable content.");
-        File.Delete(path);
-        string restored = (string)Native.Static("PCL.InstanceResourceStore", "RestoreLast", shots, recycle)!;
-        Native.Check(Native.Full(restored) == Native.Full(path) && File.ReadAllBytes(path).SequenceEqual(original) && !Directory.Exists(box), "Screenshot restore did not recover the exact owned original/clean its consumed record.");
-        using FileStream released = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        object fresh = Native.Static("PCL.InstanceResourceStore", "Scan", shots, shots, kind, CancellationToken.None)!;
+        Native.Static("PCL.InstanceResourceStore", "DeleteMany", shots, fresh, CancellationToken.None);
+        Native.Check(!File.Exists(path) && !Directory.Exists(recycle), "Actual screenshot deletion retained its payload or created a recycle record.");
     }
     private static void RealCard(VisualAssetChecks.Scope scope, object entry)
     {

@@ -85,9 +85,9 @@ namespace PCL
             }
             return result;
         }
-        internal static void Install(string Root, IEnumerable<InstanceResourceOnlineInfo> Infos, string Recycle, InstanceResourceKind Kind, string GameVersion, CancellationToken Token, Action<List<ModNet.NetFile>, CancellationToken> Download = null)
+        internal static void Install(string Root, IEnumerable<InstanceResourceOnlineInfo> Infos, InstanceResourceKind Kind, string GameVersion, CancellationToken Token, Action<List<ModNet.NetFile>, CancellationToken> Download = null)
         {
-            Files.Install(Root, Infos, Recycle, (int)Kind, GameVersion, Token, Download);
+            Files.Install(Root, Infos, (int)Kind, GameVersion, Token, Download);
         }
     }
 }

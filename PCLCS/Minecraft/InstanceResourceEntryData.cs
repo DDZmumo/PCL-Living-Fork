@@ -10,7 +10,6 @@ namespace PCLCS;
 
 /// <summary>本地资源的原始字段；WPF 图标留在调用方的派生类型。</summary>
 public class InstanceResourceEntryData {
-    public string? RecycleId;
     public string? Name;
     public string? FullPath;
     public string? Description;

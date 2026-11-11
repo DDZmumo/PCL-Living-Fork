@@ -63,33 +63,6 @@ namespace PCL
             }
         }
 
-        private global::PCL.MyIconTextButton __LfPart_BtnRecycleBack;
-        internal virtual global::PCL.MyIconTextButton BtnRecycleBack
-        {
-            get
-            {
-                return __LfPart_BtnRecycleBack;
-            }
-
-            [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.Synchronized)]
-            set
-            {
-                global::PCL.MyIconTextButton.ClickEventHandler hook0 = new global::PCL.MyIconTextButton.ClickEventHandler(this.__LfHandle_2);
-                global::PCL.MyIconTextButton previous = __LfPart_BtnRecycleBack;
-                if (previous != null)
-                {
-                    previous.Click -= hook0;
-                }
-
-                __LfPart_BtnRecycleBack = value;
-                global::PCL.MyIconTextButton current = __LfPart_BtnRecycleBack;
-                if (current != null)
-                {
-                    current.Click += hook0;
-                }
-            }
-        }
-
         private global::PCL.WorldBackupSettings __LfPart_BackupSettings;
         internal virtual global::PCL.WorldBackupSettings BackupSettings
         {
@@ -320,33 +293,6 @@ namespace PCL
 
                 __LfPart_BtnBackupAll = value;
                 global::PCL.MyButton current = __LfPart_BtnBackupAll;
-                if (current != null)
-                {
-                    current.Click += hook0;
-                }
-            }
-        }
-
-        private global::PCL.MyButton __LfPart_BtnRestore;
-        internal virtual global::PCL.MyButton BtnRestore
-        {
-            get
-            {
-                return __LfPart_BtnRestore;
-            }
-
-            [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.Synchronized)]
-            set
-            {
-                global::PCL.MyButton.ClickEventHandler hook0 = new global::PCL.MyButton.ClickEventHandler(this.__LfHandle_3);
-                global::PCL.MyButton previous = __LfPart_BtnRestore;
-                if (previous != null)
-                {
-                    previous.Click -= hook0;
-                }
-
-                __LfPart_BtnRestore = value;
-                global::PCL.MyButton current = __LfPart_BtnRestore;
                 if (current != null)
                 {
                     current.Click += hook0;
@@ -777,33 +723,6 @@ namespace PCL
             }
         }
 
-        private global::PCL.MyTextButton __LfPart_BtnHintRestore;
-        internal virtual global::PCL.MyTextButton BtnHintRestore
-        {
-            get
-            {
-                return __LfPart_BtnHintRestore;
-            }
-
-            [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.Synchronized)]
-            set
-            {
-                global::PCL.MyTextButton.ClickEventHandler hook0 = new global::PCL.MyTextButton.ClickEventHandler(this.__LfHandle_4);
-                global::PCL.MyTextButton previous = __LfPart_BtnHintRestore;
-                if (previous != null)
-                {
-                    previous.Click -= hook0;
-                }
-
-                __LfPart_BtnHintRestore = value;
-                global::PCL.MyTextButton current = __LfPart_BtnHintRestore;
-                if (current != null)
-                {
-                    current.Click += hook0;
-                }
-            }
-        }
-
         private global::PCL.MyCard __LfPart_PanLoad;
         internal virtual global::PCL.MyCard PanLoad
         {
@@ -1034,21 +953,6 @@ namespace PCL
         private void __LfHandle_1(global::System.Object arg0, global::PCL.ModBase.RouteEventArgs arg1)
         {
             this.RestoreWorldBackup();
-        }
-
-        private void __LfHandle_2(global::System.Object arg0, global::PCL.ModBase.RouteEventArgs arg1)
-        {
-            this.ReturnToResources();
-        }
-
-        private void __LfHandle_3(global::System.Object arg0, global::System.Windows.Input.MouseButtonEventArgs arg1)
-        {
-            this.RestoreDeleted();
-        }
-
-        private void __LfHandle_4(global::System.Object arg0, global::System.EventArgs arg1)
-        {
-            this.RestoreDeleted();
         }
 
         private void __LfHandle_5(global::System.Object arg0, global::System.Windows.SizeChangedEventArgs arg1)

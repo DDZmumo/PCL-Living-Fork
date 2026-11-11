@@ -184,7 +184,9 @@ namespace PCL
         }
         internal static void OnProcessStopped(ModMinecraft.McInstance Instance, Process Game, bool NormalExit)
         {
-            Service.OnProcessStopped(Instance, Game, NormalExit);
+            Logger.Info("开始处理游戏退出后的存档备份会话，正常退出：" + NormalExit);
+            try { Service.OnProcessStopped(Instance, Game, NormalExit); }
+            finally { Logger.Info("游戏退出后的存档备份会话处理已结束"); }
         }
         internal static void OnNormalExit(ModMinecraft.McInstance Instance, Process Game)
         {

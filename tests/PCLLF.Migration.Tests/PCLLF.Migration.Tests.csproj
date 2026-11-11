@@ -37,7 +37,7 @@
     <Compile Include="../../PCLCS/Minecraft/InstanceResourceDetailsRules.cs" Link="Production/InstanceResourceDetailsRules.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceResourceCatalog.cs" Link="Production/InstanceResourceCatalog.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceResourceTransactions.cs" Link="Production/InstanceResourceTransactions.cs" />
-    <Compile Include="../../PCLCS/Minecraft/ResourceRecycleFiles.cs" Link="Production/ResourceRecycleFiles.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PermanentResourceDeletion.cs" Link="Production/PermanentResourceDeletion.cs" />
     <Compile Include="../../PCLCS/Minecraft/MapDownloadFiles.cs" Link="Production/MapDownloadFiles.cs" />
     <Compile Include="../../PCLCS/Minecraft/InstanceResourceOnlineFiles.cs" Link="Production/InstanceResourceOnlineFiles.cs" />
     <Compile Include="../../PCLCS/Minecraft/FileTaskProgress.cs" Link="Production/FileTaskProgress.cs" />

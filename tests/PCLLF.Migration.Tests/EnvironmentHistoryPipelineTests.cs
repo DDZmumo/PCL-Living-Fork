@@ -9,11 +9,64 @@ internal static class EnvironmentHistoryPipelineTests {
 
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("environment history pipeline shares real payloads and compares only healthy private-value-free changes", CaptureAndHealthyChanges);
-        yield return ("environment history pipeline opt-in retention protects legacy manual and recoverable deleted references", RetentionReferences);
+        yield return ("environment history pipeline opt-in retention protects legacy manual points after permanent deletion", RetentionReferences);
+        yield return ("environment history permanent deletion reclaims unique data and preserves shared payloads", PermanentDeletion);
+        yield return ("environment history upgrade removes old deleted records and only unreferenced objects", DeletedStoreCleanup);
+        if (OperatingSystem.IsWindows()) yield return ("environment history deferred object cleanup retries locked data after record deletion", LockedDeletionRetry);
         yield return ("environment history pipeline restore rejects isolation cancellation and corrupt payloads before its retained transaction host", RestoreGuards);
         yield return ("environment history pipeline plans legacy and current coverage without simulating the retained VB transaction", CoveragePlans);
         yield return ("environment history pipeline canceled capture and unstable or canceled comparisons release owned temporary files", ScanAndCancellation);
         foreach (var check in FileTaskProgressTests.EnvironmentCases()) yield return check;
+    }
+
+    private static void PermanentDeletion() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        context.Put("mods/shared.jar", "shared data"); string keep = context.Capture("手动还原点");
+        string shared = context.Blob(keep, "g/mods/shared.jar");
+        context.Put("config/unique.toml", "unique data"); string selected = context.Capture("手动还原点");
+        string unique = context.Blob(selected, "g/config/unique.toml");
+        Throws<IOException>(() => context.Engine.DeletePoints(context.Owner.VersionPath, new[] { keep, "../invalid" }));
+        Equal(2, context.Points().Count);
+        using CancellationTokenSource canceled = new(); canceled.Cancel();
+        Throws<OperationCanceledException>(() => context.Engine.DeletePointsWithCancellation(context.Owner.VersionPath, new[] { selected }, canceled.Token));
+        Equal(false, File.Exists(Path.Combine(context.Store, "cleanup-pending")));
+        context.Engine.RestoringCount = 1;
+        Throws<IOException>(() => context.Engine.DeletePoints(context.Owner.VersionPath, new[] { selected }));
+        context.Engine.RestoringCount = 0;
+        Equal(context.Store, context.Engine.DeletePoints(context.Owner.VersionPath, new[] { selected }));
+        Sequence(new[] { keep }, context.Points().Select(point => (string)point["id"]!));
+        Equal(false, File.Exists(unique)); Equal("shared data", File.ReadAllText(shared));
+        Equal(false, Directory.Exists(Path.Combine(context.Store, "deleted")));
+        Equal("unique data", File.ReadAllText(context.GamePath("config/unique.toml")));
+    }
+    private static void DeletedStoreCleanup() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        context.Put("mods/shared.jar", "shared data"); string keep = context.Capture("手动还原点");
+        string shared = context.Blob(keep, "g/mods/shared.jar");
+        context.Put("config/unique.toml", "deleted data"); string old = context.Capture("手动还原点");
+        string unique = context.Blob(old, "g/config/unique.toml");
+        string deleted = Path.Combine(context.Store, "deleted", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(deleted);
+        File.Move(Path.Combine(context.Store, "points", old + ".json"), Path.Combine(deleted, old + ".json"));
+        File.WriteAllText(Path.Combine(deleted, "corrupt.json"), "malformed legacy record");
+        string unknown = Path.Combine(Path.GetDirectoryName(context.Store)!, "notes", "deleted", "keep.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(unknown)!); File.WriteAllText(unknown, "unowned directory");
+        context.Engine.CleanupDeletedStores(default); context.Engine.CleanupDeletedStores(default);
+        Equal(false, Directory.Exists(Path.Combine(context.Store, "deleted"))); Equal(false, File.Exists(unique));
+        Equal("shared data", File.ReadAllText(shared)); Equal(keep, (string?)context.Points().Single()["id"]);
+        Equal(true, File.Exists(unknown));
+        Equal("deleted data", File.ReadAllText(context.GamePath("config/unique.toml")));
+    }
+    private static void LockedDeletionRetry() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        string keep = context.Capture("手动还原点");
+        context.Put("config/locked.toml", "locked data"); string selected = context.Capture("手动还原点");
+        string payload = context.Blob(selected, "g/config/locked.toml");
+        using (new FileStream(payload, FileMode.Open, FileAccess.Read, FileShare.None))
+            Throws<IOException>(() => context.Engine.DeletePoints(context.Owner.VersionPath, new[] { selected }));
+        Equal(true, File.Exists(Path.Combine(context.Store, "cleanup-pending"))); Equal(true, File.Exists(payload));
+        context.Engine.CleanupDeletedStores(default);
+        Equal(false, File.Exists(payload)); Equal(false, File.Exists(Path.Combine(context.Store, "cleanup-pending")));
+        Equal(keep, (string?)context.Points().Single()["id"]);
     }
 
     private static void CaptureAndHealthyChanges() {
@@ -77,7 +130,7 @@ internal static class EnvironmentHistoryPipelineTests {
         context.Put("config/pack.toml", "recoverable deleted payload");
         string deleted = context.Capture("整合包更新前");
         string deletedBlob = context.Blob(deleted, "g/config/pack.toml");
-        string deletedFolder = context.Engine.DeletePoints(context.Owner.VersionPath, [deleted]) ?? throw new Exception("Expected a recoverable deletion directory.");
+        context.Engine.DeletePoints(context.Owner.VersionPath, [deleted]);
         context.Put("config/pack.toml", "unreferenced expired payload");
         string expired = context.Capture("游戏启动前");
         string expiredBlob = context.Blob(expired, "g/config/pack.toml");
@@ -94,8 +147,8 @@ internal static class EnvironmentHistoryPipelineTests {
         Sequence(new[] { manual, newest }.Order(), context.Points().Select(point => (string)point["id"]!).Order());
         Equal(true, context.Engine.IsManualPoint(context.Point(manual)));
         Equal(false, File.Exists(expiredBlob));
-        Equal(true, File.Exists(deletedBlob));
-        Equal(true, File.Exists(Path.Combine(deletedFolder, deleted + ".json")));
+        Equal(false, File.Exists(deletedBlob));
+        Equal(false, Directory.Exists(Path.Combine(context.Store, "deleted")));
         foreach (JObject point in context.Points())
             foreach (JProperty entry in ((JObject)point["files"]!).Properties())
                 Equal(true, File.Exists(Path.Combine(context.Store, "objects", entry.Value.ToString()[5..])));

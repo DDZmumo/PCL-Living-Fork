@@ -25,7 +25,7 @@ internal static class InstanceResourcePipelineTests {
         yield return ("resource catalog screenshot preview budget counts eighty attempts without an image", CatalogPreviewBudget);
         yield return ("resource catalog skips per-entry IO failures but propagates decoder format failures", CatalogExceptionBoundary);
         if (OperatingSystem.IsWindows()) {
-            yield return ("resource Windows transaction import rename export recycle and restore preserve bytes", TransactionRoundTrip);
+            yield return ("resource Windows transaction import rename export preserve bytes and deletion is permanent", TransactionRoundTrip);
             yield return ("resource Windows bulk operations validate every source before any mutation", BulkPreflight);
             yield return ("resource Windows canceled imports and exports remove only owned temporary output", CanceledTransactions);
             yield return ("resource Windows world import keeps nested layout and rejects unsafe archives", WorldImportBoundary);
@@ -245,7 +245,7 @@ internal static class InstanceResourcePipelineTests {
         Equal(false, ReferenceEquals(first.Single(item => item.Name == "A"), changed.Single(item => item.Name == "A")));
         Equal(true, ReferenceEquals(first.Single(item => item.Name == "B"), changed.Single(item => item.Name == "B")));
         fixture.Bytes("saves/A/icon.png", [1, 2, 3]); Read(); Equal(4, icons);
-        // Native delete moves the owned world into the resource recycle store.
+        // Moving a world away must invalidate the cached catalog.
         Directory.Move(Path.Combine(worlds, "A"), Path.Combine(fixture.Root, "recycled-A"));
         Equal(1, Read().Count); Equal(4, icons);
         Directory.Move(Path.Combine(fixture.Root, "recycled-A"), Path.Combine(worlds, "Renamed"));
@@ -337,17 +337,9 @@ internal static class InstanceResourcePipelineTests {
         transactions.Export(root, Snapshot(renamed), exported, CancellationToken.None);
         Sequence(bytes, File.ReadAllBytes(exported));
         string recycle = Path.Combine(fixture.Root, "recycle");
-        string box = transactions.MoveToRecycle(root, Snapshot(renamed), recycle);
+        transactions.DeleteMany(root, new[] { Snapshot(renamed) }, CancellationToken.None);
         Equal(false, File.Exists(renamed));
-        Sequence(bytes, File.ReadAllBytes(Path.Combine(box, "content")));
-        JObject metadata = JObject.Parse(File.ReadAllText(Path.Combine(box, "resource.json")));
-        Equal("Renamed.zip", (string?)metadata["name"]);
-        Equal(false, (bool)metadata["directory"]!);
-        Equal(renamed, transactions.RestoreLast(root, recycle));
-        Sequence(bytes, File.ReadAllBytes(renamed));
-        Equal(false, Directory.Exists(box));
-        Sequence(bytes, File.ReadAllBytes(source));
-        Equal(0, Directory.GetFiles(root, "*.pcl-copy-*").Length);
+        Equal(false, Directory.Exists(recycle));
     }
 
     private static void BulkPreflight() {
@@ -363,7 +355,7 @@ internal static class InstanceResourcePipelineTests {
         source.Cancel();
         Throws<IOException>(() => new InstanceResourceTransactions(text => text).ExportMany(root, entries, exports, source.Token));
         Equal(0, Directory.GetFileSystemEntries(exports).Length);
-        Throws<IOException>(() => new InstanceResourceTransactions(text => text).RecycleMany(root, entries, recycle, source.Token));
+        Throws<IOException>(() => new InstanceResourceTransactions(text => text).DeleteMany(root, entries, source.Token));
         Equal(false, Directory.Exists(recycle));
         Sequence(new byte[] { 1 }, File.ReadAllBytes(first));
     }

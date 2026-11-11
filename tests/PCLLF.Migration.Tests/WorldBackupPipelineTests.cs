@@ -14,9 +14,53 @@ internal static class WorldBackupPipelineTests {
         yield return ("world backup pipeline commit faults cancellation and persisted journal recovery preserve current world", RestoreFailureAndRecovery);
         yield return ("world backup workflow keeps confirmation output stopped and rejected-worker boundaries", WorkflowLifecycle);
         yield return ("world backup display summaries reuse validated metadata and invalidate changed corrupt or deleted points", DisplaySummaries);
+        yield return ("world backup permanent deletion preflights batches cancellation and active recovery references", PermanentDeletion);
+        yield return ("world backup upgrade removes old deleted payloads while preserving live points and worlds", DeletedStoreCleanup);
         if (OperatingSystem.IsWindows())
             yield return ("world backup Windows session lock prevents capture and restore until the holder releases it", WindowsSessionLock);
         foreach (var check in FileTaskProgressTests.WorldCases()) yield return check;
+    }
+
+    private static void PermanentDeletion() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        string world = context.World("A", [1]); string game = context.Owner.GameFolder;
+        string first = context.Engine.CaptureWorld(game, "A", "manual", 5, default);
+        File.WriteAllBytes(Path.Combine(world, "level.dat"), [2]);
+        string second = context.Engine.CaptureWorld(game, "A", "manual", 5, default);
+        string root = context.Engine.Store(game), points = Path.Combine(root, "points");
+        Throws<IOException>(() => context.Engine.DeletePoints(game, new[] { first, "../invalid" }));
+        Equal(true, Directory.Exists(Path.Combine(points, first)));
+        using CancellationTokenSource canceled = new(); canceled.Cancel();
+        Throws<OperationCanceledException>(() => context.Engine.DeletePointsWithCancellation(game, new[] { first }, canceled.Token));
+        string journals = Path.Combine(root, "transactions"); Directory.CreateDirectory(journals);
+        string journal = Path.Combine(journals, Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(journal, new JObject { ["point"] = second, ["undo"] = first }.ToString());
+        Throws<IOException>(() => context.Engine.DeletePoints(game, new[] { first }));
+        File.Delete(journal);
+        Equal(root, context.Engine.DeletePoints(game, new[] { first }));
+        Equal(false, Directory.Exists(Path.Combine(points, first))); Equal(false, Directory.Exists(Path.Combine(root, "deleted")));
+        Equal(true, File.Exists(Path.Combine(points, second, "world.zip")));
+        Sequence(new byte[] { 2 }, File.ReadAllBytes(Path.Combine(world, "level.dat")));
+        context.Engine.Restore(game, second, 5, default);
+        Sequence(new byte[] { 2 }, File.ReadAllBytes(Path.Combine(world, "level.dat")));
+        AssertClean(context);
+    }
+    private static void DeletedStoreCleanup() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        string world = context.World("A", [1]), game = context.Owner.GameFolder;
+        string old = context.Engine.CaptureWorld(game, "A", "manual", 5, default);
+        string keep = context.Engine.CaptureWorld(game, "A", "manual", 5, default);
+        string root = context.Engine.Store(game), deleted = Path.Combine(root, "deleted", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(deleted);
+        Directory.Move(Path.Combine(root, "points", old), Path.Combine(deleted, old));
+        File.WriteAllText(Path.Combine(deleted, "broken.json"), "malformed legacy record");
+        string unknown = Path.Combine(Path.GetDirectoryName(root)!, "notes", "deleted", "keep.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(unknown)!); File.WriteAllText(unknown, "unowned directory");
+        context.Engine.CleanupDeletedStores(default); context.Engine.CleanupDeletedStores(default);
+        Equal(false, Directory.Exists(Path.Combine(root, "deleted")));
+        Equal(true, File.Exists(Path.Combine(root, "points", keep, "world.zip")));
+        Equal(true, File.Exists(unknown));
+        Sequence(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(world, "level.dat")));
     }
 
     private static void DisplaySummaries() {
@@ -226,6 +270,20 @@ internal static class WorldBackupPipelineTests {
         try { Throws<OperationCanceledException>(() => restore.Execute(CancellationToken.None, _ => throw new Exception("A declined restore produced output."))); }
         finally { restore.Stopped(); }
         Equal(true, context.ConfirmText!.Contains("共用目录", StringComparison.Ordinal));
+        Sequence(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(context.Owner.GameFolder, "saves", "World A", "level.dat")));
+        context.Workflow.Start(context.Owner, deleteIds: new[] { id });
+        WorldBackupWork deleting = context.Started.Last();
+        Equal("删除存档备份", deleting.StepName);
+        try { Throws<OperationCanceledException>(() => deleting.Execute(CancellationToken.None, _ => throw new Exception("A declined deletion produced output."))); }
+        finally { deleting.Stopped(); }
+        Equal(true, context.ConfirmText!.Contains("永久删除", StringComparison.Ordinal) && !context.ConfirmText.Contains("deleted", StringComparison.Ordinal));
+        Equal(1, context.Engine.Points(context.Owner.GameFolder).Count);
+        context.ConfirmResult = 1;
+        context.Workflow.Start(context.Owner, deleteIds: new[] { id });
+        deleting = context.Started.Last();
+        try { deleting.Execute(CancellationToken.None, _ => { }); }
+        finally { deleting.Stopped(); }
+        Equal(0, context.Engine.Points(context.Owner.GameFolder).Count);
         Sequence(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(context.Owner.GameFolder, "saves", "World A", "level.dat")));
         context.StartAllowed = false;
         context.Workflow.Start(context.Owner, worldIdentifier: "World A");

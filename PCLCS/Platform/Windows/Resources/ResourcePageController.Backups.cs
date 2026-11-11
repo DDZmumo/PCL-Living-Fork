@@ -37,7 +37,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     }
 
     public void RefreshChangedResources() {
-        if (Kind != 0 || IsRecycleMode || !hasWorldSnapshot || Owner is null || CurrentRoot is null || CurrentFolder is null) { Refresh(); return; }
+        if (Kind != 0 || !hasWorldSnapshot || Owner is null || CurrentRoot is null || CurrentFolder is null) { Refresh(); return; }
         if (!ReferenceEquals(Owner, Host.CurrentInstance()) || !SamePath(CurrentRoot, System.IO.Path.Combine(Host.GameFolder(Owner), "saves"))) { Refresh(); return; }
         if (worldRefresh is not null) { worldRefreshAgain = true; return; }
         if (worldRefreshQueued) return;
@@ -46,10 +46,10 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         View.Root.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => {
             if (revision != worldRefreshRevision) return;
             worldRefreshQueued = false;
-            if (Busy || !View.Root.IsLoaded || IsRecycleMode || Owner is null) return;
+            if (Busy || !View.Root.IsLoaded || Owner is null) return;
             TInstance target = Owner;
             string root = CurrentRoot!, folder = CurrentFolder!, game = Host.GameFolder(target);
-            var request = new Request { Instance = target, Root = root, Folder = folder, GameFolder = game, RecycleMode = false, RecycleFolder = RecycleRoot! };
+            var request = new Request { Instance = target, Root = root, Folder = folder, GameFolder = game };
             CancellationTokenSource source = new();
             worldRefresh = source;
             Host.Background(() => {
@@ -62,7 +62,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
                     if (current) worldRefresh = null;
                     bool canceled = source.IsCancellationRequested;
                     source.Dispose();
-                    if (!current || canceled || revision != worldRefreshRevision || !View.Root.IsLoaded || IsRecycleMode ||
+                    if (!current || canceled || revision != worldRefreshRevision || !View.Root.IsLoaded ||
                         !ReferenceEquals(Owner, target) || !ReferenceEquals(Host.CurrentInstance(), target) ||
                         !SamePath(CurrentFolder, folder) || !SamePath(Host.GameFolder(target), game)) return;
                     if (failure is not null) Host.Warn(failure, "增量更新存档列表失败");
@@ -77,14 +77,14 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         // Preserve visual order from the actual panel. Interface dictionaries are
         // lookup adapters, not the source of visible order or selection order.
         Dictionary<FrameworkElement, IResourcePageRow<TEntry, TOnline>> known = Rows.Values.ToDictionary(row => row.Element);
-        IEnumerable<FrameworkElement> elements = Kind == 0 && !IsRecycleMode
+        IEnumerable<FrameworkElement> elements = Kind == 0
             ? View.PanWorlds.Children.OfType<StackPanel>().SelectMany(panel => panel.Children.OfType<FrameworkElement>())
             : View.PanList.Children.OfType<FrameworkElement>();
         foreach (FrameworkElement element in elements)
             if (known.TryGetValue(element, out IResourcePageRow<TEntry, TOnline>? row)) yield return row;
     }
 
-    private List<string> SelectedBackupIds() => Kind != 0 || IsRecycleMode
+    private List<string> SelectedBackupIds() => Kind != 0
         ? new List<string>()
         : BackupGroups.Values.SelectMany(group => group.SelectedIds).Distinct(StringComparer.Ordinal).ToList();
 
@@ -212,7 +212,6 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     }
 
     public void BackupAll() {
-        if (IsRecycleMode) { PurgeRecycleSelection(Entries.ToList()); return; }
         if (Owner is not null && View.CommitBackupSettings()) Host.StartBackup(Owner, null, null);
     }
 

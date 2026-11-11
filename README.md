@@ -12,16 +12,16 @@
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
-[下载 1.4.2-pre-1 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
+[下载 1.4.2-pre-2 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-2) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
-[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-1) ·
+[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2-pre-2) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
 [加入 QQ 群](https://qm.qq.com/q/MX1RivlHeE)
 
 </div>
 
-当前预发布版为 1.4.2-pre-1；如需稳定版，可下载 [1.4.1](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1)。
+当前预发布版为 1.4.2-pre-2；如需稳定版，可下载 [1.4.1](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.1)。
 
 ---
 
@@ -54,7 +54,7 @@
 ### 游戏资源与模组管理
 - **全局资源收藏**：顶栏收藏区沿用下载区的搜索、分类与列表界面，收藏整个在线项目；下载、版本资源管理与收藏页同步状态，同一平台项目的不同文件和版本只保留一条记录。已匹配在线项目的模组、资源包和光影包可直接从本地列表收藏。
 - **游戏资源管理**：在启动器内直接打理存档、截图、模组、资源包、光影包和投影/原理图，保留 PCL 原生列表、多选与动效；资源包与光影包支持在线更新，CurseForge 地图下载后自动归档至 `saves\PCLLFWorldDownload` 并解压安装，避免覆盖同名存档。
-- **资源回收站**：误删的本地资源会先移入回收站，支持随时还原或确认后彻底删除。
+- **资源直接删除**：确认后直接删除本地资源；升级后自动清空各游戏目录和共享缓存中旧版的 `PCL/ResourceRecycle`，不再提供资源回收站。
 - **模组依赖检查**：以圆角图标关系图直观展示模组的前置、被依赖关系与冲突；网络超时或平台未提供精确声明时自动回退参考本地声明，并缓存依赖树以加速后续打开。
 - **加载器匹配核查**：识别 Fabric、Forge、NeoForge 及旧版 Forge 的实际加载声明，减少旧整合包残留模板造成的误报；不匹配模组在列表中标红提醒，内置组件自动归组展示。
 - **启动前依赖管理**：主页“上次游玩”上方可随时开关依赖检查与自动补全。启动前先列出必需前置，已禁用且兼容的模组可直接启用，缺失文件则通过原生下载任务一键补齐后再启动。
@@ -63,6 +63,7 @@
 - **整合包更新**：支持从本地文件或 CurseForge / Modrinth 更新已识别的整合包，按“新增、更新、移除、保留个人修改”清晰分类预览；半途取消时也会等待文件处理与必要回滚收尾后再解除版本占用。
 - **还原点**：支持手动或在更新前保存 Minecraft、加载器、模组与配置快照，改坏环境时可整套恢复，且**不会回退当前存档的游玩进度**（手动还原点独立保留，不计入自动清理上限）( •̀ ω •́ )✧
 - **存档备份**：游戏正常退出后及更新 Minecraft 前自动备份世界，可在存档卡片下展开查看、恢复和设置自动备份保留份数（手动备份同样独立保留）。
+- **备份与还原点删除**：确认后永久删除，释放不再被其他还原点使用的数据；升级后自动清理旧 `deleted` 目录。
 - **备份存储位置**：可在“设置 → 其他 → 世界备份与环境还原点”打开文件夹选择窗口，自选存储位置；已有数据复制并校验后才切换路径，再清理旧目录。
 - **测试副本与崩溃对照**：想加模组试水时可一键克隆当前版本，在版本选择中按来源折叠收纳；若游戏发生崩溃，会自动对照上次正常运行后的环境变化，并可联动还原点快速恢复。
 - **整合包导出与模式**：支持附带启动器导出、设置版本隔离策略，并提供仅保留必要入口的整合包界面模式。

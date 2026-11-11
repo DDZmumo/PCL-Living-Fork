@@ -271,7 +271,7 @@ public sealed class InstanceResourceOnlineFiles<TEntry, TVersion, TDownload, TIn
         }
     }
 
-    public void Install(string root, IEnumerable<TInfo> infos, string recycle, int kind, string gameVersion,
+    public void Install(string root, IEnumerable<TInfo> infos, int kind, string gameVersion,
             CancellationToken token, Action<List<TDownload>, CancellationToken>? download = null) {
         List<TInfo> items = infos.ToList();
         if (!Supported(kind) || items.Count == 0) return;
@@ -305,16 +305,10 @@ public sealed class InstanceResourceOnlineFiles<TEntry, TVersion, TDownload, TIn
                 TInfo info = items[index];
                 ValidateEntry(root, info.Entry);
                 if (!SameText(FileHash(info.Entry.FullPath!), info.Sha1)) throw new IOException("原资源已变化，已停止替换。");
-                string box = transactions.MoveToRecycle(root, info.Entry, recycle);
-                try { File.Move(Path.Combine(stage, index + ".zip"), info.Entry.FullPath!); }
-                catch {
-                    if (!File.Exists(info.Entry.FullPath)) {
-                        File.Move(Path.Combine(box, "content"), info.Entry.FullPath!);
-                        File.Delete(Path.Combine(box, "resource.json"));
-                        Directory.Delete(box, false);
-                    }
-                    throw;
-                }
+                // Staging is on the same volume as the destination. Replace in
+                // one move so a failed commit leaves the original in place,
+                // without retaining a copy in the retired recycle bin.
+                File.Move(Path.Combine(stage, index + ".zip"), info.Entry.FullPath!, true);
             }
         } finally {
             transactions.DeleteStage(root, stage);

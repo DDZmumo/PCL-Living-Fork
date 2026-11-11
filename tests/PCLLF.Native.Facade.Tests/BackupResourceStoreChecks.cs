@@ -38,7 +38,7 @@ internal static class BackupResourceStoreChecks
         Native.Check(worlds.Count == 1 && (string)Native.Get(worlds[0]!, "Name")! == "Test World", "Actual world folders were not listed.");
         Type entryType = worlds[0]!.GetType();
         Native.Check(entryType.Assembly == Native.Main && entryType.FullName == "PCL.InstanceResourceEntry" && entryType.IsSealed && entryType.BaseType!.FullName == "PCLCS.InstanceResourceEntryData", "Resource facade lost its genuine Main type and single production DTO base.");
-        foreach (var field in new (string Name, Type Type)[] { ("RecycleId", typeof(string)), ("Name", typeof(string)), ("FullPath", typeof(string)), ("Description", typeof(string)), ("IsDirectory", typeof(bool)), ("ModifiedUtc", typeof(DateTime)), ("CreatedUtc", typeof(DateTime)), ("Length", typeof(long)) }) {
+        foreach (var field in new (string Name, Type Type)[] { ("Name", typeof(string)), ("FullPath", typeof(string)), ("Description", typeof(string)), ("IsDirectory", typeof(bool)), ("ModifiedUtc", typeof(DateTime)), ("CreatedUtc", typeof(DateTime)), ("Length", typeof(long)) }) {
             var actual = Native.Field(entryType, field.Name); Native.Check(actual.FieldType == field.Type && actual.DeclaringType == entryType.BaseType, "Original resource field ABI changed: " + field.Name);
         }
         var icon = Native.Field(entryType, "Icon");
@@ -63,11 +63,11 @@ internal static class BackupResourceStoreChecks
         Reject(() => Store("ImportFile", packs, packs, Kind("ResourcePacks"), pack, None), "same-name resource import");
         string renamed = (string)Store("Rename", packs, entries[0], "Renamed.zip")!; Native.Check(File.Exists(renamed), "Resource rename failed or retained archive handle.");
         string trash = Path.Combine(game, "PCL/ResourceRecycle/ResourcePacks");
-        Store("MoveToRecycle", packs, Scan(packs, "ResourcePacks")[0], trash); Native.Check(!File.Exists(renamed), "Recycled resource remained live.");
-        string restored = (string)Store("RestoreLast", packs, trash)!;
-        Native.Check(File.Exists(restored) && SHA256.HashData(File.ReadAllBytes(restored)).SequenceEqual(SHA256.HashData(File.ReadAllBytes(pack))), "Recycle restore changed resource bytes.");
-        object stale = Scan(packs, "ResourcePacks")[0]!; File.AppendAllText((string)Native.Get(stale, "FullPath")!, "changed-after-listing");
-        Reject(() => Store("MoveToRecycle", packs, stale, trash), "stale selection deletion");
+        Store("DeleteMany", packs, Scan(packs, "ResourcePacks"), None);
+        Native.Check(!File.Exists(renamed) && !Directory.Exists(trash), "Direct deletion retained the resource or a recycle copy.");
+        Store("ImportFile", packs, packs, Kind("ResourcePacks"), pack, None);
+        IList stale = Scan(packs, "ResourcePacks"); File.AppendAllText((string)Native.Get(stale[0]!, "FullPath")!, "changed-after-listing");
+        Reject(() => Store("DeleteMany", packs, stale, None), "stale selection deletion");
         string shots = (string)Store("Root", game, Kind("Screenshots"))!, png = Path.Combine(shots, "screenshot.png"); Png(png);
         IList images = Scan(shots, "Screenshots");
         Native.Check(Store("LoadImage", Native.Get(images[0]!, "FullPath"), 1200) is BitmapSource { IsFrozen: true }, "Screenshot preview was not fully decoded/frozen.");
@@ -80,7 +80,7 @@ internal static class BackupResourceStoreChecks
         foreach (string name in new[] { "../escape", "CON", "file.", "a/b" }) Reject(() => Store("SafeName", name), "unsafe resource name " + name);
         ResourcePage(root, packs, shots, trash, pack);
         ResourceSortChecks.Run(root);
-        Console.WriteLine("PASS backup-resources store: actual world ZIP/folder roundtrips, collision/cancel/path/stale guards, frozen previews/handle release, package validation, native resource page and batch export/recycle/restore.");
+        Console.WriteLine("PASS backup-resources store: actual world ZIP/folder roundtrips, collision/cancel/path/stale guards, frozen previews/handle release, package validation, native resource page and batch export/direct deletion.");
     }
 
     private static void PackageGuards(string root, string valid)
@@ -128,7 +128,7 @@ internal static class BackupResourceStoreChecks
         Native.Check(packPage.FindName("CardSelected") is null && packPage.FindName("LabFolder") is null, "Old separate details/path card remains.");
         foreach (string name in new[] { "BtnImportFolder", "BtnCheckUpdates", "BtnRefresh" }) Native.Check(packPage.FindName(name) is null, "Extra resource toolbar icon remains: " + name);
         FrameworkElement open = Part<FrameworkElement>(packPage, "BtnOpenFolder");
-        Native.Check(((Panel)open.Parent).Children.Cast<UIElement>().Count(item => item.Visibility != Visibility.Collapsed) == 5 && Part<MyButton>(packPage, "BtnRestore").Text == "回收站", "Native resource toolbar/recycle entry changed.");
+        Native.Check(((Panel)open.Parent).Children.Cast<UIElement>().Count(item => item.Visibility != Visibility.Collapsed) == 4 && packPage.FindName("BtnRestore") is null, "Native resource toolbar must contain only current resource actions.");
         Native.Check(Part<MyRadioButton>(packPage, "BtnFilterAll").Text.Contains('3') && Part<FrameworkElement>(packPage, "BtnDownload").Visibility == Visibility.Visible, "Native count/download action is missing.");
         Native.Check(rows.Children.Cast<object>().All(item => item is MyLocalModItem row && row.Height == 44 && row.Buttons.Count() == 4), "Resources no longer reuse compact native mod rows/hover actions.");
         FrameworkElement mods = (FrameworkElement)New("PCL.PageInstanceMod");
@@ -158,11 +158,10 @@ internal static class BackupResourceStoreChecks
         Native.Call(packPage.GetType(), "ChangeAllSelected", packPage, true); Native.Check(Part<FrameworkElement>(packPage, "BtnUpdate").IsEnabled, "Bulk update unavailable for matching files."); Part<MyRadioButton>(packPage, "BtnFilterAll").Checked = true;
         string batch = Path.Combine(root, "batch-export"); Directory.CreateDirectory(batch); Store("ExportMany", packs, items, batch, None);
         Native.Check(Directory.EnumerateFiles(batch).Count() == 3, "Batch export omitted files or zipped folders."); Reject(() => Store("ExportMany", packs, items, batch, None), "batch export overwrite");
-        IList recycled = Scan(packs, "ResourcePacks"); Store("RecycleMany", packs, recycled, trash, None); Native.Check(Scan(packs, "ResourcePacks").Count == 0, "Batch deletion left selected resources live.");
-        foreach (object _ in recycled) Store("RestoreLast", packs, trash);
+        IList recycled = Scan(packs, "ResourcePacks"); Store("DeleteMany", packs, recycled, None); Native.Check(Scan(packs, "ResourcePacks").Count == 0, "Batch deletion left selected resources live.");
         Native.Call(packPage.GetType(), "ShowResources", packPage, packs, packs, Scan(packs, "ResourcePacks"));
         FrameworkElement empty = (FrameworkElement)New("PCL.PageInstanceResources", Kind("Screenshots")); IList emptyItems = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(Native.Type("PCL.InstanceResourceEntry")))!;
         Native.Call(empty.GetType(), "ShowResources", empty, shots, shots, emptyItems);
-        Native.Check(Part<FrameworkElement>(empty, "PanEmpty").Visibility == Visibility.Collapsed && Part<FrameworkElement>(empty, "PanBack").Visibility == Visibility.Visible && Part<FrameworkElement>(empty, "BtnRestore").Visibility == Visibility.Visible, "Empty resources lost their toolbar/recycle entry.");
+        Native.Check(Part<FrameworkElement>(empty, "PanEmpty").Visibility == Visibility.Collapsed && Part<FrameworkElement>(empty, "PanBack").Visibility == Visibility.Visible && empty.FindName("BtnRestore") is null, "Empty resources lost their normal toolbar or retained a recycle entry.");
     }
 }

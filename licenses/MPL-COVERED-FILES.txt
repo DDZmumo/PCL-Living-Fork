@@ -51,6 +51,7 @@ PCLCS/Minecraft/PackUpdateFlowEngine.Execute.cs
 PCLCS/Minecraft/PackUpdateFlowEngine.cs
 PCLCS/Minecraft/PackUpdateModInspection.cs
 PCLCS/Minecraft/PackUpdateStages.cs
+PCLCS/Minecraft/PermanentResourceDeletion.cs
 PCLCS/Minecraft/PersonalOptionsCatalog.cs
 PCLCS/Minecraft/PersonalOptionsFiles.cs
 PCLCS/Minecraft/PersonalOptionsFlow.cs
@@ -60,7 +61,6 @@ PCLCS/Minecraft/QuickPlayFlow.cs
 PCLCS/Minecraft/QuickPlayHistory.cs
 PCLCS/Minecraft/QuickPlayWorldRules.cs
 PCLCS/Minecraft/RecentEnvironmentChanges.cs
-PCLCS/Minecraft/ResourceRecycleFiles.cs
 PCLCS/Minecraft/WorldBackupContracts.cs
 PCLCS/Minecraft/WorldBackupEngine.Restore.cs
 PCLCS/Minecraft/WorldBackupEngine.cs
@@ -88,7 +88,7 @@ PCLCS/Platform/Windows/Modpacks/ModpackSetupPageController.cs
 PCLCS/Platform/Windows/Resources/InstanceResourceImages.cs
 PCLCS/Platform/Windows/Resources/ResourcePageContracts.cs
 PCLCS/Platform/Windows/Resources/ResourcePageController.Backups.cs
-PCLCS/Platform/Windows/Resources/ResourcePageController.Recycle.cs
+PCLCS/Platform/Windows/Resources/ResourcePageController.Toolbar.cs
 PCLCS/Platform/Windows/Resources/ResourcePageController.cs
 PCLCS/Platform/Windows/Resources/ResourceThumbnailController.cs
 PCLCS/Platform/Windows/Settings/BackupStorageRegistryStore.cs
@@ -131,6 +131,7 @@ modern/Main/Modules/Minecraft/InstanceKeybindings.cs
 modern/Main/Modules/Minecraft/InstanceResourceStore.cs
 modern/Main/Modules/Minecraft/InstanceResourceUpdates.cs
 modern/Main/Modules/Minecraft/LaunchDependencyCheck.cs
+modern/Main/Modules/Minecraft/LegacyResourceRecycleCleanup.cs
 modern/Main/Modules/Minecraft/LocalGameData.cs
 modern/Main/Modules/Minecraft/MapDownloadInstaller.cs
 modern/Main/Modules/Minecraft/MinecraftFolderPolicy.cs
@@ -144,7 +145,6 @@ modern/Main/Modules/Minecraft/ModpackUpdateFlow.cs
 modern/Main/Modules/Minecraft/PersonalGameSettings.cs
 modern/Main/Modules/Minecraft/QuickPlayWorlds.cs
 modern/Main/Modules/Minecraft/RecentEnvironmentChanges.cs
-modern/Main/Modules/Minecraft/ResourceRecycleStore.cs
 modern/Main/Modules/Minecraft/WorldBackups.cs
 modern/Main/Modules/Minecraft/WorldMetadata.cs
 modern/Main/Modules/ModLauncherUpdate.Deferred.cs
@@ -163,7 +163,7 @@ modern/Main/Pages/PageInstance/PageInstanceKeybindings.xaml.cs
 modern/Main/Pages/PageInstance/PageInstancePackUpdate.xaml
 modern/Main/Pages/PageInstance/PageInstancePackUpdate.xaml.cs
 modern/Main/Pages/PageInstance/PageInstanceResources.Backups.cs
-modern/Main/Pages/PageInstance/PageInstanceResources.Recycle.cs
+modern/Main/Pages/PageInstance/PageInstanceResources.Rows.cs
 modern/Main/Pages/PageInstance/PageInstanceResources.xaml
 modern/Main/Pages/PageInstance/PageInstanceResources.xaml.cs
 modern/Main/Pages/PageInstance/PageInstanceRestorePoints.xaml

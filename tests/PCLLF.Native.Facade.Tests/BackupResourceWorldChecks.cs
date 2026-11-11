@@ -189,6 +189,6 @@ internal static class BackupResourceWorldChecks
         Reject(() => World("DeletePoints", game, new[] { selected[0], "../invalid" }), "invalid deletion batch");
         Native.Check(Points(game).Any(p => (string?)p["id"] == selected[0]), "Invalid batch partly deleted a valid backup.");
         string deleted = (string)World("DeletePoints", game, new[] { selected[0] })!;
-        Native.Check(File.Exists(Path.Combine(deleted, selected[0], "world.zip")), "Removed backup no longer has recoverable bytes."); Text(Path.Combine(world, "level.dat"), "retention-3");
+        Native.Check(!Directory.Exists(Path.Combine(deleted, "points", selected[0])) && !Directory.Exists(Path.Combine(deleted, "deleted")), "Deleted backup payload was retained."); Text(Path.Combine(world, "level.dat"), "retention-3");
     }
 }

@@ -43,7 +43,7 @@ internal static class ResourceUpdateChecks
         Func<string,uint> fingerprint=_=>7;
         IList Check(object? kind=null)=>(IList)Updates("Check",packs,items,kind??packKind,"1.20.1",CancellationToken.None,request,fingerprint)!;
         Action<List<ModNet.NetFile>,CancellationToken> downloader=(files,token)=>{foreach(ModNet.NetFile file in files){token.ThrowIfCancellationRequested();File.Copy(download,file.LocalPath);}};
-        void Install(IList infos,Action<List<ModNet.NetFile>,CancellationToken>? transfer=null,CancellationToken token=default)=>Updates("Install",packs,infos,recycle,packKind,"1.20.1",token,transfer??downloader);
+        void Install(IList infos,Action<List<ModNet.NetFile>,CancellationToken>? transfer=null,CancellationToken token=default)=>Updates("Install",packs,infos,packKind,"1.20.1",token,transfer??downloader);
         IList result=Check();C(82,result.Count==1&&Has(result[0]!)&&(string)Value(Value(result[0]!,"UpdateVersion")!,"Hash")! ==newHash);
         foreach(string field in new[]{"game_versions","loaders","project_id","version_type","date_published"}){JToken saved=candidate[field]!.DeepClone();candidate[field]=field switch{"game_versions"=>new JArray("1.21.1"),"loaders"=>new JArray("fabric"),"project_id"=>new JValue("foreign"),"version_type"=>new JValue("alpha"),_=>new JValue("2024-01-01T00:00:00Z")};C(87,!Has(Check()[0]!));candidate[field]=saved;}
         projectType="mod";C(90,!Has(Check()[0]!));projectType="resourcepack";
@@ -57,14 +57,14 @@ internal static class ResourceUpdateChecks
         projectType="resourcepack";old["loaders"]=new JArray("minecraft");candidate["loaders"]=new JArray("minecraft");result=Check();
         C(109,(string)Updates("FileHash",download,false)! ==newHash);C(110,(string)Value(Value(result[0]!,"UpdateVersion")!,"Hash")! ==newHash&&Convert.ToInt64(Value(Value(result[0]!,"UpdateVersion")!,"Size"))==newSize);
         Install(result);C(112,Hash(original)==newHash);C(113,!File.Exists(Path.Combine(packs,"New.zip")));
-        string[] backups=Directory.GetFiles(recycle,"content",SearchOption.AllDirectories);C(115,backups.Length==1&&Hash(backups[0])==oldHash);
+        C(115,!Directory.Exists(recycle));
         File.WriteAllBytes(original,oldBytes);items=(IList)Native.Static("PCL.InstanceResourceStore","Scan",packs,packs,packKind,CancellationToken.None)!;result=Check();
         Action<List<ModNet.NetFile>,CancellationToken> corrupt=(files,_)=>{foreach(ModNet.NetFile file in files)File.WriteAllText(file.LocalPath,"corrupt-download");};C(119,Rejected(()=>Install(result,corrupt)) is not null);C(120,Hash(original)==oldHash);
         IOException sentinel=new("Synthetic download failure");Action<List<ModNet.NetFile>,CancellationToken> failed=(_,_)=>throw sentinel;Exception observed=Rejected(()=>Install(result,failed));C(122,ReferenceEquals(observed,sentinel));
         using(CancellationTokenSource canceled=new()){canceled.Cancel();C(124,Rejected(()=>Install(result,token:canceled.Token)) is OperationCanceledException);}
         File.AppendAllText(original,"changed-after-check");C(126,Rejected(()=>Install(result)) is not null);C(127,!Directory.EnumerateDirectories(packs,".pcl-import-*").Any());
         MapInstallSourceChecks.Complete("update");environment.AssertNoForbiddenIo();
-        Console.WriteLine("PASS native resource-updates: real Main MR/CF exact-match compatibility and transaction/error/cancel/stale filename/backup behavior; injected transport only, no HTTP.");
+        Console.WriteLine("PASS native resource-updates: real Main MR/CF matching, direct replacement without recycle copies, error/cancel/stale filename preservation; injected transport only, no HTTP.");
         LocalModSortChecks.Run(environment);
     }
 }

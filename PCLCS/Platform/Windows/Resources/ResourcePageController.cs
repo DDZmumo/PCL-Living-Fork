@@ -25,7 +25,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     private readonly ResourcePageHost<TInstance, TEntry, TOnline> Host;
     private readonly InstanceResourceTransactions Transactions;
     public TInstance? Owner;
-    public string? CurrentRoot, CurrentFolder, RecycleRoot;
+    public string? CurrentRoot, CurrentFolder;
     public List<TEntry> Entries = new();
     public TEntry? Selected;
     public CancellationTokenSource? Operation, OnlineCancellation;
@@ -40,8 +40,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
 
     public sealed class Request {
         public TInstance Instance = null!;
-        public string Root = null!, Folder = null!, GameFolder = null!, RecycleFolder = null!;
-        public bool RecycleMode;
+        public string Root = null!, Folder = null!, GameFolder = null!;
     }
     public sealed class Result {
         public Request Request = null!;
@@ -88,30 +87,25 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         string gameFolder = Host.GameFolder(instance);
         string root = Path.Combine(gameFolder, InstanceResourceKindRules.FolderName(Kind));
         if (!ReferenceEquals(Owner, instance) || !SamePath(CurrentRoot, root)) {
-            IsRecycleMode = false; CurrentFolder = root; SelectedPaths.Clear(); Online.Clear(); Filter = 0;
+            CurrentFolder = root; SelectedPaths.Clear(); Online.Clear(); Filter = 0;
             WorldBackupPoints.Clear(); ResetWorldGroups();
         }
         CancelOnline(); Owner = instance; CurrentRoot = root;
         if (CurrentFolder is null || !Directory.Exists(CurrentFolder)) CurrentFolder = root;
-        string minecraftRoot = Path.GetDirectoryName(Path.GetDirectoryName(Host.VersionPath(instance).TrimEnd('\\')))!;
-        string[] kinds = { "Saves", "Screenshots", "ResourcePacks", "ShaderPacks", "Schematics" };
-        RecycleRoot = Path.Combine(minecraftRoot, "PCL", "ResourceRecycle", kinds[Kind]);
         Host.StartLoader(new Request { Instance = instance, Root = root, Folder = CurrentFolder,
-            GameFolder = gameFolder, RecycleMode = IsRecycleMode, RecycleFolder = RecycleRoot });
+            GameFolder = gameFolder });
     }
     public Result? Read(Request request, CancellationToken token, Func<bool> isCanceled) {
-        List<TEntry> items = request.RecycleMode ? Host.RecycleList(request.Root, request.RecycleFolder, Kind)
-            : Host.Scan(request.Root, request.Folder, Kind, token);
+        List<TEntry> items = Host.Scan(request.Root, request.Folder, Kind, token);
         if (isCanceled()) return null;
         Result result = new() { Request = request, Entries = items };
-        if (Kind == 0 && !request.RecycleMode) {
+        if (Kind == 0) {
             try { result.Backups = Host.BackupPoints(request.GameFolder); }
             catch (Exception error) { Host.Warn(error, "读取此游戏目录的存档备份失败"); result.BackupError = "存档备份读取失败，请刷新后重试。"; }
         }
         return result;
     }
     public void Apply(Result? result) {
-        if (result is not null && result.Request.RecycleMode != IsRecycleMode) return;
         if (result is null || !ReferenceEquals(Owner, result.Request.Instance) || !ReferenceEquals(Host.CurrentInstance(), Owner) ||
             !SamePath(CurrentFolder, result.Request.Folder)) return;
         if (Kind == 0 && !SamePath(Host.GameFolder(Owner!), result.Request.GameFolder)) return;
@@ -121,7 +115,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         ShowResources(result.Request.Root, result.Request.Folder, result.Entries); CheckUpdates();
     }
     public void ShowResources(string root, string folder, IEnumerable<TEntry> items) {
-        hasWorldSnapshot = Kind == 0 && !IsRecycleMode;
+        hasWorldSnapshot = Kind == 0;
         CurrentRoot = root; CurrentFolder = folder; Entries = items.ToList();
         View.BackupSettings.Visibility = Kind == 0 ? Visibility.Visible : Visibility.Collapsed;
         View.BtnBackupAll.Visibility = View.BackupSettings.Visibility;
@@ -149,7 +143,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         if (schematic) View.LabEmptyHint.Text = "投影/原理图文件需要配合投影 Mod（如 Litematica）在游戏内使用。" + NewLine +
             (needsLoader ? "当前版本还没有 Mod 加载器，请先前往修改页面安装加载器。" : "可以前往 Mod 下载页面获取投影 Mod，再安装或拖入原理图文件。");
         View.BtnUp.Visibility = schematic && !SamePath(root, folder) ? Visibility.Visible : Visibility.Collapsed;
-        ApplyRecycleMode(); RenderList();
+        ApplyResourceLayout(); RenderList();
     }
     public void SearchChanged() => RenderList();
     public void SortChanged(int value) {
@@ -159,8 +153,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         RenderList();
     }
     private List<TEntry> SortVisible(List<TEntry> visible) {
-        // Recycle entry creation is the deletion-record time, not installation or LastPlayed.
-        if (SortMode == 0 || IsRecycleMode) return visible;
+        if (SortMode == 0) return visible;
         bool newestFirst = SortMode == 1 || SortMode == 3;
         return LocalResourceSort.ByTime(visible, newestFirst,
             entry => SortMode >= 3 ? entry.LastPlayedUtc : entry.CreatedUtc > DateTime.FromFileTimeUtc(0) ? entry.CreatedUtc : (DateTime?)null,
@@ -190,11 +183,11 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
             View.LabEmpty.Text = query == "" && Filter == 0 ? "暂无" + Title + "，可以从本地文件安装" + (Kind == 1 ? "或拖入图片。" : "或拖入文件夹。") :
                 (Filter == 1 ? "未发现可更新的资源，可刷新列表重新检查。" : "没有找到匹配的资源。");
             SelectedPaths.IntersectWith(visible.Select(item => item.FullPath!));
-            View.PanList.Visibility = !IsRecycleMode && (Kind == 1 || Kind == 0) ? Visibility.Collapsed : Visibility.Visible;
-            View.PanWorlds.Visibility = Kind == 0 && !IsRecycleMode ? Visibility.Visible : Visibility.Collapsed;
-            View.PanScreenshots.Visibility = Kind == 1 && !IsRecycleMode ? Visibility.Visible : Visibility.Collapsed;
-            if (Kind == 1 && !IsRecycleMode) { RenderScreenshots(visible); SelectResource(Selection().FirstOrDefault()); return; }
-            if (Kind == 0 && !IsRecycleMode) { RenderWorldGroups(visible, query); SelectResource(Selection().FirstOrDefault()); return; }
+            View.PanList.Visibility = (Kind == 1 || Kind == 0) ? Visibility.Collapsed : Visibility.Visible;
+            View.PanWorlds.Visibility = Kind == 0 ? Visibility.Visible : Visibility.Collapsed;
+            View.PanScreenshots.Visibility = Kind == 1 ? Visibility.Visible : Visibility.Collapsed;
+            if (Kind == 1) { RenderScreenshots(visible); SelectResource(Selection().FirstOrDefault()); return; }
+            if (Kind == 0) { RenderWorldGroups(visible, query); SelectResource(Selection().FirstOrDefault()); return; }
             foreach (string key in Rows.Keys.Where(value => !Entries.Any(item => string.Equals(item.FullPath, value, StringComparison.OrdinalIgnoreCase))).ToList()) Rows.Remove(key);
             List<IResourcePageRow<TEntry, TOnline>> desired = new();
             foreach (TEntry entry in visible) {
@@ -268,9 +261,8 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
             Details = ShowDetails, Open = OpenEntry, Rename = RenameEntry,
             Delete = entry => DeleteResources(new[] { entry }), Update = entry => UpdateResources(new[] { entry }),
             Play = entry => { if (CanChange()) Host.QuickPlay(Owner!, entry.Name!); },
-            CanPlay = () => Kind == 0 && Host.QuickPlaySupported(Owner!), IsRecycle = () => IsRecycleMode,
-            Restore = entry => RestoreRecycleSelection(new[] { entry }), Purge = entry => PurgeRecycleSelection(new[] { entry }),
-            EnterFolder = entry => { if (IsRecycleMode || Busy || Kind != 4 || !entry.IsDirectory) return; CurrentFolder = entry.FullPath; SelectedPaths.Clear(); Filter = 0; Refresh(); }
+            CanPlay = () => Kind == 0 && Host.QuickPlaySupported(Owner!),
+            EnterFolder = entry => { if (Busy || Kind != 4 || !entry.IsDirectory) return; CurrentFolder = entry.FullPath; SelectedPaths.Clear(); Filter = 0; Refresh(); }
         };
         return View.CreateRow(actions);
     }
@@ -293,7 +285,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         }
         Rendering = false; SelectResource(Selection().FirstOrDefault());
     }
-    public void SelectAllClick() => ChangeAllSelected(SelectedPaths.Count < (Kind == 1 && !IsRecycleMode ? View.PanScreenshots.Children.Count : VisibleResourceRows().Count()));
+    public void SelectAllClick() => ChangeAllSelected(SelectedPaths.Count < (Kind == 1 ? View.PanScreenshots.Children.Count : VisibleResourceRows().Count()));
     public void DeselectClick() => ChangeAllSelected(false);
     public void FilterChanged(int value) { if (Rendering || View.PanList is null) return; Filter = value; RenderList(); }
     public void MainKeyDown(object sender, KeyEventArgs args) { if (Host.IsCurrentPage()) ResourceKeyDown(sender, args); }
@@ -303,7 +295,6 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         if (args.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control && !View.SearchHasFocus()) { ChangeAllSelected(true); args.Handled = true; }
     }
     private void ShowDetails(TEntry entry) {
-        if (IsRecycleMode) { Host.Message(entry.Name + NewLine + entry.Description, "回收站资源详情", "确定", "", false); return; }
         if (Kind == 0) {
             string root = CurrentRoot!;
             Host.Background(() => { try { ValidateEntry(root, entry); string content = Host.DescribeWorld(entry.FullPath!); Host.Dispatch(() => Host.Message(content, "存档详情", "确定", "", false)); } catch (Exception error) { Host.Error(error, "读取存档详情失败"); } }, "Local World Details"); return;
@@ -317,22 +308,19 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     private void SelectResource(TEntry? entry) { Selected = entry; UpdateButtons(); }
     private void UpdateButtons() {
         View.BtnImportFile.IsEnabled = !Busy; View.BtnUp.IsEnabled = !Busy; View.BtnDownload.IsEnabled = !Busy;
-        View.BtnSelectAll.IsEnabled = !Busy && (Kind == 1 && !IsRecycleMode ? View.PanScreenshots.Children.Count : VisibleResourceRows().Count()) > 0;
+        View.BtnSelectAll.IsEnabled = !Busy && (Kind == 1 ? View.PanScreenshots.Children.Count : VisibleResourceRows().Count()) > 0;
         View.BtnExport.IsEnabled = !Busy && SelectedPaths.Count > 0; View.BtnDelete.IsEnabled = View.BtnExport.IsEnabled;
         View.BtnDeselect.IsEnabled = !Busy; View.BtnUpdate.IsEnabled = !Busy && Selection().Any(HasUpdate);
-        View.BtnRestore.IsEnabled = !Busy && CurrentRoot is not null; View.BtnHintRestore.IsEnabled = View.BtnRestore.IsEnabled;
-        View.BtnRestore.Visibility = IsRecycleMode ? Visibility.Collapsed : Visibility.Visible;
-        View.BtnRecycleBack.IsEnabled = View.BtnRestore.IsEnabled; View.BtnHintRestore.Visibility = Visibility.Collapsed;
         View.BtnCancel.Visibility = Busy ? Visibility.Visible : Visibility.Collapsed;
         View.PanOperations.Visibility = View.BtnUp.Visibility == Visibility.Visible || View.LabOperation.Visibility == Visibility.Visible || Busy ? Visibility.Visible : Visibility.Collapsed;
         View.PanEmpty.Visibility = Visibility.Collapsed;
         View.Viewport.Visibility = View.PanEmpty.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        RefreshBackupActions();
         View.PanList.IsHitTestVisible = !Busy; View.PanWorlds.IsHitTestVisible = !Busy; View.PanScreenshots.IsHitTestVisible = !Busy;
-        RefreshBackupActions(); if (IsRecycleMode) ApplyRecycleMode();
     }
     private void CancelOnline() { Interlocked.Increment(ref OnlineRevision); OnlineCancellation?.Cancel(); OnlineCancellation = null; Checking = false; }
     public void CheckUpdates() {
-        if (IsRecycleMode || !Host.UpdatesSupported(Kind) || Owner is null || Busy || Checking || !Entries.Any(item => !item.IsDirectory)) return;
+        if (!Host.UpdatesSupported(Kind) || Owner is null || Busy || Checking || !Entries.Any(item => !item.IsDirectory)) return;
         CancelOnline(); CancellationTokenSource cancellation = new(); OnlineCancellation = cancellation;
         int revision = OnlineRevision; TInstance target = Owner; string root = CurrentRoot!, folder = CurrentFolder!;
         var items = Entries.ToList(); string version = Host.GameVersion(Owner);
@@ -370,8 +358,8 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         if (Host.HasRunningGame()) { Host.Hint("请先关闭游戏，再更新资源包或光影包。", false); return; }
         List<TOnline> infos = resources.Where(HasUpdate).Select(item => Online[item.FullPath!]).ToList(); if (infos.Count == 0) return;
         if (Host.Message($"将更新 {infos.Count} 个{Title}。{NewLine}新版本可能改变游戏画面或与整合包不兼容，请确认后继续。旧文件会保留在本地回收区，可通过恢复按钮找回。", "资源更新", "更新", "取消", true) != 1) return;
-        string root = CurrentRoot!, recycle = RecycleRoot!, version = Host.GameVersion(Owner!);
-        RunOperation("更新资源", token => Host.InstallOnline(root, infos, recycle, Kind, version, token));
+        string root = CurrentRoot!, version = Host.GameVersion(Owner!);
+        RunOperation("更新资源", token => Host.InstallOnline(root, infos, Kind, version, token));
     }
     private bool CanChange(bool exporting = false) {
         if (Busy || Owner is null || CurrentRoot is null) return false;
@@ -389,7 +377,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
             Host.Dispatch(() => {
                 Busy = false; Operation!.Dispose(); Operation = null; UpdateButtons();
                 if (failure is null) {
-                    if (name == "删除资源" || name == "还原资源" || name == "彻底删除资源") { SetStatus(null); Host.Hint(name == "删除资源" ? "已将资源移入回收站" : name == "还原资源" ? "已还原资源" : "已彻底删除资源", true); }
+                    if (name == "删除资源") { SetStatus(null); Host.Hint("已永久删除所选资源", true); }
                     else SetStatus(name + "完成。");
                 } else if (failure is OperationCanceledException) SetStatus("操作已取消，已完成的内容会保留。");
                 else { SetStatus(failure.Message); Host.Error(failure, name + "失败"); }
@@ -399,7 +387,6 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         worker.Start();
     }
     public void OpenFolder() {
-        if (IsRecycleMode) { if (RecycleRoot is not null && Directory.Exists(RecycleRoot)) Host.OpenExplorer(RecycleRoot.TrimEnd('\\', '/') + "\\"); return; }
         if (CurrentRoot is null) return;
         try { EnsureWithin(CurrentRoot, CurrentFolder!, true); Host.CreateDirectory(CurrentFolder!); Host.OpenExplorer(CurrentFolder!.TrimEnd('\\', '/') + "\\"); }
         catch (Exception error) { Host.Error(error, "打开资源文件夹失败"); }
@@ -408,7 +395,6 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     public void RetryLoad() { if (Host.LoaderFailed()) Refresh(); }
     public void UpClick() { if (CurrentRoot is null || SamePath(CurrentRoot, CurrentFolder)) return; CurrentFolder = Path.GetDirectoryName(CurrentFolder!.TrimEnd('\\')); SelectedPaths.Clear(); Filter = 0; Refresh(); }
     public void ImportFiles() {
-        if (IsRecycleMode) { RestoreRecycleSelection(); return; }
         if (!CanChange() || !ConfirmImport()) return;
         string[] extensions = Kind == 0 || Kind == 2 || Kind == 3 ? new[] { "zip" } : Kind == 1 ? new[] { "png", "jpg", "jpeg", "bmp" } : new[] { "litematic", "schem", "schematic", "nbt" };
         string[] files = Host.SelectFiles("导入" + Title, Kind != 0, extensions); if (!files.Any()) return;
@@ -420,13 +406,12 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     public void ResourceDragOver(object sender, DragEventArgs args) { if (!args.Data.GetDataPresent(DataFormats.FileDrop)) return; args.Effects = Busy || Owner is null ? DragDropEffects.None : DragDropEffects.Copy; args.Handled = true; }
     public void ResourceDrop(object sender, DragEventArgs args) {
         if (!args.Data.GetDataPresent(DataFormats.FileDrop)) return; args.Handled = true;
-        if (IsRecycleMode || !CanChange() || !ConfirmImport()) return;
+        if (!CanChange() || !ConfirmImport()) return;
         string[]? sources = args.Data.GetData(DataFormats.FileDrop) as string[]; if (sources is null || sources.Length == 0) return;
         string root = CurrentRoot!, folder = CurrentFolder!;
         RunOperation("安装资源", token => { foreach (string source in sources.Distinct(StringComparer.OrdinalIgnoreCase)) { token.ThrowIfCancellationRequested(); if (Directory.Exists(source)) Transactions.ImportFolder(root, folder, Kind, source, new DirectoryInfo(source).Name, token); else if (Kind == 0) Transactions.ImportWorld(root, source, Path.GetFileNameWithoutExtension(source), token); else Transactions.ImportFile(root, folder, Kind, source, token); } });
     }
     public void ExportSelected() {
-        if (IsRecycleMode) { RestoreRecycleSelection(); return; }
         var items = Selection(); string root = CurrentRoot!; if (items.Count == 0 || !CanChange(true)) return;
         if (items.Count == 1) {
             TEntry entry = items[0]; string extension = entry.IsDirectory ? "zip" : Path.GetExtension(entry.Name!).TrimStart('.');
@@ -441,11 +426,11 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     }
     public void DeleteSelected() { var ids = SelectedBackupIds(); if (ids.Count > 0) { Host.StartBackup(Owner!, ids, null); return; } DeleteResources(Selection()); }
     private void DeleteResources(IEnumerable<TEntry> resources) {
-        if (IsRecycleMode) { PurgeRecycleSelection(resources); return; } if (!CanChange()) return;
-        var items = resources.ToList(); string root = CurrentRoot!, recycle = RecycleRoot!; if (items.Count == 0) return;
+        if (!CanChange()) return;
+        var items = resources.ToList(); string root = CurrentRoot!; if (items.Count == 0) return;
         string names = string.Join(NewLine, items.Take(6).Select(item => " · " + item.Name));
-        if (Host.Message($"确定删除以下 {items.Count} 个资源吗？{NewLine}{names}{(items.Count > 6 ? NewLine + "……" : "")}{NewLine}资源会移入回收站，可从上方的回收站按钮还原。", "删除资源", "移入回收站", "取消", true) != 1) return;
-        RunOperation("删除资源", token => Transactions.RecycleMany(root, items, recycle, token));
+        if (Host.Message($"确定永久删除以下 {items.Count} 个资源吗？{NewLine}{names}{(items.Count > 6 ? NewLine + "……" : "")}{NewLine}文件或文件夹将直接删除，无法从启动器恢复。", "删除资源", "删除", "取消", true) != 1) return;
+        RunOperation("删除资源", token => Transactions.DeleteMany(root, items, token));
     }
     public void CancelClick() { Operation?.Cancel(); if (Checking) { CancelOnline(); SetStatus("已取消检查更新。"); UpdateButtons(); } }
 }

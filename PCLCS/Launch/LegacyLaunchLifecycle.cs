@@ -31,14 +31,25 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
             McInstanceSelected = CurrentLaunchOptions.Instance;
             host.RefreshButtons(); host.RefreshPageAfterSwitch();
         }
-        if (host.WorldBackupsBusy() || host.WorldBackupsUiBusy() || host.ClonerUiBusy() || host.HistoryUiBusy() || host.ModpackUpdating() ||
-            (McInstanceSelected != null && host.InstanceLocked(McInstanceSelected))) {
-            Hint($"版本 {McInstanceSelected!.Name} 正在被修改，请稍后再启动！", LegacyLaunchHint.Red); return false;
+        string? blocked = GetLaunchBlockReason();
+        if (blocked is not null) {
+            McLaunchLog("启动被阻止：" + blocked);
+            Hint(blocked, LegacyLaunchHint.Red); return false;
         }
         if (McInstanceSelected != null && host.PendingChanges(McInstanceSelected.PathVersion) > 0) {
             Hint("环境修改曾被中断，请在版本设置的还原点或修改页中恢复后再启动。", LegacyLaunchHint.Red); return false;
         }
         host.AprilGiveup(); host.RemoveInstanceSelectionPage(); McLaunchLoader.Start(options!, isForceRestart: true); return true;
+    }
+
+    public string? GetLaunchBlockReason() {
+        if (host.WorldBackupsUiBusy()) return "存档备份任务尚未结束，请在任务管理中查看进度或取消任务。";
+        if (host.WorldBackupsBusy()) return "正在备份或恢复存档，请等待存档任务结束后再启动。";
+        if (host.ClonerUiBusy()) return "测试副本任务尚未结束，请在任务管理中查看进度。";
+        if (host.HistoryUiBusy()) return "环境还原点任务尚未结束，请在任务管理中查看进度。";
+        if (host.ModpackUpdating()) return "整合包正在更新，请等待更新任务结束后再启动。";
+        return McInstanceSelected is not null && host.InstanceLocked(McInstanceSelected)
+            ? $"版本 {McInstanceSelected.Name} 正在被文件任务修改，请等待任务结束后再启动！" : null;
     }
 
     public void McLaunchState(LegacyLaunchTask<TOptions, object> loader) {
