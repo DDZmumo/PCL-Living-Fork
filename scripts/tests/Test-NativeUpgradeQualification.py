@@ -35,6 +35,29 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pcllf-native-upgrade-gates-') as temporary:
         r=Path(temporary)
         w=yaml.safe_load(workflow.read_text(encoding='utf-8'))
+        legacy_block=next(step['run'] for step in w['jobs']['native-upgrade']['steps'] if step['name']=='Verify the fixed archived legacy product fixture')
+        legacy_script=r/'archive.ps1';legacy_script.write_text(legacy_block,encoding='utf-8')
+        for case in ('valid','missing','tampered'):
+            workspace=r/('archive-'+case);workspace.mkdir()
+            (workspace/'artifacts/native-upgrade').mkdir(parents=True)
+            source=workspace/'tests/fixtures/legacy-upgrade/lf-8ff80de.zip';source.parent.mkdir(parents=True)
+            if case!='missing':
+                shutil.copyfile(repository/'tests/fixtures/legacy-upgrade/lf-8ff80de.zip',source)
+                if case=='tampered':
+                    with source.open('r+b') as handle:
+                        original=handle.read(1);handle.seek(0);handle.write(bytes([original[0]^1]))
+            exports=workspace/'github-env';exports.write_text('')
+            archive_env={key:os.environ[key] for key in ('PATH','HOME','TMPDIR','TMP','TEMP','SYSTEMROOT','WINDIR','PSModulePath','LANG','LC_ALL') if key in os.environ}
+            archive_env.update(GITHUB_WORKSPACE=str(workspace),GITHUB_ENV=str(exports))
+            checked=execute(legacy_script,archive_env)
+            assert (checked.returncode==0)==(case=='valid'),case+checked.stdout+checked.stderr
+            if case=='valid':
+                provenance=json.loads((workspace/'artifacts/native-upgrade/legacy-provenance.json').read_text(encoding='utf-8-sig'))
+                assert provenance['archiveSource']=='repository:tests/fixtures/legacy-upgrade/lf-8ff80de.zip' and provenance['rawArchiveVerified'] is True
+                assert 'UPGRADE_LEGACY_EXE=' in exports.read_text(encoding='utf-8-sig')
+            else:
+                assert not exports.read_bytes() and not (workspace/'artifacts/native-upgrade/legacy-provenance.json').exists()
+            print('PASS actual archived legacy input '+case+': fixed byte checks only; no executable launched')
         producer=next(x['run'] for x in w['jobs']['native']['steps'] if x.get('id')=='upgrade_qualification')
         consumer=next(x['run'] for x in w['jobs']['native-upgrade']['steps'] if x.get('id')=='upgrade_inputs')
         (r/'producer.ps1').write_text(producer,encoding='utf-8');(r/'consumer.ps1').write_text(consumer,encoding='utf-8')
@@ -144,7 +167,7 @@ def main():
         upload=next(s for s in w['jobs']['native']['steps'] if s.get('with',{}).get('name')=='native-main-${{ matrix.configuration }}-${{ github.run_attempt }}');assert upload['if'] in ('${{ always() }}', 'always()')
         qualification=next(s for s in w['jobs']['native']['steps'] if s.get('id')=='upgrade_qualification');assert all('steps.'+n+".outcome == 'success'" in qualification['if'] for n in q['requiredSteps'])
         assert w['jobs']['native']['steps'].index(qualification)<next(i for i,s in enumerate(w['jobs']['native']['steps']) if s['name'].startswith('Verify real Registry'))
-        consumerIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s.get('id')=='upgrade_inputs');legacyIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s['name']=='Download and verify the fixed original legacy product artifact');assert consumerIndex<legacyIndex
+        consumerIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s.get('id')=='upgrade_inputs');legacyIndex=next(i for i,s in enumerate(w['jobs']['native-upgrade']['steps']) if s['name']=='Verify the fixed archived legacy product fixture');assert consumerIndex<legacyIndex
         producer_name=upload['with']['name'].replace('${{ matrix.configuration }}','Release')
         consumer_name=next(s for s in w['jobs']['native-upgrade']['steps'] if s.get('uses','').startswith('actions/download-artifact@'))['with']['name']
         assert producer_name==consumer_name
@@ -161,6 +184,10 @@ def main():
         download=next(step for step in upgrade if step.get('uses','').startswith('actions/download-artifact@'))
         assert download['with']['name']=='native-main-Release-${{ github.run_attempt }}' and download['with']['run-id']=='${{ github.run_id }}'
         legacy=upgrade[legacyIndex]
+        assert 'tests/fixtures/legacy-upgrade/lf-8ff80de.zip' in legacy['run']
+        assert '/actions/artifacts/' not in legacy['run'] and 'metadata.expired' not in legacy['run']
+        for fixed in ('c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3','f4c88a842d506c62e812d50493126c5f25a73b0bfa866bb749c0473e2740d151','5807581','10266112'):
+            assert fixed in legacy['run']
         entry=next(step for step in upgrade if step['name']=='Require genuine old bridge and actual Native entry protocol cases')
         assert consumerIndex<legacyIndex<upgrade.index(entry) and not legacy.get('if') and not entry.get('if')
         assert "matrix.configuration == 'Release'" in qualification['if']

@@ -9,8 +9,22 @@ internal static class PermanentResourceDeletionTests {
         yield return ("shared cache cleanup finds all PCL ResourceRecycle directories and is repeatable", SharedCacheCleanup);
         if (OperatingSystem.IsWindows()) {
             yield return ("shared cache cleanup continues after a locked bin and retries it later", LockedCacheRetry);
+            yield return ("shared cache cleanup tolerates a directory disappearing during an error callback", DisappearingCacheDirectory);
             yield return ("direct resource transaction rejects stale selections before deleting any source", TransactionPreflight);
         }
+    }
+    private static void DisappearingCacheDirectory() {
+        using Fixture f = new(); string cache = f.Dir("cache"), locked = f.Put("cache/racing/PCL/ResourceRecycle/content");
+        string other = f.Put("cache/other/PCL/ResourceRecycle/content");
+        using FileStream held = new(locked, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        List<Exception> errors = new();
+        PermanentResourceDeletion.CleanupLegacyCache(cache, default, (error, folder) => {
+            errors.Add(error); held.Dispose();
+            if (Directory.Exists(folder)) PermanentResourceDeletion.Delete(f.Root, new[] { folder }, default);
+        });
+        Check(errors.Count==1 && errors.All(error=>error is not FileNotFoundException and not DirectoryNotFoundException),
+            "A vanished temporary cache directory generated repeated missing-path warnings.");
+        Check(!File.Exists(other), "The cache race stopped cleanup of other recycle directories.");
     }
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     private static void Reject(Action work) {

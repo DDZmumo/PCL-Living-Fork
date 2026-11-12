@@ -19,6 +19,7 @@ public partial class PageSetupSystem {
         "将世界备份和环境还原点从：\r\n" + oldRoot + "\r\n\r\n迁移到：\r\n" + newRoot +
         "\r\n\r\n数据复制并校验成功后才切换位置，随后清理旧目录。请选择空文件夹，并等待当前游戏和文件任务结束。",
         "更改备份存储位置", "取消", "迁移", IsWarn: true, HighLight: false) == 2;
+    internal Action<string> ReportBackupStorageError = message => ModMain.MyMsgBox(message, "备份迁移未完成", IsWarn: true);
 
     private void RefreshBackupStorage() {
         try { TextBackupStoragePath.Text = BackupStorage.Root; }
@@ -33,17 +34,18 @@ public partial class PageSetupSystem {
             if (string.IsNullOrWhiteSpace(selected)) return;
             string target = Path.GetFullPath(selected), current = BackupStorage.Root;
             if (string.Equals(target.TrimEnd('\\','/'), current.TrimEnd('\\','/'), StringComparison.OrdinalIgnoreCase)) return;
+            target = BackupStorage.Location.ValidateDestination(target);
             if (!ConfirmBackupMove(current, target)) return;
             if (!BackupStorage.StartMove(target, (result, failure, canceled) => {
                 RefreshBackupStorage();
-                if (failure is not null) { Logger.Warn(failure, "迁移备份存储位置失败"); ModMain.MyMsgBox(failure.Message, "备份迁移未完成", IsWarn: true); }
+                if (failure is not null) { Logger.Warn(failure, "迁移备份存储位置失败"); ReportBackupStorageError(failure.Message); }
                 else if (result is not null) {
                     ModMain.Hint(result.CleanupComplete ? "备份与还原点已迁移，新位置已生效。" : "新位置已生效，旧目录部分文件未清理，请保留并检查：" + result.PreviousRoot,
                         result.CleanupComplete ? ModMain.HintType.Green : ModMain.HintType.Red);
                 } else if (canceled) ModMain.Hint("迁移已取消，原备份位置保持有效。");
             })) ModMain.Hint("备份数据正在迁移，请稍候。");
             RefreshBackupStorage();
-        } catch (Exception error) { Logger.Warn(error, "更改备份存储位置失败"); ModMain.MyMsgBox(error.Message, "备份迁移未完成", IsWarn: true); RefreshBackupStorage(); }
+        } catch (Exception error) { Logger.Warn(error, "更改备份存储位置失败"); ReportBackupStorageError(error.Message); RefreshBackupStorage(); }
     }
     private void BtnBackupStorageOpen_Click(object sender, MouseButtonEventArgs e) {
         try {

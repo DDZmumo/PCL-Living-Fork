@@ -759,6 +759,8 @@ modern/Main/Pages/PageSetup/PageSetupPersonal.xaml.cs
 modern/Main/Pages/PageSetup/PageSetupSystem.BackupStorage.cs
 scripts/Build-LicenseNotices.py
 scripts/Check-Licenses.py
+scripts/Resolve-VbCompiler.ps1
+scripts/tests/Test-VbCompilerDiscovery.ps1
 
 
 ========================================================================

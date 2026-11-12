@@ -3,6 +3,9 @@
 ###############################################################################
 * text=auto
 
+# Preserve the pinned historical upgrade archive byte for byte on every host.
+/tests/fixtures/legacy-upgrade/*.zip -text
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #

@@ -59,16 +59,18 @@ internal static class BackupStorage {
             EnsureIdle(); BackupStorageMoveResult result = null; Exception failure = null; bool canceled = false;
             ModLoader.LoaderCombo<string> loader = null;
             var step = new ModLoader.LoaderTask<string, string>("复制并校验备份数据", task => {
-                result = MoveTo(target, task.CreateCancellationToken(), PCLCS.FileTaskProgress.ForTask(() => task.Progress, value => task.Progress = value), loader);
-                task.Output = result.Root;
+                try {
+                    result = MoveTo(target, task.CreateCancellationToken(), PCLCS.FileTaskProgress.ForTask(() => task.Progress, value => task.Progress = value), loader);
+                    task.Output = result.Root;
+                } catch (Exception error) when (!error.IsCanceled()) { failure = error; throw; }
             });
             loader = new ModLoader.LoaderCombo<string>("更改备份与还原点存储位置", new[] { step });
             var worker = new RedoableWorker(LoaderFileOperation.CreateWorkload(loader, target));
-            worker.Failed += error => failure = error;
+            worker.Failed += error => failure ??= error;
             worker.Canceled += () => canceled = true;
             worker.Stopped += () => {
                 Interlocked.Exchange(ref changing, 0);
-                ModBase.RunInUi(() => stopped(result, failure, canceled));
+                ModBase.RunInUi(() => stopped(result, canceled ? null : failure, canceled));
             };
             worker.Start(); ModLoader.LoaderTaskbarAdd(loader);
             ModMain.FrmMain?.BtnExtraDownload.ShowRefresh();

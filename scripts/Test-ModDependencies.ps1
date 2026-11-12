@@ -4,6 +4,7 @@
 # Current Core metadata remains a prerequisite guard; its migrated algorithm is not the original reference implementation.
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Get-FixedLfSource.ps1')
+. (Join-Path $PSScriptRoot 'Resolve-VbCompiler.ps1')
 $root=Split-Path $PSScriptRoot -Parent
 Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem
 $jsonPath=Join-Path $root 'Plain Craft Launcher 2/Resources/Newtonsoft.Json.dll'
@@ -58,12 +59,7 @@ function Legacy-Class([hashtable]$values,[string]$descriptor='Lnet/minecraftforg
 }
 try {
  if(-not $ExecutablePath){
-  if(-not $VbcPath){
-   $candidate=Get-Command vbc.exe -ErrorAction SilentlyContinue
-   if($candidate){$VbcPath=$candidate.Source}
-   else{$VbcPath='C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\Roslyn\vbc.exe'}
-  }
-  if(-not [IO.File]::Exists($VbcPath)){throw 'Pass -VbcPath for the VS Roslyn VB compiler, or -ExecutablePath for an already built launcher.'}
+  $VbcPath=Resolve-VbCompiler -VbcPath $VbcPath
   # The migrated inspector lives in PCLCS. Build that library and its pinned
   # project dependencies; the main VB launcher and its credentials are not needed.
   $dotnetCommand=(Get-Command dotnet -CommandType Application -ErrorAction Stop).Source

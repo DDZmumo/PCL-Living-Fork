@@ -201,7 +201,7 @@ namespace PCL
                     ModMain.FrmStart.Show(false, true);
                 }
                 // 基础信息
-                Logger.Info($"程序版本：{ModBase.VersionDisplay} ({ModBase.VersionCode}{(string.IsNullOrEmpty("") ? "" : $"，#{ModBase.CommitHash}")})");
+                Logger.Info($"程序版本：{ModBase.VersionDisplay} ({ModBase.VersionCode}{(string.IsNullOrEmpty(ModBase.CommitHash) ? "" : $"，#{ModBase.CommitHash}")})");
                 Logger.Info($"识别码：{ModBase.Identify}");
                 Logger.Info($"程序路径：{ModBase.PathExe}");
                 Logger.Info($"系统编码：{(global::PCL.Compatibility.WindowsRuntimeDefaults.WindowsDefaultEncoding.HeaderName)} ({(global::PCL.Compatibility.WindowsRuntimeDefaults.WindowsDefaultEncoding.CodePage)}, GBK={ModBase.IsGBKEncoding})");
