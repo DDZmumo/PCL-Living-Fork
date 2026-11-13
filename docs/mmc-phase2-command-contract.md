@@ -1,8 +1,8 @@
-# MMC 二期命令能力阶段契约（冻结稿）
+# MMC 二期命令能力阶段契约
 
-状态：**待 owner 冻结**（本文档本身即 [设计 7.1](mmc-instance-design.md#71-cfg-的有效行为能力表) 所要求的「启用命令能力前的阶段契约」）。
-基线：分支 `work/mmc-compatibility`，HEAD `d1ebd107`。范围见[二期待办](mmc-phase2-todo.md)。
-本文档只写契约、不改任何源码；`MmcConfigurationReader` 的放行开关按第 8 节判定表在对应实现与 fixture 落地后才逐项打开。
+状态：**二期核心实现与 Main 启动链接线已落地**（基于 [设计 7.1](mmc-instance-design.md#71-cfg-的有效行为能力表)）。
+基线：分支 `codex/mmc-compatibility`（PR #23 `cb1776a5` 及后续收口补齐与导出/准入/引号修正）。范围见[二期待办](mmc-phase2-todo.md)。
+本文档记录冻结契约与代码落地现状；`MmcConfigurationReader` 已按第 8 节判定表放行已实现并经验证的二期能力（`OverrideEnv/Env`、`PreLoadCommand`/`PreLaunchCommand`/`PostExitCommand`、`WrapperCommand`），仍未实现或明确排除的能力继续拒绝。
 
 ## 0. 范围、非目标与依据约定
 
@@ -13,9 +13,9 @@
 | 非目标 | 不把 cfg `WrapperCommand` 当作 ForgeWrapper／PCL JavaWrapper 已支持；不承诺技术上阻止任意外部进程写入 | 设计 L337、L347、L439 |
 | 依据格式 | 每条契约标注「文档行号」或 `文件:行`；无依据处标 **待定 Dx**，见第 10 节 | 本任务硬性要求 |
 | 语义纪律 | 未知编码或无法兑现的要求明确拒绝；不静默丢弃、不凭字段名猜语义 | 设计 L317、L325、L337；兼容范围 L17-18 |
-| 冻结轮次 | 第一轮冻结契约并把 15 项列为待定；第二轮用**仓库自身先例**定掉 11 项（D1–D5、D7–D11、D14），保留 4 项 owner 决策（D6、D12、D13、D15）与 1 项实现期残值（D8-残余）。已定项从第 10.2 节移除并回填各章附依据，清单见第 10.1 节 | 本任务第二轮要求 |
-| 行号约定 | 本文引用的 `文件:行` 是**撰写时**的快照。`MmcConfigurationReader.cs` 会随二期各项落地持续增行（Env 与命令三阶段已使其从 154 行增至 187 行），因此**以引用的代码语义为准，行号仅供定位**。查找方法：命令三阶段放行看 `foreach (string command in new[] { "PreLoadCommand", ... })`；Wrapper 拒绝看 `Unsupported("cfg:WrapperCommand", ...)`；Env 放行看 `MmcEnvironmentReader` 调用点 | lead 验收裁定 R-4 |
-| 实现进度 | 见第 12 节。契约本身不表示某项已接通；放行以「该字段的放行与实现 + fixture 同时落地」为准（第 8 节） | 设计 L337、L620 |
+| 冻结轮次 | 第一轮冻结契约并把 15 项列为待定；第二轮用仓库自身先例定掉 11 项（D1–D5、D7–D11、D14）；后续工程落地收口了 D6、D12、D13、D15 及 D8 探测/终止超时边界（详见第 10.2 节与第 12 节） | 本任务第二轮及后续落地记录 |
+| 行号约定 | 本文引用的 `文件:行` 含撰写时历史快照，随二期落地会漂移，因此**以引用的代码语义和符号为准**。查找方法：命令能力校验看 `MmcConfigurationReader.cs` 与 `MmcCommandReader.Validate`；未实现键拒绝看 `OverrideGameTime` / `OverrideNativeWorkarounds` 的 `Unsupported("cfg:" + key, ...)`；Env 解码看 `MmcEnvironmentReader`；阶段执行与包装进程树看 `MmcRuntimeCommandExecution`、`MmcRuntimeWrapperCommand`、`MmcSessionProcessTree`、`MmcLaunch.cs` | lead 验收裁定 R-4 |
+| 实现进度 | 见第 12 节。能力放行已与对应实现及自动化回归（Migration / Runtime / Export / Native Facade）同步落地；外部真实游戏、真实第三方认证及非提权符号链接权限边界见第 12 节末尾 | 设计 L337、L620 |
 
 ## 1. 阶段契约：四阶段时机与插入点
 
@@ -62,7 +62,7 @@ flowchart TB
 
 | 项 | 契约 | 依据 |
 | --- | --- | --- |
-| 执行宿主（**已定 D3**） | 包命令沿用受管命令先例：`cmd.exe` + `ArgumentList` 依次为 `/d`、`/s`、`/c`、命令文本；**不得**使用整串 `Arguments = "/c \"{command}\""` 的字符串拼接形式 | 受管先例 `MmcLaunch.cs:134-136`；被禁止的对照形式 `LegacyLaunchProcess.cs:40-43`；`MmcSessions.cs:123`（受管进程禁止用整串 `Arguments`） |
+| 执行宿主（**已定 D3，落地校准**） | 包命令通过 `cmd.exe` 的 `/d /s /c "<command>"` 边框执行（在 `MmcRuntimeCommandExecution.Start` 设置 `Arguments = "/d /s /c \"" + text + "\""`）；原因：Windows 下 .NET `ProcessStartInfo.ArgumentList` 会按 VC++ CRT 规则把命令内嵌 `"` 转义为 `\"`，而 `cmd.exe` 不会反转义 `\"`，会导致带引号可执行路径报错退出。`/d` 禁用 AutoRun、`/s` 仅剥离最外层一对引号并原样保留内部引号；仍**禁止**无 `/d /s` 与外层定界的松散 `/c "{cmd}"` 拼接 | `PCLCS/Launch/MmcRuntimeCommandExecution.cs`；对照禁止形式 `LegacyLaunchProcess.cs`；`MmcSessions.cs` |
 | 为何不用旧形式 | 旧形式把命令拼进一个字符串并由 shell 再解析，引号/转义面不可控；旧路径同时是设计 L333 明令禁止包命令沿用的旁路 | 设计 L333；`LegacyLaunchProcess.cs:16-52` |
 | 工作目录 | `WorkingDirectory = paths.GameRoot`；与受管先例及第 2 节一致 | `MmcLaunch.cs:134-135`；`MmcSessions.cs:124-126` |
 | 启动即失败 | 进程无法创建（`Process.Start` 返回 null）→ 立即抛出，按第 7 节 F-05 处理 | `MmcLaunch.cs:137` |
@@ -256,22 +256,22 @@ flowchart TB
 | F-16 | 用户手动命令与包命令同时非空 | **已定 D4**：两套路径都执行、来源可区分；**玩家命令在前**，包阶段命令按四阶段插入 | `LegacyLaunchProcess.cs:33-34`（全局 → 实例）；设计 L333；兼容范围 L49 |
 | F-17 | 命令文本进入日志 | **已定 D14**：入队前用既有脱敏形态（`FilterAccessToken` / 计划 `Redact`）处理，不得落展开后原文 | `LegacyLaunchProcess.cs:27`；`MmcRuntimeLaunchContracts.cs:108-111`；`MmcLaunch.cs:217`；`mmc-development.md:106` |
 
-## 8. 能力门判定表（`MmcConfigurationReader` 目标态）
+## 8. 能力门判定表（`MmcConfigurationReader` 现行态与边界）
 
-现行行为：`OverrideCommands`／`OverrideLaunchCmd` 生效时，四个命令字段任一非空即按 `Unsupported(..., required:true)` 拒绝；`OverrideEnv` 生效且 `Env` 非空同样拒绝。该判定在启用来源（enabled=true）时产出 Error，非活动来源产出 Warning 并保留原值。
+现行行为：`OverrideEnv / Env` 与 `OverrideCommands`（及旧别名 `OverrideLaunchCmd`）下的四个阶段字段已接入解码与运行时执行，并在通过结构与预算校验后放行；值非法、未知编码、凭据变量绑定、保留环境变量重声明、以及 `OverrideGameTime` / `OverrideNativeWorkarounds` 继续按 Error（启用时）或 Warning（非活动源保留原值）拒绝。
 
-| 字段／情形 | 现行 | 契约落地后的目标态 | 仍拒绝的情形 | 依据 |
+| 字段／情形 | 现行 | 契约目标态 | 仍拒绝／限制的情形 | 依据 |
 | --- | --- | --- | --- | --- |
-| `PreLoadCommand` 非空且生效 | 拒绝 | 放行（进入资料加载前阶段） | 值无法解码、含 NUL／超长、引用未定义或凭据变量、F-06 | 设计 L333、L337；`MmcConfigurationReader.cs:79-82` |
-| `PreLaunchCommand` 非空且生效 | 拒绝 | 放行（进入启动前阶段 + 执行后重验） | 同上，且重验失败即拒绝 | 设计 L333、L337 |
-| `WrapperCommand` 非空且生效 | 拒绝 | 放行（包装入口，Java 为子进程） | F-07、F-08、无法登记双身份时拒绝 | 设计 L333、L337；待办 L13-14 |
-| `PostExitCommand` 非空且生效 | 拒绝 | 放行（游戏退出证明之后） | 值无法解码或无法兑现 | 设计 L333、L337 |
-| `Override=false`（源中不生效） | 保留 + Warning | **保持**：仅保留原值并告警，不执行、不报错 | — | 设计 L333（「Override=false 时源中不生效的值仅保留」） |
-| `OverrideCommands` 与旧别名 `OverrideLaunchCmd` 同时存在 | 新键优先 + `MMC_CFG_ALIAS` 告警 | **保持** | 取值非法时按 F-02 拒绝 | 设计 L325；`MmcConfigurationReader.cs:75-78` |
-| 判定次序 | 直接看字段值 | **保持「先算 Override／继承后的有效行为，再判定能力」**；宿主继承的实际用户命令非空也须过能力检查 | 不得把未列入能力表的 cfg 行为静默丢掉 | 设计 L325、L333 |
-| `OverrideEnv`／`Env` | 拒绝 | 由 Env 项独立放行；命令子进程是否继承已生效 Env **待定 D15**（需 owner） | 未知编码或无法兑现的要求拒绝 | 设计 L334；待办 L12 |
-| `OverrideGameTime`／`OverrideNativeWorkarounds` | 拒绝（enabled）／告警（inactive） | **保持拒绝**（不在本契约范围） | — | `MmcConfigurationReader.cs:85-86`；设计 L334 || `PermGen`、`OverrideConsole`／console 系列 | 读取保留 | **保持非本契约范围**；只保留与命令的交叉点：关闭独立控制台不得映射为关闭整个 PCL | 无等价展示选项给明确差异诊断 | 设计 L335；待办 L15-16 |
-| 能力门开关时机 | — | 本契约只是前置；每个字段的放行必须与该阶段的实现和 fixture 同时落地，未落地前**保持拒绝** | 未验证即放行 | 设计 L337；设计 L620（P0 式实证要求） |
+| `PreLoadCommand` 非空且生效 | **已放行并接通** | 放行（进入资料加载前阶段；提前物化经链接校验的 `GameRoot`） | 值无法解码、含 NUL／超 `16384`、引用未定义或凭据变量、非零退出、未按 D13 确认；可移植导出显式拒绝 | `MmcConfigurationReader.cs`、`MmcCommandReader.cs`、`MmcLaunch.cs`、`MmcInstanceExportPreferences.cs` |
+| `PreLaunchCommand` 非空且生效 | **已放行并接通** | 放行（准入门外执行 + 执行后重验指纹） | 同上，且执行后改变输入指纹即按 `MMC_RUNTIME_INPUT_CHANGED` 拒绝 | `MmcLaunch.cs`、`MmcRuntimeCommandExecution.cs` |
+| `WrapperCommand` 非空且生效 | **已放行并接通** | 放行（包装入口，Java 为受管 Job 子进程） | F-07、F-08、无法验证入口／发现带 nonce Java 子进程、超出命令行预算、未确认或包含凭据变量；可移植导出显式拒绝 | `MmcRuntimeWrapperCommand.cs`、`MmcSessionProcessTree.cs`、`MmcSessions.cs` |
+| `PostExitCommand` 非空且生效 | **已放行并接通** | 放行（`Exited.record` 持久化后、会话收尾前） | 值无法解码、包含凭据／未定义变量；非零退出仅记录诊断，不阻塞收尾 | `MmcLaunch.cs`（`MonitorExitAsync`）、`MmcRuntimeCommandExecution.cs` |
+| `Override=false`（源中不生效） | 保留 + 不生效 | **保持**：仅保留原值，不触发执行，可移植导出保持不拒 | — | 设计 L333；`MmcProfileTests.cs` |
+| `OverrideCommands` 与旧别名 `OverrideLaunchCmd` 同时存在 | 新键优先 + `MMC_CFG_ALIAS` 告警 | **保持** | 取值非法时按 F-02 拒绝 | 设计 L325；`MmcConfigurationReader.cs` |
+| 判定次序 | 按有效覆写与继承决定 | **保持「先算 Override／继承后的有效行为，再判定能力」** | 不得静默丢弃；可移植导出拒绝主动包内命令与 `OverrideEnv/Env` | `MmcConfigurationReader.cs`、`MmcInstanceExportPreferences.cs` |
+| `OverrideEnv`／`Env` | **已放行并接通（D15 分期）** | `PreLaunch`/`PostExit`/游戏继承并叠加会话 `TEMP`/`TMP`；`PreLoad` 保持宿主基础环境 | `@Variant`／未知编码、重复键、格式错误、重声明 `TEMP`/`TMP` 或执行通道变量拒绝；可移植导出拒绝 | `MmcEnvironmentReader.cs`、`MmcRuntimeEnvironmentOverlay.cs`、`MmcInstanceExportPreferences.cs` |
+| `OverrideGameTime`／`OverrideNativeWorkarounds` | 拒绝 | **保持拒绝** | — | `MmcConfigurationReader.cs`；设计 L334 |
+| `PermGen`、`OverrideConsole`／console 系列 | 保留原值 + 明确差异诊断 | **差异通知直达用户与导出调整清单**，不做等价替换 | — | `MmcDisplayDifference.cs`、`MmcInstances.cs`、`MmcInstanceExportPreferences.cs` |
 
 ## 9. 边界条件汇总表
 
@@ -299,7 +299,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | D1 | PreLoadCommand 边界：**launch-sources 之前**（`launch-sources-start` 进度点之前）；必须晚于宿主准备与可选变体采用 | `MmcLaunch.cs:73-94`（准备）、`100-109`（采用）、`110`（PrepareLaunchAsync）；`MmcInstanceBackend.Launch.cs:32-33`（首个资料进度点） | §1.2 |
 | D2 | PreLaunch 与准入门：**门外执行 + 执行后重新取门做完整最终核验**（避免持门执行外部命令） | 设计 L461（只约束最终核验→CreateProcess→登记连续）、L445（不得持准入门等待运行）；仓库先例 `MmcLaunch.cs:42` 独立命令步在 `Start` 步外、`MmcLaunch.cs:162` 门只在 `Start` 步内获取 | §3、§6 |
-| D3 | 执行宿主：**`cmd.exe` + ArgumentList(`/d`,`/s`,`/c`,text)**；禁止 `Arguments = "/c \"...\""` 拼接形式 | `MmcLaunch.cs:134-136`（受管先例）；对照禁止形式 `LegacyLaunchProcess.cs:40-43`；`MmcSessions.cs:123`；设计 L333 | §1.3 |
+| D3 | 执行宿主：**`cmd.exe` + `Arguments = "/d /s /c \"" + text + "\""`**（校准 .NET `ArgumentList` 会把命令内部 `"` CRT 转义为 `\"` 导致 `cmd.exe` 解析带引号路径失败的问题）；仍禁止无 `/d /s` 的松散 `/c "{cmd}"` 拼接 | `PCLCS/Launch/MmcRuntimeCommandExecution.cs`；对照禁止形式 `LegacyLaunchProcess.cs`；`MmcSessions.cs` | §1.3 |
 | D4 | 次序：**玩家命令在前，包阶段命令按四阶段插入**；不重排既有玩家命令 | `LegacyLaunchProcess.cs:33-34`（global → version）、`16-20`；`MmcLaunchPreferences.cs:87-88` | §1.2、§7 F-16 |
 | D5 | 退出码：**PreLoad／PreLaunch 非零 → 拒绝启动**（并入 F-06）；**PostExit 非零 → 仅记录诊断** | 两处先例均不检查退出码（`MmcLaunch.cs:137-140`、`LegacyLaunchProcess.cs:44-51`）；阶段区分依据设计 L337；退出码形态 `MmcLaunch.cs:247-248` | §1.3、§7 F-14 |
 | D7 | 退出证明：**新增一个证明来源值**（如 `WrapperManagedExit`）并登记两个进程身份；不得沿用句柄级值或保守观察值 | `MmcSessions.cs:177-185`（封闭枚举）、`106-119`、`MmcSessionContracts.cs:29-30`；待办 L14；设计 L469 | §4.3 |
@@ -309,17 +309,15 @@ flowchart TB
 | D11 | 环境净化核验边界：`CreateStartInfo` 只清理继承环境；**对包装子进程不做技术强制声明**，未观察即按 F-08 拒绝；`TEMP`/`TMP` 保证仅覆盖受管入口进程 | `MmcRuntimeLaunchContracts.cs:95-107`（`CreateStartInfo` 的可净化范围） | §4.1 + §4.3 附注 |
 | D14 | 日志脱敏：**入队前**用既有脱敏形态（`FilterAccessToken`／计划 `Redact`）处理，**不得落展开后原文** | `LegacyLaunchProcess.cs:27`；`MmcRuntimeLaunchContracts.cs:108-111`；`MmcLaunch.cs:217`；`mmc-development.md:106`；待办 L13；设计 L319 | §1.3、§7 F-17 |
 
-### 10.2 仍待 owner 决定（4 项 + 1 项实现期残值）
+### 10.2 原待定项与实现期收口结论（5 项均已按实际实现固化）
 
-以下 4 项缺仓库先例或属于产品决策，故保留待定。其中 D6、D12、D13 **已上报 owner**；D15 与 D8-残余需在对应实现期定值或补先例。
-
-| 编号 | 待定问题 | 候选与取舍 | 为何必须 owner 决定 |
+| 编号 | 问题 | 固化实现结论 | 依据 |
 | --- | --- | --- | --- |
-| D6 | WrapperCommand 与 LF JavaWrapper 模式的组合 | (a) 包包装在外层，Java 侧仍走 JavaWrapper 或 DirectMain；(b) 二者互斥，同时出现即拒绝 | 设计 L337 只强调「是不同能力」，未定义组合语义；影响退出证明的层数。**已上报 owner** |
-| D12 | 凭据变量在包命令中的处理 | (a) 一律拒绝（含用户手动命令）；(b) 仅包内拒绝，用户命令仍可展开 | 设计 L319 约束的是持久化与日志，未直接规定命令变量面；属产品决策。**已上报 owner** |
-| D13 | **已定（lead，2026-11-12，接 W3 回执）**：确认粒度 = 「按当前生效命令集（`PreLoadCommand`／`PreLaunchCommand`／`PostExitCommand` 的**脱敏模板**）的指纹」，非裸布尔 | 落盘为实例 `PCL\Setup.ini` 的 `MmcPackageCommandConfirmed`，走既有偏好通道；**执行点 fail-closed**（每次 `RunPackageCommand` 执行前校验，不依赖导入期那一次）；命令集变化即失效重询；`OverrideCommands=false`／无活动命令不适用；对话框只显示脱敏文本 | 待办 L10 只要求「完成必要的用户确认」，未定义粒度。裸布尔挡不住「包更新换命令」与「非导入入口」两条路径，故按命令集指纹定；确认**形态**沿用既有对话框（§1.2） |
-| D15 | **已定（lead，2026-11-12）**：按阶段区分 —— `PreLaunch`／`PostExit` 继承；`PreLoad` 不继承并登记缺口 | 裁定与分期依据见 §3.2；设计与先例未定义命令子进程，但「要求无法兑现不得静默」为本仓库既有纪律 | 见 §3.2 |
-| D8-残余 | 未运行状态探测的超时上限值 | 候选：与既有退出确认重试间隔同级（3 秒）或更长；无仓库先例可循 | 仅「3 秒重试间隔」有先例，**探测上限**无先例；不自行发明数值 |
+| D6 | WrapperCommand 与 LF JavaWrapper 模式的组合 | **已实现（组合模式）**：外层包 wrapper 作为进程入口，内层 `JavaWrapper` 或 `DirectMain` 原样重放为其子参数 | `MmcRuntimeWrapperCommand.cs`；`2ae04748` |
+| D12 | 凭据变量在包命令中的处理 | **已实现（仅包内命令一律拒绝）**：`MmcCommandReader.Validate` 拒绝所有凭据变量（`MMC_CFG_COMMAND_CREDENTIAL`）；玩家手工自定义命令（`MmcLaunch.Custom`）保留原有 `ModMain.ArgumentReplace` | `MmcCommandReader.cs`、`MmcLaunch.cs` |
+| D13 | 用户确认粒度与持久键 | **已实现（脱敏模板摘要指纹 `MmcPackageCommandConfirmed`）**：按生效的 `PreLoadCommand`／`PreLaunchCommand`／`PostExitCommand`／`WrapperCommand` 脱敏模板计算 SHA-256 指纹写入 `PCL\Setup.ini`，经 `MmcConfigurationCoordinator.Quiesce` 协调并发刷盘与启动准入；在 `PreLoad`、wrapper 激活启动与 `PostExit` 前 fail-closed 核验 | `MmcLaunchPreferences.cs`、`MmcLaunch.cs`、`MmcInstanceBackend.Launch.cs` |
+| D15 | 包 Env 对命令子进程的可见性 | **已实现（按阶段区分）**：`PreLaunch`／`PostExit` 通过 `MmcRuntimeEnvironmentOverlay.Apply` 继承包 `Env` 与本次会话 `TemporaryDirectory`；`PreLoad` 不继承且 `TEMP`/`TMP` 保留宿主基础环境 | `MmcRuntimeCommandExecution.cs`、`MmcLaunch.cs`、§3.2 |
+| D8-残余 | 取消／失败时进程树探测与等待预算 | **已实现（有界等待 + 只读 `Unknown` 保守阈值）**：命令/进程组取消宽限取既有 `3000 ms` 常量（`MmcRuntimeCommandExecution.CancellationGraceMilliseconds` / `MmcProcessTreeTermination.GraceMilliseconds`，`25 ms` 轮询）；`WrapperCommand` Java 子进程发现窗默认 `30 s`（`WrapperJavaDiscoveryTimeout`，钳制 `[100 ms, 300_000 ms]`）；启动失败但 Owned Job 组已确认清空时写 `WrapperManagedExit` 退出收据以便撤销，否则维持 `Unknown` 并保留 pin | `MmcSessionContracts.cs`、`MmcWrapperExit.cs`、`MmcSessions.cs`、`MmcLaunch.cs` |
 
 
 ## 11. 与验收矩阵的对齐
@@ -334,39 +332,23 @@ flowchart TB
 
 **未验证声明**：本文档只冻结契约，不含任何实现或实测证据；第 8 节的目标态在对应实现与 fixture 落地前不得当作已放行能力，也不得据此宣称命令能力已接通。
 
-## 12. 实现进度（由 lead 依验收记录维护）
+## 12. 实现进度（按最新集成与实测更新）
 
-本节记录契约各项的**落地状态**，不改变上文任何契约条目。状态以提交与独立复跑数字为准；**未验证项不写通过**。
+本节记录契约各项的**落地状态**，不改变上文任何契约条目。**真实游戏及外部服务仍需实机另行验收，不得以自动化夹具代替。**
 
-| 项 | 状态 | 提交 | 验收证据 |
+| 项 | 状态 | 提交／来源 | 验收证据与补充修补 |
 | --- | --- | --- | --- |
-| Env（`OverrideEnv`／`Env`） | **已接通** | `0a03ca0a` | 冷构建 0 错误；`mmc-profile` 85/85、新组 `mmc-runtime-environment` 5/5。宿主边界经真实 `CreateStartInfo()` 验证。契约 D15 未定 → **命令子进程**不继承包 Env |
-| 包内命令三阶段（PreLoad／PreLaunch／PostExit） | **已接通** | `35d7c9f2` | 冷构建 0 错误；`mmc-configuration` 30/30（含 9 条新用例）、`mmc-lifecycle` 9/9。四条红线已核：无被禁旁路、`cmd.exe`+`ArgumentList`、`VersionAdvanceRun` 未写、Env 零回退 |
-| `WrapperCommand` | **逻辑已接通；真实启动链接线未完成** | `2ae04748` | 冷构建 0 错误；`mmc-transactions` 31/31、`mmc-profile` 88/88。§4.3 判定表实现为纯函数 `MmcWrapperExit.Decide`：**包装程序退出 + Java 存活 → 不判退出、不收尾、不终止**；PID 重用与 nonce 不可观察均保持 `Unknown`。**更正（2026-11-12，lead 独立复核）**：此前记「已接通」不准确——包装模式下 `CreateStartInfo()` 的 `FileName` 是包装程序，而 `MmcSessions.cs:26` 与 `:52-53` 用 Java 身份校验它，**真实启动链上必抛、无路径可达**；且 `MmcSessionLaunchRequest.WrapperEntry` 生产侧从未赋值（唯一赋值点在测试 `MmcSessionTests.cs:155`），故 `WrapperManagedExit` 生产不可达。接线缺口见下节第 4、5 条 |
-| console／PermGen | **已接通（差异说明）** | `f5147d0e` | 内存/窗口字段已映射；`PermGen` 与 console 四键保留原值 + 明确差异诊断，通知文本声明「永不替换为 Metaspace、不称已迁移」；导出路径已封口 |
+| Env（`OverrideEnv`／`Env`） | **已接通并完成端到端 Main 接线** | `0a03ca0a` + PR #23 收口 | D15 阶段分化已接入真实 `MmcLaunch`：`PreLaunch`/`PostExit` 与 Java 继承包 `Env` 及会话 `TEMP`/`TMP`，`PreLoad` 保持宿主基础环境；主动 `OverrideEnv/Env` 在可移植导出中显式拒绝 |
+| 包内命令三阶段（PreLoad／PreLaunch／PostExit） | **已接通并完成端到端 Main 接线** | `35d7c9f2` + PR #23 收口 | D13 模板指纹确认 `MmcPackageCommandConfirmed` 已接通 `ConfirmPackageCommands`、`Quiesce` 并发防撞与 `EnsureGameRootDirectory` 物化；`MmcRuntimeCommandExecution` 修复 Windows `cmd.exe /d /s /c "<command>"` 引号转义问题；主动包内命令在可移植导出中显式拒绝 |
+| `WrapperCommand` | **已接通真实启动链并完成 Main 宿主验证** | `2ae04748` + `cb1776a5` + 收口补齐 | `MmcSessionProcessTree`（无 `KILL_ON_JOB_CLOSE` 的 Owned Job Object + `CREATE_SUSPENDED` 核验 + `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` 继承匿名管道）、`NtQueryInformationProcess` nonce 发现受管 Java 子进程、双身份登记、`WrapperManagedExit`（含失败且 Job 已清空时的退出收据回写）、`LegacyWatcher` / `ModWatcher` 管道流与退出前日志脱敏全部接入并经 `mmc-phase2-launch` 覆盖；窗口监控按已发现的受管 Java PID 与 `HasGroupExited` 工作 |
+| console／PermGen 与差异消费 | **已接通（通用诊断分级直达用户）** | `f5147d0e` + 收口补齐 | `MmcInstances.cs` 按诊断级别分发：`Severity >= Warning` 经 `ModMain.Hint`（`Blue`）提示用户，`Information` 记入 `Logger.Info`；不再仅靠少数硬编码 code 白名单消费；可移植导出已封口 |
 
-**复跑环境前提（2026-11-12 实测，务必遵守，否则得到假失败）**
+**复跑环境前提（2026-11-12 实测）**：若在限制 `File.Replace` 的受限沙箱中运行 `mmc-configuration`，会遇到非产品缺陷的 `UnauthorizedAccessException`；生产与常规本地测试中保持 `File.Replace` 原子替换写入以确保崩溃一致性。
 
-在本机的一次 Bot 会话里用**默认沙箱**跑 `mmc-configuration` 得到 **12/30（18 项失败）**，失败全部落在 `MmcIniConfiguration.WriteIni` 的原子替换路径上，根因是 `File.Replace` 在默认沙箱下返回 `UnauthorizedAccessException`。**同一份 Debug 构建、同一 TEMP，仅在提权（`danger-full-access`）下复跑即得 30/30、0 失败** —— 与上表一致。结论：
+**第 12 节历史缺口收敛状态（2026-11-13 更新）**：
+1. **PreLoad 输入面**：保持仅向 `PreLoad` 暴露启动前根变量（`$INST_DIR` / `$INST_MC_DIR` / `INST_ID` / `INST_NAME` 等），不存在运行期 `TemporaryDirectory` 与 plan 变量，并在 `PreLoad` 前完成经链接校验的 `GameRoot` 目录物化。
+2. **wrapper argv 分词**：已按「先分词、后逐 token 展开」在 `MmcRuntimeWrapperCommand` 落地并有测试覆盖。
+3. **差异诊断消费点（已关闭）**：`MmcInstances.cs` 现已将全部 `Severity >= Warning` 诊断通过 `ModMain.Hint` 呈现给用户、`Information` 记入 `Logger.Info`，`MMC_PACKAGE_JVM_UI_DIFFERENCE`、`MMC_DISPLAY_DIFFERENCE`、`MMC_PERMGEN_DIFFERENCE` 均可直达提示（`MMC_PACKAGE_PREFERENCE_RUNTIME` 作为 `Information` 记入日志）。
+4. **4–6 号 Wrapper 启动链与 `WrapperManagedExit` 缺口（已关闭）**：PR #23 与后续补齐已完全接通真实 Main 宿主（`MmcLaunch.cs` -> `MmcSessions.Launch` -> `MmcSessionProcessTree`），覆盖早退 wrapper（`cmd /d /c start "" /b`）与长驻 wrapper（`cmd /d /c call`）取消、`WrapperManagedExit` 退出证明及失败清空后回收；本机已安装 JDK 8/17/21 且经 `PCLLF.Mmc.Runtime.Tests` 与 `PCLLF.Native.Facade.Tests` `--groups mmc-phase2-launch` 等实测通过。
 
-1. **回归结论必须在提权会话中取得**；默认沙箱的数字是**假失败**，不得记为回归，也不得据此判定"改坏了"。
-2. **严禁为使沙箱内的失败转绿而改动产品代码**：`File.Replace` 是 INI/JSON 原子写的实现手段，为绕开沙箱而换成非原子写法会直接破坏崩溃一致性，属严重倒退。
-3. 复现方式：`File.Replace(src, dst, backup)` 在默认沙箱 → 拒绝；在提权 → 成功。`Move-Item -Force` 在两种模式下均可用，故不能用它反推"文件系统没问题"。
-
-**终态回归（lead 独立复跑）**：`mmc-transactions` 31/31、`mmc-profile` 88/88、`mmc-configuration` 30/30、`mmc-lifecycle` 9/9、`mmc-java` 4/4、`mmc-backend` 16/18；全集 **1016/1023**，失败集合自始至终未变（恒为 2 项符号链接特权，非二期引入）。
-
-**端到端边界（重要）**：三个阶段与 wrapper 的**逻辑**已被真实验证（`MmcRuntimeCommandExecution.cs`、`MmcRuntimeWrapperCommand.cs`、`MmcWrapperExit.cs` 等均编入测试工程并由受控用例覆盖）；但**在真实启动链中的接线触发**位于 `modern/Main/Modules/Minecraft/MmcLaunch.cs`，该文件属 WPF/UI 层、不在 `tests/PCLLF.Migration.Tests` 的 `Compile Include` 范围内，故**未验证，原因=需真跑游戏或构造 WPF 宿主**。**窗口监控的目标切换同样未落地**（落点在该 WPF 层）。不得据上表宣称已取得真实游戏验收。
-
-**已知契约缺口（需 owner 补齐，三项）**
-1. **PreLoad 的输入面**：§1.2 要求 PreLoad 在 `launch-sources-start` 之前执行，而 §3 的 plan 侧变量（`classpath`、`version_name`、`assets_root` 等）在该时点尚不存在。现实现对该子集**明确失败**（`MMC_RUNTIME_VARIABLE`），只用启动前已存在的根变量——保守处置，但需补「PreLoad 阶段加载哪些输入」。裁定见 `phase2-adjudications.md` R-6。**裁定落地（2026-11-12）**：变量面已补入 §3.1；同源结论（PreLoad 亦无本次会话可变目录）见 §3.2。
-2. **§3 需补 wrapper 的 argv 读法**：按「先展开、后分词」的字面顺序实现，含空格的实例根会被切成两个参数，导致"看起来正确的 wrap 以错误参数启动错误的程序"（施工期已由真实夹具复现 16 → 21 token）。现实现为「**先分词、后逐 token 展开**」，与 `+jvmArgs`「每成员即一参数」一致。契约应明文写入，否则后人会重现该缺陷。裁定见 R-9。
-3. **差异诊断缺消费点（既有系统性问题）**：`MMC_PACKAGE_PREFERENCE_RUNTIME` 与 `MMC_PACKAGE_JVM_UI_DIFFERENCE` 在全仓库各只有定义处 1 处命中，从导入到界面无任何读取点（已独立核实）。console/PermGen 项已把新差异显式接到 `ModMain.Hint` 规避；**这两条既有死码需另立任务处置**（接通或删除）。裁定见 R-8 裁定 2。**补充（2026-11-12）**：现有消费点是硬编码 code 白名单（`MmcInstances.cs:110-115`），故契约要冻结的是一条**不变量**——凡「声明了但宿主未按声明生效」的用户可见差异必须能到达用户可见位置，新增差异应**天然可见**，而不是每条码各自维护名单。处置进行中（W2）。
-
-**新增接线缺口（2026-11-12，lead 独立复核，属实现接线而非契约条款）**
-
-4. **包装模式在真实启动链上必抛**：**三处**校验拿 Java 身份去比包装程序入口 —— `MmcSessions.cs:26`、`:38`（该行是 `||` 连接的两个比较之一）、`:52-53`；而 `MmcRuntimeLaunchContracts.cs:119-123` 在包装生效时返回的 `FileName` 是**包装程序**（`MmcRuntimeWrapperCommand.Apply` 把入口设为包装程序、Java 降级为子参数）。三处**必抛**，故包装模式无可达路径。修法见 §4.1「双重身份」与 §4.3 判定表：入口按**入口身份**校验，Java 身份校验作用于**受管 Java 子进程**；观察口径为「入口句柄 + 父 PID 子进程观察」，nonce 命中仅作加分确认，观察窗口超时只允许 `Unknown`。
-   **`:38` 的精细口径（易被误改）**：该行是 `!SameExecutable(pin.Identity, request.JavaIdentity) || !SameExecutable(ObserveExecutable(start.FileName), request.JavaIdentity)`。**前半段是 Java pin 与 Java 身份的比对，必须保持比 `JavaIdentity`**；只有后半段（`start.FileName`）改为比**期望入口身份**。整行把所有 `JavaIdentity` 一律替换会直接破坏 Java pin 校验。
-5. **`WrapperManagedExit` 生产不可达**：`MmcSessionLaunchRequest.WrapperEntry`（`MmcSessionContracts.cs:29`）生产侧从未赋值，`MmcSessions.Launch` 也不填，全仓唯一赋值点在测试 `MmcSessionTests.cs:155`。后果：`running.WrapperProcess` 生产恒为 `null` → `MmcSessions.cs:96` 与 `:123` 恒写 `OwnedProcessHandleExited`，D7 新增的 `WrapperManagedExit` 在**生产中不可达**。处置（二选一，不许两个来源共存）：由 `Launch` 把 `Process.Start` 的返回值当入口并删除该字段，或由宿主显式传入同一句柄。
-6. **既有测试掩盖了第 4 条**：`MmcSessionTests.cs:143-181` 手工塞 `WrapperEntry`，但夹具的 `StartInfo` 仍是 Java 自身，因此 `:26` 恰好通过——该用例验证的是判定表，**不是真实包装入口**。修第 4 条时须补一条以包装程序为 `FileName` 的用例，否则同一缺陷会再次潜伏。
-
-**未验证项汇总（未写通过）**：真实启动链端到端触发（需 WPF 宿主/真跑游戏）；窗口监控目标切换（未落地）；WPF `ModMain.Hint` 实际屏幕显示未肉眼确认；真实 GTNH 实机跑包未做；符号链接 2 项（本机无权限，纯净 worktree 对照证实既存）；`Mmc.Runtime.Tests` 全量需 `PCLLF_MMC_TEST_JAVA8`（本机无 Java 8）。
+**仍属外部/权限边界的待验证项**：外部真实作者整合包与 GTNH Java 17/25 游戏实机游玩、Authlib/Nide 真实外部账号与服务联调、真实界面视觉走查，以及无符号链接创建特权环境下由系统权限决定的符号链接测试用例（若未提权会失败，属于权限边界）。

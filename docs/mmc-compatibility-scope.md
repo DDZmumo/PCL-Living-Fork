@@ -42,12 +42,13 @@ cfg 不是完整的 QSettings 实现。未知 ConfigVersion、非支持分组、
 
 ## 二期高级兼容
 
-活动 `PreLoadCommand`、`PreLaunchCommand`、cfg `WrapperCommand`、`PostExitCommand` 和有效
-`OverrideEnv / Env` 目前明确拒绝。非活动原值保留；PCL JavaWrapper／ForgeWrapper／RFB 已有路径
-不等于 cfg WrapperCommand 已支持。启用前仍需落实阶段、GameRoot、变量、子进程所有权、取消收尾、
-可变输出与执行后重新验证，依据[设计 7.1](mmc-instance-design.md#71-cfg-的有效行为能力表)。
-宿主中玩家手工设置的全局／实例启动前命令已有执行与最终复验；这不等于包 cfg 的四阶段命令已经接通。
-`PermGen` 与 console 覆盖目前只有读取，完整行为／差异诊断仍是待修缺口，不能登记为已迁移。
+活动 `PreLoadCommand`、`PreLaunchCommand`、`PostExitCommand`、cfg `WrapperCommand` 与有效
+`OverrideEnv / Env` 已按 [阶段契约](mmc-phase2-command-contract.md) 与 [设计 7.1](mmc-instance-design.md#71-cfg-的有效行为能力表) 接通；
+同时保持 `OverrideGameTime`、`OverrideNativeWorkarounds`、`@Variant` 等未解码 Env、`MMC_CFG_COMMAND_CREDENTIAL`
+及重声明 `TEMP`/`TMP`/执行通道的环境变量拒绝。非活动原值（如 `OverrideCommands=false`／`OverrideEnv=false`）继续保留但不生效；
+`WrapperCommand` 与 LF `JavaWrapper`／`DirectMain` 按内外组合而非替代方式协作；主动包内命令与主动 `OverrideEnv/Env` 在可移植导出中明确拒绝，避免静默丢失运行要求。
+宿主中玩家手工设置的全局／实例启动前命令（`LaunchAdvanceRun`／`VersionAdvanceRun`）继续在包阶段命令之外按原有次序独立运行。
+`PermGen` 与 console 覆盖保持原始声明与差错/差异诊断，导入经 `ModMain.Hint` 直达用户，导出写入明确调整记录，永不替换为 Metaspace 或启动器窗口可见性。
 
 MMC 专用 Auth／Nide 认证代理已接通 owned 运行文件与 Main 登录结果绑定，
 实际自编 agent JVM premain、取消排空及退出清理已通过；真实认证账号与外部服务仍未验收，

@@ -117,3 +117,14 @@ Java26 后续已有主菜单与退出证据，但尚无该 Java 的完整世界�
 原 60 秒子进程通过，前者保持原代数且不新增 CommitDecided，后者保留成功提交结果。
 平台证据的最终来源检查同时覆盖修复／启动与组件修订；平台新增负例覆盖两路径的晚删除／晚替换，
 根集成全部九项通过。后续审查按用户最新要求使用 GPT-6.1 Sol max。
+
+## 2026-11-13 二期命令、Env、Wrapper 与 UI 差异落地（PR #23 收口）
+
+在分支 `codex/mmc-compatibility` 合入并补齐了二期高级兼容四项核心实现，包括：
+
+- `OverrideEnv / Env` 与按阶段分化的 D15 环境映射（`PreLoadCommand` 保持宿主基础环境，`PreLaunchCommand`、`PostExitCommand` 与受管游戏进程继承包环境并由宿主注入会话独占 `TEMP`/`TMP`）。
+- `PreLoadCommand`、`PreLaunchCommand`、`PostExitCommand` 执行阶段：接入 D13 脱敏模板指纹确认键 `MmcPackageCommandConfirmed`、`MmcConfigurationCoordinator.Quiesce` 与准入并发协同、`EnsureGameRootDirectory` 提前物化、`cmd.exe /d /s /c "<command>"` 对含引号路径参数的边界修复、`PreLaunch` 执行后输入指纹重验（D6/F-06），以及 `PostExit` 在 `Exited.record` 持久化后、会话收尾前运行的 D9 顺序。
+- `WrapperCommand`：通过 `MmcSessionProcessTree`（无 `KILL_ON_JOB_CLOSE` 标志的 Windows Job Object、`CREATE_SUSPENDED` 入口镜像核验、`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` 匿名管道重定向）、nonce 内存命令行发现受管 Java 子进程、双身份登记、`WrapperManagedExit` 退出证明、失败空组回收（持久化 `Exited.record` 并调 `MmcSessions.Reconcile`），以及与 `LegacyWatcher` / `ModWatcher` 的管道日志脱敏流和组退出跟踪。
+- console／PermGen 与通用差异通知：`MmcInstances` 按诊断严重级别自动路由（`Severity >= Warning` 经 `ModMain.Hint` 以 `Blue` 提示用户，`Information` 记入 `Logger.Info`），并在 `MmcInstanceExportPreferences` 中对主动包内命令及主动 `OverrideEnv/Env` 执行可移植导出拒绝。
+
+以上改动已通过 `PCLLF.Mmc.Runtime.Tests`、`PCLLF.Mmc.Export.Tests`、`PCLLF.Migration.Tests` 与 `PCLLF.Native.Facade.Tests` 的自动化闭环回归验证（具体通过项及权限边界见提交后最新一次全套运行记录）；外部真实整合包游玩、真实认证账号与外部平台在线接口仍保留在[二期待办](mmc-phase2-todo.md)继续跟踪。

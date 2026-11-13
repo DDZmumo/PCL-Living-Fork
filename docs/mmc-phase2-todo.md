@@ -4,21 +4,15 @@
 本表区分未接通的能力、已有功能的后续实测和长期工程，不将这些项目继续作为一期 goal 的完成条件。
 一期记录见[完成清单](mmc-completion-ledger.md)，格式边界见[当前兼容范围](mmc-compatibility-scope.md)。
 
-## 高级兼容：尚未进入一期产品
+## 高级兼容：已接入主线实现与自动化验证
 
-- [ ] 包内命令：接通 `PreLoadCommand`、`PreLaunchCommand`、`PostExitCommand` 的真实执行阶段，
-  完成必要的用户确认、取消、失败处理及执行后的文件重验。玩家已手动设置的 PCL 启动前命令沿用现有功能。
-- [ ] 自定义环境变量：接通有效 `OverrideEnv / Env`，核对 QSettings／JSON 格式、变量展开及覆盖顺序，
-  保持启动器管理的临时目录和执行输入边界；未知编码或无法兑现的要求明确拒绝。
-- [ ] `WrapperCommand`：接通包装程序及其 Java 子进程。日志须在保存前脱敏，窗口监控使用真实 Java，
-  取消与退出确认覆盖整个受管理进程组；包装程序先退出不能被当作游戏已退出。
-- [ ] 补全 console／PermGen 的有效偏好行为或用户可见差异说明。
-  不把关闭独立控制台映射为关闭整个 PCL，不将 Java 8 的 PermGen 参数偷偷换成 Metaspace 参数。
+- [x] 包内命令：已接通 `PreLoadCommand`、`PreLaunchCommand`、`PostExitCommand` 的真实执行阶段（详见 [阶段契约](mmc-phase2-command-contract.md)），
+  完成按生效脱敏模板摘要 `MmcPackageCommandConfirmed` 的 D13 用户确认、取消、非零/输入变更拒绝及执行后文件与输入指纹重验。玩家已手动设置的 PCL 启动前命令沿用现有功能；主动包内命令在可移植导出中明确拒绝。
+- [x] 自定义环境变量：已接通有效 `OverrideEnv / Env`，核对 QSettings 列表／旧标量／JSON 数组格式、字段字面值、覆盖顺序与 D15 阶段分化（`PreLaunch`／`PostExit`／游戏继承并叠加会话 `TEMP`/`TMP`，`PreLoad` 保持宿主基础环境）；`@Variant` 未知编码、重声明 `TEMP`/`TMP`/执行输入通道等无法兑现要求明确拒绝，主动映射在可移植导出中拒绝。
+- [x] `WrapperCommand`：已通过受管 Windows Job Object 进程组（无 `KILL_ON_JOB_CLOSE`）、`CREATE_SUSPENDED` 入口核验、匿名管道注入、nonce 进程发现及双身份登记接通包装程序及其 Java 子进程，日志经 `ModWatcher` / `LegacyWatcher` 退出前流式脱敏，窗口监控与退出/取消覆盖整个受管进程组，并采用 `WrapperManagedExit` 退出证明区分包装先退出与游戏存活；活动会话与失败清空回收已接通 Main 启动链。
+- [x] 补全 console／PermGen 的保留原值与用户可见差异说明（`MmcDisplayDifference`）：导入时按严重级别通用路由到 `ModMain.Hint`（`Warning` 及以上）或 `Logger.Info`（`Information`），可移植导出以显式调整说明披露；不把关闭独立控制台映射为关闭整个 PCL，不将 Java 8 的 PermGen 参数替换为 Metaspace 参数。
 
-命令／Env／Wrapper 已有独立实验分支 `codex/mmc-cfg-execution`，工作树
-`C:/Users/16892/.codex/worktrees/mmc-cfg-execution/PCL2-MMC-Compatibility`，保留 HEAD `7991149e`。
-早期构建和部分受控用例通过；最后的原子 JOB_LIST 改动尚未编译，尾部四项用例和 Main Wrapper 日志／会话适配未完成。
-这些代码未合入一期集成分支，默认格式能力门仍关闭；继续开发时先重新核对分支、差异和测试现场。
+以上四项已在当前集成分支 `codex/mmc-compatibility` 完成 `PCLLF.MMCC.Core`、`PCLCS`、`modern/Main` 与 `Migration / Mmc.Runtime / Mmc.Export / Native.Facade` 自动化回归接入；真实作者整合包实机启动、外部认证服务与下文其余待办仍保留跟踪。
 
 ## 已有功能：补充实测与缺陷跟踪
 
