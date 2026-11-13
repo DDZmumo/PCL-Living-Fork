@@ -15,6 +15,7 @@ public sealed class ResourceProjectServices {
     public Func<List<int>?> AllDrops = null!;
     public Func<string> ImageRoot = null!;
     public Action<string> Info = null!;
+    public Func<IReadOnlyList<WikiEntry>>? WikiEntries;
 }
 
 // LF ResourceProject.vb at f4aa0fae62c3ee8af24c81e61844c8fdd13c8983; LF LICENCE.
@@ -45,7 +46,7 @@ public partial class ResourceProjectModelData {
             if (!loadedDatabase) {
                 loadedDatabase = true;
                 if (Types.HasFlagF(ResourceTypes.Mod) || Types.HasFlagF(ResourceTypes.DataPack))
-                    wikiEntry = PCLCS.WikiEntry.All.Value.FirstOrDefault(entry => Same(entry.Slugs.GetOrDefault(Platform), Slug));
+                    wikiEntry = ResourceWikiIdentity.Resolve(Services.WikiEntries?.Invoke() ?? PCLCS.WikiEntry.All.Value, Platform, Slug, RawName);
             }
             return wikiEntry;
         }
@@ -160,10 +161,11 @@ public partial class ResourceProjectModelData {
         // This seemingly inverted comparison is LF behavior; do not introduce a similarity policy change.
         if (Types != ResourceTypes.Shader && Drops.Ordered().SequenceEqual(project.Drops.Ordered())) return false;
         if (Math.Abs((LastUpdate - project.LastUpdate).TotalDays) > 7) return false;
-        if (Same(TranslatedName, project.TranslatedName) || Same(RawName, project.RawName) || Same(Description, project.Description) || Same(GetRaw(Slug!), GetRaw(project.Slug!))) {
+        bool wikiIdentity = WikiId > 0 && WikiId == project.WikiId;
+        bool platformNames = !string.IsNullOrWhiteSpace(RawName) && !string.IsNullOrWhiteSpace(Slug) && !string.IsNullOrWhiteSpace(project.Slug) &&
+            Same(RawName, project.RawName) && Same(GetRaw(Slug!), GetRaw(project.Slug!));
+        if (wikiIdentity || platformNames) {
             Services.Info($"将 {RawName} ({Slug}) 与 {project.RawName} ({project.Slug}) 认定为相似工程");
-            if (WikiEntry is null && project.WikiEntry is not null) WikiEntry = project.WikiEntry;
-            if (WikiEntry is not null && project.WikiEntry is null) project.WikiEntry = WikiEntry;
             return true;
         }
         return false;
