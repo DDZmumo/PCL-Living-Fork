@@ -21,12 +21,21 @@ public sealed partial class ModDependencyOnlinePipeline<TContext,TMod,TDependenc
     private static void VerifyRuntimeIdentities(Session work) {
         if (work.ArchiveRequest is null || !work.Report.Context.LoaderKnown ||
             ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.IsLegacyForge(work.Report.Context)) return;
-        foreach (var file in work.Report.OnlineFiles.Where(file => file.Enabled && file.IsSupplementTarget)) {
-            bool hasLocalProvider = work.Report.Edges.Any(edge => edge.Owner.Enabled &&
-                ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.SameFilePath(edge.Owner.RootPath,file.FullPath) &&
-                edge.Requirement.KindValue == ModDependencyKind.Required && edge.Evaluated && !edge.ConditionBypassed &&
-                edge.StateValue == ModDependencyMatchState.Satisfied && edge.Providers.Any(provider => !provider.IsBuiltin && provider.Enabled && !provider.IncompatibleLoader));
-            if (!hasLocalProvider) continue;
+        var localProviders = work.Report.Edges.Where(edge => edge.Owner.Enabled &&
+                edge.Requirement.KindValue is not (ModDependencyKind.Conflict or ModDependencyKind.Incompatible) && edge.Evaluated && !edge.ConditionBypassed &&
+                edge.StateValue == ModDependencyMatchState.Satisfied && edge.Providers.Any(provider => !provider.IsBuiltin && provider.Enabled && !provider.IncompatibleLoader))
+            .ToLookup(edge => ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.FilePathKey(edge.Owner.RootPath), StringComparer.OrdinalIgnoreCase);
+        bool Alternative(TDependency dependency) => dependency.Children.Count > 0 &&
+            (dependency.Join == "any" || dependency.Children.Any(Alternative));
+        // Give explicit replacement/alternative declarations the bounded proof
+        // budget before unrelated project-ID gaps; reuse every cached proof.
+        var candidates = work.Report.OnlineFiles.Where(file => file.Enabled && file.IsSupplementTarget)
+            .Select(file => new { File = file, Edges = localProviders[ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.FilePathKey(file.FullPath)].ToArray() })
+            .Where(value => value.Edges.Length > 0)
+            .OrderByDescending(value => value.Edges.Any(edge => Alternative(edge.Requirement) || edge.Providers.Any(provider =>
+                provider.Provides.Keys.Any(id => id != provider.Id && ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.DependencyMentions(edge.Requirement,new[] { id })))));
+        foreach (var candidate in candidates) {
+            var file = candidate.File;
             foreach (var requirement in file.Matches.Where(match => match.IsExact).SelectMany(match => match.Dependencies)
                 .Where(requirement => requirement.Kind == "required" && requirement.EnabledPaths.Count == 0 && requirement.VerifiedLoaderIds.Count == 0)) {
                 string scope = work.Report.Context.MinecraftVersion + "|" + string.Join(",",work.Report.Context.LoaderVersions.Keys.OrderBy(key=>key,StringComparer.Ordinal));
@@ -35,7 +44,7 @@ public sealed partial class ModDependencyOnlinePipeline<TContext,TMod,TDependenc
                     requirement.VerifiedLoaderIds.AddRange(saved.OfType<JValue>().Select(value=>value.Value as string).OfType<string>().Where(value=>!string.IsNullOrWhiteSpace(value)));
                     continue;
                 }
-                if (work.ArchiveReads >= 2) return;
+                if (work.ArchiveReads >= 2) continue;
                 work.Check();
                 try {
                     JToken? version = ReferenceVersion(requirement,work);
