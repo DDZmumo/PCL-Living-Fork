@@ -1,5 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace PCLCS;
 
@@ -20,18 +26,24 @@ public sealed record MmcSessionLaunchRequest(Guid InstanceId, long DefinitionGen
     public MmcSessionRuntimeBinding? RuntimeBinding { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public MmcMutableRuntimeAuthority? RuntimeAuthority { get; init; }
-    /// <summary>
-    /// Host-created package wrapper entry process, when a <c>WrapperCommand</c> is active. The host creates it
-    /// (never Core), and it is registered as a second identity so that its exit is never mistaken for the
-    /// game's exit. It is a live handle, so it is never serialized into a receipt.
-    /// </summary>
+    /// <summary>True when a package <c>WrapperCommand</c> owns the entry process and spawns Java as a child.</summary>
+    public bool IsWrapperManaged { get; init; }
+    /// <summary>Expected executable identity of the wrapper entry process when <see cref="IsWrapperManaged"/> is true.</summary>
+    public MmcExecutableIdentity? WrapperIdentity { get; init; }
+    /// <summary>Zero-based slot in <see cref="ProcessStartInfo.ArgumentList"/> where the session nonce is inserted.</summary>
+    public int NonceArgumentIndex { get; init; }
+    /// <summary>Maximum time to wait for the wrapper process to spawn the managed Java child carrying the session nonce.</summary>
+    public TimeSpan WrapperJavaDiscoveryTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Optional in-memory nonce probe override; defaults to Windows PEB command-line inspection during wrapper launch.</summary>
     [System.Text.Json.Serialization.JsonIgnore, Newtonsoft.Json.JsonIgnore]
-    public Process? WrapperEntry { get; init; }
+    public Func<int, string, bool?>? NonceProbe { get; init; }
 }
 public sealed record MmcSessionReceipt(int SchemaVersion, Guid SessionId, Guid InstanceId, string CanonicalRoot,
     long DefinitionGeneration, string RuntimeFingerprint, string Nonce, MmcExecutableIdentity JavaIdentity,
     MmcExecutableIdentity LauncherIdentity) {
     public MmcSessionRuntimeBinding? RuntimeBinding { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MmcExecutableIdentity? WrapperIdentity { get; init; }
 }
 public sealed record MmcSessionProcessRegistration(int SchemaVersion, Guid SessionId, string LaunchingSha256,
     int ProcessId, long CreationTimeUtcTicks, MmcExecutableIdentity ExecutableIdentity) {
@@ -81,8 +93,18 @@ public static class MmcSessionExitProof {
 
 /// <summary>Conservative OS identity checks. Command contents are consumed only by the supplied in-memory nonce probe.</summary>
 public sealed class MmcSessionProcessInspector(Func<int, string, bool?>? nonceProbe = null) : IMmcSessionProcessInspector {
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const int ProcessCommandLineInformation = 60;
+    private const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
+    private const int StatusBufferTooSmall = unchecked((int)0xC0000023);
+    private const int StatusBufferOverflow = unchecked((int)0x80000005);
+
     public MmcSessionObservation Inspect(MmcSessionReceipt receipt, MmcSessionProcessRegistration? registration) {
         if (registration is null || registration.ProcessId <= 0 || registration.CreationTimeUtcTicks <= 0 || registration.SessionId != receipt.SessionId)
+            return MmcSessionObservation.Unknown;
+        if (registration.WrapperProcess is not null)
+            return InspectWrapperSession(receipt, registration, registration.WrapperProcess);
+        if (receipt.WrapperIdentity is not null)
             return MmcSessionObservation.Unknown;
         Process process;
         try { process = Process.GetProcessById(registration.ProcessId); }
@@ -94,8 +116,197 @@ public sealed class MmcSessionProcessInspector(Func<int, string, bool?>? noncePr
             if (!MmcSessions.SameExecutable(observed, receipt.JavaIdentity) || !MmcSessions.SameExecutable(observed, registration.ExecutableIdentity))
                 return MmcSessionObservation.Unknown;
             return nonceProbe?.Invoke(registration.ProcessId, receipt.Nonce) == true ? MmcSessionObservation.MatchingRunning : MmcSessionObservation.Unknown;
-        } catch (Exception ex) when (ex is ArgumentException or System.ComponentModel.Win32Exception or InvalidOperationException or System.IO.IOException or UnauthorizedAccessException or NotSupportedException) {
+        } catch (Exception ex) when (IsInspectionFailure(ex)) {
             return MmcSessionObservation.Unknown;
         } finally { process.Dispose(); }
     }
+
+    /// <summary>
+    /// Reads the target process's in-memory command line on Windows via
+    /// <c>NtQueryInformationProcess(ProcessCommandLineInformation)</c> and checks for the exact session nonce
+    /// token without persisting or logging the command line. Returns null when unobservable (e.g. access denied
+    /// or process gone).
+    /// </summary>
+    public static bool? TryProcessCommandLineNonce(int pid, string nonce) {
+        if (!OperatingSystem.IsWindows() || pid <= 0 || string.IsNullOrEmpty(nonce)) return null;
+        string expectedToken = MmcSessions.NonceArgumentPrefix + nonce;
+        using SafeProcessHandle handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        if (handle.IsInvalid) return null;
+
+        int bufferSize = 512;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            nint buffer = Marshal.AllocHGlobal(bufferSize);
+            try {
+                int status = NtQueryInformationProcess(handle, ProcessCommandLineInformation, buffer, (uint)bufferSize, out uint requiredLength);
+                if (status == 0) {
+                    var text = Marshal.PtrToStructure<UNICODE_STRING>(buffer);
+                    if (text.Length == 0) return false;
+                    if ((text.Length & 1) != 0) return null;
+                    long baseAddr = buffer.ToInt64();
+                    long strAddr = text.Buffer.ToInt64();
+                    if (strAddr < baseAddr || strAddr + text.Length > baseAddr + bufferSize) return null;
+                    string? commandLine = Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
+                    return commandLine is not null && HasExactCommandLineToken(commandLine, expectedToken);
+                }
+                if (status is StatusInfoLengthMismatch or StatusBufferTooSmall or StatusBufferOverflow && requiredLength > bufferSize && requiredLength <= 1024 * 1024) {
+                    bufferSize = checked((int)requiredLength);
+                    continue;
+                }
+                return null;
+            } finally {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        return null;
+    }
+
+    private MmcSessionObservation InspectWrapperSession(MmcSessionReceipt receipt, MmcSessionProcessRegistration registration,
+        MmcSessionProcessIdentity wrapperRegistration) {
+        if (wrapperRegistration.ProcessId <= 0 || wrapperRegistration.CreationTimeUtcTicks <= 0 || wrapperRegistration.ExecutableIdentity is null)
+            return MmcSessionObservation.Unknown;
+        if (receipt.WrapperIdentity is not null && !MmcSessions.SameExecutable(wrapperRegistration.ExecutableIdentity, receipt.WrapperIdentity))
+            return MmcSessionObservation.Unknown;
+
+        var (wrapperState, wrapperIdentityMatches) = InspectWrapperEntry(wrapperRegistration, receipt.WrapperIdentity);
+        var (javaState, javaIdentityMatches, registeredJavaAliveWithNonce) = InspectManagedJava(receipt, registration);
+
+        if (!wrapperIdentityMatches || !javaIdentityMatches)
+            return MmcSessionObservation.Unknown;
+
+        if (javaState == MmcManagedJavaState.Alive) {
+            // Confirming MatchingRunning requires verified nonce ownership (parity with unwrapped Inspector).
+            if (registeredJavaAliveWithNonce != true) return MmcSessionObservation.Unknown;
+            return MmcWrapperExit.Decide(new(wrapperState, MmcManagedJavaState.Alive, WrapperIdentityMatches: true, NonceMatchesJvm: true, ManagedJavaIdentityMatches: true)).Observation;
+        }
+
+        if (javaState == MmcManagedJavaState.Unobservable)
+            return MmcWrapperExit.Decide(new(wrapperState, MmcManagedJavaState.Unobservable, WrapperIdentityMatches: true, NonceMatchesJvm: null, ManagedJavaIdentityMatches: true)).Observation;
+
+        // ManagedJavaState.Absent: inspect whether any live matching Java process still carries this session's nonce.
+        bool? nonceMatchesJvm = nonceProbe is null ? null : ScanLiveMatchingJavaNonce(receipt.JavaIdentity, receipt.Nonce, nonceProbe);
+        return MmcWrapperExit.Decide(new(wrapperState, MmcManagedJavaState.Absent, WrapperIdentityMatches: true, nonceMatchesJvm, ManagedJavaIdentityMatches: true)).Observation;
+    }
+
+    private static (MmcWrapperEntryState State, bool IdentityMatches) InspectWrapperEntry(
+        MmcSessionProcessIdentity wrapperRegistration, MmcExecutableIdentity? receiptWrapperIdentity) {
+        Process process;
+        try { process = Process.GetProcessById(wrapperRegistration.ProcessId); }
+        catch (ArgumentException) { return (MmcWrapperEntryState.Exited, true); }
+        try {
+            if (process.HasExited) return (MmcWrapperEntryState.Exited, true);
+            if (process.StartTime.ToUniversalTime().Ticks != wrapperRegistration.CreationTimeUtcTicks)
+                return (MmcWrapperEntryState.Alive, false);
+            MmcExecutableIdentity observed = MmcSessions.ObserveProcessExecutable(process);
+            bool matches = MmcSessions.SameExecutable(observed, wrapperRegistration.ExecutableIdentity) &&
+                           (receiptWrapperIdentity is null || MmcSessions.SameExecutable(observed, receiptWrapperIdentity));
+            return (MmcWrapperEntryState.Alive, matches);
+        } catch (Exception ex) when (IsInspectionFailure(ex)) {
+            return (MmcWrapperEntryState.Unobservable, true);
+        } finally { process.Dispose(); }
+    }
+
+    private (MmcManagedJavaState State, bool IdentityMatches, bool? NonceMatches) InspectManagedJava(
+        MmcSessionReceipt receipt, MmcSessionProcessRegistration registration) {
+        Process process;
+        try { process = Process.GetProcessById(registration.ProcessId); }
+        catch (ArgumentException) { return (MmcManagedJavaState.Absent, true, null); }
+        try {
+            if (process.HasExited) return (MmcManagedJavaState.Absent, true, null);
+            if (process.StartTime.ToUniversalTime().Ticks != registration.CreationTimeUtcTicks)
+                return (MmcManagedJavaState.Alive, false, null);
+            MmcExecutableIdentity observed = MmcSessions.ObserveProcessExecutable(process);
+            if (!MmcSessions.SameExecutable(observed, receipt.JavaIdentity) || !MmcSessions.SameExecutable(observed, registration.ExecutableIdentity))
+                return (MmcManagedJavaState.Alive, false, null);
+            bool? nonceMatches = nonceProbe?.Invoke(registration.ProcessId, receipt.Nonce);
+            return (MmcManagedJavaState.Alive, true, nonceMatches);
+        } catch (Exception ex) when (IsInspectionFailure(ex)) {
+            return (MmcManagedJavaState.Unobservable, true, null);
+        } finally { process.Dispose(); }
+    }
+
+    private static bool? ScanLiveMatchingJavaNonce(MmcExecutableIdentity javaIdentity, string nonce, Func<int, string, bool?> probe) {
+        string? targetProcessName = Path.GetFileNameWithoutExtension(javaIdentity.ExecutablePath);
+        if (string.IsNullOrEmpty(targetProcessName)) return null;
+        bool anyUnobservable = false;
+        Process[] candidates;
+        try { candidates = Process.GetProcessesByName(targetProcessName); }
+        catch (Exception ex) when (IsInspectionFailure(ex)) { return null; }
+
+        foreach (Process candidate in candidates) {
+            using (candidate) {
+                try {
+                    if (candidate.Id <= 4 || candidate.HasExited) continue;
+                    MmcExecutableIdentity observed = MmcSessions.ObserveProcessExecutable(candidate);
+                    if (!MmcSessions.SameExecutable(observed, javaIdentity)) continue;
+                    bool? match = probe(candidate.Id, nonce);
+                    if (match == true) return true;
+                    if (match is null) {
+                        if (!candidate.HasExited) anyUnobservable = true;
+                    }
+                } catch (ArgumentException) {
+                    // Process exited during inspection.
+                } catch (InvalidOperationException) {
+                    // Process exited before property read completed.
+                } catch (Exception ex) when (IsInspectionFailure(ex)) {
+                    anyUnobservable = true;
+                }
+            }
+        }
+        return anyUnobservable ? null : false;
+    }
+
+    private static bool HasExactCommandLineToken(string commandLine, string expectedToken) {
+        int i = 0, len = commandLine.Length;
+        StringBuilder token = new();
+        while (i < len) {
+            while (i < len && char.IsWhiteSpace(commandLine[i])) i++;
+            if (i >= len) break;
+            token.Clear();
+            bool inQuotes = false;
+            while (i < len) {
+                char c = commandLine[i];
+                if (!inQuotes && char.IsWhiteSpace(c)) break;
+                if (c == '\\') {
+                    int slashes = 0;
+                    while (i < len && commandLine[i] == '\\') { slashes++; i++; }
+                    if (i < len && commandLine[i] == '"') {
+                        token.Append('\\', slashes / 2);
+                        if ((slashes & 1) == 1) { token.Append('"'); i++; continue; }
+                        inQuotes = !inQuotes; i++;
+                        continue;
+                    }
+                    token.Append('\\', slashes);
+                    continue;
+                }
+                if (c == '"') {
+                    if (inQuotes && i + 1 < len && commandLine[i + 1] == '"') {
+                        token.Append('"'); i += 2; continue;
+                    }
+                    inQuotes = !inQuotes; i++;
+                    continue;
+                }
+                token.Append(c);
+                i++;
+            }
+            if (string.Equals(token.ToString(), expectedToken, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsInspectionFailure(Exception ex) =>
+        ex is ArgumentException or Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or NotSupportedException;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UNICODE_STRING {
+        public ushort Length;
+        public ushort MaximumLength;
+        public nint Buffer;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+    private static extern SafeProcessHandle OpenProcess(uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, int dwProcessId);
+
+    [DllImport("ntdll.dll", ExactSpelling = true)]
+    private static extern int NtQueryInformationProcess(SafeProcessHandle processHandle, int processInformationClass,
+        nint processInformation, uint processInformationLength, out uint returnLength);
 }

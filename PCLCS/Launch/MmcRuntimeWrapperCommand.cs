@@ -52,7 +52,16 @@ public static class MmcRuntimeWrapperCommand {
     /// receives each one as one argument: the inner argv is never joined into a string and never re-split.
     /// </summary>
     public static ProcessStartInfo Apply(ProcessStartInfo start, string command,
-        IReadOnlyDictionary<string, string> variables) {
+        IReadOnlyDictionary<string, string> variables) =>
+        Apply(start, command, variables, out _);
+
+    /// <summary>
+    /// Wraps one already-built Java invocation and returns the index in
+    /// <see cref="ProcessStartInfo.ArgumentList"/> where the inner JVM arguments begin (immediately after
+    /// the inner Java executable token), so session nonce injection never lands in the wrapper's own argv.
+    /// </summary>
+    public static ProcessStartInfo Apply(ProcessStartInfo start, string command,
+        IReadOnlyDictionary<string, string> variables, out int javaArgumentIndex) {
         ArgumentNullException.ThrowIfNull(start);
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(variables);
@@ -75,6 +84,7 @@ public static class MmcRuntimeWrapperCommand {
         for (int index = 1; index < tokens.Length; index++) wrapped.ArgumentList.Add(tokens[index]);
         // The inner invocation becomes the wrapper's child invocation: executable first, then its exact argv.
         wrapped.ArgumentList.Add(start.FileName);
+        javaArgumentIndex = wrapped.ArgumentList.Count;
         foreach (string argument in start.ArgumentList) wrapped.ArgumentList.Add(argument);
         wrapped.Environment.Clear();
         foreach (var pair in start.Environment) wrapped.Environment[pair.Key] = pair.Value;

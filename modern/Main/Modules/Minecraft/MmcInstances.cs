@@ -108,8 +108,10 @@ public static class MmcInstances {
         // it. Reporting it beside the completion hint keeps the requirement visible without failing an import
         // that is otherwise correct, and never turns it into a capability this launcher does not have.
         if (result.Diagnostics.Length != 0) {
+            foreach (var diagnostic in result.Diagnostics.Where(value => value.Severity == MmcDiagnosticSeverity.Information))
+                Logger.Info("MMC 导入说明 [" + diagnostic.Code + "]：" + diagnostic.Message);
             string[] differences = result.Diagnostics
-                .Where(value => value.Code is MmcDisplayDifference.ConsoleCode or MmcDisplayDifference.PermanentGenerationCode)
+                .Where(value => value.Severity >= MmcDiagnosticSeverity.Warning)
                 .Select(value => value.Message).ToArray();
             if (differences.Length != 0) ModBase.RunInUi(() => ModMain.Hint(string.Join("\n", differences), ModMain.HintType.Blue));
         }

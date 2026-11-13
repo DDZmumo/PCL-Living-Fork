@@ -28,6 +28,11 @@ public static class MmcLaunch {
     internal static Func<ModMinecraft.McInstance, MmcLaunchJavaSelection, bool> ConfirmVariantAdoption { get; set; } = (_, selection) =>
         ModBase.RunInUiWait(() => ModMain.MyMsgBox("此实例尚未使用 Java " + selection.RuntimeJava.Major +
             "。是否按整合包声明配置它并启动？", "配置 Java 环境", "配置并启动", "取消") == 1);
+    internal static Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool> ConfirmPackageCommands { get; set; } = (target, summary) =>
+        ModBase.RunInUiWait(() => ModMain.MyMsgBox(
+            "整合包“" + target.Name + "”配置了以下附加包内启动或包装命令，继续执行前请确认仅在信任该整合包来源时继续：\n\n" +
+            string.Join("\n", summary.Entries.Select(entry => entry.Stage + ": " + entry.RedactedCommand)),
+            "确认执行整合包命令", "信任并继续", "取消") == 1);
     public static bool KeepAliveWhileSessionsFinish() {
         if (Active.IsEmpty) return false;
         Interlocked.Exchange(ref closeAfterSessions, 1);
@@ -127,9 +132,10 @@ public static class MmcLaunch {
                     throw new IOException("Java 环境未完成配置：" + adopted.Failure);
                 primary = MmcSavedSourceStore.ReadPrimary(paths);
             }
-            // Package stage contract §1.2: PreLoadCommand must run after host preparation (paths, sources,
-            // preference capture, login wait, Java selection) and after any optional variant adoption, but
-            // strictly before the first launch-source progress point that loads this launch's runtime inputs.
+            // Package stage contract §1.2 & D13: fail-closed confirmation of active redacted package
+            // commands precedes the first package stage execution, and PreLoad runs without package Env.
+            EnsurePackageCommandsConfirmed(instance, saved.PackageConfiguration, CommandRedactionSecrets(), token);
+            EnsureGameRootDirectory(paths, primary.Definition.InstanceId, token);
             RunPackageCommand(MmcRuntimeCommandStage.PreLoad, null, token);
             var result = await backend.PrepareLaunchAsync(new(paths.InstanceRoot, java.Environment, primary.Definition.InstanceId,
                 primary.Definition.Generation), token).ConfigureAwait(false);
@@ -167,7 +173,7 @@ public static class MmcLaunch {
 
         public void Start(LegacyLaunchTask<int, Process> task) {
             CancellationToken token = task.CreateCancellationToken(); token.ThrowIfCancellationRequested();
-            MmcAdmissionLease admission = null;
+            QuiescedAdmission admission = null;
             var login = ModLaunch.McLoginLoader.Output;
             authentication.Revalidate(instance, login.Type, java.Java);
             var account = new MmcRuntimeAccountSnapshot(login.Name, login.Uuid, login.AccessToken,
@@ -184,8 +190,8 @@ public static class MmcLaunch {
             try {
                 // The named admission mutex is thread-affine. Block only this worker while the
                 // pure runtime reader finishes, retaining the same thread through Process.Start.
-                admission = MmcAdmissionGate.Acquire(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, TimeSpan.Zero, token);
-                MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission, prepared);
+                admission = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, token);
+                MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                 MmcLaunchPreferences.Revalidate(instance, preferences);
                 authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
                 runtime = MmcRuntimeLaunchBuilder.BuildAsync(request, token).GetAwaiter().GetResult();
@@ -208,7 +214,10 @@ public static class MmcLaunch {
                 // never be executed while holding it. On cancellation the lease is released by Dispose, and
                 // the catch below retires this session's freshly owned mutable directory.
                 admission.Dispose();
+                admission = null;
                 RunPackageCommand(MmcRuntimeCommandStage.PreLaunch, runtime, token);
+                bool wrapperManaged = runtime.Request.Settings.WrapperCommand is not null;
+                if (wrapperManaged) EnsurePackageCommandsConfirmed(instance, preferences.PackageConfiguration, CommandRedactionSecrets(), token);
                 // A package command may legitimately change an input byte, so the fingerprint must be
                 // recomputed from the re-observed inputs. Reusing the pre-command value would let a changed
                 // artifact reach the process under a stale receipt. The hot-plan path takes this same route.
@@ -222,16 +231,21 @@ public static class MmcLaunch {
                 }
                 // Re-acquire the gate for the continuous final validation → CreateProcess → Running
                 // registration window, which the contract requires to hold one uninterrupted lease.
-                admission = MmcAdmissionGate.Acquire(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, TimeSpan.Zero, token);
-                MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission, prepared);
+                admission = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, token);
+                MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                 MmcLaunchPreferences.Revalidate(instance, preferences);
                 authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
-                session = MmcSessions.Launch(admission, new(prepared.Definition.InstanceId, prepared.Definition.Generation, runtime.RuntimeInputFingerprint,
-                    MmcSessions.ObserveExecutable(java.Java.JavaExePath), MmcSessions.ObserveExecutable(Environment.ProcessPath!), runtime.CreateStartInfo(), prepared.Paths.GameRootLeaf) {
-                        SessionId = sessionId, RuntimeBinding = runtime.RuntimeBinding,RuntimeAuthority=runtimeAuthority
+                ProcessStartInfo startInfo = runtime.CreateStartInfo(out int nonceArgumentIndex);
+                MmcExecutableIdentity wrapperIdentity = wrapperManaged
+                    ? MmcSessions.ObserveExecutable(MmcSessions.ResolveExecutablePath(startInfo.FileName, startInfo.WorkingDirectory))
+                    : null;
+                session = MmcSessions.Launch(admission.Lease, new(prepared.Definition.InstanceId, prepared.Definition.Generation, runtime.RuntimeInputFingerprint,
+                    MmcSessions.ObserveExecutable(java.Java.JavaExePath), MmcSessions.ObserveExecutable(Environment.ProcessPath!), startInfo, prepared.Paths.GameRootLeaf) {
+                        SessionId = sessionId, RuntimeBinding = runtime.RuntimeBinding, RuntimeAuthority = runtimeAuthority,
+                        IsWrapperManaged = wrapperManaged, WrapperIdentity = wrapperIdentity, NonceArgumentIndex = nonceArgumentIndex
                     }, () => {
                         token.ThrowIfCancellationRequested();
-                        MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission, prepared);
+                        MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                         MmcLaunchPreferences.Revalidate(instance, preferences);
                         authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
                         MmcRuntimeLaunchBuilder.RevalidateFilesAsync(runtime, token).GetAwaiter().GetResult();
@@ -239,17 +253,33 @@ public static class MmcLaunch {
                     }, (id, identity) => pins.Acquire(id, identity, prepared.Definition.InstanceId, prepared.Paths.InstanceRoot, token));
             } catch {
                 // A durable Launching intent may already represent a live process. Abandon only
-                // when the session service confirms no active or uncertain record exists.
+                // when the session service confirms no active or uncertain record exists (or a
+                // failed owned wrapper tree already wrote its Exited.record).
+                admission?.Dispose();
+                admission = null;
                 if (runtime is not null && session is null) {
                     try {
-                        using var cleanup = MmcAdmissionGate.Acquire(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, TimeSpan.Zero);
-                        MmcSessionRuntimeDirectories.AbandonUnlaunched(cleanup, sessionId, runtime.RuntimeBinding,runtimeAuthority);
+                        using var cleanup = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, CancellationToken.None);
+                        string sessionDir = prepared.Paths.ResolveRelative(MmcPathRole.Instance, "PCL/MmcSessions/" + sessionId.ToString("N"));
+                        if (Directory.Exists(sessionDir) || File.Exists(sessionDir)) {
+                            var reconciled = MmcSessions.Reconcile(cleanup.Lease, sessionId,
+                                new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce),
+                                pins.ReleaseVerified, runtimeAuthority);
+                            if (reconciled.Observation != MmcSessionObservation.ProvenExited)
+                                throw new IOException("MMC 失败会话尚待恢复确认：" + reconciled.Diagnostic);
+                        } else {
+                            MmcSessionRuntimeDirectories.AbandonUnlaunched(cleanup.Lease, sessionId, runtime.RuntimeBinding, runtimeAuthority);
+                        }
                     } catch (Exception error) { Logger.Warn(error, "MMC 启动临时目录保留，等待会话恢复确认"); }
                 }
                 throw;
             } finally { admission?.Dispose(); }
             Active.TryAdd(sessionId, session);
-            _ = MonitorExitAsync(session, prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, monitoringFinished.Task, runtime, commandContext with { RedactionSecrets = RedactionSecrets(runtime) });
+            _ = MonitorExitAsync(session, instance, prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, monitoringFinished.Task, runtime,
+                commandContext with {
+                    RedactionSecrets = RedactionSecrets(runtime),
+                    TemporaryDirectory = runtime.MutableDirectories.TemporaryDirectory
+                }, CommandRedactionSecrets());
             ModLaunch.McLaunchProcess = session.Process;
             try {
                 ProcessCreated?.Invoke(sessionId, session.Process);
@@ -262,13 +292,17 @@ public static class MmcLaunch {
                     TryOptional(() => PersonalGameSettings.Finish((PersonalOptionsSession)options.PersonalOptions), "保存 MMC 个人游戏设置失败");
                     TryOptional(() => QuickPlayWorlds.Finish((QuickPlaySession)options.QuickPlay), "保存 MMC 最近存档记录失败");
                 }, LogRedactor: runtime.Redact, WindowTypeOverride: preferences.MaximizeWindow ? 4 : 0,
-                    OnMonitoringFinished: () => monitoringFinished.TrySetResult(), RequireVerifiedExit: true);
+                    OnMonitoringFinished: () => monitoringFinished.TrySetResult(), RequireVerifiedExit: true,
+                    AttachPipeOutput: session.HasOwnedPipes ? (onOut, onErr) => session.BeginReadPipes(onOut, onErr) : null,
+                    ArePipesDrained: session.HasOwnedPipes ? () => session.PipeDrainTask.IsCompleted : null,
+                    CustomTerminate: () => session.TerminateTree(),
+                    HasGroupExited: () => session.AreAllProcessesExited);
                 ModLaunch.McLaunchWatcher = watcher;
-                if ((task.IsCanceled || Volatile.Read(ref canceled) != 0) && !session.Process.HasExited) session.Process.Kill(entireProcessTree: true);
+                if ((task.IsCanceled || Volatile.Read(ref canceled) != 0) && !session.AreAllProcessesExited) session.TerminateTree();
                 task.Output = session.Process;
                 ModLaunch.McLaunchLog("已启动 MMC 受管理游戏会话：" + sessionId.ToString("N"));
             } catch {
-                if (!session.Process.HasExited) session.Process.Kill(entireProcessTree: true);
+                if (!session.AreAllProcessesExited) session.TerminateTree();
                 monitoringFinished.TrySetResult();
                 throw;
             }
@@ -276,14 +310,14 @@ public static class MmcLaunch {
         private void CancelGame() {
             Interlocked.Exchange(ref canceled, 1);
             _ = Task.Run(() => {
-                try { if (session is not null && !session.Process.HasExited) session.Process.Kill(entireProcessTree: true); }
+                try { if (session is not null && !session.AreAllProcessesExited) session.TerminateTree(); }
                 catch (Exception error) { Logger.Warn(error, "取消 MMC 游戏启动时保留会话监视器等待退出"); }
             });
         }
 
         public void Wait(LegacyLaunchTask<Process, int> task) {
             while (watcher.State == ModWatcher.Watcher.MinecraftState.Loading) {
-                if (task.IsCanceled && !session.Process.HasExited) session.Process.Kill(entireProcessTree: true);
+                if (task.IsCanceled && !session.AreAllProcessesExited) session.TerminateTree();
                 Thread.Sleep(100);
             }
             if (watcher.State == ModWatcher.Watcher.MinecraftState.Canceled) throw new OperationCanceledException();
@@ -306,10 +340,26 @@ public static class MmcLaunch {
         private void RunPackageCommand(MmcRuntimeCommandStage stage, MmcRuntimeLaunchPlan plan, CancellationToken token) {
             string command = MmcRuntimeCommandExecution.Read(commandContext, stage);
             if (command is null) return;
-            var context = plan is null ? commandContext : commandContext with { RedactionSecrets = RedactionSecrets(plan) };
+            EnsurePackageCommandsConfirmed(instance, commandContext.PackageConfiguration, CommandRedactionSecrets(), token);
+            var context = plan is null ? commandContext : commandContext with {
+                RedactionSecrets = RedactionSecrets(plan),
+                TemporaryDirectory = plan.MutableDirectories.TemporaryDirectory
+            };
             var variables = plan is null ? null : MmcRuntimeLaunchBuilder.CommandVariables(plan);
             MmcRuntimeCommandExecution.Execute(stage, context, variables, command, text => ModLaunch.McLaunchLog(text), token);
             if (stage == MmcRuntimeCommandStage.PreLaunch) preLaunchCommandRan = true;
+        }
+
+        private ImmutableArray<string> CommandRedactionSecrets() {
+            var loader = ModLaunch.McLoginLoader;
+            if (loader is null || loader.State != ModBase.LoadState.Finished) return [];
+            var login = loader.Output;
+            string sessionSecret = string.IsNullOrEmpty(login.AccessToken) || string.IsNullOrEmpty(login.Uuid)
+                ? null : "token:" + login.AccessToken + ":" + login.Uuid;
+            return new[] { login.AccessToken, sessionSecret, login.ClientToken }
+                .Where(value => !string.IsNullOrEmpty(value))
+                .Distinct(StringComparer.Ordinal)
+                .ToImmutableArray();
         }
 
         /// <summary>
@@ -336,33 +386,84 @@ public static class MmcLaunch {
         if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != WrapperSha256) throw new IOException("MMC JavaWrapper 资源摘要不符。");
         return bytes;
     }
-    private static void ReconcilePrevious(MmcInstancePaths paths, Guid instanceId, MmcJavaPinStore pins, CancellationToken token,MmcMutableRuntimeAuthority runtimeAuthority) {
-        using var admission = MmcAdmissionGate.Acquire(paths.InstanceRoot, instanceId, TimeSpan.Zero, token);
-        MmcFileTransactions.AssertNoPending(admission);
+    private static void EnsurePackageCommandsConfirmed(ModMinecraft.McInstance target, MmcConfiguration configuration,
+        ImmutableArray<string> secrets, CancellationToken token) {
+        var summary = MmcLaunchPreferences.CaptureActivePackageCommands(configuration, secrets);
+        if (summary is null) return;
+        if (MmcLaunchPreferences.IsPackageCommandsConfirmed(target, summary)) return;
+        if (!ConfirmPackageCommands(target, summary))
+            throw new OperationCanceledException("已取消执行未经确认的整合包命令。", token);
+        token.ThrowIfCancellationRequested();
+        MmcLaunchPreferences.ConfirmPackageCommands(target, summary);
+    }
+
+    private sealed class QuiescedAdmission(MmcConfigurationQuiescence quiet, MmcAdmissionLease lease) : IDisposable {
+        public MmcAdmissionLease Lease { get; } = lease;
+        public void Dispose() {
+            try { Lease.Dispose(); } finally { quiet.Dispose(); }
+        }
+    }
+
+    private static QuiescedAdmission AcquireQuiescedAdmission(string instanceRoot, Guid instanceId, CancellationToken token) {
+        var quiet = MmcConfigurationCoordinator.Quiesce(instanceRoot, token);
+        try {
+            return new(quiet, MmcAdmissionGate.Acquire(instanceRoot, instanceId, TimeSpan.Zero, token));
+        } catch {
+            quiet.Dispose();
+            throw;
+        }
+    }
+
+    private static void EnsureGameRootDirectory(MmcInstancePaths paths, Guid instanceId, CancellationToken token) {
+        if (Directory.Exists(paths.GameRoot)) return;
+        using var admission = AcquireQuiescedAdmission(paths.InstanceRoot, instanceId, token);
+        MmcFileTransactions.AssertNoPending(admission.Lease);
+        MmcSessions.AssertNoActive(admission.Lease);
+        MmcInstancePaths verified = MmcInstancePaths.Resolve(paths.InstanceRoot, paths.GameRootLeaf);
+        if (!Directory.Exists(verified.GameRoot)) Directory.CreateDirectory(verified.GameRoot);
+    }
+
+    private static void ReconcilePrevious(MmcInstancePaths paths, Guid instanceId, MmcJavaPinStore pins, CancellationToken token, MmcMutableRuntimeAuthority runtimeAuthority) {
+        using var admission = AcquireQuiescedAdmission(paths.InstanceRoot, instanceId, token);
+        MmcFileTransactions.AssertNoPending(admission.Lease);
         string directory = paths.ResolveRelative(MmcPathRole.Instance, "PCL/MmcSessions");
         if (!Directory.Exists(directory)) return;
         var entries = Directory.EnumerateFileSystemEntries(directory).Take(1025).ToArray();
         if (entries.Length > 1024) throw new IOException("MMC 会话记录超过恢复预算。");
         foreach (string entry in entries) {
             if (!Guid.TryParseExact(Path.GetFileName(entry), "N", out Guid id)) throw new IOException("MMC 存在无法识别的会话记录，需要恢复确认。");
-            var result = MmcSessions.Reconcile(admission, id, new MmcSessionProcessInspector(), pins.ReleaseVerified,runtimeAuthority);
+            var result = MmcSessions.Reconcile(admission.Lease, id,
+                new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce),
+                pins.ReleaseVerified, runtimeAuthority);
             if (result.Observation != MmcSessionObservation.ProvenExited)
                 throw new IOException("此 MMC 实例仍在运行或会话尚待确认：" + result.Diagnostic);
         }
     }
-    private static async Task MonitorExitAsync(MmcRunningSession session, string root, Guid instanceId, Task monitoringFinished,
-        MmcRuntimeLaunchPlan runtime, MmcRuntimeCommandContext commandContext) {
+    private static async Task MonitorExitAsync(MmcRunningSession session, ModMinecraft.McInstance instance, string root, Guid instanceId,
+        Task monitoringFinished, MmcRuntimeLaunchPlan runtime, MmcRuntimeCommandContext commandContext, ImmutableArray<string> commandSecrets) {
+        if (session.IsWrapperManaged && session.WrapperProcess is Process wrapperProcess) {
+            _ = wrapperProcess.WaitForExitAsync().ContinueWith(_ => {
+                try {
+                    if (!session.Process.HasExited)
+                        ModLaunch.McLaunchLog("MMC 包装入口进程已退出，受管 Java 进程仍在运行，会话继续保持活动状态。");
+                } catch { }
+            }, TaskScheduler.Default);
+        }
         bool reported = false, postExitDone = false;
         while (true) {
             try {
-                await session.Process.WaitForExitAsync().ConfigureAwait(false);
-                using (var admission = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10))) session.CompleteVerifiedExit(admission);
-                // PostExit runs after the durable exit receipt and before session cleanup. It is executed
-                // once: the surrounding loop re-runs only the receipt/settlement path after a failure.
+                await session.WaitForExitAsync().ConfigureAwait(false);
+                using (var admission = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10)))
+                    session.RecordVerifiedExit(admission);
+                // PostExit runs after Exited.record is persisted, outside the admission lock, and strictly
+                // BEFORE retiring mutable runtime directories (TEMP/TMP) or releasing the pin (contract §1.2, D9, D15).
                 if (!postExitDone) {
                     postExitDone = true;
-                    string? command = MmcRuntimeCommandExecution.Read(commandContext, MmcRuntimeCommandStage.PostExit);
+                    string command = MmcRuntimeCommandExecution.Read(commandContext, MmcRuntimeCommandStage.PostExit);
                     if (command is not null) try {
+                        var summary = MmcLaunchPreferences.CaptureActivePackageCommands(commandContext.PackageConfiguration!, commandSecrets);
+                        if (summary is null || !MmcLaunchPreferences.IsPackageCommandsConfirmed(instance, summary))
+                            throw new OperationCanceledException("PostExitCommand 缺少有效的命令集确认签名。");
                         // A PostExit failure is a diagnostic only. It neither rolls back the finished session
                         // nor rewrites its exit receipt, so it can never turn a clean exit into a failed one.
                         MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PostExit, commandContext, MmcRuntimeLaunchBuilder.CommandVariables(runtime), command, text => ModLaunch.McLaunchLog(text));
@@ -370,6 +471,8 @@ public static class MmcLaunch {
                         Logger.Warn(error, "MMC 包内命令（PostExitCommand）失败，已结束的会话保持不变");
                     }
                 }
+                using (var admission = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10)))
+                    session.FinalizeVerifiedExit(admission);
                 await monitoringFinished.ConfigureAwait(false);
                 Active.TryRemove(session.Receipt.SessionId, out _);
                 if (Active.IsEmpty && Interlocked.Exchange(ref closeAfterSessions, 0) != 0)

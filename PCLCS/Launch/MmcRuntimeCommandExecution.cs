@@ -25,6 +25,11 @@ public sealed record MmcRuntimeCommandContext(
     public PCLLF.MMCC.Core.MmcConfiguration? PackageConfiguration { get; init; }
     /// <summary>Live account secrets projected for redaction only; never expanded into a command.</summary>
     public ImmutableArray<string> RedactionSecrets { get; init; } = [];
+    /// <summary>
+    /// Session temporary directory (<c>PreLaunch</c> and <c>PostExit</c> only, D15); null before mutable
+    /// runtime paths exist (<c>PreLoad</c>), which must never inherit package <c>Env</c>.
+    /// </summary>
+    public string? TemporaryDirectory { get; init; }
 }
 
 public sealed record MmcRuntimeCommandResult(string Stage, string RedactedCommand, int ExitCode, string ExitCodeText);
@@ -66,7 +71,14 @@ public static class MmcRuntimeCommandExecution {
     /// </summary>
     public static string? Read(MmcRuntimeCommandContext context, MmcRuntimeCommandStage stage) {
         ArgumentNullException.ThrowIfNull(context);
-        var configuration = context.PackageConfiguration;
+        return Read(context.PackageConfiguration, stage);
+    }
+
+    /// <summary>
+    /// Reads the stage's command text directly from a package configuration. A source that is inactive
+    /// (<c>OverrideCommands=false</c>) keeps but never executes its value, so this returns null.
+    /// </summary>
+    public static string? Read(PCLLF.MMCC.Core.MmcConfiguration? configuration, MmcRuntimeCommandStage stage) {
         if (configuration is null) return null;
         if (!Truthy(configuration.Values.GetValueOrDefault("OverrideCommands") ?? configuration.Values.GetValueOrDefault("OverrideLaunchCmd"))) return null;
         string? text = configuration.Values.GetValueOrDefault(Field(stage));
@@ -96,7 +108,7 @@ public static class MmcRuntimeCommandExecution {
         // an expanded command text is never written, not even at failure time.
         log?.Invoke("执行 MMC 包内命令（" + StageName(stage) + "）：" + redacted);
         string expanded = Expand(command, Variables(context, planVariables), context.RedactionSecrets);
-        using var process = Start(context.GameRoot, expanded);
+        using var process = Start(stage, context, expanded);
         if (process is null) throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND", "包内命令进程无法创建。");
         try {
             while (!process.WaitForExit(CancellationPollMilliseconds)) {
@@ -130,16 +142,28 @@ public static class MmcRuntimeCommandExecution {
         }
     }
 
-    private static Process? Start(string gameRoot, string text) {
-        // cmd.exe with an ArgumentList is the frozen execution host. Concatenating one Arguments string
-        // (the legacy form) is exactly what the contract forbids, so it is never constructed here.
+    private static Process? Start(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context, string text) {
+        // cmd.exe does not parse C-runtime backslash-quote escaping (`\"`), so passing quoted paths
+        // through ProcessStartInfo.ArgumentList turns `"path"` into `\"path\"`. Using `/d /s /c "<command>"`
+        // in Arguments makes cmd.exe disable AutoRun (/d) and strip only the outermost quotes (/s)
+        // while delivering the command text with embedded quotes verbatim.
         var start = new ProcessStartInfo("cmd.exe") {
-            UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = gameRoot
+            UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = context.GameRoot,
+            Arguments = "/d /s /c \"" + text + "\""
         };
-        start.ArgumentList.Add("/d");
-        start.ArgumentList.Add("/s");
-        start.ArgumentList.Add("/c");
-        start.ArgumentList.Add(text);
+        if (stage is MmcRuntimeCommandStage.PreLaunch or MmcRuntimeCommandStage.PostExit) {
+            ImmutableArray<PCLLF.MMCC.Core.MmcEnvironmentVariable> mapping = context.PackageConfiguration?.EnvironmentOverride ?? [];
+            if (mapping.IsDefault)
+                throw new MmcRuntimeLaunchException("MMC_RUNTIME_ENV_SETTINGS", "包内环境映射必须为显式列表。");
+            if (!string.IsNullOrWhiteSpace(context.TemporaryDirectory)) {
+                string temporaryDirectory = Path.GetFullPath(context.TemporaryDirectory);
+                if (!Path.IsPathFullyQualified(context.TemporaryDirectory) || !MmcInstancePaths.CheckDirectoryRole(temporaryDirectory))
+                    throw new MmcRuntimeLaunchException("MMC_RUNTIME_ENV_SETTINGS", "会话临时目录必须是已物化的绝对路径。");
+                MmcRuntimeEnvironmentOverlay.Apply(start.Environment, mapping, temporaryDirectory);
+            } else if (!mapping.IsEmpty) {
+                throw new MmcRuntimeLaunchException("MMC_RUNTIME_ENV_SETTINGS", "包内环境覆盖要求活动会话的临时目录。");
+            }
+        }
         return StartProcess(start);
     }
 
@@ -210,7 +234,7 @@ public static class MmcRuntimeCommandExecution {
         return Redact(expanded, secrets);
     }
 
-    internal static string Redact(string text, ImmutableArray<string> secrets) {
+    public static string Redact(string text, ImmutableArray<string> secrets) {
         if (secrets.IsDefaultOrEmpty) return text;
         foreach (string secret in secrets) {
             if (secret is null || secret.Length < 4) continue;

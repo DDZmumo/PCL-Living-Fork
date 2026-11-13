@@ -101,10 +101,10 @@ namespace PCL
             public List<string> WaitingLog = new List<string>(1000);
             public ConcurrentQueue<string> LatestLog = new ConcurrentQueue<string>();
             private readonly LegacyWatcher<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, MinecraftState> Native;
-            public Watcher(PCL.ModLoader.LoaderTask<Process, int> Loader, PCL.ModMinecraft.McInstance Instance, string WindowTitle, Action<Process> BeforeMonitoring = null, Action OnStopped = null, string EnvironmentPoint = null, Func<string, string> LogRedactor = null, int? WindowTypeOverride = null, Action OnMonitoringFinished = null, bool RequireVerifiedExit = false)
+            public Watcher(PCL.ModLoader.LoaderTask<Process, int> Loader, PCL.ModMinecraft.McInstance Instance, string WindowTitle, Action<Process> BeforeMonitoring = null, Action OnStopped = null, string EnvironmentPoint = null, Func<string, string> LogRedactor = null, int? WindowTypeOverride = null, Action OnMonitoringFinished = null, bool RequireVerifiedExit = false, Action<Action<string>, Action<string>> AttachPipeOutput = null, Func<bool> ArePipesDrained = null, Action CustomTerminate = null, Func<bool> HasGroupExited = null)
             {
                 Native = new LegacyWatcher<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, MinecraftState>(this, Host, Group);
-                Native.Initialize(Loader, Instance, WindowTitle, BeforeMonitoring, OnStopped, EnvironmentPoint, LogRedactor, WindowTypeOverride, OnMonitoringFinished, RequireVerifiedExit);
+                Native.Initialize(Loader, Instance, WindowTitle, BeforeMonitoring, OnStopped, EnvironmentPoint, LogRedactor, WindowTypeOverride, OnMonitoringFinished, RequireVerifiedExit, AttachPipeOutput, ArePipesDrained, CustomTerminate, HasGroupExited);
             }
 
             public MinecraftState State

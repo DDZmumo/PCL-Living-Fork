@@ -26,6 +26,15 @@ internal static class MmcInstanceExportPreferences {
         // OverrideEnv=false and silently dropped from the exported instance.
         if (!package.EnvironmentOverride.IsEmpty)
             throw new InvalidDataException("An active OverrideEnv/Env mapping has no verified portable export encoding; the requirement is retained rather than silently omitted.");
+        // Active package commands (PreLoad/PreLaunch/Wrapper/PostExit) bind host shell/executable
+        // requirements without a verified portable round-trip boundary, so refuse instead of writing
+        // OverrideCommands=false and silently dropping them.
+        bool commandsOverride = package.Values.ContainsKey("OverrideCommands")
+            ? ReadFlag(package.Values, "OverrideCommands")
+            : ReadFlag(package.Values, "OverrideLaunchCmd");
+        if (commandsOverride && new[] { "PreLoadCommand", "PreLaunchCommand", "WrapperCommand", "PostExitCommand" }
+            .Any(key => !string.IsNullOrWhiteSpace(package.Values.GetValueOrDefault(key))))
+            throw new InvalidDataException("An active OverrideCommands/package command mapping has no verified portable export boundary; the requirement is retained rather than silently omitted.");
         // The console and PermGen groups have no equivalent in this launcher, so this export cannot carry them
         // either. They are recorded as an explicit adjustment instead of disappearing from the exported
         // instance unannounced; the receiver is told the requirement was dropped and never that it was

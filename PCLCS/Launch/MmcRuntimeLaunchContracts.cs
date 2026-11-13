@@ -102,11 +102,19 @@ public sealed class MmcRuntimeLaunchPlan {
         this.secrets = secrets; encodingName = request.Settings.StreamEncodingName;
         EffectiveJvmArguments = effectiveJvmArguments;
     }
-    public ProcessStartInfo CreateStartInfo() {
+    public ProcessStartInfo CreateStartInfo() => CreateStartInfo(out _);
+
+    /// <summary>
+    /// Builds the process start descriptor and reports the index in <see cref="ProcessStartInfo.ArgumentList"/>
+    /// where the host session layer must insert <c>-Dpcllf.mmc.session=&lt;nonce&gt;</c> (always 0 for a direct
+    /// Java entry; immediately after the inner Java executable token when a package wrapper is active).
+    /// </summary>
+    public ProcessStartInfo CreateStartInfo(out int nonceArgumentIndex) {
         string? wrapper = Request.Settings.WrapperCommand;
+        string noncePlaceholder = MmcSessions.NonceArgumentPrefix + new string('0', 32);
         // The un-wrapped line must fit even when a wrapper is declared, because the wrapper re-emits this exact
-        // argv as its child arguments: the inner line is a real command line of its own.
-        if (OperatingSystem.IsWindows()) MmcRuntimeWindowsCommandLine.Validate(Request.Java.ExecutablePath, arguments);
+        // argv as its child arguments (with the session nonce property): the inner line is a real command line of its own.
+        if (OperatingSystem.IsWindows()) MmcRuntimeWindowsCommandLine.Validate(Request.Java.ExecutablePath, arguments.Prepend(noncePlaceholder));
         var start = new ProcessStartInfo(Request.Java.ExecutablePath) {
             UseShellExecute = false, WorkingDirectory = Request.Paths.GameRoot, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
@@ -116,10 +124,16 @@ public sealed class MmcRuntimeLaunchPlan {
         MmcRuntimeEnvironmentOverlay.Apply(start.Environment, Request.Settings.EnvironmentOverride, MutableDirectories.TemporaryDirectory);
         // The wrapper composes with the Java-wrapper mode already encoded in `arguments`: it becomes the entry,
         // and the inner Java invocation (JavaWrapper or DirectMain, unchanged) becomes its child.
-        if (wrapper is null) return start;
-        ProcessStartInfo wrapped = MmcRuntimeWrapperCommand.Apply(start, wrapper, MmcRuntimeWrapperCommand.Variables(this));
-        // F-07: the wrapper line, not only the inner line, must fit the Windows command line budget.
-        if (OperatingSystem.IsWindows()) MmcRuntimeWindowsCommandLine.Validate(wrapped.FileName, wrapped.ArgumentList);
+        if (wrapper is null) {
+            nonceArgumentIndex = 0;
+            return start;
+        }
+        ProcessStartInfo wrapped = MmcRuntimeWrapperCommand.Apply(start, wrapper, MmcRuntimeWrapperCommand.Variables(this), out nonceArgumentIndex);
+        // F-07: the wrapped invocation with its injected inner session nonce must fit the Windows command line budget.
+        if (OperatingSystem.IsWindows()) {
+            var withNonce = wrapped.ArgumentList.Take(nonceArgumentIndex).Append(noncePlaceholder).Concat(wrapped.ArgumentList.Skip(nonceArgumentIndex));
+            MmcRuntimeWindowsCommandLine.Validate(wrapped.FileName, withNonce);
+        }
         return wrapped;
     }
     public string Redact(string text) {

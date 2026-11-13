@@ -23,6 +23,8 @@ public sealed record MmcLaunchJavaPreference(MmcLaunchPreferenceMode Mode, strin
 public sealed record MmcLaunchCustomCommand(string Command, bool WaitForExit) {
     public override string ToString() => "MMC user launch command [redacted]";
 }
+public sealed record MmcPackageCommandEntry(string Stage, string RedactedCommand);
+public sealed record MmcPackageCommandSummary(string Fingerprint, ImmutableArray<MmcPackageCommandEntry> Entries);
 public sealed class MmcLaunchPreferenceSnapshot {
     public MmcRuntimeSettingsSnapshot RuntimeSettings { get; }
     public MmcLaunchJavaPreference JavaPreference { get; }
@@ -39,6 +41,12 @@ public sealed class MmcLaunchPreferenceSnapshot {
 }
 
 public static class MmcLaunchPreferences {
+    /// <summary>
+    /// Instance INI key holding the SHA-256 fingerprint of user-confirmed active package commands
+    /// (contract D13). Kept outside <see cref="InstanceKeys"/> so confirmation before/between steps
+    /// never invalidates <see cref="MmcLaunchPreferenceSnapshot.SettingsFingerprint"/>.
+    /// </summary>
+    public const string PackageCommandConfirmedKey = "MmcPackageCommandConfirmed";
     private static readonly string[] GlobalKeys = ["LaunchAdvanceJvm", "LaunchAdvanceGame", "LaunchAdvanceRun", "LaunchAdvanceRunWait",
         "LaunchAdvanceDisableJLW", "LaunchRamType", "LaunchRamCustom", "LaunchArgumentWindowType", "LaunchArgumentWindowWidth", "LaunchArgumentWindowHeight"];
     private static readonly string[] InstanceKeys = ["MmcJavaLocationMode", "MmcJvmArgsMode", "MmcMemoryMode", "MmcWindowMode", "VersionArgumentJavaSelect",
@@ -231,4 +239,46 @@ public static class MmcLaunchPreferences {
         try { return MmcArgumentTokenizer.Tokenize(value); } catch (FormatException error) { throw new InvalidDataException(label + "引号或转义无效。", error); }
     }
     private static void Size(int width, int height) { if (width is < 1 or > 32768 || height is < 1 or > 32768) throw new InvalidDataException("窗口尺寸必须在 1–32768 范围内。"); }
+
+    /// <summary>
+    /// Summarizes all currently active package commands (<c>PreLoadCommand</c>, <c>PreLaunchCommand</c>,
+    /// <c>PostExitCommand</c>, <c>WrapperCommand</c>) using only redacted command templates and computes a
+    /// deterministic fingerprint for confirmation checks (D13). Returns null when no package command is active.
+    /// </summary>
+    public static MmcPackageCommandSummary CaptureActivePackageCommands(MmcConfiguration packageConfiguration, IEnumerable<string> secrets = null) {
+        if (packageConfiguration is null) return null;
+        var secretList = secrets?.Where(s => !string.IsNullOrEmpty(s)).Distinct(StringComparer.Ordinal).ToImmutableArray() ?? [];
+        var entries = ImmutableArray.CreateBuilder<MmcPackageCommandEntry>();
+        foreach (var stage in new[] { MmcRuntimeCommandStage.PreLoad, MmcRuntimeCommandStage.PreLaunch, MmcRuntimeCommandStage.PostExit }) {
+            string text = MmcRuntimeCommandExecution.Read(packageConfiguration, stage);
+            if (text is not null) entries.Add(new(MmcRuntimeCommandExecution.StageName(stage), MmcRuntimeCommandExecution.Redact(text, secretList)));
+        }
+        string wrapper = MmcRuntimeWrapperCommand.Read(packageConfiguration);
+        if (wrapper is not null) entries.Add(new("WrapperCommand", MmcRuntimeCommandExecution.Redact(wrapper, secretList)));
+        if (entries.Count == 0) return null;
+
+        var parts = new List<string> { "PCLLF.MmcPackageCommands/v1" };
+        foreach (var entry in entries) { parts.Add(entry.Stage); parts.Add(entry.RedactedCommand); }
+        string digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Concat(parts.Select(p => p.Length.ToString(CultureInfo.InvariantCulture) + ":" + p)))));
+        return new(digest, entries.ToImmutable());
+    }
+
+    /// <summary>Returns true only when the active package command fingerprint matches persisted instance confirmation.</summary>
+    public static bool IsPackageCommandsConfirmed(ModMinecraft.McInstance instance, MmcPackageCommandSummary summary) {
+        ArgumentNullException.ThrowIfNull(instance);
+        ArgumentNullException.ThrowIfNull(summary);
+        var view = MmcIniConfiguration.CapturePreferences(instance.Config);
+        return view.Ini.TryGetValue(PackageCommandConfirmedKey, out string confirmed) &&
+               string.Equals(confirmed, summary.Fingerprint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Persists confirmation for the specified active package command fingerprint under <c>PCL\Setup.ini</c>.</summary>
+    public static void ConfirmPackageCommands(ModMinecraft.McInstance instance, MmcPackageCommandSummary summary) {
+        ArgumentNullException.ThrowIfNull(instance);
+        ArgumentNullException.ThrowIfNull(summary);
+        MmcIniConfiguration.QueuePreferenceBatch(instance.Config, new Dictionary<string, string> {
+            [PackageCommandConfirmedKey] = summary.Fingerprint
+        });
+    }
 }

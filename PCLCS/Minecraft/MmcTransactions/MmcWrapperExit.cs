@@ -60,6 +60,10 @@ public static class MmcWrapperExit {
                         "包装程序已退出，但受管 Java 进程仍存活，本次会话仍在运行。", false, false)
                     : new(MmcSessionObservation.MatchingRunning, null, false, false);
             case MmcManagedJavaState.Absent:
+                if (facts.WrapperEntryState == MmcWrapperEntryState.Unobservable)
+                    return Unknown("包装入口进程状态无法观察，不能断言已退出。");
+                if (facts.WrapperEntryState == MmcWrapperEntryState.Alive)
+                    return new(MmcSessionObservation.MatchingRunning, "包装入口进程仍在运行，受管进程组尚未完全退出。", false, false);
                 // Only a nonce-confirmed observation can turn "not found" into "proven gone": without that
                 // evidence the absence may be an access failure or a different process.
                 if (facts.NonceMatchesJvm is null)

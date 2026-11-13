@@ -24,6 +24,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 var definition = primary.Definition;
                 var paths = MmcInstancePaths.Resolve(request.VersionRoot, definition.Layout.GameRootLeaf);
                 MmcManagementResult management;
+                using (var quiet = MmcConfigurationCoordinator.Quiesce(paths.InstanceRoot, cancellationToken))
                 using (var lease = MmcAdmissionGate.Acquire(paths.InstanceRoot, definition.InstanceId, TimeSpan.Zero, cancellationToken)) {
                     AssertPrimary(lease, paths, primary, allowIncomplete: true);
                     management = MmcManagementProbe.Read(paths.InstanceRoot);
@@ -76,6 +77,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                                 prepared.GameAssetsRoot ?? Path.Combine(view, "assets")), files);
                         progress?.Report(new("launch-bind-complete"));
                         progress?.Report(new("launch-final-validation-start"));
+                        using (var quiet = MmcConfigurationCoordinator.Quiesce(paths.InstanceRoot, cancellationToken))
                         using (var lease = MmcAdmissionGate.Acquire(paths.InstanceRoot, definition.InstanceId, TimeSpan.Zero, cancellationToken))
                             ValidatePreparedLaunch(lease, snapshot, cancellationToken);
                         progress?.Report(new("launch-final-validation-complete"));
