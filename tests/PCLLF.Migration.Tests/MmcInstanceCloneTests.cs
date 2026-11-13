@@ -112,7 +112,10 @@ internal static class MmcInstanceCloneTests {
         using var provider = new InstanceConfigProvider(sourcePaths.InstanceRoot);
         using var quiet = MmcConfigurationCoordinator.Quiesce(sourcePaths.InstanceRoot);
         MmcIniConfiguration.QueuePreferenceBatch(provider, new Dictionary<string, string?> { ["MmcJvmArgsMode"] = "Custom", ["VersionAdvanceJvm"] = "" });
-        var reservation = new MmcInstanceCloneReservation(fixture.SourceRoot, fixture.TargetRoot, source.Definition!.Origin.PackageSha256);
+        // The reservation holds a producer-use lease (FileShare.Read) on the private root; without
+        // deterministic release the fixture cannot delete its temporary tree. Disposing it here is the
+        // same contract the product honours in MmcInstanceCloneBackend (leases first, then the reservation).
+        using var reservation = new MmcInstanceCloneReservation(fixture.SourceRoot, fixture.TargetRoot, source.Definition!.Origin.PackageSha256);
         var targetPaths = MmcInstancePaths.Resolve(reservation.TemporaryRoot, source.Definition.Layout.GameRootLeaf);
         List<MmcAdmissionLease> leases = [];
         try {

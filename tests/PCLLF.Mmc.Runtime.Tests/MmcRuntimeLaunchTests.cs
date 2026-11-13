@@ -21,6 +21,8 @@ internal static partial class MmcRuntimeLaunchTests {
         yield return ("MMC manifest absent inputs remain gated through final admission and actual JDK file URLs", ManifestAbsentInputs);
         yield return ("MMC short owned native paths load the same locked SDL3 through actual Java21 and LWJGL", ShortNativePaths);
         yield return ("MMC owned authentication agents retain runtime authority privacy and Java constraints", AuthenticationAgents);
+        yield return ("MMC launch plan applies the package environment mapping at the real process boundary", EnvironmentBoundary);
+        yield return ("MMC package wrapper composes with each Java wrapper mode at the real process boundary", WrapperCommandBoundary);
     }
     private static void BridgeIdentity() {
         byte[] bytes = MmcRuntimeBridgeTransport.CreateJarBytes();
@@ -431,8 +433,97 @@ public final class TestLoader extends ClassLoader {
     }
     private static void WriteInt(Stream output, int value) { Span<byte> bytes = stackalloc byte[4]; System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(bytes, value); output.Write(bytes); }
     private static string UrlBase64(byte[] bytes) => Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-    private static void ExpectArgument(Action operation) { try { operation(); } catch (ArgumentException) { return; } throw new Exception("Expected bounded transport argument refusal."); }
-    private static byte[] WithFile(byte[] originalJar, string name, byte[] contents) {
+    private static void EnvironmentBoundary() {
+        // Exercises the genuine plan and its genuine CreateStartInfo(), so the mapping is proven to reach
+        // the boundary the launcher actually starts, not merely a helper of the same shape.
+        using (Fixture fixture = new(loader: false)) {
+            // No mapping: the launcher-owned temporary directory is asserted and no package entry appears.
+            var plain = MmcRuntimeLaunchBuilder.BuildAsync(fixture.Request).GetAwaiter().GetResult();
+            var baseline = plain.CreateStartInfo();
+            Require(baseline.Environment["TEMP"] == plain.MutableDirectories.TemporaryDirectory && baseline.Environment["TMP"] == plain.MutableDirectories.TemporaryDirectory,
+                "The launcher-owned temporary directory was not asserted on the real start info.");
+            Require(!baseline.Environment.ContainsKey("PACK_ONE") && !baseline.Environment.ContainsKey("PACK_TWO"), "A mapping appeared without being declared.");
+            fixture.RemoveMutable(plain);
+        }
+        using (Fixture fixture = new(loader: false)) {
+            // An active mapping is overlaid literally and cannot displace the launcher boundary.
+            var mapped = fixture.Request with { Settings = fixture.Request.Settings with { EnvironmentOverride = [
+                new("PACK_ONE", "${INST_DIR}/literal"), new("PACK_TWO", "中文 value 😀"), new("PACK_EMPTY", "")] } };
+            var plan = MmcRuntimeLaunchBuilder.BuildAsync(mapped).GetAwaiter().GetResult();
+            var observed = plan.CreateStartInfo();
+            Require(observed.Environment["PACK_ONE"] == "${INST_DIR}/literal", "A package environment value was macro-expanded at the real boundary.");
+            Require(observed.Environment["PACK_TWO"] == "中文 value 😀", "Unicode in a package environment value changed.");
+            Require(observed.Environment["PACK_EMPTY"] == "", "An explicit empty package environment value was dropped.");
+            Require(observed.Environment["TEMP"] == plan.MutableDirectories.TemporaryDirectory && observed.Environment["TMP"] == plan.MutableDirectories.TemporaryDirectory,
+                "A package mapping displaced the launcher-owned temporary directory.");
+            // The managed launch re-copies this same block under session admission and must keep it.
+            MmcRuntimeLaunchBuilder.RevalidateFilesAsync(plan).GetAwaiter().GetResult();
+            var revalidated = plan.CreateStartInfo();
+            Require(revalidated.Environment["PACK_ONE"] == "${INST_DIR}/literal" && revalidated.Environment["TEMP"] == plan.MutableDirectories.TemporaryDirectory,
+                "The environment block changed across file revalidation.");
+            fixture.RemoveMutable(plan);
+        }
+        using (Fixture fixture = new(loader: false)) {
+            // A reserved package name is refused by the genuine builder, not silently dropped.
+            var reserved = fixture.Request with { Settings = fixture.Request.Settings with { EnvironmentOverride = [new("TEMP", @"C:\attacker")] } };
+            Expect("MMC_RUNTIME_ENV_RESERVED", () => MmcRuntimeLaunchBuilder.BuildAsync(reserved).GetAwaiter().GetResult());
+        }
+    }
+    private static void WrapperCommandBoundary() {
+        // D6: the package wrapper composes with the launcher's own JavaWrapper/DirectMain mode; it never
+        // replaces it. Both modes are exercised through the genuine plan and the genuine CreateStartInfo().
+        foreach (var mode in new[] { MmcRuntimeWrapperMode.JavaWrapper, MmcRuntimeWrapperMode.DirectMain }) {
+            // One fixture so the inner argv is compared against itself: two fixtures would differ in their
+            // absolute owned paths, and a path difference would mask a real argv change.
+            using Fixture fixture = new(multiRelease: false, wrapperMode: mode);
+            // The un-wrapped baseline: this is the inner invocation the wrapper must carry unchanged.
+            var plain = MmcRuntimeLaunchBuilder.BuildAsync(fixture.Request).GetAwaiter().GetResult();
+            var inner = plain.CreateStartInfo();
+            string innerEntry = inner.FileName;
+            string[] innerArguments = [.. inner.ArgumentList];
+            fixture.RemoveMutable(plain);
+
+            var request = fixture.Request with { Settings = fixture.Request.Settings with { WrapperCommand = "wrapper.exe --flag \"two words\" ${INST_MC_DIR}" } };
+            var plan = MmcRuntimeLaunchBuilder.BuildAsync(request).GetAwaiter().GetResult();
+            var outer = plan.CreateStartInfo();
+            // The wrapper is the entry, and the inner Java invocation is its child invocation: entry first, then
+            // the exact inner argv. Nothing is joined into one string and nothing is re-split.
+            Require(outer.FileName.EndsWith("wrapper.exe", StringComparison.OrdinalIgnoreCase), "The package wrapper was not the process entry.");
+            Require(!outer.FileName.Equals(innerEntry, StringComparison.OrdinalIgnoreCase), "The wrapper did not replace the inner entry.");
+            // The wrapper's own tokens are the entry plus its two arguments, then the inner entry and its argv.
+            Require(outer.ArgumentList.Count == 3 + 1 + innerArguments.Length,
+                "The wrapper did not re-emit exactly the inner argv: outer=" + outer.ArgumentList.Count + " inner=" + innerArguments.Length);
+            Require(outer.ArgumentList[0] == "--flag" && outer.ArgumentList[1] == "two words", "Wrapper tokens were re-split or quoted differently.");
+            // The variable reaches the wrapper in the same forward-slash Java form the stage commands use.
+            Require(outer.ArgumentList[2] == MmcRuntimeCommandExecution.CommandPath(fixture.Request.Paths.GameRoot),
+                "The wrapper did not expand its instance variable: got [" + outer.ArgumentList[2] + "]");
+            Require(outer.ArgumentList[3] == innerEntry, "The inner executable was not passed as the wrapper's child entry.");
+            Require(outer.ArgumentList.Skip(4).SequenceEqual(innerArguments), "The inner argv changed when it was passed through the wrapper.");
+            // The wrapper mode is preserved inside the inner argv, so the two capabilities composed.
+            string[] carried = [.. outer.ArgumentList.Skip(4)];
+            if (mode == MmcRuntimeWrapperMode.JavaWrapper) Require(carried.Any(a => a.Contains("oolloo.jlw.Wrapper", StringComparison.Ordinal)), "The JavaWrapper inner argv was lost under a package wrapper.");
+            else Require(carried.Contains("fixture.Probe"), "The DirectMain inner argv was lost under a package wrapper.");
+            // The environment block and working directory are unchanged: the wrapper inherits the session boundary.
+            Require(outer.Environment["TEMP"] == plan.MutableDirectories.TemporaryDirectory && outer.Environment["TMP"] == plan.MutableDirectories.TemporaryDirectory,
+                "The wrapper displaced the launcher-owned temporary directory.");
+            Require(outer.WorkingDirectory == fixture.Request.Paths.GameRoot, "The wrapper changed the frozen working directory.");
+            Require(!outer.UseShellExecute && string.IsNullOrEmpty(outer.Arguments), "The wrapper used a shell or one concatenated argument string.");
+            fixture.RemoveMutable(plan);
+        }
+        // A fresh fixture per refusal: each plan consumes its own owned mutable directory.
+        using (Fixture refused = new(loader: false)) {
+            var unknown = refused.Request with { Settings = refused.Request.Settings with { WrapperCommand = "wrapper.exe ${INST_NOT_A_REAL_VARIABLE}" } };
+            Expect("MMC_RUNTIME_VARIABLE", () => MmcRuntimeLaunchBuilder.BuildAsync(unknown).GetAwaiter().GetResult().CreateStartInfo());
+        }
+        using (Fixture refused = new(loader: false)) {
+            // A credential reference can never reach the boundary through cfg — the reader refuses it first — but
+            // a hand-built request can present it, and the boundary still refuses to bind it rather than
+            // silently substituting an empty value.
+            var credential = refused.Request with { Settings = refused.Request.Settings with { WrapperCommand = "wrapper.exe ${auth_access_token}" } };
+            Expect("MMC_RUNTIME_VARIABLE", () => MmcRuntimeLaunchBuilder.BuildAsync(credential).GetAwaiter().GetResult().CreateStartInfo());
+        }
+    }
+    private static void ExpectArgument(Action operation) { try { operation(); } catch (ArgumentException) { return; } throw new Exception("Expected bounded transport argument refusal."); }    private static byte[] WithFile(byte[] originalJar, string name, byte[] contents) {
         Dictionary<string, byte[]> files = new(StringComparer.Ordinal);
         using (var input = new MemoryStream(originalJar)) using (var jar = new ZipArchive(input, ZipArchiveMode.Read)) foreach (var entry in jar.Entries) {
             using var body = entry.Open(); using var copy = new MemoryStream(); body.CopyTo(copy); files.Add(entry.FullName, copy.ToArray());

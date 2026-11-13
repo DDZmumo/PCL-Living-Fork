@@ -46,9 +46,16 @@ public sealed record MmcComponent(
 
 public enum MmcConfigurationFormat { Absent, Legacy, QtScalar }
 public sealed record MmcOpaquePackageMetadata(string RelativePath, string? ContentSha256);
+/// <summary>One ordered active cfg environment entry. The value is literal: cfg decoding applies, macro expansion does not.</summary>
+public sealed record MmcEnvironmentVariable(string Name, string Value);
 public sealed record MmcConfiguration(
     MmcConfigurationFormat Format, ImmutableDictionary<string, string> Values) {
     public string? Name => Values.GetValueOrDefault("name");
+    /// <summary>
+    /// Ordered mapping of an active <c>OverrideEnv / Env</c>, in source order. Empty when the source
+    /// declares no active mapping; the managed process then inherits the host's base environment.
+    /// </summary>
+    public ImmutableArray<MmcEnvironmentVariable> EnvironmentOverride { get; init; } = [];
 }
 
 /// <summary>A parsed source bundle, deliberately not an executable or install-ready launch plan.</summary>

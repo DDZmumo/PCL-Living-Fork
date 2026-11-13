@@ -55,6 +55,7 @@ internal static partial class MmcInstanceBackendTests {
         yield return ("MMC backend rejects damaged authority and retains interrupted import ownership", FailureIsolation);
         yield return ("MMC launch preparation keeps complete generations and repairs only missing managed inputs offline", LaunchPreparation);
         yield return ("MMC launch preparation rejects stale identity, new variants and damaged support without adopting bytes", LaunchRefusals);
+        yield return ("MMC import reports console and PermGen requirements as inert differences instead of substituting", PreferenceDifferences);
         yield return ("MMC private payload placement binds measured files and preserves canceled or conflicting private roots", PrivatePayload);
         yield return ("MMC initial import publishes thousands of tiny files without journal body copies", BulkPayloadImport);
         yield return ("MMC initial private payload cancellation and post-decision corruption never publish a final root", BulkPayloadFailure);
@@ -123,13 +124,22 @@ internal static partial class MmcInstanceBackendTests {
         const int tinyFiles = 2000;
         using Fixture fixture = new(tinyFiles);
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
-        int moved = 0, verified = 0; long movedBytes = 0, verifiedBytes = 0;
+        int moved = 0, verified = 0, announcedFiles = 0; long movedBytes = 0, verifiedBytes = 0;
         long? payloadStarted = null, payloadFinished = null;
         var result = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)),
             progress: new BackendProgress(value => {
                 if (value.Phase == "installing-package") payloadStarted = elapsed.ElapsedMilliseconds;
                 if (value.Phase == "publishing-instance") payloadFinished = elapsed.ElapsedMilliseconds;
-                if (value.Phase == "private-payload-install") { moved++; movedBytes = value.CompletedBytes; }
+                // Placement is disclosed before the first move (CompletedFiles = 0), so the number of
+                // callbacks is not the number of transferred files. Count each announced CompletedFiles
+                // level once; that remains correct whether progress disclosure is added or removed
+                // around the real per-file completions, while a skipped or duplicated announcement
+                // still cannot pass the inventory and byte assertions below.
+                if (value.Phase == "private-payload-install") {
+                    movedBytes = value.CompletedBytes;
+                    int completed = value.CompletedFiles ?? 0;
+                    if (completed > announcedFiles) { moved++; announcedFiles = completed; }
+                }
                 if (value.Phase == "private-payload-verify") { verified++; verifiedBytes = value.CompletedBytes; }
             }));
         if (result.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(result.Failure);
@@ -439,6 +449,36 @@ internal static partial class MmcInstanceBackendTests {
         Equal("owned original asset", File.ReadAllText(imported.Paths.ResolveRelative(MmcPathRole.Instance, asset.TargetRelativePath)));
     }
 
+    private static void PreferenceDifferences() => PreferenceDifferencesAsync().GetAwaiter().GetResult();
+    private static async Task PreferenceDifferencesAsync() {
+        // A package that declares the two groups this host has no equivalent for still imports successfully:
+        // the requirement is kept and reported, never converted into a capability the launcher does not have.
+        using (Fixture fixture = new(extraCfg: "OverrideConsole=true\nShowConsole=true\nAutoCloseConsole=false\nShowConsoleOnError=true\nOverrideMemory=true\nMinMemAlloc=512\nMaxMemAlloc=4096\nPermGen=256")) {
+            var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+            Equal(MmcInstanceBackendStatus.Succeeded, imported.Status);
+            // Both differences are reported by the real import path, under the codes Core also uses.
+            Equal(MmcDisplayDifference.ConsoleCode, imported.Diagnostics.Single(d => d.Code == MmcDisplayDifference.ConsoleCode).Code);
+            Equal(MmcDisplayDifference.PermanentGenerationCode, imported.Diagnostics.Single(d => d.Code == MmcDisplayDifference.PermanentGenerationCode).Code);
+            Equal(MmcDiagnosticSeverity.Warning, imported.Diagnostics.Single(d => d.Code == MmcDisplayDifference.PermanentGenerationCode).Severity);
+            // The declared values survive verbatim: nothing was rewritten into another option.
+            var values = imported.PackageConfiguration!.Values;
+            Equal("256", values["PermGen"]); Equal("true", values["ShowConsole"]); Equal("false", values["AutoCloseConsole"]);
+            // The memory mapping this host does have still works alongside the PermGen difference, so the
+            // unresolved PermGen did not silently disable the resolved part of the same group.
+            Equal("512", values["MinMemAlloc"]); Equal("4096", values["MaxMemAlloc"]);
+            // No Metaspace or permanent-generation substitute is installed in any instance setting.
+            string setup = Path.Combine(fixture.VersionRoot, "PCL", "Setup.ini");
+            string ini = File.Exists(setup) ? File.ReadAllText(setup) : "";
+            Equal(false, ini.Contains("Metaspace", StringComparison.OrdinalIgnoreCase));
+            Equal(false, ini.Contains("PermSize", StringComparison.OrdinalIgnoreCase));
+        }
+        // A package declaring neither group reports neither difference, so the notices are not unconditional.
+        using (Fixture fixture = new()) {
+            var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+            Equal(MmcInstanceBackendStatus.Succeeded, imported.Status);
+            Equal(false, imported.Diagnostics.Any(d => d.Code is MmcDisplayDifference.ConsoleCode or MmcDisplayDifference.PermanentGenerationCode));
+        }
+    }
     private sealed class Fixture : IDisposable {
         public string Scope { get; } = Path.Combine(Path.GetTempPath(), "pcllf-mmc-backend-" + Guid.NewGuid().ToString("N"));
         public string Archive => Path.Combine(Scope, "fixture.zip");
@@ -448,7 +488,7 @@ internal static partial class MmcInstanceBackendTests {
         private readonly List<HttpClient> clients = [];
         private static readonly byte[] AssetObject = Encoding.UTF8.GetBytes("owned original asset");
         private readonly byte[] AssetIndex;
-        public Fixture(int tinyFiles = 0, bool multiJava = false, bool withAssetObject = false) {
+        public Fixture(int tinyFiles = 0, bool multiJava = false, bool withAssetObject = false, string extraCfg = "") {
             string assetSha1 = Convert.ToHexStringLower(SHA1.HashData(AssetObject));
             AssetIndex = Encoding.UTF8.GetBytes(withAssetObject ? "{\"objects\":{\"fixture/asset.txt\":{\"hash\":\"" + assetSha1 + "\",\"size\":" + AssetObject.Length + "}}}" : "{\"objects\":{}}");
             Directory.CreateDirectory(Scope);
@@ -456,7 +496,7 @@ internal static partial class MmcInstanceBackendTests {
             Add(zip, "README.txt", "opaque outer documentation");
             zip.CreateEntry("pack/minecraft/");
             Add(zip, "pack/mmc-pack.json", "{\"formatVersion\":1,\"components\":[{\"uid\":\"net.minecraft\",\"version\":\"1.7.10\"}]}");
-            Add(zip, "pack/instance.cfg", "name=Fixture\nOverrideJavaArgs=true\nJvmArgs=-Dfixture=yes\n");
+            Add(zip, "pack/instance.cfg", "name=Fixture\nOverrideJavaArgs=true\nJvmArgs=-Dfixture=yes\n" + extraCfg);
             Add(zip, "pack/patches/net.minecraft.json", """{"formatVersion":1,"uid":"net.minecraft","version":"1.7.10","mainClass":"fixture.Game","mainJar":{"name":"fixture:game:1","MMC-hint":"local","MMC-filename":"fixture.jar"},"assetIndex":{"id":"fixture","url":"https://fixture.invalid/assets.json","sha1":"0000000000000000000000000000000000000000","size":1},"compatibleJavaMajors":[8]}"""
                 .Replace(new string('0', 40), Convert.ToHexStringLower(SHA1.HashData(AssetIndex))).Replace("\"size\":1", "\"size\":" + AssetIndex.Length)
                 .Replace("\"compatibleJavaMajors\":[8]", multiJava ? "\"compatibleJavaMajors\":[8,21]" : "\"compatibleJavaMajors\":[8]"));

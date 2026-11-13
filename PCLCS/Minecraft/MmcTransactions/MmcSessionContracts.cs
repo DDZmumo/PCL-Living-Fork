@@ -20,6 +20,13 @@ public sealed record MmcSessionLaunchRequest(Guid InstanceId, long DefinitionGen
     public MmcSessionRuntimeBinding? RuntimeBinding { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public MmcMutableRuntimeAuthority? RuntimeAuthority { get; init; }
+    /// <summary>
+    /// Host-created package wrapper entry process, when a <c>WrapperCommand</c> is active. The host creates it
+    /// (never Core), and it is registered as a second identity so that its exit is never mistaken for the
+    /// game's exit. It is a live handle, so it is never serialized into a receipt.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore, Newtonsoft.Json.JsonIgnore]
+    public Process? WrapperEntry { get; init; }
 }
 public sealed record MmcSessionReceipt(int SchemaVersion, Guid SessionId, Guid InstanceId, string CanonicalRoot,
     long DefinitionGeneration, string RuntimeFingerprint, string Nonce, MmcExecutableIdentity JavaIdentity,
@@ -27,7 +34,17 @@ public sealed record MmcSessionReceipt(int SchemaVersion, Guid SessionId, Guid I
     public MmcSessionRuntimeBinding? RuntimeBinding { get; init; }
 }
 public sealed record MmcSessionProcessRegistration(int SchemaVersion, Guid SessionId, string LaunchingSha256,
-    int ProcessId, long CreationTimeUtcTicks, MmcExecutableIdentity ExecutableIdentity);
+    int ProcessId, long CreationTimeUtcTicks, MmcExecutableIdentity ExecutableIdentity) {
+    /// <summary>
+    /// The package wrapper entry process, registered alongside the managed Java process when a
+    /// <c>WrapperCommand</c> is active. It is a second identity only: exit is never concluded from it
+    /// (contract §4.1/§4.3).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MmcSessionProcessIdentity? WrapperProcess { get; init; }
+}
+/// <summary>One registered managed process identity. Creation time defeats PID reuse; the image defeats another java.exe.</summary>
+public sealed record MmcSessionProcessIdentity(int ProcessId, long CreationTimeUtcTicks, MmcExecutableIdentity ExecutableIdentity);
 internal sealed record MmcSessionExitRecord(int SchemaVersion, Guid SessionId, string LaunchingSha256, string Proof);
 public enum MmcSessionObservation { MatchingRunning, ProvenExited, Unknown }
 public sealed record MmcSessionResult(Guid SessionId, MmcSessionObservation Observation, string? Diagnostic = null);
@@ -46,6 +63,20 @@ public interface IMmcJavaSessionPin : IDisposable {
 /// <summary>Trusted host process observation. Unknown access, PID reuse or missing nonce evidence is Unknown.</summary>
 public interface IMmcSessionProcessInspector {
     MmcSessionObservation Inspect(MmcSessionReceipt receipt, MmcSessionProcessRegistration? registration);
+}
+
+/// <summary>
+/// The closed set of exit proofs (contract D7). <c>OwnedProcessHandleExited</c> is the handle-level proof for a
+/// directly owned process, <c>TrustedHostProcessObservation</c> is the conservative host observation, and
+/// <c>WrapperManagedExit</c> is the wrapper-mode proof where the managed Java process — not the wrapper entry —
+/// was shown to be gone. The wrapper value exists because reusing the handle proof would make "the wrapper
+/// exited first" mean "the game exited", which the contract forbids.
+/// </summary>
+public static class MmcSessionExitProof {
+    public const string OwnedProcessHandleExited = "OwnedProcessHandleExited";
+    public const string TrustedHostProcessObservation = "TrustedHostProcessObservation";
+    public const string WrapperManagedExit = "WrapperManagedExit";
+    internal static bool IsKnown(string proof) => proof is OwnedProcessHandleExited or TrustedHostProcessObservation or WrapperManagedExit;
 }
 
 /// <summary>Conservative OS identity checks. Command contents are consumed only by the supplied in-memory nonce probe.</summary>

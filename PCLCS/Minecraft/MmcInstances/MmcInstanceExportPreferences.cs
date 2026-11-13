@@ -21,6 +21,19 @@ internal static class MmcInstanceExportPreferences {
             ["OverrideCommands"]="false", ["OverrideEnv"]="false", ["OverrideJavaLocation"]="false"
         };
         var transformations = ImmutableArray.CreateBuilder<string>();
+        // An active OverrideEnv/Env mapping is a live launch requirement. Portable export has no verified
+        // encoding round-trip for it yet, so it is refused explicitly instead of being written as
+        // OverrideEnv=false and silently dropped from the exported instance.
+        if (!package.EnvironmentOverride.IsEmpty)
+            throw new InvalidDataException("An active OverrideEnv/Env mapping has no verified portable export encoding; the requirement is retained rather than silently omitted.");
+        // The console and PermGen groups have no equivalent in this launcher, so this export cannot carry them
+        // either. They are recorded as an explicit adjustment instead of disappearing from the exported
+        // instance unannounced; the receiver is told the requirement was dropped and never that it was
+        // converted into a Metaspace or a launcher-visibility setting.
+        if (MmcDisplayDifference.ConsoleDifference(package.Values, ReadFlag(package.Values, "OverrideConsole"), "instance.cfg") is not null)
+            transformations.Add("An active package console preference is not portable and was omitted; it is not a launcher-visibility setting.");
+        if (MmcDisplayDifference.PermanentGenerationDifference(package.Values, ReadFlag(package.Values, "OverrideMemory"), "instance.cfg") is not null)
+            transformations.Add("A declared PermGen size is not portable and was omitted; it was not converted into a Metaspace option.");
         string Mode(string key) {
             string mode=ini.GetValueOrDefault(key,"InheritGlobal");
             if (mode is not ("InheritGlobal" or "UsePackage" or "Custom")) throw new InvalidDataException("Unknown managed preference mode: "+key);
@@ -84,5 +97,8 @@ internal static class MmcInstanceExportPreferences {
         }
     }
     private static bool Flag(string value) => value.ToLowerInvariant() switch {"true" or "1"=>true,"false" or "0"=>false,_=>throw new InvalidDataException("Invalid portable Boolean.")};
+    /// <summary>Reads an already-validated cfg Boolean; the reader has refused an unparsable value already.</summary>
+    private static bool ReadFlag(IReadOnlyDictionary<string,string> values,string key) =>
+        values.TryGetValue(key,out string? value) && (value.Equals("true",StringComparison.OrdinalIgnoreCase) || value=="1");
     private static int Number(string value,int minimum,int maximum) => int.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out int result)&&result>=minimum&&result<=maximum?result:throw new InvalidDataException("Invalid portable numeric preference.");
 }

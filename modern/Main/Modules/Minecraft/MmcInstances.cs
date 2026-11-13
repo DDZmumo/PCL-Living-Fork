@@ -104,6 +104,15 @@ public static class MmcInstances {
         else {
             ModBase.RunInUi(() => ModMain.Hint("MMC 整合包安装完成：" + name));
         }
+        // A retained-but-inert package requirement is only a difference notice until the player is told about
+        // it. Reporting it beside the completion hint keeps the requirement visible without failing an import
+        // that is otherwise correct, and never turns it into a capability this launcher does not have.
+        if (result.Diagnostics.Length != 0) {
+            string[] differences = result.Diagnostics
+                .Where(value => value.Code is MmcDisplayDifference.ConsoleCode or MmcDisplayDifference.PermanentGenerationCode)
+                .Select(value => value.Message).ToArray();
+            if (differences.Length != 0) ModBase.RunInUi(() => ModMain.Hint(string.Join("\n", differences), ModMain.HintType.Blue));
+        }
         return result;
     }
 

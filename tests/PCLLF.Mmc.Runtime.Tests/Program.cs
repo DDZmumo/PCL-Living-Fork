@@ -3,7 +3,7 @@ using System.Linq;
 
 if (args.Length > 0 && args[0] == "--command-line-probe") { Console.WriteLine(System.Runtime.InteropServices.Marshal.PtrToStringUni(NativeCommandLine.GetCommandLineW())!.Length + 1); return 0; }
 if (args is ["--readonly-jar-proof", var jarSource]) { MmcRuntimeLaunchTests.ReadOnlyJarSourceProof(jarSource); return 0; }
-string[] groups = ["bridge", "argv", "macros", "rejections", "classpath", "long-arguments", "session-budget", "jar-namespace", "manifest-inputs", "short-native", "authentication"];
+string[] groups = ["bridge", "argv", "macros", "rejections", "classpath", "long-arguments", "session-budget", "jar-namespace", "manifest-inputs", "short-native", "authentication", "environment", "wrapper-command"];
 if (args is ["--list-groups"]) { foreach (string group in groups) Console.WriteLine(group); return 0; }
 int selected = -1;
 if (args.Length != 0) {

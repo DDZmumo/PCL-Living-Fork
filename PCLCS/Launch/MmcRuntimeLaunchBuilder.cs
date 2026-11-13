@@ -129,11 +129,53 @@ public static partial class MmcRuntimeLaunchBuilder {
             userJvm.Select(a => a.Redacted).ToImmutableArray(), required, classpath, inputs.ToImmutableArray(), mutable, argumentFingerprint, inputFingerprint, sensitive.Distinct().ToImmutableArray(), logicalJvm.Select(a => a.Actual).ToImmutableArray());
     }
 
+    /// <summary>
+    /// The plan-derived half of the package command variable surface (contract §3). The stage boundary itself
+    /// never sees the plan, so this is the single place the plan is projected into command variables; account,
+    /// session and authentication values are deliberately absent so a command can never bind them.
+    /// </summary>
+    public static Dictionary<string, string> CommandVariables(MmcRuntimeLaunchPlan launch) {
+        ArgumentNullException.ThrowIfNull(launch);
+        var request = launch.Request;
+        var profile = request.BoundPlan.CompiledProfile;
+        var result = new Dictionary<string, string>(StringComparer.Ordinal) {
+            ["profile_name"] = request.Settings.DisplayName,
+            ["version_name"] = profile.MinecraftVersion,
+            ["version_type"] = profile.MinecraftVersionType ?? "",
+            ["assets_root"] = MmcRuntimeCommandExecution.CommandPath(request.Directories.AssetsRoot),
+            ["assets_index_name"] = profile.Assets.Id,
+            ["game_assets"] = MmcRuntimeCommandExecution.CommandPath(request.Directories.GameAssetsRoot),
+            ["natives_directory"] = MmcRuntimeCommandExecution.CommandPath(request.Directories.NativeDirectory),
+            ["classpath"] = string.Join(Path.PathSeparator, launch.OrderedGameClasspath.Select(MmcRuntimeCommandExecution.CommandPath))
+        };
+        string libraries = MmcRuntimeCommandExecution.CommandPath(Path.Combine(request.Paths.RuntimeRoot, request.Directories.ViewKey, "libraries"));
+        result["library_directory"] = libraries; result["libraries_directory"] = libraries;
+        var mainJar = request.Targets.FirstOrDefault(value => value.ArtifactKey == profile.MainJar.Key);
+        if (mainJar is not null) result["primary_jar"] = MmcRuntimeCommandExecution.CommandPath(mainJar.ActualPath);
+        var logging = profile.AuxiliaryArtifacts.FirstOrDefault(value => value.Role == MmcArtifactRole.LoggingConfiguration);
+        var loggingTarget = logging is null ? null : request.Targets.FirstOrDefault(value => value.ArtifactKey == logging.Key);
+        if (loggingTarget is not null) result["mmc_logging_config"] = MmcRuntimeCommandExecution.CommandPath(loggingTarget.ActualPath);
+        return result;
+    }
+
     public static async Task RevalidateFilesAsync(MmcRuntimeLaunchPlan launch, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(launch); ValidateSnapshot(launch.Request);
         MmcInstancePaths.Resolve(launch.Request.Paths.VersionRoot, launch.Request.Definition.Layout.GameRootLeaf);
         ValidateMutableOwner(launch);
         foreach (var input in launch.Inputs) await MmcRuntimeFiles.ObserveAsync(input.Identity, input.ActualPath, input.Sha256, input.SizeBytes, cancellationToken, owned: !input.Identity.StartsWith("java:", StringComparison.Ordinal)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The post-command revalidation receipt of contract §6. A package command may legitimately change any
+    /// input byte it is allowed to write, so the pre-command fingerprint must never be reused: this recomputes
+    /// the input identity from the plan's own observed inputs and the argument fingerprint.
+    /// </summary>
+    public static string ConfirmInputFingerprint(MmcRuntimeLaunchPlan launch) {
+        ArgumentNullException.ThrowIfNull(launch);
+        var request = launch.Request;
+        return MmcRuntimeFiles.Fingerprint(new[] { "mmc-runtime-inputs-v1", request.Definition.InstanceId.ToString("D"), request.Definition.Generation.ToString(CultureInfo.InvariantCulture), request.BoundPlan.BoundFingerprint,
+            request.BoundPlan.CompiledProfile.RuntimePlanFingerprint, request.Java.IdentitySha256, launch.NonSensitiveArgumentFingerprint, request.Paths.GameRoot, request.Directories.ViewKey, request.Settings.SessionId.ToString("N") }
+            .Concat(launch.Inputs.SelectMany(i => new[] { i.Identity, i.ActualPath, i.Sha256, i.SizeBytes.ToString(CultureInfo.InvariantCulture) })));
     }
     private static void ValidateSnapshot(MmcRuntimeLaunchRequest request) {
         var errors = MmcDefinitionCodec.Validate(request.Definition);
@@ -151,6 +193,14 @@ public static partial class MmcRuntimeLaunchBuilder {
             settings.ResolutionWidth is < 1 or > 65535 || settings.ResolutionHeight is < 1 or > 65535 || settings.UserJvmTokens.IsDefault || settings.ExtraGameTokens.IsDefault || settings.PlatformJavaConstraints.IsDefault || request.Targets.IsDefault || !Enum.IsDefined(settings.WrapperMode) ||
             settings.DisplayName is null || settings.LauncherName is null || settings.LauncherVersion is null || settings.UserJvmTokens.Length + request.BoundPlan.CompiledProfile.JvmArguments.Length > 16384 || settings.ExtraGameTokens.Length + request.BoundPlan.CompiledProfile.GameArguments.Length > 4096)
             Fail("MMC_RUNTIME_SETTINGS", "Runtime settings are incomplete or outside their allowed ranges.");
+        // The mapping must still be an ordered list of literal, non-reserved entries at the process
+        // boundary; Core already refuses these during parsing, so this guards a forged snapshot too.
+        if (settings.EnvironmentOverride.IsDefault || settings.EnvironmentOverride.Length > 4096) Fail("MMC_RUNTIME_ENV_SETTINGS", "The package environment mapping is absent by construction or beyond its entry budget.");
+        foreach (var entry in settings.EnvironmentOverride) {
+            if (entry.Name is null || entry.Value is null || entry.Name.Length == 0 || entry.Name.Contains('=') || entry.Value.Contains('\0') || entry.Name.Any(char.IsControl))
+                Fail("MMC_RUNTIME_ENV_SETTINGS", "A package environment entry is not a valid literal name/value pair.");
+            if (MmcEnvironmentPolicy.IsReserved(entry.Name)) Fail("MMC_RUNTIME_ENV_RESERVED", "A package environment entry redeclares a launcher-managed variable: " + entry.Name);
+        }
         if (settings.WrapperMode == MmcRuntimeWrapperMode.JavaWrapper && request.Java.Major < 8) Fail("MMC_RUNTIME_JAVA", "Exact JavaWrapper transport requires Java 8 or newer.");
         if (request.Account.Name is null || request.Account.Uuid is null || request.Account.AccessToken is null || request.Account.Session is null || request.Account.UserType is null || request.Account.UserPropertiesJson is null || request.Account.UserPropertiesJson.Length > 262144)
             Fail("MMC_RUNTIME_ACCOUNT", "Live account launch data is incomplete or exceeds its transient budget.");

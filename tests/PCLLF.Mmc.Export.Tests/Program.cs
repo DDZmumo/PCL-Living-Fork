@@ -34,6 +34,7 @@ internal static class ExportChecks {
         yield return ("published ZIP outcome survives a late cancelled progress observer",PublishedObserver);
         yield return ("final export argument policy rejects account root and equals-server bypasses",ArgumentReviewRegression);
         yield return ("server inheritance respects disabled package joins and explicit empty instance values",ServerReviewRegression);
+        yield return ("unportable console and PermGen requirements are disclosed as adjustments, never substituted",DifferenceDisclosure);
     }
     private static void RoundTrip() {
         foreach(int major in new[]{8,21}) using(var fixture=new Fixture(major)) {
@@ -229,11 +230,30 @@ internal static class ExportChecks {
     private static void Success(MmcInstanceExportResult result){if(result.Status!=MmcInstanceExportStatus.Completed)throw new Exception(result.Status+": "+result.Failure);}
     private static void Check(bool value,string message){if(!value)throw new Exception(message);}
 
+    // The console/PermGen groups have no equivalent here, so an export cannot carry them. The requirement
+    // must be disclosed as an adjustment rather than vanish, and the notice must never read as a conversion
+    // into a capability this launcher does not have.
+    private static void DifferenceDisclosure() {
+        using var fixture=new Fixture(8,extraCfg:"OverrideConsole=true\nShowConsole=true\nPermGen=256\n");
+        var source=fixture.Import("source");var exporter=new MmcInstanceExportBackend();
+        var exported=exporter.ExportAsync(fixture.Request(source,"differences.zip")).GetAwaiter().GetResult();Success(exported);
+        var adjustments=exported.Preview!.Transformations;
+        Check(adjustments.Any(value=>value.Contains("console preference")&&value.Contains("not a launcher-visibility setting")),"An unportable console requirement disappeared without disclosure.");
+        Check(adjustments.Any(value=>value.Contains("PermGen")&&value.Contains("not converted into a Metaspace")),"An unportable PermGen requirement disappeared or was reported as a conversion.");
+        // The declared fields themselves are not silently re-expressed as another option in the exported cfg.
+        using(var zip=ZipFile.OpenRead(exported.OutputZipPath!)) {
+            string cfg=Read(zip,"instance.cfg");
+            Check(!cfg.Contains("Metaspace",StringComparison.OrdinalIgnoreCase)&&!cfg.Contains("PermSize",StringComparison.OrdinalIgnoreCase),"A PermGen value became a substitute in the portable cfg.");
+            Check(!cfg.Contains("ConsoleWindow")&&!cfg.Contains("LaunchArgumentVisible"),"A console preference was rewritten as a launcher-visibility setting.");
+        }
+        // Adisclosed export still stands alone as a portable MMC archive.
+        Success(exporter.ExportAsync(fixture.Request(source,"differences-again.zip")).GetAwaiter().GetResult());
+    }
     private sealed class Fixture:IDisposable {
         internal string Root{get;}=Path.Combine(Path.GetTempPath(),"PCLLF-MmcExportTests-"+Guid.NewGuid().ToString("N"));
         internal string Archive=>Path.Combine(Root,"original.zip");private readonly HttpClient client;private readonly int major;
         private readonly byte[] index=Encoding.UTF8.GetBytes("{\"objects\":{}}");private readonly byte[] shared=JarResource("remote-resource.txt","self-authored remote bytes");
-        internal Fixture(int major,bool userComponent=false,bool tweaks=true,bool literalAccount=false,bool versionQuery=false,string? declaredGame=null,bool packageJoin=false,string? packageAddress=null) {
+        internal Fixture(int major,bool userComponent=false,bool tweaks=true,bool literalAccount=false,bool versionQuery=false,string? declaredGame=null,bool packageJoin=false,string? packageAddress=null,string extraCfg="") {
             this.major=major;Directory.CreateDirectory(Root);File.WriteAllText(Path.Combine(Root,"export-test-owner.json"),"PCLLF owned export fixture / "+Path.GetFileName(Root));Directory.CreateDirectory(Path.Combine(Root,"outputs"));
             string indexSha=Convert.ToHexStringLower(SHA1.HashData(index));string sharedSha=Convert.ToHexStringLower(SHA1.HashData(shared));
             string remote=new JObject{["formatVersion"]=1,["uid"]="fixture.remote",["version"]="1",["+jvmArgs"]=new JArray("-Dremote=yes"),["libraries"]=new JArray(new JObject{["name"]="fixture:shared:1",["downloads"]=new JObject{["artifact"]=new JObject{["url"]=versionQuery?"https://download.invalid/shared.jar?version=1":"https://download.invalid/shared.jar",["sha1"]=sharedSha,["size"]=shared.Length}}})}.ToString(Newtonsoft.Json.Formatting.None);
@@ -241,7 +261,7 @@ internal static class ExportChecks {
             using var zip=ZipFile.Open(Archive,ZipArchiveMode.Create);
             var declarations=new JArray(new JObject{["uid"]="net.minecraft",["version"]="1.7.10"},new JObject{["uid"]="fixture.remote",["version"]="1"});if(userComponent)declarations.Add(new JObject{["uid"]="fixture.user",["version"]="1"});Add("mmc-pack.json",new JObject{["formatVersion"]=1,["components"]=declarations}.ToString(Newtonsoft.Json.Formatting.None));
             if(userComponent)Add("patches/fixture.user.json","""{"uid":"fixture.user","version":"1","+jvmArgs":["-Duser=author"]}""");
-            Add("instance.cfg","name=Source\nOverrideJavaArgs=true\nJvmArgs=-Dpackage=yes\nOverrideMemory=true\nMinMemAlloc=512\nMaxMemAlloc=2048\n"+(packageAddress is null?"":"JoinServerOnLaunch="+packageJoin.ToString().ToLowerInvariant()+"\nJoinServerOnLaunchAddress="+packageAddress+"\n"));
+            Add("instance.cfg","name=Source\nOverrideJavaArgs=true\nJvmArgs=-Dpackage=yes\nOverrideMemory=true\nMinMemAlloc=512\nMaxMemAlloc=2048\n"+(packageAddress is null?"":"JoinServerOnLaunch="+packageJoin.ToString().ToLowerInvariant()+"\nJoinServerOnLaunchAddress="+packageAddress+"\n")+extraCfg);
             Add("patches/net.minecraft.json",new JObject{["uid"]="net.minecraft",["version"]="1.7.10",["mainClass"]="fixture.Game",["minecraftArguments"]=declaredGame??(literalAccount?"--accessToken PRIVATE-LAUNCHER-TOKEN":"--sample value"),["+jvmArgs"]=new JArray("-Dcustom=yes"),["+tweakers"]=tweaks?new JArray("fixture.Tweak"):new JArray(),["compatibleJavaMajors"]=major==8?new JArray(8):new JArray(17,21),["mainJar"]=new JObject{["name"]="fixture:client:1",["MMC-hint"]="local",["MMC-filename"]="client.jar"},["libraries"]=new JArray(new JObject{["name"]="fixture:local:1",["MMC-hint"]="local",["MMC-filename"]="same.jar"}),["assetIndex"]=new JObject{["id"]="fixture",["url"]="https://download.invalid/index.json",["sha1"]=indexSha,["size"]=index.Length}}.ToString(Newtonsoft.Json.Formatting.None));
             AddBytes("libraries/client.jar",JarBytes());AddBytes("libraries/same.jar",JarResource("local-resource.txt","private adopted library"));AddBytes("libraries/orphan.jar",JarResource("orphan-resource.txt","preserved inactive library"));Add("minecraft/config/personal.cfg","author configuration");
             void Add(string path,string value)=>AddBytes(path,Encoding.UTF8.GetBytes(value));

@@ -31,6 +31,11 @@ internal static class MmcConfigurationReader {
         bool qt = lines.Any(line => line.Contains('=') && line[..line.IndexOf('=')].Trim() == "ConfigVersion");
         Dictionary<string, string> values = new(StringComparer.Ordinal);
         HashSet<string> variants = new(StringComparer.Ordinal);
+        // The environment key is the only cfg value with list semantics, so it is decoded by its own
+        // element-aware decoder below instead of the scalar decoder every other key uses.
+        ImmutableArray<string> environmentElements = [];
+        bool environmentEnvelope = false;
+        int environmentOccurrences = 0;
         string section = "";
         for (int i = 0; i < lines.Length; i++) {
             string line = lines[i].Trim();
@@ -56,7 +61,21 @@ internal static class MmcConfigurationReader {
             if (section.Length != 0) key = section + "/" + key;
             string encoded = line[(separator + 1)..].Trim();
             if (qt && encoded.StartsWith('@') && !encoded.StartsWith("@@", StringComparison.Ordinal)) variants.Add(key);
-            string value = qt ? DecodeQt(encoded, source) : DecodeLegacy(encoded, source);
+            string value;
+            if (key == "Env") {
+                // List forms are decoded eagerly with their own escaping domain, so an illegal escape or a
+                // malformed list is refused deterministically. A Qt variant envelope has no verified decoder
+                // here: its body is opaque, so it keeps its original spelling and is refused only if the
+                // source activates it, never merely for being inactive.
+                environmentOccurrences++;
+                environmentEnvelope = qt && encoded.StartsWith('@') && !encoded.StartsWith("@@", StringComparison.Ordinal);
+                if (environmentEnvelope) value = encoded;
+                else {
+                    environmentElements = encoded.TrimStart().StartsWith('[') ? MmcEnvironmentReader.JsonElements(encoded, source)
+                        : qt ? MmcEnvironmentReader.QtElements(encoded, source) : MmcEnvironmentReader.LegacyElements(encoded, source);
+                    value = string.Join("\n", environmentElements);
+                }
+            } else value = qt ? DecodeQt(encoded, source) : DecodeLegacy(encoded, source);
             if (!values.TryAdd(key, value)) Bad(source, $"Duplicate configuration key: {key}.");
         }
         if (values.TryGetValue("ConfigVersion", out string? version) && version is not ("1.1" or "1.2" or "1.3"))
@@ -77,14 +96,34 @@ internal static class MmcConfigurationReader {
             values["OverrideCommands"] != values["OverrideLaunchCmd"])
             diagnostics.Add(new("MMC_CFG_ALIAS", MmcDiagnosticSeverity.Warning, source, "OverrideCommands takes precedence over OverrideLaunchCmd."));
         if (commandOverride) {
+            // A stage command whose phase is actually implemented is admitted once its text is a decodable
+            // command within the instance budget and binds no credential variable. WrapperCommand is admitted on
+            // the same terms: it is the package wrapper entry, and the host composes it with (never instead of)
+            // its own JavaWrapper/DirectMain mode.
             foreach (string command in new[] { "PreLoadCommand", "PreLaunchCommand", "WrapperCommand", "PostExitCommand" })
-                if (!string.IsNullOrWhiteSpace(values.GetValueOrDefault(command))) MmcPatchReader.Unsupported("cfg:" + command, source, true, diagnostics);
+                if (values.TryGetValue(command, out string? active) && !string.IsNullOrWhiteSpace(active))
+                    MmcCommandReader.Validate(active, command, source);
         }
-        if (ReadBool(values, "OverrideEnv", source) && !string.IsNullOrWhiteSpace(values.GetValueOrDefault("Env")))
-            MmcPatchReader.Unsupported("cfg:Env", source, true, diagnostics);
+        // An active mapping is decoded into its ordered structure. A requirement this host cannot honour
+        // (unverified encoding, launcher-managed name, ambiguous duplicate) is refused, never dropped;
+        // an inactive source keeps its original value untouched.
+        ImmutableArray<MmcEnvironmentVariable> environmentOverride = [];
+        if (ReadBool(values, "OverrideEnv", source) && !string.IsNullOrWhiteSpace(values.GetValueOrDefault("Env"))) {
+            if (environmentOccurrences != 1) Bad(source, "An active environment mapping must be declared exactly once.");
+            if (environmentEnvelope)
+                throw MmcEnvironmentReader.EncodingError(source, "The Qt variant envelope has no verified decoder.");
+            environmentOverride = MmcEnvironmentReader.Parse(environmentElements, source);
+        }
         foreach (string key in new[] { "OverrideGameTime", "OverrideNativeWorkarounds" })
             if (ReadBool(values, key, source)) MmcPatchReader.Unsupported("cfg:" + key, source, true, diagnostics);
-        return new(qt ? MmcConfigurationFormat.QtScalar : MmcConfigurationFormat.Legacy, values.ToImmutableDictionary(StringComparer.Ordinal));
+        // Two capability groups have no equivalent here. The requirement is a real one, so the value is kept
+        // exactly as read and the difference is reported; nothing is silently dropped and nothing is
+        // re-expressed as a capability this launcher happens to have.
+        var displayDifference = MmcDisplayDifference.ConsoleDifference(values, ReadBool(values, "OverrideConsole", source), source);
+        if (displayDifference is not null) diagnostics.Add(displayDifference);
+        var permanentGeneration = MmcDisplayDifference.PermanentGenerationDifference(values, ReadBool(values, "OverrideMemory", source), source);
+        if (permanentGeneration is not null) diagnostics.Add(permanentGeneration);
+        return new(qt ? MmcConfigurationFormat.QtScalar : MmcConfigurationFormat.Legacy, values.ToImmutableDictionary(StringComparer.Ordinal)) { EnvironmentOverride = environmentOverride };
     }
 
     private static bool ReadBool(Dictionary<string, string> values, string key, string source, string? alias = null) =>

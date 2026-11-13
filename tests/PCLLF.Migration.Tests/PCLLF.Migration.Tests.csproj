@@ -119,6 +119,12 @@
          its launcher RAM policy depends on the instance model absent from this rule-only host. -->
     <Compile Include="../../PCLCS/Minecraft/MmcInstances/**/*.cs" Exclude="../../PCLCS/Minecraft/MmcInstances/MmcInstanceExport*.cs" Link="Production/MmcInstances/%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="../../PCLCS/Launch/MmcJavaPinStore.cs" Link="Production/MmcJavaPinStore.cs" />
+    <!-- The managed-process environment boundary is exercised as real production source, never a copy. -->
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeEnvironmentOverlay.cs" Link="Production/MmcRuntimeEnvironmentOverlay.cs" />
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeLaunchException.cs" Link="Production/MmcRuntimeLaunchException.cs" />
+    <!-- The package command stage boundary is exercised as real production source; the launcher's own
+         process entry stays a host dependency and is replaced by the controlled test surface. -->
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeCommandExecution.cs" Link="Production/MmcRuntimeCommandExecution.cs" />
     <!-- Match modern/PCLCS exactly: the .NET 10 product uses this fixed modern
          asset. The original LF DLL stays the independent CLR4 oracle input. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />

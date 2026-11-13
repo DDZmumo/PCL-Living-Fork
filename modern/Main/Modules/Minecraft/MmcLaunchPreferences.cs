@@ -81,6 +81,14 @@ public static class MmcLaunchPreferences {
         var runtime = new MmcRuntimeSettingsSnapshot(instance.Name, "PCL Living Fork", ModBase.VersionDisplay,
             memory.Minimum, memory.Maximum, window.Width, window.Height, sessionId) {
             UserJvmTokens = jvmTokens, ExtraGameTokens = Tokens(game, "游戏参数"), Fullscreen = window.Fullscreen,
+            // An active OverrideEnv/Env mapping is an ordered package requirement carried verbatim to the
+            // managed process boundary. An inactive or absent mapping stays empty, so the child inherits
+            // this launcher's base process environment unchanged.
+            EnvironmentOverride = packageConfiguration.EnvironmentOverride,
+            // The package wrapper is a capability separate from WrapperMode on the next line: it wraps the final
+            // command line while the inner Java invocation keeps its JavaWrapper/DirectMain shape. Null means no
+            // package wrapper is declared.
+            WrapperCommand = MmcRuntimeWrapperCommand.Read(packageConfiguration),
             WrapperMode = Boolean(global["LaunchAdvanceDisableJLW"], "全局 JavaWrapper 设置") || Boolean(ini.GetValueOrDefault("VersionAdvanceDisableJLW", "False"), "实例 JavaWrapper 设置") ? MmcRuntimeWrapperMode.DirectMain : MmcRuntimeWrapperMode.JavaWrapper
         };
         var commands = ImmutableArray.CreateBuilder<MmcLaunchCustomCommand>();

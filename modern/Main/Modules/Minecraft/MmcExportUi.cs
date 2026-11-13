@@ -104,6 +104,8 @@ internal static class MmcExportUi {
         "Server auto-join data omitted by the explicit default player-data exclusion policy." => "按本次选择移除服务器自动加入信息。",
         "Instance JVM override becomes the new package override, preserving an explicit empty value." => "保留当前实例的 JVM 参数设置。",
         "Inactive game tree explicitly excluded; the active role is unchanged." => "排除未启用的另一游戏目录。",
+        "An active package console preference is not portable and was omitted; it is not a launcher-visibility setting." => "整合包的独立控制台偏好无法随包导出，已移除；它不等同于启动器可见性设置。",
+        "A declared PermGen size is not portable and was omitted; it was not converted into a Metaspace option." => "整合包声明的 PermGen 大小无法随包导出，已移除；未换算为 Metaspace 参数。",
         _ => value
     };
     private static void Report(Exception error, string text) {

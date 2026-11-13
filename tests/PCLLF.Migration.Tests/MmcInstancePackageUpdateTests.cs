@@ -248,7 +248,15 @@ internal static class MmcInstancePackageUpdateTests {
         var result = fixture.Update().CommitAsync(NewCommit(preview)).GetAwaiter().GetResult(); Require(result);
         Equal(1, result.WorldBackupIds.Length); Equal("world data", fixture.Read("minecraft/saves/world/level.dat"));
         Equal(true, fixture.WorldBackups.Points(fixture.GameRoot).Any(value => value.Value<string>("id") == result.WorldBackupIds[0]));
-        string leaf = fixture.Pack("otherleaf", "runtimeC", new(), minecraft: "1.8.9", leaf: ".minecraft");
+        // The leaf prefix is only materialised when files is non-empty, and the reader infers an empty
+        // archive as "minecraft". A real .minecraft/ payload is therefore required for this archive to
+        // really declare the inactive layout; otherwise both sides read as "minecraft" and no migration
+        // is being requested at all. The declarations are asserted before the refusal so a fixture that
+        // stops declaring the migration fails here rather than passing a bare Rejected for any reason.
+        string leaf = fixture.Pack("otherleaf", "runtimeC", new() { ["config/other.cfg"] = "other leaf" }, minecraft: "1.8.9", leaf: ".minecraft");
+        using (var declared = MmcArchiveSourceReader.ReadAsync(leaf).GetAwaiter().GetResult())
+            Equal(".minecraft", declared.Package.GameRootLeaf);
+        Equal("minecraft", fixture.Primary().Definition.Layout.GameRootLeaf);
         var changed = fixture.Update().PrepareAsync(fixture.Request(leaf)).GetAwaiter().GetResult();
         Equal(MmcInstanceBackendStatus.Rejected, changed.Status); Equal("world data", fixture.Read("minecraft/saves/world/level.dat"));
     }

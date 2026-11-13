@@ -52,6 +52,13 @@ public static class MmcSessions {
             MmcExecutableIdentity image = ObserveProcessExecutable(process);
             if (!SameExecutable(image, request.JavaIdentity)) throw new IOException("新进程镜像与已选 Java 身份不一致。");
             MmcSessionProcessRegistration running = new(1, sessionId, hash, process.Id, process.StartTime.ToUniversalTime().Ticks, image);
+            // Wrapper mode registers a second identity: the package wrapper entry is the process the handle
+            // belongs to, and the managed Java process is its child. Exit is never concluded from the wrapper,
+            // so the two must stay distinguishable in the durable record (contract §4.1, D7).
+            if (request.WrapperEntry is not null) {
+                Process wrapper = request.WrapperEntry;
+                running = running with { WrapperProcess = new(wrapper.Id, wrapper.StartTime.ToUniversalTime().Ticks, ObserveProcessExecutable(wrapper)) };
+            }
             MmcDurableFiles.WriteRecord(Path.Combine(directory, "Running.record"), running);
             checkpoint?.Invoke(MmcSessionCheckpoint.RunningPersisted);
             return new(receipt, running, hash, process, pin,request.RuntimeAuthority);
@@ -86,7 +93,7 @@ public static class MmcSessions {
             }
             MmcSessionObservation observation = inspector.Inspect(receipt, running);
             if (observation != MmcSessionObservation.ProvenExited) return new(sessionId, observation, observation == MmcSessionObservation.Unknown ? "会话仍待确认，保持只读。" : null);
-            WriteExit(directory, receipt, hash, "TrustedHostProcessObservation");
+            WriteExit(directory, receipt, hash, running?.WrapperProcess is null ? MmcSessionExitProof.TrustedHostProcessObservation : MmcSessionExitProof.WrapperManagedExit);
                 MmcSessionRuntimeDirectories.CompleteVerifiedExit(paths, receipt,runtimeAuthority);
             releaseVerifiedJavaPin(receipt); Archive(paths, directory, sessionId);
             return new(sessionId, MmcSessionObservation.ProvenExited);
@@ -113,7 +120,7 @@ public static class MmcSessions {
         MmcInstancePaths paths = MmcInstancePaths.Resolve(lease.VersionRoot); string directory = SessionDirectory(paths, receipt.SessionId);
         var persisted = ReadLaunching(lease, paths, receipt.SessionId, directory);
         if (persisted.Hash != hash || ReadRunning(receipt, hash, directory) != registration) throw new IOException("会话收据与运行租约不一致。");
-        WriteExit(directory, receipt, hash, "OwnedProcessHandleExited"); checkpoint?.Invoke(MmcSessionCheckpoint.ExitedPersisted);
+        WriteExit(directory, receipt, hash, registration.WrapperProcess is null ? MmcSessionExitProof.OwnedProcessHandleExited : MmcSessionExitProof.WrapperManagedExit); checkpoint?.Invoke(MmcSessionCheckpoint.ExitedPersisted);
         MmcSessionRuntimeDirectories.CompleteVerifiedExit(paths, receipt,runtimeAuthority);
         pin.CompleteVerifiedExit(); Archive(paths, directory, receipt.SessionId);
     }
@@ -182,7 +189,7 @@ public static class MmcSessions {
     private static void ValidateExit(string directory, MmcSessionReceipt receipt, string hash) {
         var exit = MmcDurableFiles.ReadRecord<MmcSessionExitRecord>(Path.Combine(directory, "Exited.record")).Value;
         if (exit.SchemaVersion != 1 || exit.SessionId != receipt.SessionId || exit.LaunchingSha256 != hash ||
-            exit.Proof is not ("OwnedProcessHandleExited" or "TrustedHostProcessObservation")) throw new IOException("退出收据无效。");
+            !MmcSessionExitProof.IsKnown(exit.Proof)) throw new IOException("退出收据无效。");
     }
     private static string SessionDirectory(MmcInstancePaths paths, Guid id) {
         if (id == Guid.Empty) throw new IOException("会话 ID 不能为空。");

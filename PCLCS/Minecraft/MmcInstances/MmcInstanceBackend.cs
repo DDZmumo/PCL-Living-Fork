@@ -185,8 +185,23 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                     "Package preference is retained for runtime resolution; existing Java/memory/window UI values were not copied or forced."));
         if (configuration.Values.TryGetValue("JvmArgs", out string? args) && args.IndexOfAny(['\r', '\n']) >= 0)
             result.Add(new("MMC_PACKAGE_JVM_UI_DIFFERENCE", MmcDiagnosticSeverity.Warning, "instance.cfg:JvmArgs", "Multiline package JVM arguments remain in source; they were not flattened into the single-line legacy setting."));
+        // The two capability groups with no equivalent here are reported from the same helper Core uses, so the
+        // parse-time notice and this user-visible one cannot state different reasons under a drifting code.
+        MmcDiagnostic? console = MmcDisplayDifference.ConsoleDifference(configuration.Values,
+            ReadFlag(configuration.Values, "OverrideConsole"), "instance.cfg");
+        if (console is not null) result.Add(console);
+        MmcDiagnostic? permanentGeneration = MmcDisplayDifference.PermanentGenerationDifference(configuration.Values,
+            ReadFlag(configuration.Values, "OverrideMemory"), "instance.cfg");
+        if (permanentGeneration is not null) result.Add(permanentGeneration);
         return result.ToImmutable();
     }
+    /// <summary>
+    /// Reads an already-validated cfg Boolean without re-raising. The reader has already refused an
+    /// unparsable value, so an unreadable one here reports no requirement rather than failing a second time.
+    /// </summary>
+    private static bool ReadFlag(IReadOnlyDictionary<string, string> values, string key) =>
+        values.TryGetValue(key, out string? value) &&
+        (value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1");
     private static void ValidateName(string root, string name) {
         MmcInstancePaths.ValidateVersionRoot(root);
         if (name != Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)))) throw new ArgumentException("Instance name must match its selected final directory.");
