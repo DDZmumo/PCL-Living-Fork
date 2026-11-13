@@ -19,6 +19,10 @@ using Online = PCLCS.ModDependencyOnlinePipeline<ModDependencyInspectorPipelineT
 // its project/version selection policies are not imported into these LF assertions.
 internal static partial class ModDependencyOnlinePipelineTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
+        yield return ("Quilt bare caret tilde and explicit equality match loader semantics and invalidate old descriptor syntax", QuiltVersionDefaults);
+        yield return ("Java feature declarations use the current loader's feature key and selected JVM", JavaFeatureDeclarations);
+        yield return ("known Maven prereleases compare safely against numeric ranges with unsupported qualifiers left unknown", MavenKnownPrereleases);
+        yield return ("NeoForge 1.21.8 compatibility matrix includes its official beta alias without broad relaxation", NeoForge1218Matrix);
         yield return ("NeoForge hotfix matrix is scoped to builtin Maven dependencies in a known matching runtime", NeoForgeHotfixCompatibility);
         yield return ("verified replacement aliases satisfy required recommended and suggested platform dependencies", ReplacementPlatformDependencies);
         yield return ("verified platform projects respect satisfied Quilt alternatives without concealing conjunction failures", AlternativePlatformDependencies);

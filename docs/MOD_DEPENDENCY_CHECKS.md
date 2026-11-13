@@ -14,18 +14,36 @@ Insecticide 的 `fabric.mod.json` 声明提供 `cicada`，是这种机制的一�
 
 资料：[Fabric 规范](https://docs.fabricmc.net/develop/loader/fabric-mod-json#provides)、[Insecticide 声明](https://github.com/Tigercrl/insecticide-lib/blob/master/src/main/resources/fabric.mod.json)。
 
-## NeoForge 1.21.1 的热修兼容规则
+## Quilt 和 Maven 的版本语义
 
-在已确认的 NeoForge / Minecraft 1.21.1 环境中，内置依赖的普通 Maven 范围判断失败后，按 FML 的兼容矩阵再检查以下版本：
+Quilt 的裸语义版本号按兼容到下一主版本解释，例如 `1.0.0` 可以接受 `1.5.0`；`=1.0.0` 才是精确版本。`^` 保持主版本，`~` 保持主次版本，包括主版本为零和省略次版本的情况。Fabric 的裸版本仍按精确版本处理，不能把两种加载器的规则混用。
 
-| 内置 ID | 兼容检查版本 |
-| --- | --- |
-| `minecraft` | `1.21` |
-| `neoforge` | `21.0.166` |
+Maven 范围支持数字版本，以及与数字版本有明确顺序的常见 `alpha`、`beta`、`milestone`、`rc`／`cr`、`snapshot` 预发布编号。例如 `2.0-rc1` 可以落在 `[1,2)` 中，`21.7.26-beta` 不满足 `[21.7.26,)`。不同限定词之间尚未确认的排序、任意自定义限定词仍保留为未知，避免错误放行或阻断。
+
+这些边界通过 Quilt Loader 0.28.0 的实际版本解析器和 Maven Artifact 3.9.9 对照。资料：[Quilt 规范](https://github.com/QuiltMC/rfcs/blob/main/specification/0002-quilt.mod.json.md#version-specifier)、[Quilt 实现](https://github.com/QuiltMC/quilt-loader/blob/3492f6601e0c0bc86d53eb5cd988160db3b39703/src/main/java/org/quiltmc/loader/impl/metadata/qmj/VersionConstraintImpl.java)、[Maven 版本规则](https://maven.apache.org/pom.html#dependency-version-requirement-specification)。验证工具仅放在忽略目录，不随启动器分发。
+
+## Java 功能要求
+
+Forge 的 `features.<modid>.java_version` 与 NeoForge 的 `features.<modid>.javaVersion` 按实际加载器分别解释，并与启动器选中的 Java 版本比较。缺失的另一种拼写不会被擅自当作当前加载器的要求；语言加载器版本与 Java 运行时版本仍分开检查。
+
+资料：[Forge 功能要求](https://docs.minecraftforge.net/en/1.20.1/gettingstarted/modfiles/#features)、[NeoForge 功能要求](https://docs.neoforged.net/docs/1.21.1/gettingstarted/modfiles/#features)。
+
+## NeoForge 的热修兼容规则
+
+在已确认的对应 NeoForge 运行环境中，内置依赖的普通 Maven 范围判断失败后，按 FML 的兼容矩阵再检查以下版本：
+
+| Minecraft 运行环境 | 内置 ID | 兼容检查版本 |
+| --- | --- | --- |
+| `1.21.1` | `minecraft` | `1.21` |
+| `1.21.1` | `neoforge` | `21.0.166` |
+| `1.21.8` | `minecraft` | `1.21.7` |
+| `1.21.8` | `neoforge` | `21.7.26-beta` |
 
 因此 `[1.21]`、`[1.21,1.21.1)` 等声明在这个特定运行环境中可以满足。普通 Maven 比较、其他游戏版本、其他加载器和普通模组的版本约束保持各自的语义。
 
-规则依据为 NeoForge 21.1.265 使用的 FML 4.0.45：[模块依赖](https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.265/neoforge-21.1.265.module)、[固定版本源码归档](https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/4.0.45/loader-4.0.45-sources.jar)、[官方兼容矩阵](https://github.com/neoforged/FancyModLoader/blob/1.21.1/loader/src/main/java/net/neoforged/fml/loading/VersionSupportMatrix.java)。这里只记录互操作所需的版本事实，未引入该 Java 实现或分发 FML。
+规则依据为 NeoForge 21.1.265 使用的 FML 4.0.45：[模块依赖](https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.265/neoforge-21.1.265.module)、[固定版本源码归档](https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/4.0.45/loader-4.0.45-sources.jar)、[1.21.1 官方矩阵](https://github.com/neoforged/FancyModLoader/blob/1.21.1/loader/src/main/java/net/neoforged/fml/loading/VersionSupportMatrix.java)，以及 [1.21.8 官方矩阵](https://github.com/neoforged/FancyModLoader/blob/1.21.8/loader/src/main/java/net/neoforged/fml/loading/VersionSupportMatrix.java)。这里只记录互操作所需的版本事实，未引入该 Java 实现或分发 FML。
+
+声明解析缓存会按新规则自动重建，避免旧缓存中 Quilt 的语法或遗漏的 Java 要求继续影响判断。
 
 ## 回归验证
 

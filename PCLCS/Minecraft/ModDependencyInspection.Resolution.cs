@@ -271,11 +271,17 @@ public static global::System.String FilePathKey(global::System.String fullPath)
         private static ModDependencyMatchState MatchProviderVersion(TMod provider, TDependency dependency, TContext context) {
             var state = MatchVersions(Identities(provider)[dependency.Id], dependency.Versions, dependency.Syntax);
             if (state != ModDependencyMatchState.Unsatisfied || !provider.IsBuiltin || dependency.Syntax != "maven" ||
-                !context.LoaderKnown || !context.LoaderVersions.ContainsKey("neoforge") || context.MinecraftVersion != "1.21.1")
+                !context.LoaderKnown || !context.LoaderVersions.ContainsKey("neoforge"))
                 return state;
-            // FML 4.0.45 VersionSupportMatrix: NeoForge's 1.21.1 runtime also
-            // accepts these builtin identities when the ordinary check fails.
-            string fallback = dependency.Id switch { "minecraft" => "1.21", "neoforge" => "21.0.166", _ => null };
+            // Factual builtin identities from the corresponding FML
+            // VersionSupportMatrix; unrelated runtimes keep ordinary matching.
+            string fallback = (context.MinecraftVersion, dependency.Id) switch {
+                ("1.21.1", "minecraft") => "1.21",
+                ("1.21.1", "neoforge") => "21.0.166",
+                ("1.21.8", "minecraft") => "1.21.7",
+                ("1.21.8", "neoforge") => "21.7.26-beta",
+                _ => null
+            };
             return fallback is null ? state : Combine(new[] { state, MatchVersions(fallback, dependency.Versions, dependency.Syntax) }, false);
         }
         private static Resolution Resolve(TDependency Requirement, global::System.Collections.Generic.Dictionary<global::System.String, global::System.Collections.Generic.List<TMod>> Providers, TContext Context, global::System.Int32 Depth = 0)

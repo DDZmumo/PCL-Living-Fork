@@ -616,7 +616,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
         }
         private static TDependency ReadQuiltDependency(global::Newtonsoft.Json.Linq.JToken Value, ModDependencyKind Kind, global::System.Boolean Any)
         {
-            var Result = new TDependency() { KindValue = Kind, Join = (Any) ? ("any") : ("all") };
+            var Result = new TDependency() { KindValue = Kind, Join = (Any) ? ("any") : ("all"), Syntax = "quilt" };
             if (Value is global::Newtonsoft.Json.Linq.JArray)
             {
                 foreach (var Child in ((global::Newtonsoft.Json.Linq.JArray)(Value)))
@@ -910,9 +910,11 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             foreach (var Item in Items)
             {
                 var Features = Sections.FirstOrDefault(Entry => ((Entry.Name ?? "") == (("features." + Item.Id) ?? "")));
-                if ((Features is not null && (Features.Values.ContainsKey("java_version"))))
+                bool neoRuntime = Report.Context.LoaderKnown ? Report.Context.LoaderVersions.ContainsKey("neoforge") : Neo;
+                string javaFeature = neoRuntime ? "javaVersion" : "java_version";
+                if ((Features is not null && (Features.Values.ContainsKey(javaFeature))))
                 {
-                    Item.Dependencies.Add(new TDependency() { Id = "java", Versions = new global::Newtonsoft.Json.Linq.JValue(Scalar(Features, "java_version")), Syntax = "maven", KindValue = ModDependencyKind.Required });
+                    Item.Dependencies.Add(new TDependency() { Id = "java", Versions = new global::Newtonsoft.Json.Linq.JValue(Scalar(Features, javaFeature)), Syntax = "maven", KindValue = ModDependencyKind.Required });
                 }
                 // Forge FML uses the Forge major version; NeoForge's language loader version is a separate numbering scheme.
                 global::System.String Language = Scalar(GlobalSection, "modLoader", (Neo) ? ("javafml") : (""));
