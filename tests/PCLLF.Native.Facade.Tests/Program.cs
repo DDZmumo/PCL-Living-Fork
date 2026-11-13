@@ -130,6 +130,7 @@ internal static class Program
         ["mmc-package-update-world-locked"] = MmcPackageUpdateUiChecks.RunWorldBackupLocked,
         ["mmc-launch-replay"] = MmcLaunchChecks.Run,
         ["mmc-variant-launch"] = MmcLaunchChecks.RunVariants,
+        ["mmc-phase2-launch"] = MmcPhase2LaunchChecks.Run,
         ["mmc-launch-java"] = environment => {
             foreach (var check in MmcLaunchJavaChecks.Cases()) { check.Run(); Console.WriteLine("PASS " + check.Name); }
             environment.AssertNoForbiddenIo();

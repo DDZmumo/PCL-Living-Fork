@@ -23,6 +23,7 @@ internal static partial class MmcRuntimeLaunchTests {
         yield return ("MMC owned authentication agents retain runtime authority privacy and Java constraints", AuthenticationAgents);
         yield return ("MMC launch plan applies the package environment mapping at the real process boundary", EnvironmentBoundary);
         yield return ("MMC package wrapper composes with each Java wrapper mode at the real process boundary", WrapperCommandBoundary);
+        yield return ("MMC wrapped launch places the inner Java session nonce after innerEntry and enforces the Windows 32767 budget", WrapperNonceBudget);
     }
     private static void BridgeIdentity() {
         byte[] bytes = MmcRuntimeBridgeTransport.CreateJarBytes();
@@ -485,7 +486,7 @@ public final class TestLoader extends ClassLoader {
 
             var request = fixture.Request with { Settings = fixture.Request.Settings with { WrapperCommand = "wrapper.exe --flag \"two words\" ${INST_MC_DIR}" } };
             var plan = MmcRuntimeLaunchBuilder.BuildAsync(request).GetAwaiter().GetResult();
-            var outer = plan.CreateStartInfo();
+            var outer = plan.CreateStartInfo(out int nonceIndex);
             // The wrapper is the entry, and the inner Java invocation is its child invocation: entry first, then
             // the exact inner argv. Nothing is joined into one string and nothing is re-split.
             Require(outer.FileName.EndsWith("wrapper.exe", StringComparison.OrdinalIgnoreCase), "The package wrapper was not the process entry.");
@@ -493,6 +494,9 @@ public final class TestLoader extends ClassLoader {
             // The wrapper's own tokens are the entry plus its two arguments, then the inner entry and its argv.
             Require(outer.ArgumentList.Count == 3 + 1 + innerArguments.Length,
                 "The wrapper did not re-emit exactly the inner argv: outer=" + outer.ArgumentList.Count + " inner=" + innerArguments.Length);
+            Require(nonceIndex == 4, "Session nonce insertion slot must be immediately after the inner Java entry token, got " + nonceIndex);
+            Require(!outer.ArgumentList.Any(a => a.StartsWith(MmcSessions.NonceArgumentPrefix, StringComparison.Ordinal)),
+                "CreateStartInfo(out int) must measure the nonce budget without mutating ArgumentList.");
             Require(outer.ArgumentList[0] == "--flag" && outer.ArgumentList[1] == "two words", "Wrapper tokens were re-split or quoted differently.");
             // The variable reaches the wrapper in the same forward-slash Java form the stage commands use.
             Require(outer.ArgumentList[2] == MmcRuntimeCommandExecution.CommandPath(fixture.Request.Paths.GameRoot),
@@ -521,6 +525,57 @@ public final class TestLoader extends ClassLoader {
             // silently substituting an empty value.
             var credential = refused.Request with { Settings = refused.Request.Settings with { WrapperCommand = "wrapper.exe ${auth_access_token}" } };
             Expect("MMC_RUNTIME_VARIABLE", () => MmcRuntimeLaunchBuilder.BuildAsync(credential).GetAwaiter().GetResult().CreateStartInfo());
+        }
+    }
+    private static void WrapperNonceBudget() {
+        string nonce = MmcSessions.NonceArgumentPrefix + new string('0', 32);
+        long baseWrappedLen;
+        using (Fixture unwrapped = new(loader: false)) {
+            var directPlan = MmcRuntimeLaunchBuilder.BuildAsync(unwrapped.Request).GetAwaiter().GetResult();
+            _ = directPlan.CreateStartInfo(out int directNonceIndex);
+            Require(directNonceIndex == 0, "Direct Java launch must reserve nonce index 0.");
+            unwrapped.RemoveMutable(directPlan);
+        }
+        using (Fixture measure = new(loader: false)) {
+            string wrapper = "wrapper.exe " + new string('w', 16000);
+            var baseReq = measure.Request with { Settings = measure.Request.Settings with { WrapperMode = MmcRuntimeWrapperMode.DirectMain, WrapperCommand = wrapper, ExtraGameTokens = [] } };
+            var basePlan = MmcRuntimeLaunchBuilder.BuildAsync(baseReq).GetAwaiter().GetResult();
+            var baseOuter = basePlan.CreateStartInfo(out int baseIndex);
+            Require(baseIndex == 2 && baseOuter.ArgumentList[1] == measure.Request.Java.ExecutablePath,
+                "Single-arg wrapper must reserve nonce index 2 directly after innerEntry.");
+            baseWrappedLen = MmcRuntimeWindowsCommandLine.LengthIncludingTerminator(
+                baseOuter.FileName, baseOuter.ArgumentList.Take(baseIndex).Append(nonce).Concat(baseOuter.ArgumentList.Skip(baseIndex)));
+            measure.RemoveMutable(basePlan);
+        }
+        string fixedWrapper = "wrapper.exe " + new string('w', 16000);
+        int extraPad = checked(32767 - (int)baseWrappedLen - 1);
+        Require(extraPad > 10000 && extraPad < 20000, "Unexpected wrapped inner budget remainder: " + extraPad);
+        using (Fixture exact = new(loader: false)) {
+            var req = exact.Request with {
+                Settings = exact.Request.Settings with {
+                    WrapperMode = MmcRuntimeWrapperMode.DirectMain,
+                    WrapperCommand = fixedWrapper,
+                    ExtraGameTokens = [new string('x', extraPad)]
+                }
+            };
+            var plan = MmcRuntimeLaunchBuilder.BuildAsync(req).GetAwaiter().GetResult();
+            var outer = plan.CreateStartInfo(out int nonceIndex);
+            Require(nonceIndex == 2 && outer.ArgumentList[1] == exact.Request.Java.ExecutablePath,
+                "Single-arg wrapper must reserve nonce index 2 directly after innerEntry.");
+            long actualLen = MmcRuntimeWindowsCommandLine.LengthIncludingTerminator(
+                outer.FileName, outer.ArgumentList.Take(nonceIndex).Append(nonce).Concat(outer.ArgumentList.Skip(nonceIndex)));
+            Require(actualLen == 32767, "Wrapped launch plus injected inner nonce missed exact 32767 Windows boundary: " + actualLen);
+            exact.RemoveMutable(plan);
+        }
+        using (Fixture overflow = new(loader: false)) {
+            var req = overflow.Request with {
+                Settings = overflow.Request.Settings with {
+                    WrapperMode = MmcRuntimeWrapperMode.DirectMain,
+                    WrapperCommand = fixedWrapper,
+                    ExtraGameTokens = [new string('x', extraPad + 1)]
+                }
+            };
+            Expect("MMC_RUNTIME_COMMAND_LENGTH", () => MmcRuntimeLaunchBuilder.BuildAsync(req).GetAwaiter().GetResult().CreateStartInfo(out _));
         }
     }
     private static void ExpectArgument(Action operation) { try { operation(); } catch (ArgumentException) { return; } throw new Exception("Expected bounded transport argument refusal."); }    private static byte[] WithFile(byte[] originalJar, string name, byte[] contents) {

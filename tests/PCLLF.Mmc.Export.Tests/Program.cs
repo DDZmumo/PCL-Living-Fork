@@ -35,6 +35,7 @@ internal static class ExportChecks {
         yield return ("final export argument policy rejects account root and equals-server bypasses",ArgumentReviewRegression);
         yield return ("server inheritance respects disabled package joins and explicit empty instance values",ServerReviewRegression);
         yield return ("unportable console and PermGen requirements are disclosed as adjustments, never substituted",DifferenceDisclosure);
+        yield return ("active package commands are refused instead of silently dropped on portable export",ActivePackageCommandsRefused);
     }
     private static void RoundTrip() {
         foreach(int major in new[]{8,21}) using(var fixture=new Fixture(major)) {
@@ -248,6 +249,22 @@ internal static class ExportChecks {
         }
         // Adisclosed export still stands alone as a portable MMC archive.
         Success(exporter.ExportAsync(fixture.Request(source,"differences-again.zip")).GetAwaiter().GetResult());
+    }
+    private static void ActivePackageCommandsRefused() {
+        var exporter = new MmcInstanceExportBackend();
+        foreach (string extra in new[] {
+            "OverrideCommands=true\nPreLaunchCommand=echo pack\n",
+            "OverrideLaunchCmd=true\nWrapperCommand=wrap.exe\n"
+        }) {
+            using var active = new Fixture(8, extraCfg: extra);
+            var source = active.Import("active-commands");
+            var result = exporter.ExportAsync(active.Request(source, "refused-commands.zip")).GetAwaiter().GetResult();
+            Check(result.Status == MmcInstanceExportStatus.Rejected && result.Failure!.Contains("OverrideCommands", StringComparison.Ordinal) && !File.Exists(Path.Combine(active.Root, "outputs", "refused-commands.zip")),
+                "Active package command requirement was silently dropped instead of refused: " + extra);
+        }
+        using var inactive = new Fixture(8, extraCfg: "OverrideCommands=false\nOverrideLaunchCmd=true\nPreLaunchCommand=inactive\n");
+        var inactiveSource = inactive.Import("inactive-commands");
+        Success(exporter.ExportAsync(inactive.Request(inactiveSource, "inactive-commands.zip")).GetAwaiter().GetResult());
     }
     private sealed class Fixture:IDisposable {
         internal string Root{get;}=Path.Combine(Path.GetTempPath(),"PCLLF-MmcExportTests-"+Guid.NewGuid().ToString("N"));

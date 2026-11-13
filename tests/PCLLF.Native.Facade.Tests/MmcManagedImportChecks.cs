@@ -136,7 +136,7 @@ internal static class MmcManagedImportChecks {
         }
         internal void UnsupportedAndMultipleRoots() {
             int before = published.Count;
-            var unsupported = Start("Unsupported", "name=Unsupported\nOverrideCommands=true\nPreLaunchCommand=must-not-execute\n"); Complete(unsupported, ModBase.LoadState.Failed);
+            var unsupported = Start("Unsupported", "name=Unsupported\nOverrideGameTime=true\n"); Complete(unsupported, ModBase.LoadState.Failed);
             string archive = Zip("two-roots", "name=Ambiguous\n", true); var ambiguous = ModModpack.ModpackInstall(archive); Complete(ambiguous, ModBase.LoadState.Failed);
             Native.Check(published.Count == before && forbidden == 0 && !Directory.Exists(Path.Combine(game, "versions", "Unsupported")), "Unsupported MMC fell back or published success.");
         }

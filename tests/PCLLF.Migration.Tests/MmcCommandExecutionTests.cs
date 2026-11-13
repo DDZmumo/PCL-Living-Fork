@@ -23,6 +23,8 @@ internal static class MmcCommandExecutionTests {
         yield return ("MMC package command stage logs only the redacted command text", LogRedaction);
         yield return ("MMC package command stage skips an inactive source and reads stages independently", InactiveSource);
         yield return ("MMC package command stage changes the recomputed input fingerprint when an artifact changes", PostCommandRevalidation);
+        yield return ("MMC package command stage applies package Env and session TEMP only for PreLaunch and PostExit", StageEnvironmentOverlay);
+        yield return ("MMC package command stage refuses PreLaunch or PostExit Env without a valid session temporary directory", StageEnvironmentRefusals);
     }
 
     private static void Require(bool value, string message) { if (!value) throw new Exception(message); }
@@ -47,6 +49,7 @@ internal static class MmcCommandExecutionTests {
         internal string Root { get; }
         internal string GameRoot => Path.Combine(Root, "minecraft");
         internal ProcessStartInfo? Observed { get; private set; }
+        internal void ResetObserved() => Observed = null;
         /// <summary>Replaces the started child; the recorded start info is always captured first.</summary>
         internal Func<ProcessStartInfo, Process?>? Handler { get; set; }
 
@@ -62,7 +65,8 @@ internal static class MmcCommandExecutionTests {
                 // An independent harmless child: the recorded info is never reused, so the assertion sees
                 // exactly what production would have handed to the process entry.
                 var copy = new ProcessStartInfo(start.FileName) {
-                    UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = start.WorkingDirectory
+                    UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = start.WorkingDirectory,
+                    Arguments = start.Arguments
                 };
                 foreach (string argument in start.ArgumentList) copy.ArgumentList.Add(argument);
                 return Process.Start(copy);
@@ -142,6 +146,13 @@ internal static class MmcCommandExecutionTests {
 
     // ---- 2. execution host ----------------------------------------------------------------------------
 
+    private static string ExtractShellCommand(ProcessStartInfo start) {
+        Require(start.ArgumentList.Count == 0, "cmd.exe host must pass raw Arguments instead of ArgumentList so quotes are preserved.");
+        Require(start.Arguments.StartsWith("/d /s /c \"", StringComparison.Ordinal) && start.Arguments.EndsWith("\"", StringComparison.Ordinal),
+            "Unexpected cmd.exe Arguments framing: " + start.Arguments);
+        return start.Arguments["/d /s /c \"".Length..^1];
+    }
+
     private static void ExecutionHost() {
         using var instance = new Instance();
         var context = Context(instance, "OverrideCommands=true\nPreLaunchCommand=echo hi");
@@ -150,12 +161,16 @@ internal static class MmcCommandExecutionTests {
         Equal("cmd.exe", start.FileName, "Execution host");
         Require(!start.UseShellExecute, "UseShellExecute must stay false for a managed child.");
         Require(start.CreateNoWindow, "The command child must not create a window.");
-        Require(string.IsNullOrEmpty(start.Arguments), "The frozen host forbids one concatenated Arguments string; ArgumentList must be used.");
-        Require(start.ArgumentList.SequenceEqual(new[] { "/d", "/s", "/c", "echo hi" }), "ArgumentList was " + string.Join("|", start.ArgumentList));
+        Equal("/d /s /c \"echo hi\"", start.Arguments, "cmd.exe must run with /d /s /c framing");
+        Equal(0, start.ArgumentList.Count, "cmd.exe ArgumentList must stay empty to prevent CRT \\\" quote corruption");
         Equal(Path.GetFullPath(instance.GameRoot), Path.GetFullPath(start.WorkingDirectory), "Working directory must be GameRoot");
         Equal("PreLaunchCommand", result.Stage, "Stage name");
         Equal("echo hi", result.RedactedCommand, "Redacted command text");
         Equal(0, result.ExitCode, "A successful command exit code");
+        // Verify embedded double quotes (real quoted executable paths with spaces) execute cleanly under /d /s /c.
+        string cmdExe = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        var quoted = MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "\"" + cmdExe + "\" /d /c \"exit 0\"");
+        Equal(0, quoted.ExitCode, "Quoted executable path inside package command failed cmd.exe execution");
     }
 
     // ---- 3. variables ---------------------------------------------------------------------------------
@@ -167,13 +182,13 @@ internal static class MmcCommandExecutionTests {
         // cmd-special character even though the stage only ever hands the text to the shell verbatim.
         MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null,
             "echo $INST_DIR;${INST_MC_DIR};${instance_directory};${game_directory}");
-        string text = instance.Observed!.ArgumentList[3];
+        string text = ExtractShellCommand(instance.Observed!);
         string root = instance.Root.Replace('\\', '/'), game = instance.GameRoot.Replace('\\', '/');
         Equal("echo " + root + ";" + game + ";" + root + ";" + game, text, "Root variables");
         Require(root != game, "INST_DIR and INST_MC_DIR must be different roles for this case to be meaningful.");
         // A bare spelling is only matched on a word boundary, and an unmatched dollar stays literal.
         MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo $INST_DIRECTORY $ 100%");
-        Equal("echo $INST_DIRECTORY $ 100%", instance.Observed!.ArgumentList[3], "Bare boundary or literal dollar");
+        Equal("echo $INST_DIRECTORY $ 100%", ExtractShellCommand(instance.Observed!), "Bare boundary or literal dollar");
         // An unknown variable is refused, never replaced by an empty string.
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo ${nope}"), "Unknown ${} variable");
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo ${unterminated"), "Unterminated variable");
@@ -183,11 +198,11 @@ internal static class MmcCommandExecutionTests {
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${version_name}"), "PreLoad version_name");
         // The host values the pre-plan context does carry still resolve at PreLoad.
         MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${launcher_name} ${launcher_version}");
-        Equal("echo PCL Living Fork 1.0.0", instance.Observed!.ArgumentList[3], "PreLoad host variables");
+        Equal("echo PCL Living Fork 1.0.0", ExtractShellCommand(instance.Observed!), "PreLoad host variables");
         // A supplied plan-variable set is what makes the plan-derived names resolvable.
         var planVariables = new Dictionary<string, string>(StringComparer.Ordinal) { ["classpath"] = @"C:\a.jar", ["version_name"] = "1.7.10" };
         MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, planVariables, "echo ${classpath};${version_name}");
-        Equal(@"echo C:\a.jar;1.7.10", instance.Observed!.ArgumentList[3], "Plan-derived variables");
+        Equal(@"echo C:\a.jar;1.7.10", ExtractShellCommand(instance.Observed!), "Plan-derived variables");
     }
 
     // ---- 4. refusals ----------------------------------------------------------------------------------
@@ -334,6 +349,65 @@ internal static class MmcCommandExecutionTests {
         } finally { try { Directory.Delete(root, true); } catch (Exception) { } }
     }
 
+    // ---- 10. stage env overlay (D15) ------------------------------------------------------------------
+
+    private static void StageEnvironmentOverlay() {
+        using var instance = new Instance();
+        string sessionTemp = Path.Combine(instance.Root, "PCL", "MmcRuntime", "session-temp");
+        Directory.CreateDirectory(sessionTemp);
+        var cfg = Configuration("OverrideCommands=true\nOverrideEnv=true\nPreLoadCommand=echo preload\nPreLaunchCommand=echo prelaunch\nPostExitCommand=echo postexit\nEnv=[\"PACK_CMD=${INST_DIR}/literal\",\"UNICODE=中文😀\",\"EMPTY=\"]\n");
+
+        // PreLoad must never apply package Env or session TEMP/TMP, even if TemporaryDirectory is supplied.
+        var preLoadNoTemp = Context(instance, cfg);
+        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadNoTemp, null, "echo preload");
+        Require(instance.Observed is not null && !instance.Observed.Environment.ContainsKey("PACK_CMD"),
+            "PreLoad must not receive package Env entries.");
+        var preLoadWithTemp = Context(instance, cfg) with { TemporaryDirectory = sessionTemp };
+        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadWithTemp, null, "echo preload");
+        Require(instance.Observed is not null && !instance.Observed.Environment.ContainsKey("PACK_CMD") &&
+                !string.Equals(instance.Observed.Environment.TryGetValue("TEMP", out string? preLoadTemp) ? preLoadTemp : null, sessionTemp, StringComparison.OrdinalIgnoreCase),
+            "PreLoad must ignore TemporaryDirectory and never inherit package Env.");
+
+        // PreLaunch and PostExit apply MmcRuntimeEnvironmentOverlay literally and force TEMP/TMP to sessionTemp.
+        string? prevToolOptions = Environment.GetEnvironmentVariable("JAVA_TOOL_OPTIONS");
+        Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-javaagent:parent.jar");
+        try {
+            var withTemp = Context(instance, cfg) with { TemporaryDirectory = sessionTemp };
+            foreach (var stage in new[] { MmcRuntimeCommandStage.PreLaunch, MmcRuntimeCommandStage.PostExit }) {
+                MmcRuntimeCommandExecution.Execute(stage, withTemp, null, "echo ok");
+                var env = instance.Observed!.Environment;
+                Equal("${INST_DIR}/literal", env["PACK_CMD"], stage + " PACK_CMD literal");
+                Equal("中文😀", env["UNICODE"], stage + " UNICODE literal");
+                Equal("", env["EMPTY"], stage + " empty literal");
+                Equal(sessionTemp, env["TEMP"], stage + " TEMP");
+                Equal(sessionTemp, env["TMP"], stage + " TMP");
+                Require(!env.ContainsKey("JAVA_TOOL_OPTIONS") && !env.ContainsKey("CLASSPATH"),
+                    stage + " must strip inherited execution-input channels.");
+            }
+        } finally {
+            Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", prevToolOptions);
+        }
+    }
+
+    private static void StageEnvironmentRefusals() {
+        using var instance = new Instance();
+        var cfg = Configuration("OverrideCommands=true\nOverrideEnv=true\nPreLaunchCommand=echo a\nPostExitCommand=echo b\nEnv=[\"PACK_CMD=val\"]\n");
+
+        foreach (var stage in new[] { MmcRuntimeCommandStage.PreLaunch, MmcRuntimeCommandStage.PostExit }) {
+            instance.ResetObserved();
+            ThrowsCode("MMC_RUNTIME_ENV_SETTINGS",
+                () => MmcRuntimeCommandExecution.Execute(stage, Context(instance, cfg), null, "echo ok"),
+                stage + " without TemporaryDirectory");
+            Require(instance.Observed is null, stage + " refusal must occur before spawning cmd.exe.");
+
+            string missingTemp = Path.Combine(instance.Root, "PCL", "MmcRuntime", "does-not-exist");
+            ThrowsCode("MMC_RUNTIME_ENV_SETTINGS",
+                () => MmcRuntimeCommandExecution.Execute(stage, Context(instance, cfg) with { TemporaryDirectory = missingTemp }, null, "echo ok"),
+                stage + " with nonexistent TemporaryDirectory");
+            Require(instance.Observed is null, stage + " missing-temp refusal must occur before spawning cmd.exe.");
+        }
+    }
+
     private sealed record Observation(string Identity, string ActualPath, string Sha256, long SizeBytes);
 
     private static string Digest(string path) => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
@@ -341,10 +415,10 @@ internal static class MmcCommandExecutionTests {
     /// <summary>Mirrors the production fingerprint shape, so the receipt's sensitivity is the real one.</summary>
     private static string Fingerprint(IEnumerable<Observation> inputs) {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> length = stackalloc byte[4];
         foreach (string? value in new[] { "mmc-runtime-inputs-v1" }
             .Concat(inputs.SelectMany(i => new[] { i.Identity, i.ActualPath, i.Sha256, i.SizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture) }))) {
             byte[] bytes = Encoding.UTF8.GetBytes(value ?? "");
-            Span<byte> length = stackalloc byte[4];
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, bytes.Length);
             hash.AppendData(length); hash.AppendData(bytes);
         }

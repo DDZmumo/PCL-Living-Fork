@@ -122,6 +122,7 @@
     <!-- The managed-process environment boundary is exercised as real production source, never a copy. -->
     <Compile Include="../../PCLCS/Launch/MmcRuntimeEnvironmentOverlay.cs" Link="Production/MmcRuntimeEnvironmentOverlay.cs" />
     <Compile Include="../../PCLCS/Launch/MmcRuntimeLaunchException.cs" Link="Production/MmcRuntimeLaunchException.cs" />
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeWindowsCommandLine.cs" Link="Production/MmcRuntimeWindowsCommandLine.cs" />
     <!-- The package command stage boundary is exercised as real production source; the launcher's own
          process entry stays a host dependency and is replaced by the controlled test surface. -->
     <Compile Include="../../PCLCS/Launch/MmcRuntimeCommandExecution.cs" Link="Production/MmcRuntimeCommandExecution.cs" />

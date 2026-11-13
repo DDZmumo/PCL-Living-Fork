@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -13,6 +14,8 @@ internal static partial class MmcSessionTests {
         yield return ("MMC session PID reuse and absent nonce evidence remain unknown", IdentityAndNonce);
         yield return ("MMC wrapper exit never concludes the game exited while managed Java survives", WrapperExitTable);
         yield return ("MMC wrapper exit registers both identities and proves the whole group gone", WrapperGroup);
+        yield return ("MMC wrapper early exit retains live pipes, refuses premature settlement and reconciles managed Java", WrapperEarlyExitAndReconcile);
+        yield return ("MMC wrapper identity mismatch and early exit without Java clean up without leaking pins", WrapperFailureCleanup);
         yield return ("MMC session interrupted Launching without PID cannot be guessed exited", LaunchingInterruption);
         yield return ("MMC session rejects stale generation layout and caller nonce overrides", InvalidLaunch);
         yield return ("MMC session serialized receipts contain identities but no process arguments", ReceiptPrivacy);
@@ -37,6 +40,7 @@ internal static partial class MmcSessionTests {
                 File.WriteAllText(data[1], Environment.ProcessId + "\n" + nonce);
                 var timer = Stopwatch.StartNew();
                 while (!File.Exists(data[2]) && timer.ElapsedMilliseconds < 30000) Thread.Sleep(20);
+                if (data.Length >= 5 && data[4] == "--emit-stdout") Console.WriteLine("child-stdout-after-stop");
                 exitCode = 0; return true;
             }
             if (data.Length != 3 || !Guid.TryParse(data[2], out Guid id)) throw new Exception("Invalid controlled host child.");
@@ -138,48 +142,138 @@ internal static partial class MmcSessionTests {
         Equal("WrapperManagedExit", MmcWrapperExit.ProofFor(wrapperManaged: true));
         Equal("OwnedProcessHandleExited", MmcWrapperExit.ProofFor(wrapperManaged: false));
     }
-    // The real group proof: the wrapper entry and the managed Java process are both registered, and teardown
-    // covers the whole group.
+    // The real group proof: MmcSessions launches the outer wrapper in a suspended owned Win32 Job, validates
+    // its image before resume, discovers the managed child carrying the protected nonce inside the Job,
+    // registers both identities, and terminates and proves the whole group gone.
     private static void WrapperGroup() {
         using Fixture fixture = new(); using var lease = fixture.Lease();
-        var request = fixture.Request();
-        // A genuine wrapper entry: this host process stands in as the outer program and the fixture child as the
-        // managed Java process, which is what the host's own StartProcess injection point does in production.
-        Process? wrapper = null;
-        try {
-            // A genuine distinct outer entry: the wrapper program is not the managed Java image, so the two
-            // registrations are independently identifiable rather than accidentally equal.
-            ProcessStartInfo outer = new("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.Combine(fixture.Root, "minecraft") };
-            outer.ArgumentList.Add("/d"); outer.ArgumentList.Add("/c"); outer.ArgumentList.Add("ping -n 60 127.0.0.1 > nul");
-            wrapper = Process.Start(outer) ?? throw new Exception("Controlled wrapper entry did not start.");
-            request = request with { WrapperEntry = wrapper };
-            using var session = MmcSessions.Launch(lease, request, () => { }, (_, image) => new FixturePin(image, fixture.PinFile));
+        string workingDirectory = Path.Combine(fixture.Root, "minecraft");
+        string wrapperPath = MmcSessions.ResolveExecutablePath("cmd.exe", workingDirectory);
+        MmcExecutableIdentity wrapperIdentity = MmcSessions.ObserveExecutable(wrapperPath);
+        ProcessStartInfo outer = new(wrapperPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workingDirectory };
+        foreach (string arg in new[] { "/d", "/c", "call", AppHost(), "--mmc-session-child", fixture.Ready, fixture.StopFile, "bounded-fixture" })
+            outer.ArgumentList.Add(arg);
+        var request = fixture.Request() with {
+            StartInfo = outer,
+            IsWrapperManaged = true,
+            WrapperIdentity = wrapperIdentity,
+            NonceArgumentIndex = 4
+        };
+        using var session = MmcSessions.Launch(lease, request, () => { }, (_, image) => new FixturePin(image, fixture.PinFile));
+        fixture.WaitChild();
+        var registration = session.Registration;
+        Equal(true, session.IsWrapperManaged && session.HasOwnedPipes);
+        Equal(true, session.WrapperProcess is { HasExited: false });
+        Equal(true, registration.WrapperProcess is not null);
+        Equal(true, registration.WrapperProcess!.ProcessId > 0 && registration.WrapperProcess.CreationTimeUtcTicks > 0);
+        Equal(true, registration.WrapperProcess.ProcessId != registration.ProcessId);
+        Equal(false, MmcSessions.SameExecutable(registration.WrapperProcess.ExecutableIdentity, registration.ExecutableIdentity));
+        Equal(fixture.ChildPid(), registration.ProcessId);
+        Equal(session.Receipt.Nonce, fixture.ChildNonce());
+        // The durable record round-trips both identities and still carries no arguments or nonce.
+        string record = Path.Combine(fixture.Sessions, session.Receipt.SessionId.ToString("N"), "Running.record");
+        string text = File.ReadAllText(record);
+        Equal(true, text.Contains("wrapperProcess", StringComparison.OrdinalIgnoreCase));
+        Equal(false, text.Contains("bounded-fixture", StringComparison.Ordinal));
+        Equal(false, text.Contains(fixture.StopFile, StringComparison.Ordinal));
+        Equal(false, text.Contains(session.Receipt.Nonce, StringComparison.Ordinal));
+        // Teardown terminates the whole group and proves it gone within the bounded grace.
+        Equal(true, session.TerminateTree());
+        Equal(true, session.WrapperProcess!.HasExited); Equal(true, session.Process.HasExited);
+        Equal(true, session.AreAllProcessesExited);
+        // A proven wrapper-mode exit is recorded under the wrapper proof, never the handle proof.
+        session.CompleteVerifiedExit(lease);
+        string history = Path.Combine(fixture.Scope, "versions", "sample", "PCL", "MmcSessionHistory", session.Receipt.SessionId.ToString("N"), "Exited.record");
+        Equal(true, File.Exists(history));
+        Equal(true, File.ReadAllText(history).Contains("WrapperManagedExit", StringComparison.Ordinal));
+        Equal(false, File.ReadAllText(history).Contains("OwnedProcessHandleExited", StringComparison.Ordinal));
+    }
+
+    private static void WrapperEarlyExitAndReconcile() {
+        using Fixture fixture = new(); using var lease = fixture.Lease();
+        FixturePin? pin = null;
+        string workingDirectory = Path.Combine(fixture.Root, "minecraft");
+        string wrapperPath = MmcSessions.ResolveExecutablePath("cmd.exe", workingDirectory);
+        MmcExecutableIdentity wrapperIdentity = MmcSessions.ObserveExecutable(wrapperPath);
+        ProcessStartInfo outer = new(wrapperPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workingDirectory };
+        foreach (string arg in new[] { "/d", "/c", "start", "", "/b", AppHost(), "--mmc-session-child", fixture.Ready, fixture.StopFile, "bounded-fixture", "--emit-stdout" })
+            outer.ArgumentList.Add(arg);
+        var request = fixture.Request() with {
+            StartInfo = outer,
+            IsWrapperManaged = true,
+            WrapperIdentity = wrapperIdentity,
+            NonceArgumentIndex = 6
+        };
+        var stdout = new ConcurrentQueue<string>();
+        Guid sessionId;
+        using (var session = MmcSessions.Launch(lease, request, () => { }, (_, image) => pin = new(image, fixture.PinFile))) {
+            sessionId = session.Receipt.SessionId;
+            session.BeginReadPipes(line => { if (line is not null) stdout.Enqueue(line); }, _ => { });
             fixture.WaitChild();
-            var registration = session.Registration;
-            // Both identities are registered, and they are independent processes.
-            Equal(true, registration.WrapperProcess is not null);
-            Equal(true, registration.WrapperProcess!.ProcessId > 0 && registration.WrapperProcess.CreationTimeUtcTicks > 0);
-            Equal(true, registration.WrapperProcess.ProcessId != registration.ProcessId);
-            Equal(false, MmcSessions.SameExecutable(registration.WrapperProcess.ExecutableIdentity, registration.ExecutableIdentity));
-            // The exit decision ignores the wrapper: it may be gone while the game is still running.
-            var verdict = MmcWrapperExit.Decide(new(MmcWrapperEntryState.Exited, MmcManagedJavaState.Alive, true, true, true));
-            Equal(false, verdict.MayConcludeExit);
-            // The durable record round-trips both identities and still carries no arguments.
-            string record = Path.Combine(fixture.Sessions, session.Receipt.SessionId.ToString("N"), "Running.record");
-            string text = File.ReadAllText(record);
-            Equal(true, text.Contains("wrapperProcess", StringComparison.OrdinalIgnoreCase));
-            Equal(false, text.Contains("bounded-fixture", StringComparison.Ordinal));
-            Equal(false, text.Contains(fixture.StopFile, StringComparison.Ordinal));
-            // Teardown terminates the whole group and proves it gone within the bounded grace.
-            Equal(true, MmcProcessTreeTermination.TerminateAndProveGone(wrapper, session.Process));
-            Equal(true, wrapper.HasExited); Equal(true, session.Process.HasExited);
-            // A proven wrapper-mode exit is recorded under the wrapper proof, never the handle proof.
-            session.CompleteVerifiedExit(lease);
-            string history = Path.Combine(fixture.Scope, "versions", "sample", "PCL", "MmcSessionHistory", session.Receipt.SessionId.ToString("N"), "Exited.record");
-            Equal(true, File.Exists(history));
-            Equal(true, File.ReadAllText(history).Contains("WrapperManagedExit", StringComparison.Ordinal));
-            Equal(false, File.ReadAllText(history).Contains("OwnedProcessHandleExited", StringComparison.Ordinal));
-        } finally { try { if (wrapper is { HasExited: false }) wrapper.Kill(entireProcessTree: true); } catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { } wrapper?.Dispose(); }
+            Equal(true, session.WrapperProcess!.WaitForExit(10000));
+            Equal(false, session.Process.HasExited);
+            // Wrapper exit alone must neither conclude game exit nor allow premature settlement.
+            var inspector = new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce);
+            Equal(MmcSessionObservation.MatchingRunning, MmcSessions.Reconcile(lease, sessionId, inspector, _ => throw new Exception("running pin must stay")).Observation);
+            Throws<IOException>(() => session.RecordVerifiedExit(lease));
+            Equal(false, MmcWrapperExit.Decide(new(MmcWrapperEntryState.Exited, MmcManagedJavaState.Alive, true, true, true)).MayConcludeExit);
+
+            fixture.Stop();
+            session.WaitForExitAsync().GetAwaiter().GetResult();
+            session.PipeDrainTask.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+            Equal(true, stdout.Contains("child-stdout-after-stop"));
+        }
+        // Disposing without CompleteVerifiedExit keeps pin & session so post-exit Reconcile must conclude WrapperManagedExit.
+        Equal(true, pin!.Retained); Equal(true, File.Exists(fixture.PinFile));
+        var postExit = MmcSessions.Reconcile(lease, sessionId, new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce), _ => pin.CompleteVerifiedExit());
+        Equal(MmcSessionObservation.ProvenExited, postExit.Observation);
+        Equal(true, pin.Completed); Equal(false, File.Exists(fixture.PinFile));
+        MmcSessions.AssertNoActive(lease);
+        string history = Path.Combine(fixture.Scope, "versions", "sample", "PCL", "MmcSessionHistory", sessionId.ToString("N"), "Exited.record");
+        Equal(true, File.ReadAllText(history).Contains("WrapperManagedExit", StringComparison.Ordinal));
+    }
+
+    private static void WrapperFailureCleanup() {
+        using Fixture fixture = new(); using var lease = fixture.Lease();
+        string workingDirectory = Path.Combine(fixture.Root, "minecraft");
+        string wrapperPath = MmcSessions.ResolveExecutablePath("cmd.exe", workingDirectory);
+        MmcExecutableIdentity wrapperIdentity = MmcSessions.ObserveExecutable(wrapperPath);
+
+        // 1. Pre-launch identity mismatch fails before persisting Launching.record or keeping pins.
+        FixturePin? mismatchedPin = null;
+        ProcessStartInfo badOuter = new(wrapperPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workingDirectory };
+        badOuter.ArgumentList.Add("/d"); badOuter.ArgumentList.Add("/c"); badOuter.ArgumentList.Add("exit"); badOuter.ArgumentList.Add("0");
+        var mismatched = fixture.Request() with {
+            StartInfo = badOuter,
+            IsWrapperManaged = true,
+            WrapperIdentity = MmcSessions.ObserveExecutable(AppHost()),
+            NonceArgumentIndex = 2
+        };
+        Throws<IOException>(() => MmcSessions.Launch(lease, mismatched, () => { }, (_, image) => mismatchedPin = new(image, fixture.PinFile)));
+        Equal(true, mismatchedPin is null || (mismatchedPin.Completed && !mismatchedPin.Retained));
+        MmcSessions.AssertNoActive(lease);
+
+        // 2. Wrapper exits cleanly without starting Java: discovery fails promptly and recovery clears durable state.
+        FixturePin? emptyPin = null;
+        Guid id = Guid.NewGuid();
+        ProcessStartInfo noJavaOuter = new(wrapperPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workingDirectory };
+        noJavaOuter.ArgumentList.Add("/d"); noJavaOuter.ArgumentList.Add("/c"); noJavaOuter.ArgumentList.Add("exit"); noJavaOuter.ArgumentList.Add("0");
+        var noJava = fixture.Request() with {
+            SessionId = id,
+            StartInfo = noJavaOuter,
+            IsWrapperManaged = true,
+            WrapperIdentity = wrapperIdentity,
+            NonceArgumentIndex = 2,
+            WrapperJavaDiscoveryTimeout = TimeSpan.FromSeconds(15)
+        };
+        var elapsed = Stopwatch.StartNew();
+        Throws<IOException>(() => MmcSessions.Launch(lease, noJava, () => { }, (_, image) => emptyPin = new(image, fixture.PinFile)));
+        Equal(true, elapsed.ElapsedMilliseconds < 5000);
+        Equal(true, emptyPin!.Retained && File.Exists(fixture.PinFile));
+        var reconciled = MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce), _ => emptyPin.CompleteVerifiedExit());
+        Equal(MmcSessionObservation.ProvenExited, reconciled.Observation);
+        Equal(true, emptyPin.Completed && !File.Exists(fixture.PinFile));
+        MmcSessions.AssertNoActive(lease);
     }
     private static void LaunchingInterruption() {
         using Fixture fixture = new(); using var lease = fixture.Lease();
