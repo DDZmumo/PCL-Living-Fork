@@ -56,7 +56,8 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     private Func<bool>? arePipesDrained;
     private Action? customTerminate;
     private Func<bool>? hasGroupExited;
-    private bool requireVerifiedExit, deferredCancellation;
+    private bool requireVerifiedExit;
+    private int deferredCancellation;
     private string? environmentPoint;
     private bool reachedRunning, isWindowAppeared, isWindowFinished;
     private IntPtr windowHandle;
@@ -73,7 +74,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
         set {
             if (requireVerifiedExit && (Is(value, host.Ended) || Is(value, host.Canceled)) &&
                 owner.CoreGameProcess is Process && !AllProcessesAndPipesFinished()) {
-                if (Is(value, host.Canceled)) deferredCancellation = true;
+                if (Is(value, host.Canceled)) Volatile.Write(ref deferredCancellation, 1);
                 return;
             }
             if (Is(state, value)) return; state = value; if (Is(value, host.Running)) reachedRunning = true; group.StateChanged();
@@ -137,7 +138,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
                     catch (Exception exitError) { Logger.Warn(exitError, "MMC 日志监控退出仍待进程确认"); }
                 } else State = host.Ended;
             } finally {
-                if (!requireVerifiedExit || Volatile.Read(ref stopCallbackCompleted) != 0) monitoringFinished?.Invoke();
+                monitoringFinished?.Invoke();
             }
         }, "Minecraft Watcher PID " + pid);
     }
@@ -147,7 +148,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
         if (logRedactor is not null) text = logRedactor(text);
         lock (waitingLogLock) owner.CoreWaitingLog.Add(text);
     }
-    private bool IsNormalExit() => reachedRunning && !deferredCancellation && owner.CoreGameProcess.ExitCode == 0 && !Is(State, host.Crashed) && !Is(State, host.Canceled);
+    private bool IsNormalExit() => reachedRunning && Volatile.Read(ref deferredCancellation) == 0 && owner.CoreGameProcess.ExitCode == 0 && !Is(State, host.Crashed) && !Is(State, host.Canceled);
     private void CompleteStopCallbacks() {
         if (!AllProcessesAndPipesFinished()) return;
         if (Interlocked.Exchange(ref stopCallbackCompleted, 1) != 0) return;
@@ -160,6 +161,8 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     }
     private void TimerLog() {
         try {
+            if (requireVerifiedExit && Is(State, host.Loading) && host.LoaderCanceled(owner.CoreLoader))
+                Volatile.Write(ref deferredCancellation, 1);
             bool readyToSettle = AllProcessesAndPipesFinished();
             List<string> copied = new();
             lock (waitingLogLock) {
@@ -171,7 +174,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
             if (readyToSettle) {
                 CompleteStopCallbacks();
                 WatcherLog("Minecraft 已退出，返回值：" + owner.CoreGameProcess.ExitCode);
-                if (deferredCancellation) State = host.Canceled;
+                if (Volatile.Read(ref deferredCancellation) != 0) State = host.Canceled;
                 else if (Is(State, host.Loading)) { WatcherLog("Minecraft 尚未加载完成，可能已崩溃", LogLevel.Error); Crashed(); }
                 else if (owner.CoreGameProcess.ExitCode != 0 && Is(State, host.Running) && host.ReleaseTime(owner.CoreInstance).Year >= 2012) { WatcherLog("Minecraft 返回值异常，可能已崩溃", LogLevel.Error); Crashed(); }
                 else if (!Is(State, host.Crashed)) State = host.Ended;
@@ -236,7 +239,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
         return result;
     }
     private void Crashed() {
-        if (Is(State, host.Crashed) || Is(State, host.Ended)) return;
+        if (Is(State, host.Crashed) || Is(State, host.Ended) || Is(State, host.Canceled) || Volatile.Read(ref deferredCancellation) != 0) return;
         State = host.Crashed; WatcherLog("Minecraft 已崩溃，将在 2 秒后开始崩溃分析", LogLevel.Error); host.CrashHint(); host.FeedbackInfo();
         host.RunInNewThread(() => {
             try {

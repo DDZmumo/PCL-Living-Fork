@@ -24,7 +24,10 @@ public sealed record MmcClasspathInspection(ImmutableArray<MmcJarClassObservatio
 public static partial class MmcClasspathInspector {
     private sealed record Found(string Path, int Release, int Major);
     private sealed record JarResult(MmcJarClassObservation Observation, Dictionary<string, Found> Found, ImmutableArray<MmcManifestInputAbsence> ManifestInputs);
+    private sealed record ScannedClassCandidate(string EntryPath, int Release, byte[]? Header, bool Truncated);
+    private sealed record ScannedJar(string Key, string Digest, Dictionary<string, ScannedClassCandidate> Matched, ImmutableArray<MmcManifestInputAbsence> ManifestInputs);
     private sealed record JarRuntimePolicy(int JavaMajor, int MaximumRelease, bool MultiReleaseEnabled, bool Preview);
+
     public static async Task<MmcClasspathInspection> ObserveAsync(MmcRuntimeLaunchPlan launch, CancellationToken cancellationToken = default,
         IReadOnlyList<string>? additionalClassNames = null) {
         ArgumentNullException.ThrowIfNull(launch);
@@ -33,23 +36,36 @@ public static partial class MmcClasspathInspector {
         var profile = launch.Request.BoundPlan.CompiledProfile;
         if ((long)required.Length * profile.Classpath.Length > 65536) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_BUDGET", "Classpath observation matrix exceeds its bound.");
         var inputs = launch.Inputs.ToDictionary(i => i.Identity, StringComparer.Ordinal);
-        var observations = ImmutableArray.CreateBuilder<MmcJarClassObservation>();
+        var policy = RuntimePolicy(launch.Request.Java.Major, launch.EffectiveJvmArguments);
+        var requiredEntries = BuildRequiredEntryMap(required);
+        var jobs = profile.Classpath.Select((artifact, index) => (artifact, index))
+            .GroupBy(x => x.artifact.Key)
+            .Select(group => {
+                var first = group.First();
+                return (first.artifact, first.index, expected: inputs["artifact:" + first.artifact.Key], root: ManifestOwnerRoot(launch.Request, first.artifact.Scope));
+            }).ToArray();
+        var scanned = new ScannedJar[jobs.Length];
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+        await Task.Run(() => MmcInstancePaths.ForEachBounded(jobs, (slot, job, token) => {
+            scanned[slot] = ScanJar(job.artifact.Key, job.expected.ActualPath, job.expected.Sha256, job.expected.SizeBytes,
+                requiredEntries, policy, token, job.root, verifiedDirectories);
+        }, cancellationToken), cancellationToken).ConfigureAwait(false);
+
+        var observations = ImmutableArray.CreateBuilder<MmcJarClassObservation>(jobs.Length);
         Dictionary<string, MmcClasspathClassSelection> effective = new(StringComparer.Ordinal);
         var manifestInputs = ImmutableArray.CreateBuilder<MmcManifestInputAbsence>(); long manifestCharacters = 0;
-        var policy = RuntimePolicy(launch.Request.Java.Major, launch.EffectiveJvmArguments);
-        foreach (var group in profile.Classpath.Select((artifact, index) => (artifact, index)).GroupBy(x => x.artifact.Key)) {
-            var first = group.First(); var expected = inputs["artifact:" + first.artifact.Key];
-            var read = await ReadJarAsync(first.artifact.Key, expected.ActualPath, expected.Sha256, expected.SizeBytes, required,
-                policy, required.Where(name => !effective.ContainsKey(name)).ToHashSet(StringComparer.Ordinal), cancellationToken,
-                ManifestOwnerRoot(launch.Request, first.artifact.Scope)).ConfigureAwait(false);
-            foreach (var fact in read.ManifestInputs) {
+        for (int i = 0; i < jobs.Length; i++) {
+            var job = jobs[i];
+            var jar = scanned[i];
+            foreach (var fact in jar.ManifestInputs) {
                 manifestCharacters = checked(manifestCharacters + fact.Reference.Length + fact.TargetPath.Length);
                 if (manifestInputs.Count >= 65536 || manifestCharacters > 16 * 1024 * 1024) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_MANIFEST_BUDGET", "Manifest absence proof exceeds its launch budget.");
                 manifestInputs.Add(fact);
             }
-            observations.Add(read.Observation);
-            foreach (var entry in read.Found) if (!effective.ContainsKey(entry.Key)) effective.Add(entry.Key,
-                new(entry.Key, first.artifact.Key, entry.Value.Path, first.index, entry.Value.Release, entry.Value.Major));
+            var (observation, found) = ResolveScannedJar(jar, required, policy, name => !effective.ContainsKey(name));
+            observations.Add(observation);
+            foreach (var entry in found) if (!effective.ContainsKey(entry.Key)) effective.Add(entry.Key,
+                new(entry.Key, job.artifact.Key, entry.Value.Path, job.index, entry.Value.Release, entry.Value.Major));
         }
         foreach (string name in launch.RequiredClassNames) if (!effective.ContainsKey(name)) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CLASS_MISSING", "A required launch class is absent from its locked ordered classpath.");
         return new(observations.ToImmutable(), required.Where(effective.ContainsKey).Select(name => effective[name]).ToImmutableArray()) { ManifestInputs = manifestInputs.ToImmutable() };
@@ -58,20 +74,39 @@ public static partial class MmcClasspathInspector {
     internal static async Task VerifySupportDoesNotShadowAsync(MmcRuntimeLaunchRequest request, ImmutableArray<string> required, IReadOnlyList<string> effectiveJvmArguments, CancellationToken token) {
         ValidateNames(required);
         var policy = RuntimePolicy(request.Java.Major, effectiveJvmArguments);
-        foreach (var item in new[] { ("support:wrapper", request.Wrapper!), ("support:bridge", request.Bridge!) }) {
-            string ownClass = item.Item1 == "support:wrapper" ? "oolloo.jlw.Wrapper" : MmcRuntimeBridgeTransport.EntryPoint;
-            var observed = await ReadJarAsync(item.Item1, item.Item2.ActualPath, item.Item2.Sha256, item.Item2.SizeBytes, required.Append(ownClass).Distinct(StringComparer.Ordinal).ToArray(),
-                policy, new HashSet<string>(StringComparer.Ordinal) { ownClass }, token).ConfigureAwait(false);
-            if (required.Any(observed.Found.ContainsKey)) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_SUPPORT_SHADOW", "A host support JAR shadows a required game launch class.");
-            if (!observed.Found.ContainsKey(ownClass)) throw new MmcRuntimeLaunchException("MMC_RUNTIME_SUPPORT_ENTRY", "An owned support JAR is missing its required host entrypoint.");
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+        var items = new[] { ("support:wrapper", request.Wrapper!, "oolloo.jlw.Wrapper"), ("support:bridge", request.Bridge!, MmcRuntimeBridgeTransport.EntryPoint) };
+        string[] query = required.Append(items[0].Item3).Append(items[1].Item3).Distinct(StringComparer.Ordinal).ToArray();
+        var requiredEntries = BuildRequiredEntryMap(query);
+        var scanned = new ScannedJar[items.Length];
+        await Task.Run(() => MmcInstancePaths.ForEachBounded(items, (slot, item, ct) => {
+            scanned[slot] = ScanJar(item.Item1, item.Item2.ActualPath, item.Item2.Sha256, item.Item2.SizeBytes,
+                requiredEntries, policy, ct, manifestOwnerRoot: null, verifiedDirectories);
+        }, token), token).ConfigureAwait(false);
+        for (int i = 0; i < items.Length; i++) {
+            string ownClass = items[i].Item3;
+            var (_, found) = ResolveScannedJar(scanned[i], query, policy, name => name == ownClass);
+            if (required.Any(found.ContainsKey)) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_SUPPORT_SHADOW", "A host support JAR shadows a required game launch class.");
+            if (!found.ContainsKey(ownClass)) throw new MmcRuntimeLaunchException("MMC_RUNTIME_SUPPORT_ENTRY", "An owned support JAR is missing its required host entrypoint.");
         }
     }
 
-    private static async Task<JarResult> ReadJarAsync(string key, string path, string expectedSha256, long expectedSize,
+    private static Task<JarResult> ReadJarAsync(string key, string path, string expectedSha256, long expectedSize,
         string[] required, JarRuntimePolicy policy, HashSet<string> compatibilityRequired, CancellationToken token, string? manifestOwnerRoot = null) {
-        MmcRuntimeFiles.Hash(expectedSha256); MmcInstancePaths.EnsureNoLinks(path);
-        using FileStream source = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        string digest = await MmcRuntimeFiles.HashStreamAsync(source, token).ConfigureAwait(false);
+        var scanned = ScanJar(key, path, expectedSha256, expectedSize, BuildRequiredEntryMap(required), policy, token, manifestOwnerRoot, verifiedDirectories: null);
+        var (observation, found) = ResolveScannedJar(scanned, required, policy, compatibilityRequired.Contains);
+        return Task.FromResult(new JarResult(observation, found, scanned.ManifestInputs));
+    }
+
+    private static Dictionary<string, string> BuildRequiredEntryMap(string[] required) =>
+        required.ToDictionary(name => name.Replace('.', '/') + ".class", name => name, StringComparer.Ordinal);
+
+    private static ScannedJar ScanJar(string key, string path, string expectedSha256, long expectedSize,
+        Dictionary<string, string> requiredEntries, JarRuntimePolicy policy, CancellationToken token,
+        string? manifestOwnerRoot, ConcurrentDictionary<string, byte>? verifiedDirectories) {
+        MmcRuntimeFiles.Hash(expectedSha256); MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        using FileStream source = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+        string digest = MmcRuntimeFiles.HashStream(source, token);
         if (!digest.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase) || source.Length != expectedSize)
             throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CHANGED", "A classpath/support JAR differs from its adopted bytes.");
         source.Position = 0;
@@ -85,7 +120,6 @@ public static partial class MmcClasspathInspector {
         var absent = manifest.TryGetValue("Class-Path", out string? referenced)
             ? MmcManifestClasspath.ObserveAbsent(key, path, digest, manifestOwnerRoot, referenced, token) : ImmutableArray<MmcManifestInputAbsence>.Empty;
         bool multiRelease = policy.MultiReleaseEnabled && manifest.TryGetValue("Multi-Release", out string? enabled) && enabled.Equals("true", StringComparison.OrdinalIgnoreCase);
-        var names = required.ToDictionary(name => name.Replace('.', '/') + ".class", name => name, StringComparer.Ordinal);
         Dictionary<string, (ZipArchiveEntry Entry, int Release)> selected = new(StringComparer.Ordinal);
         HashSet<string> relevantEntries = new(StringComparer.Ordinal);
         foreach (ZipArchiveEntry entry in archive.Entries) {
@@ -98,27 +132,48 @@ public static partial class MmcClasspathInspector {
                     release < 9 || release > policy.MaximumRelease || !candidate.AsSpan("META-INF/versions/".Length, separator - "META-INF/versions/".Length).SequenceEqual(release.ToString(System.Globalization.CultureInfo.InvariantCulture))) continue;
                 candidate = candidate[(separator + 1)..];
             }
-            if (!names.TryGetValue(candidate, out string? name)) continue;
+            if (!requiredEntries.TryGetValue(candidate, out string? name)) continue;
             if (!relevantEntries.Add(name + ":" + release)) throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CLASS_AMBIGUOUS", "Duplicate effective class entry in one locked JAR.");
             if (!selected.TryGetValue(name, out var previous) || release > previous.Release) selected[name] = (entry, release);
         }
-        Dictionary<string, Found> found = new(StringComparer.Ordinal);
+        Dictionary<string, ScannedClassCandidate> matched = new(selected.Count, StringComparer.Ordinal);
         foreach (var item in selected) {
-            if (!compatibilityRequired.Contains(item.Key)) {
+            token.ThrowIfCancellationRequested();
+            using Stream input = item.Value.Entry.Open();
+            byte[] header = new byte[8];
+            int totalRead = 0;
+            while (totalRead < header.Length) {
+                int read = input.Read(header, totalRead, header.Length - totalRead);
+                if (read == 0) break;
+                totalRead += read;
+            }
+            bool truncated = totalRead < header.Length;
+            matched.Add(item.Key, new(item.Value.Entry.FullName, item.Value.Release, truncated ? null : header, truncated));
+        }
+        return new(key, digest, matched, absent);
+    }
+
+    private static (MmcJarClassObservation Observation, Dictionary<string, Found> Found) ResolveScannedJar(
+        ScannedJar jar, string[] required, JarRuntimePolicy policy, Func<string, bool> checkClassVersion) {
+        Dictionary<string, Found> found = new(jar.Matched.Count, StringComparer.Ordinal);
+        foreach (var item in jar.Matched) {
+            if (!checkClassVersion(item.Key)) {
                 // The JVM never defines this shadowed required class. Keep its
                 // explicit presence/path without rejecting an unused header.
-                found.Add(item.Key, new(item.Value.Entry.FullName, item.Value.Release, 0));
+                found.Add(item.Key, new(item.Value.EntryPath, item.Value.Release, 0));
                 continue;
             }
-            using Stream input = item.Value.Entry.Open(); byte[] header = new byte[8];
-            try { await input.ReadExactlyAsync(header, token).ConfigureAwait(false); }
-            catch (EndOfStreamException) { throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CLASS_HEADER", "Truncated required class header."); }
+            if (item.Value.Truncated || item.Value.Header is null)
+                throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CLASS_HEADER", "Truncated required class header.");
+            byte[] header = item.Value.Header;
             int minor = BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(4)), major = BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(6));
             if (BinaryPrimitives.ReadUInt32BigEndian(header) != 0xcafebabe || major < 45 || major > policy.JavaMajor + 44 || minor == 65535 && (!policy.Preview || major != policy.JavaMajor + 44))
                 throw new MmcRuntimeLaunchException("MMC_CLASSPATH_CLASS_VERSION", "Required class bytecode does not match the selected Java/preview capability.");
-            found.Add(item.Key, new(item.Value.Entry.FullName, item.Value.Release, major));
+            found.Add(item.Key, new(item.Value.EntryPath, item.Value.Release, major));
         }
-        return new(new(key, digest, required.Select(name => found.TryGetValue(name, out var value) ? new MmcJarClassPresence(name, true, value.Path) : new(name, false)).ToImmutableArray()), found, absent);
+        var observation = new MmcJarClassObservation(jar.Key, jar.Digest,
+            required.Select(name => found.TryGetValue(name, out var value) ? new MmcJarClassPresence(name, true, value.Path) : new(name, false)).ToImmutableArray());
+        return (observation, found);
     }
 
     /// <summary>Call synchronously at final admission after runtime input revalidation, while retaining the instance gate/pins.</summary>

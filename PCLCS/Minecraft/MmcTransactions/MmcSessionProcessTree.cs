@@ -35,10 +35,12 @@ internal sealed class MmcSessionProcessTree : IDisposable {
     private static readonly nint ProcThreadAttributeHandleList = 0x00020002;
     private static readonly nint ProcThreadAttributeJobList = 0x0002000D;
 
+    private const int PipeBufferBytes = 65536;
+
     private readonly SafeWaitHandle jobHandle;
-    private StreamReader? stdoutReader;
-    private StreamReader? stderrReader;
-    private Task pipeDrainTask = Task.CompletedTask;
+    private readonly PipeRelay? stdoutRelay;
+    private readonly PipeRelay? stderrRelay;
+    private readonly Task pipeDrainTask;
     private int pipesStarted;
     private int disposed;
 
@@ -47,13 +49,22 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         this.jobHandle = jobHandle;
         EntryProcess = entryProcess;
         EntryStartTimeUtcTicks = entryStartTimeUtcTicks;
-        this.stdoutReader = stdoutReader;
-        this.stderrReader = stderrReader;
+        // Start draining stdout/stderr immediately upon creation: a wrapper process may write >4 KB
+        // before spawning its managed Java child (during DiscoverManagedJavaChild), before callers
+        // attach log callbacks via BeginReadPipes.
+        if (stdoutReader is not null) stdoutRelay = new PipeRelay(stdoutReader);
+        if (stderrReader is not null) stderrRelay = new PipeRelay(stderrReader);
+        pipeDrainTask = (stdoutRelay, stderrRelay) switch {
+            (not null, not null) => Task.WhenAll(stdoutRelay.Task, stderrRelay.Task),
+            (not null, null) => stdoutRelay.Task,
+            (null, not null) => stderrRelay.Task,
+            _ => Task.CompletedTask
+        };
     }
 
     public Process EntryProcess { get; }
     public long EntryStartTimeUtcTicks { get; }
-    public Task PipeDrainTask => Volatile.Read(ref pipeDrainTask);
+    public Task PipeDrainTask => pipeDrainTask;
 
     /// <summary>
     /// Creates the entry process suspended inside a freshly configured Job Object, validates its kernel image
@@ -202,35 +213,14 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         return [];
     }
 
-    /// <summary>Starts background readers forwarding stdout and stderr lines from the owned pipe handles.</summary>
+    /// <summary>Attaches live log callbacks to the eagerly drained pipe readers, replaying buffered startup output FIFO.</summary>
     public void BeginReadPipes(Action<string?> onOutputLine, Action<string?> onErrorLine) {
         ArgumentNullException.ThrowIfNull(onOutputLine);
         ArgumentNullException.ThrowIfNull(onErrorLine);
         if (Interlocked.CompareExchange(ref pipesStarted, 1, 0) != 0) return;
 
-        Task ReadLoop(StreamReader? reader, Action<string?> callback) {
-            if (reader is null) {
-                callback(null);
-                return Task.CompletedTask;
-            }
-            return Task.Run(() => {
-                try {
-                    while (true) {
-                        string? line = reader.ReadLine();
-                        if (line is null) break;
-                        callback(line);
-                    }
-                } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
-                } finally {
-                    try { reader.Dispose(); } catch { }
-                    try { callback(null); } catch { }
-                }
-            });
-        }
-
-        Task outTask = ReadLoop(stdoutReader, onOutputLine);
-        Task errTask = ReadLoop(stderrReader, onErrorLine);
-        Volatile.Write(ref pipeDrainTask, Task.WhenAll(outTask, errTask));
+        if (stdoutRelay is not null) stdoutRelay.Attach(onOutputLine); else onOutputLine(null);
+        if (stderrRelay is not null) stderrRelay.Attach(onErrorLine); else onErrorLine(null);
     }
 
     /// <summary>Waits asynchronously until no active process remains inside this owned Job Object.</summary>
@@ -251,7 +241,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
                     // Transiently unopenable process in the job; fall back to bounded wait below.
                 }
             }
-            if (waits.Count > 0) await Task.WhenAny(waits).ConfigureAwait(false);
+            if (waits.Count > 0) await Task.WhenAll(waits).ConfigureAwait(false);
             else await Task.Delay(20, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -264,6 +254,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
 
     /// <summary>Terminates every process in the Job Object and proves the group empty within the grace window.</summary>
     public bool TerminateAndWait(int graceMilliseconds = MmcProcessTreeTermination.GraceMilliseconds) {
+        if (Volatile.Read(ref disposed) != 0) return true;
         Terminate();
         long until = Environment.TickCount64 + Math.Max(0, graceMilliseconds);
         while (ObserveProcessIds().Length > 0 && Environment.TickCount64 < until) Thread.Sleep(25);
@@ -272,13 +263,113 @@ internal sealed class MmcSessionProcessTree : IDisposable {
 
     public void Dispose() {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        if (Interlocked.CompareExchange(ref pipesStarted, -1, 0) == 0) {
-            try { stdoutReader?.Dispose(); } catch { }
-            try { stderrReader?.Dispose(); } catch { }
-        }
-        stdoutReader = null; stderrReader = null;
+        stdoutRelay?.MarkDisposed();
+        stderrRelay?.MarkDisposed();
         // Intentionally do NOT TerminateJobObject on Dispose: host closing keeps managed game alive for recovery.
+        // EntryProcess stays alive while MmcRunningSession may still expose WrapperProcess, and is disposed in DisposeEntryProcess().
         jobHandle.Dispose();
+    }
+
+    internal void DisposeEntryProcess() {
+        try { EntryProcess.Dispose(); } catch { }
+    }
+
+    private sealed class PipeRelay {
+        private const int MaxBufferedLines = 16384;
+        private const int MaxBufferedChars = 2 * 1024 * 1024;
+        private readonly StreamReader reader;
+        private readonly object sync = new();
+        private readonly List<string> buffered = [];
+        private Action<string?>? callback;
+        private long bufferedChars;
+        private long skippedLines;
+        private bool ended;
+        private bool eofDelivered;
+        private bool disposed;
+
+        public PipeRelay(StreamReader reader) {
+            this.reader = reader;
+            Task = Task.Run(RunLoop);
+        }
+
+        public Task Task { get; }
+
+        public void Attach(Action<string?> onLine) {
+            while (true) {
+                string[]? batch = null;
+                long skipped = 0;
+                bool finishNow = false;
+                lock (sync) {
+                    if (disposed) return;
+                    if (skippedLines > 0) {
+                        skipped = skippedLines;
+                        skippedLines = 0;
+                    }
+                    if (buffered.Count > 0) {
+                        batch = buffered.ToArray();
+                        buffered.Clear();
+                        bufferedChars = 0;
+                    } else if (skipped == 0) {
+                        callback = onLine;
+                        if (ended && !eofDelivered) {
+                            eofDelivered = true;
+                            finishNow = true;
+                        }
+                    }
+                }
+                if (skipped > 0) onLine($"[MMC 管道预缓冲已略过 {skipped} 行较早输出]");
+                if (batch is not null) {
+                    foreach (string line in batch) onLine(line);
+                }
+                if (batch is not null || skipped > 0) continue;
+                if (finishNow) onLine(null);
+                return;
+            }
+        }
+
+        public void MarkDisposed() {
+            lock (sync) {
+                disposed = true;
+                callback = null;
+                buffered.Clear();
+                bufferedChars = 0;
+                skippedLines = 0;
+            }
+        }
+
+        private void RunLoop() {
+            try {
+                while (true) {
+                    string? line = reader.ReadLine();
+                    if (line is null) break;
+                    Action<string?>? live = null;
+                    lock (sync) {
+                        if (disposed) continue;
+                        if (callback is not null && buffered.Count == 0 && skippedLines == 0) {
+                            live = callback;
+                        } else if (buffered.Count < MaxBufferedLines && bufferedChars + line.Length <= MaxBufferedChars) {
+                            buffered.Add(line);
+                            bufferedChars += line.Length;
+                        } else {
+                            skippedLines++;
+                        }
+                    }
+                    live?.Invoke(line);
+                }
+            } catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+            } finally {
+                try { reader.Dispose(); } catch { }
+                Action<string?>? eofTarget = null;
+                lock (sync) {
+                    ended = true;
+                    if (!disposed && callback is not null && !eofDelivered && buffered.Count == 0 && skippedLines == 0) {
+                        eofDelivered = true;
+                        eofTarget = callback;
+                    }
+                }
+                try { eofTarget?.Invoke(null); } catch { }
+            }
+        }
     }
 
     private static async Task WaitAndDisposeAsync(Process process, CancellationToken cancellationToken) {
@@ -312,7 +403,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
 
     private static void CreateInheritablePipe(out SafeFileHandle readEnd, out SafeFileHandle writeEnd) {
         var sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf<SECURITY_ATTRIBUTES>(), bInheritHandle = true };
-        if (!CreatePipe(out readEnd, out writeEnd, ref sa, 0))
+        if (!CreatePipe(out readEnd, out writeEnd, ref sa, PipeBufferBytes))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "无法创建受管进程标准流管道。");
         if (!SetHandleInformation(readEnd, HandleFlagInherit, 0)) {
             int err = Marshal.GetLastWin32Error();

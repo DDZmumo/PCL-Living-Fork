@@ -10,10 +10,14 @@ namespace PCLCS;
 // CreateProcessW accepts at most 32767 units including the terminating NUL.
 public static class MmcRuntimeWindowsCommandLine {
     public const int MaximumLengthIncludingTerminator = 32767;
-    public static long LengthIncludingTerminator(string executable, IEnumerable<string> arguments) {
-        ArgumentNullException.ThrowIfNull(executable); ArgumentNullException.ThrowIfNull(arguments);
+    private static long ExecutableHeaderLengthIncludingTerminator(string executable) {
+        ArgumentNullException.ThrowIfNull(executable);
         string fileName = executable.Trim();
-        long length = fileName.Length + (fileName.StartsWith('"') && fileName.EndsWith('"') ? 0L : 2L) + 1L;
+        return fileName.Length + (fileName.StartsWith('"') && fileName.EndsWith('"') ? 0L : 2L) + 1L;
+    }
+    public static long LengthIncludingTerminator(string executable, IEnumerable<string> arguments) {
+        ArgumentNullException.ThrowIfNull(arguments);
+        long length = ExecutableHeaderLengthIncludingTerminator(executable);
         foreach (string argument in arguments) {
             ArgumentNullException.ThrowIfNull(argument);
             length += 1L + argument.Length;
@@ -29,8 +33,16 @@ public static class MmcRuntimeWindowsCommandLine {
         }
         return length;
     }
-    public static void Validate(string executable, IEnumerable<string> arguments) {
-        long length = LengthIncludingTerminator(executable, arguments);
+    public static long LengthIncludingTerminator(string executable, string rawArguments) {
+        ArgumentNullException.ThrowIfNull(rawArguments);
+        long length = ExecutableHeaderLengthIncludingTerminator(executable);
+        return string.IsNullOrEmpty(rawArguments) ? length : length + 1L + rawArguments.Length;
+    }
+    public static void Validate(string executable, IEnumerable<string> arguments) =>
+        EnsureWithinLimit(LengthIncludingTerminator(executable, arguments));
+    public static void ValidateVerbatim(string executable, string rawArguments) =>
+        EnsureWithinLimit(LengthIncludingTerminator(executable, rawArguments));
+    private static void EnsureWithinLimit(long length) {
         if (length > MaximumLengthIncludingTerminator)
             throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND_LENGTH", "The exact Windows command line exceeds 32767 UTF-16 units including its terminator (actual: " + length + "). Reduce approved launch arguments or classpath inputs.");
     }

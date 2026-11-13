@@ -59,11 +59,12 @@ public static class MmcLaunch {
         private MmcLaunchAuthentication authentication;
         private MmcRuntimeLaunchPlan runtime;
         private MmcInstanceLaunchSupport[] support;
-        private ModWatcher.Watcher watcher;
+        private volatile ModWatcher.Watcher watcher;
         private MmcRunningSession session;
         private MmcJavaPinStore pins;
         private MmcMutableRuntimeAuthority runtimeAuthority;
         private int canceled;
+        private int cancelSignaled;
         private readonly TaskCompletionSource monitoringFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private MmcRuntimeCommandContext commandContext;
         private bool preLaunchCommandRan;
@@ -232,7 +233,6 @@ public static class MmcLaunch {
                 // Re-acquire the gate for the continuous final validation → CreateProcess → Running
                 // registration window, which the contract requires to hold one uninterrupted lease.
                 admission = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, token);
-                MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                 MmcLaunchPreferences.Revalidate(instance, preferences);
                 authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
                 ProcessStartInfo startInfo = runtime.CreateStartInfo(out int nonceArgumentIndex);
@@ -245,10 +245,9 @@ public static class MmcLaunch {
                         IsWrapperManaged = wrapperManaged, WrapperIdentity = wrapperIdentity, NonceArgumentIndex = nonceArgumentIndex
                     }, () => {
                         token.ThrowIfCancellationRequested();
-                        MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                         MmcLaunchPreferences.Revalidate(instance, preferences);
                         authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
-                        MmcRuntimeLaunchBuilder.RevalidateFilesAsync(runtime, token).GetAwaiter().GetResult();
+                        MmcRuntimeLaunchBuilder.ValidateFinalInputs(admission.Lease, prepared, runtime, token);
                         MmcClasspathInspector.RevalidateManifestInputs(runtime, classes, token);
                     }, (id, identity) => pins.Acquire(id, identity, prepared.Definition.InstanceId, prepared.Paths.InstanceRoot, token));
             } catch {
@@ -298,7 +297,7 @@ public static class MmcLaunch {
                     CustomTerminate: () => session.TerminateTree(),
                     HasGroupExited: () => session.AreAllProcessesExited);
                 ModLaunch.McLaunchWatcher = watcher;
-                if ((task.IsCanceled || Volatile.Read(ref canceled) != 0) && !session.AreAllProcessesExited) session.TerminateTree();
+                if (task.IsCanceled || Volatile.Read(ref canceled) != 0) TriggerCancellation();
                 task.Output = session.Process;
                 ModLaunch.McLaunchLog("已启动 MMC 受管理游戏会话：" + sessionId.ToString("N"));
             } catch {
@@ -307,17 +306,26 @@ public static class MmcLaunch {
                 throw;
             }
         }
+        private void TriggerCancellation() {
+            Interlocked.Exchange(ref canceled, 1);
+            ModWatcher.Watcher activeWatcher = watcher;
+            if (activeWatcher is not null) {
+                if (Interlocked.Exchange(ref cancelSignaled, 1) == 0) activeWatcher.Kill();
+                return;
+            }
+            if (session is not null && !session.AreAllProcessesExited) session.TerminateTree();
+        }
         private void CancelGame() {
             Interlocked.Exchange(ref canceled, 1);
             _ = Task.Run(() => {
-                try { if (session is not null && !session.AreAllProcessesExited) session.TerminateTree(); }
+                try { TriggerCancellation(); }
                 catch (Exception error) { Logger.Warn(error, "取消 MMC 游戏启动时保留会话监视器等待退出"); }
             });
         }
 
         public void Wait(LegacyLaunchTask<Process, int> task) {
             while (watcher.State == ModWatcher.Watcher.MinecraftState.Loading) {
-                if (task.IsCanceled && !session.AreAllProcessesExited) session.TerminateTree();
+                if (task.IsCanceled || Volatile.Read(ref canceled) != 0) TriggerCancellation();
                 Thread.Sleep(100);
             }
             if (watcher.State == ModWatcher.Watcher.MinecraftState.Canceled) throw new OperationCanceledException();
@@ -455,6 +463,8 @@ public static class MmcLaunch {
                 await session.WaitForExitAsync().ConfigureAwait(false);
                 using (var admission = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10)))
                     session.RecordVerifiedExit(admission);
+                // Drain watcher stop callbacks (backups, settings finalization, pipes) BEFORE PostExit touches GameRoot.
+                await monitoringFinished.ConfigureAwait(false);
                 // PostExit runs after Exited.record is persisted, outside the admission lock, and strictly
                 // BEFORE retiring mutable runtime directories (TEMP/TMP) or releasing the pin (contract §1.2, D9, D15).
                 if (!postExitDone) {
@@ -473,11 +483,11 @@ public static class MmcLaunch {
                 }
                 using (var admission = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10)))
                     session.FinalizeVerifiedExit(admission);
-                await monitoringFinished.ConfigureAwait(false);
                 Active.TryRemove(session.Receipt.SessionId, out _);
+                session.ReleaseCompletedResources();
                 if (Active.IsEmpty && Interlocked.Exchange(ref closeAfterSessions, 0) != 0)
                     ModBase.RunInUi(() => ModMain.FrmMain?.EndProgram(false));
-                // Watcher retains the shared Process/log readers for crash UI and stop callbacks.
+                // Watcher retains the shared Process instance for crash UI and legacy launch state.
                 return;
             } catch (Exception error) {
                 if (!reported) { Logger.Warn(error, "MMC 游戏会话退出尚未完成确认，保留 Java pin 和恢复记录并等待重试"); reported = true; }

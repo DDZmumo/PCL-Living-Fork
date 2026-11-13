@@ -39,8 +39,8 @@ public sealed record MmcRuntimeCommandResult(string Stage, string RedactedComman
 /// exactly as frozen by <c>docs/mmc-phase2-command-contract.md</c>.
 ///
 /// This type is the single production boundary for the stage semantics, so every rule below is exercised
-/// without constructing a launcher: the execution host is <c>cmd.exe</c> driven by
-/// <see cref="ProcessStartInfo.ArgumentList"/> (never one concatenated <c>Arguments</c> string), the working
+/// without constructing a launcher: the execution host is <c>cmd.exe</c> invoked via
+/// <c>/d /s /c "&lt;command&gt;"</c> (never shell execute, never raw unquoted cmd invocation), the working
 /// directory is always the instance GameRoot, expansion uses one runtime dictionary applied once, and a log
 /// line carries only the redacted form of the command — an expanded value never reaches the log.
 ///
@@ -121,8 +121,6 @@ public static class MmcRuntimeCommandExecution {
                 long until = Environment.TickCount64 + CancellationGraceMilliseconds;
                 while (!process.HasExited && Environment.TickCount64 < until) process.WaitForExit(CancellationPollMilliseconds);
                 cancellationToken.ThrowIfCancellationRequested();
-                // Not cancelable and no longer running: fall through to the ordinary exit handling.
-                break;
             }
             int exitCode = process.ExitCode;
             string text = exitCode.ToString(CultureInfo.InvariantCulture) + "（0x" + unchecked((uint)exitCode).ToString("X8", CultureInfo.InvariantCulture) + "）";
@@ -147,9 +145,11 @@ public static class MmcRuntimeCommandExecution {
         // through ProcessStartInfo.ArgumentList turns `"path"` into `\"path\"`. Using `/d /s /c "<command>"`
         // in Arguments makes cmd.exe disable AutoRun (/d) and strip only the outermost quotes (/s)
         // while delivering the command text with embedded quotes verbatim.
+        string arguments = "/d /s /c \"" + text + "\"";
+        MmcRuntimeWindowsCommandLine.ValidateVerbatim("cmd.exe", arguments);
         var start = new ProcessStartInfo("cmd.exe") {
             UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = context.GameRoot,
-            Arguments = "/d /s /c \"" + text + "\""
+            Arguments = arguments
         };
         if (stage is MmcRuntimeCommandStage.PreLaunch or MmcRuntimeCommandStage.PostExit) {
             ImmutableArray<PCLLF.MMCC.Core.MmcEnvironmentVariable> mapping = context.PackageConfiguration?.EnvironmentOverride ?? [];
@@ -236,8 +236,16 @@ public static class MmcRuntimeCommandExecution {
 
     public static string Redact(string text, ImmutableArray<string> secrets) {
         if (secrets.IsDefaultOrEmpty) return text;
-        foreach (string secret in secrets) {
-            if (secret is null || secret.Length < 4) continue;
+        if (secrets.Length == 1) {
+            string single = secrets[0];
+            return single is { Length: >= 4 } ? text.Replace(single, "[redacted]", StringComparison.Ordinal) : text;
+        }
+        // Replace longer secrets first so a shorter prefix secret cannot leave the remainder of a longer secret unredacted.
+        var ordered = new string[secrets.Length];
+        secrets.CopyTo(ordered);
+        Array.Sort(ordered, static (left, right) => (right?.Length ?? 0).CompareTo(left?.Length ?? 0));
+        foreach (string secret in ordered) {
+            if (secret is null || secret.Length < 4) break;
             text = text.Replace(secret, "[redacted]", StringComparison.Ordinal);
         }
         return text;

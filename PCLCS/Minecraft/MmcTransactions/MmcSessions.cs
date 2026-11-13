@@ -399,7 +399,7 @@ public sealed class MmcRunningSession : IDisposable {
     private readonly IMmcJavaSessionPin pin;
     private readonly MmcMutableRuntimeAuthority? runtimeAuthority;
     private readonly MmcSessionProcessTree? processTree;
-    private bool exitedRecorded, complete, disposed;
+    private bool exitedRecorded, complete, resourcesReleased, disposed;
     internal MmcRunningSession(MmcSessionReceipt receipt, MmcSessionProcessRegistration registration, string hash, Process process,
         IMmcJavaSessionPin pin, MmcMutableRuntimeAuthority? runtimeAuthority = null, MmcSessionProcessTree? processTree = null) {
         Receipt = receipt; Registration = registration; this.hash = hash; Process = process; this.pin = pin;
@@ -445,9 +445,26 @@ public sealed class MmcRunningSession : IDisposable {
         RecordVerifiedExit(lease, checkpoint);
         FinalizeVerifiedExit(lease);
     }
+    /// <summary>
+    /// Releases owned session pin and process-tree/wrapper handles after exit finalization and watcher teardown,
+    /// while preserving <see cref="Process"/> for post-exit UI consumers.
+    /// </summary>
+    public void ReleaseCompletedResources() {
+        if (disposed || !complete || resourcesReleased) return;
+        resourcesReleased = true;
+        pin.Dispose();
+        processTree?.Dispose();
+    }
     public void Dispose() {
         if (disposed) return;
         if (!complete) pin.KeepForRecovery();
-        pin.Dispose(); Process.Dispose(); processTree?.Dispose(); disposed = true;
+        if (!resourcesReleased) {
+            resourcesReleased = true;
+            pin.Dispose();
+            processTree?.Dispose();
+        }
+        processTree?.DisposeEntryProcess();
+        Process.Dispose();
+        disposed = true;
     }
 }

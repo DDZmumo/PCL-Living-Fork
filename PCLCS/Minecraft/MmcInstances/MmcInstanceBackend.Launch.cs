@@ -110,16 +110,22 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
     /// <summary>Call synchronously inside the same lease as Launching receipt and process registration; no await or UI callbacks.</summary>
     public static void ValidatePreparedLaunch(MmcAdmissionLease lease, MmcPreparedInstanceLaunch snapshot, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(snapshot);
+        // Thread-affine gate/primary/source verification runs on the caller thread holding lease.
         AssertPrimary(lease, snapshot.Paths, new(snapshot.Definition, snapshot.PrimarySha256), allowIncomplete: false);
         VerifySourceRecords(snapshot.Paths, snapshot.Definition);
-        foreach (var file in snapshot.Files) {
-            cancellationToken.ThrowIfCancellationRequested();
-            string path = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath);
-            MmcInstancePaths.EnsureNoLinks(path);
-            using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (input.Length != file.SizeBytes || Convert.ToHexStringLower(SHA256.HashData(input)) != file.Sha256)
+        if (snapshot.Files.IsDefaultOrEmpty) return;
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+        MmcInstancePaths.ForEachBounded(snapshot.Files, (_, file, token) => {
+            token.ThrowIfCancellationRequested();
+            string path = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath, verifiedDirectories);
+            using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+            if (input.Length != file.SizeBytes)
                 throw new IOException("A bound MMC launch input changed after preparation: " + file.RelativePath);
-        }
+            Span<byte> digest = stackalloc byte[32];
+            SHA256.HashData(input, digest);
+            if (!Convert.ToHexStringLower(digest).Equals(file.Sha256, StringComparison.Ordinal))
+                throw new IOException("A bound MMC launch input changed after preparation: " + file.RelativePath);
+        }, cancellationToken);
     }
 
     private static void AssertPrimary(MmcAdmissionLease lease, MmcInstancePaths paths, MmcStoredPrimaryDefinition expected, bool allowIncomplete) {
@@ -146,8 +152,9 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
     private static ImmutableArray<MmcInstanceLaunchFile> LaunchFiles(MmcInstancePaths paths, MmcInstanceDefinition definition,
         MmcPreparedArtifacts prepared, ImmutableArray<MmcArtifactReference> preserved) {
         Dictionary<string, MmcInstanceLaunchFile> files = new(StringComparer.OrdinalIgnoreCase);
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         void Add(string relative, string sha256, long size) {
-            paths.ResolveRelative(MmcPathRole.Instance, relative);
+            paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
             if (files.TryGetValue(relative, out var existing) && (existing.Sha256 != sha256 || existing.SizeBytes != size)) throw new IOException("Launch input observations conflict at one path.");
             files[relative] = new(relative, sha256, size);
         }
