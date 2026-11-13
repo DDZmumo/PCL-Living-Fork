@@ -30,6 +30,7 @@ public sealed class ResourceSearchEngine<TProject, TResult>
         bool isChineseSearch = rawSearchText.RegexCheck(@"[\u4e00-\u9fbb]") && !string.IsNullOrEmpty(rawSearchText) && (request.Type == ResourceTypes.Mod || request.Type == ResourceTypes.DataPack);
         string? curseForgeAltSearchText = null, modrinthAltSearchText = null;
         List<string> modrinthSlugs = new();
+        List<WikiEntry> modrinthDirectEntries = new();
         if (isChineseSearch) {
             if (request.Sources.HasFlagF(ResourcePlatforms.CurseForge)) {
                 if (curseForgeEntries is null) curseForgeEntries = ResourceSearchMatching.WikiEntries(host.WikiEntries(), ResourcePlatforms.CurseForge, host.SimplifyChinese);
@@ -45,15 +46,18 @@ public sealed class ResourceSearchEngine<TProject, TResult>
                 if (modrinthEntries is null) modrinthEntries = ResourceSearchMatching.WikiEntries(host.WikiEntries(), ResourcePlatforms.Modrinth, host.SimplifyChinese);
                 var searchResults = ResourceSearchMatching.Search(modrinthEntries, rawSearchText, 100, 0.25);
                 if (searchResults.Any()) {
+                    var keywordResults = searchResults.First().AbsoluteRight ? searchResults.Where(result => result.AbsoluteRight).ToList() : searchResults.MaxByAll(result => result.Similarity);
                     Dictionary<string, double> weights = new();
-                    foreach (var result in searchResults) foreach (string word in ResourceSearchMatching.ExtractWords(result, ResourcePlatforms.Modrinth)) {
+                    foreach (var result in keywordResults) foreach (string word in ResourceSearchMatching.ExtractWords(result, ResourcePlatforms.Modrinth)) {
                         if (!weights.ContainsKey(word)) weights.Add(word, 0);
                         double similarity = result.Sources.Any(s => s.Aliases.Contains(rawSearchText)) ? 1000 : result.Similarity;
                         weights[word] += similarity * result.Item.Popularity;
                     }
                     modrinthAltSearchText = MeloongCore.Extensions.EnumerableExtensions.MaxBy(weights, w => w.Value).Key;
                     host.Warning($"中文搜索关键词（Modrinth）：{modrinthAltSearchText}");
-                    modrinthSlugs = searchResults.Take(100).Select(r => r.Item.Slugs[ResourcePlatforms.Modrinth]).ToList();
+                    modrinthDirectEntries = searchResults.Take(100).Select(r => r.Item)
+                        .Where(entry => entry.Slugs.TryGetValue(ResourcePlatforms.Modrinth, out string? slug) && !string.IsNullOrWhiteSpace(slug)).ToList();
+                    modrinthSlugs = modrinthDirectEntries.Select(entry => entry.Slugs[ResourcePlatforms.Modrinth]).Distinct(StringComparer.Ordinal).ToList();
                 }
             }
             if (string.IsNullOrEmpty(curseForgeAltSearchText) && string.IsNullOrEmpty(modrinthAltSearchText) && !modrinthSlugs.Any()) throw new Exception(NoChineseResult);
@@ -113,6 +117,10 @@ public sealed class ResourceSearchEngine<TProject, TResult>
                             List<TProject> projects = new();
                             foreach (JObject json in host.Request(url)) {
                                 TProject project = host.CreateProject(json);
+                                if (project.Platform != ResourcePlatforms.Modrinth || !modrinthDirectEntries.Any(entry => ResourceWikiIdentity.DirectMatch(entry, project.Platform, project.Slug!, project.RawName!))) {
+                                    host.Info($"跳过与中文索引名称不符的 Modrinth 直接匹配：{project.Id} / {project.RawName}");
+                                    continue;
+                                }
                                 if (request.Type != ResourceTypes.Any && !project.Types.HasFlagF(request.Type)) continue;
                                 if (!string.IsNullOrEmpty(request.Tag) && !json["categories"]!.Any(c => c.ToString() == request.Tag.AfterLast("/"))) continue;
                                 if (request.ModLoaders != ModLoaders.None && !ignoreModLoaderFilter && !project.ModLoaders.Flags().Intersect(request.ModLoaders.Flags()).Any()) continue;
