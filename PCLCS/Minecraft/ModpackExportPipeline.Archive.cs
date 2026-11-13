@@ -70,7 +70,9 @@ public sealed partial class ModpackExportPipeline<TInstance, TLocal, TProject, T
                 ["downloads"] = new JArray(pair.Value.OrderBy(url => url.Contains("modrinth.com"))),
                 ["fileSize"] = mod.File.Length
             });
-            mod.File.Delete();
+            // Copies can inherit readonly attributes from the game files. Only
+            // the staged copy is removed after its hosted metadata is recorded.
+            FileUtils.Delete(mod.File.FullName);
         }
         task.SetProgress(0.2);
         JObject dependencies = new() { ["minecraft"] = host.Version(request.Instance).VanillaName };

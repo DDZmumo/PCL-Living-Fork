@@ -169,16 +169,27 @@ public sealed class BackupStorageLocation {
         Volatile.Write(ref currentRoot, target);
     }
 
-    public BackupStorageMoveResult MoveTo(string destination, CancellationToken token, Action<double>? progress = null, Action? beforeCommit = null) {
+    public string ValidateDestination(string destination) {
         lock (gate) {
-            token.ThrowIfCancellationRequested();
             string source = Root, target = Full(destination);
-            var result = new BackupStorageMoveResult { PreviousRoot = source, Root = target, CleanupComplete = true };
-            if (Same(source, target)) return result;
+            if (Same(source, target)) return target;
+            if (Same(target, Path.GetPathRoot(target)!))
+                throw new IOException("不能直接使用磁盘根目录作为备份位置。请先新建一个专用空文件夹，例如 " + Path.Combine(target, "PCLLF-Backups") + "，再选择该文件夹。");
             if (Inside(source, target) || Inside(target, source)) throw new IOException("新旧备份位置不能互相包含。");
             NoLinks(source); NoLinks(target);
             if (!Directory.Exists(source) && !Same(source, profileRoot)) throw new IOException("当前备份目录不可用，请先连接原存储设备。");
-            if (!Directory.Exists(target) || Directory.EnumerateFileSystemEntries(target).Any()) throw new IOException("请选择一个已存在的空文件夹，已有数据不会被覆盖。");
+            if (!Directory.Exists(target) || Directory.EnumerateFileSystemEntries(target).Any())
+                throw new IOException("请选择一个已存在的空文件夹，已有数据不会被覆盖。");
+            return target;
+        }
+    }
+
+    public BackupStorageMoveResult MoveTo(string destination, CancellationToken token, Action<double>? progress = null, Action? beforeCommit = null) {
+        lock (gate) {
+            token.ThrowIfCancellationRequested();
+            string source = Root, target = ValidateDestination(destination);
+            var result = new BackupStorageMoveResult { PreviousRoot = source, Root = target, CleanupComplete = true };
+            if (Same(source, target)) return result;
             List<Item> files = new(); List<string> folders = Directories(source, token, files);
             long total = 0; foreach (Item item in files) total = checked(total + item.Bytes);
             result.Files = files.Count; result.Bytes = total;

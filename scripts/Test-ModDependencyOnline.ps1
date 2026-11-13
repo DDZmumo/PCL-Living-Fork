@@ -2,6 +2,7 @@
 # GUID fixtures and injected API responses only. No live dependency HTTP, launcher startup, accounts, or real mods.
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Get-FixedLfSource.ps1')
+. (Join-Path $PSScriptRoot 'Resolve-VbCompiler.ps1')
 $root=Split-Path $PSScriptRoot -Parent
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('PclModDependencyOnline-'+[Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($fixture)|Out-Null
@@ -84,8 +85,7 @@ public sealed class ModDependencyOnlineFixtureNetwork {
 '@
 try {
  if(-not $ExecutablePath){
-  if(-not $VbcPath){$VbcPath='C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\Roslyn\vbc.exe'}
-  if(-not [IO.File]::Exists($VbcPath)){throw 'Pass -VbcPath for Roslyn, or -ExecutablePath for a built launcher.'}
+  $VbcPath=Resolve-VbCompiler -VbcPath $VbcPath
   # Reuse the actual migrated inspector while keeping the original injected
   # online transport and instance adapters; no main launcher build is required.
   $dotnetCommand=(Get-Command dotnet -CommandType Application -ErrorAction Stop).Source

@@ -59,7 +59,7 @@ $releaseOutput = Join-Path $PWD ('artifacts/public-release/' + [Guid]::NewGuid()
 pwsh -NoProfile -File scripts/Build-Release.ps1 -Slim -OfficialRelease -Configuration Release -OutputPath $releaseOutput
 ```
 
-精简包不含 .NET 运行时，也不自动生成旧版兼容桥。`SlimRelease.Artifacts.json` 记录实际版本、角色、文件名、大小与 SHA256。构建脚本的内部文件名不是公开附件名；对外整理附件时，EXE、ZIP 内主程序和校验清单都必须符合 [公开发布约定](PUBLISHING.md)。如提供旧版交接层，其负载必须与同次精简主程序一致。
+精简包不含 .NET 运行时，也不自动生成旧版兼容桥。`SlimRelease.Artifacts.json` 记录实际版本、角色、文件名、大小与 SHA256。精简构建直接生成公开约定的 EXE、ZIP 及校验清单，ZIP 内主程序使用相同的最终 EXE 名。附件必须符合 [公开发布约定](PUBLISHING.md)。如提供旧版交接层，其负载必须与同次精简主程序一致。
 
 源码不包含实际 Client ID 或 API Key。本地通过 `PCL_MS_CLIENT_ID`、`PCL_CURSEFORGE_API_KEY` 提供构建输入；CI 仅在对应步骤映射这两个值，生成器使用独立临时目录并在结束后清理。凭据不得进入命令行、日志或提交。
 
@@ -82,6 +82,8 @@ python scripts/tests/Test-MigrationSelection.py
 ```
 
 CI 规则本身的修改不享受纯文档快速路径。实际产品、旧版升级与发布资格仍以对应提交的干净 CI 和隔离 Windows 证据为准。
+
+旧版升级验证使用仓库中长期保存的 [固定历史归档](../tests/fixtures/legacy-upgrade/README.md)，继续核对原始 ZIP 与 EXE 的长度、SHA256 和包内结构，不依赖会过期的 Actions 附件，也不改用漂移的最新版本。历史 VB 测试的编译器依次通过显式 `-VbcPath`、`PATH`、`vswhere` 定位，支持不同 Visual Studio 版本及自定义安装路径；可运行 `scripts/tests/Test-VbCompilerDiscovery.ps1` 验证定位逻辑。
 
 ## 源码职责与发布体积
 

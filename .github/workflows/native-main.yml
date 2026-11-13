@@ -97,6 +97,15 @@ jobs:
           & powershell -NoProfile -File scripts/tests/Test-FixedLfSource.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Fixed historical source baseline preflight failed after product VB retirement.' }
 
+      - name: Verify compiler discovery across PowerShell editions
+        if: matrix.configuration == 'Release'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & pwsh -NoProfile -File scripts/tests/Test-VbCompilerDiscovery.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PowerShell 7 compiler discovery regression failed.' }
+          & powershell -NoProfile -File scripts/tests/Test-VbCompilerDiscovery.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell compiler discovery regression failed.' }
+
       - name: Verify original historical credential failure and lock samples
         # Explicit CLR4 credential-only Git fixture, never Main/bridge/apphost.
         # Keep original exit23/invalid-input/source-cleanup/exclusive-lock cases.
@@ -586,22 +595,16 @@ jobs:
           "UPGRADE_NATIVE_EXE=$($roles['native-exe'].path)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "UPGRADE_MANAGED_BRIDGE=$($roles['legacy-bridge'].path)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Download and verify the fixed original legacy product artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify the fixed archived legacy product fixture
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
-          $uri = 'https://api.github.com/repos/DDZmumo/PCL-Living-Fork/actions/artifacts/13354809865'
-          $metadata = Invoke-RestMethod -Uri $uri -Headers $headers
-          if ([string]$metadata.id -cne '13354809865' -or $metadata.name -cne 'PCL-Living-Fork Release 8ff80de' -or $metadata.expired -ne $false -or [string]$metadata.workflow_run.id -cne '41894581233' -or $metadata.workflow_run.head_sha -cne '8ff80deb1de834efbee2fc6b180cc268dc1eed0e' -or $metadata.digest -cne 'sha256:c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3' -or $metadata.size_in_bytes -ne 5807581) { throw 'Pinned successful old product artifact metadata changed or expired.' }
+          $source = Join-Path $env:GITHUB_WORKSPACE 'tests/fixtures/legacy-upgrade/lf-8ff80de.zip'
+          if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or ((Get-Item -LiteralPath $source).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Pinned legacy product fixture must be an ordinary repository file.' }
           $folder = Join-Path $env:GITHUB_WORKSPACE 'inputs/native-upgrade/legacy-8ff80de'
           New-Item -ItemType Directory -Path $folder -Force | Out-Null
           $archive = Join-Path $folder 'artifact-13354809865.zip'
-          # pwsh strips Authorization on redirect by default. Never add
-          # PreserveAuthorizationOnRedirect to the signed artifact-storage hop.
-          Invoke-WebRequest -Uri ($uri + '/zip') -Headers $headers -OutFile $archive
-          if ((Get-Item -LiteralPath $archive).Length -ne 5807581 -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3') { throw 'Downloaded original old ZIP digest/length mismatch.' }
+          Copy-Item -LiteralPath $source -Destination $archive
+          if ((Get-Item -LiteralPath $archive).Length -ne 5807581 -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3') { throw 'Archived original old ZIP digest/length mismatch.' }
           $zip = [IO.Compression.ZipFile]::OpenRead($archive)
           $legacy = Join-Path $folder 'PCL-Living-Fork-1.3.4.exe'
           try {
@@ -611,7 +614,7 @@ jobs:
           if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'f4c88a842d506c62e812d50493126c5f25a73b0bfa866bb749c0473e2740d151') { throw 'Pinned actual old EXE SHA mismatch.' }
           "UPGRADE_LEGACY_EXE=$legacy" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "UPGRADE_LEGACY_ZIP=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          [ordered]@{ repository = 'DDZmumo/PCL-Living-Fork'; run = '41894581233'; head = $metadata.workflow_run.head_sha; artifactId = '13354809865'; artifactName = $metadata.name; archiveDigest = $metadata.digest; exeSha256 = 'f4c88a842d506c62e812d50493126c5f25a73b0bfa866bb749c0473e2740d151'; rawArchiveVerified = $true } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $env:GITHUB_WORKSPACE 'artifacts/native-upgrade/legacy-provenance.json')
+          [ordered]@{ repository = 'DDZmumo/PCL-Living-Fork'; run = '41894581233'; head = '8ff80deb1de834efbee2fc6b180cc268dc1eed0e'; artifactId = '13354809865'; artifactName = 'PCL-Living-Fork Release 8ff80de'; archiveDigest = 'sha256:c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3'; archiveSource = 'repository:tests/fixtures/legacy-upgrade/lf-8ff80de.zip'; exeSha256 = 'f4c88a842d506c62e812d50493126c5f25a73b0bfa866bb749c0473e2740d151'; rawArchiveVerified = $true } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $env:GITHUB_WORKSPACE 'artifacts/native-upgrade/legacy-provenance.json')
 
       - name: Require genuine old bridge and actual Native entry protocol cases
         run: |

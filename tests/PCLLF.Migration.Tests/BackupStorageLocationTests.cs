@@ -7,6 +7,7 @@ internal static class BackupStorageLocationTests {
         yield return ("backup storage default preserves legacy stores without creating config", Legacy);
         yield return ("backup storage moves both stores verifies bytes and keeps other personal data", RoundTrip);
         yield return ("backup storage refuses occupied nested relative and unavailable locations", Guards);
+        yield return ("backup destination preflight rejects drive roots and occupied folders without writes", DestinationPreflight);
         yield return ("backup storage cancellation preserves source and empties owned staging", Cancel);
         yield return ("backup storage detects source edits before commit", SourceChanged);
         yield return ("backup storage config failure rolls back published copies", PersistFailure);
@@ -14,6 +15,18 @@ internal static class BackupStorageLocationTests {
         yield return ("backup storage imports legacy JSON once and gives dedicated preferences priority", DedicatedPreference);
         yield return ("backup storage preference write failure preserves source and rolls back copies", PreferenceFailure);
         yield return ("backup storage uncertain preference commits keep both complete data copies", UncertainPreference);
+    }
+    private static void DestinationPreflight() {
+        using Fixture f = new(); f.Seed(); var store = new BackupStorageLocation(f.Profile);
+        Equal(f.Target, store.ValidateDestination(f.Target));
+        string occupied = f.Directory("occupied"); f.Put("occupied/keep.txt", "foreign");
+        try { store.ValidateDestination(occupied); throw new Exception("Occupied destination accepted."); }
+        catch (IOException error) { Equal(true, error.Message.Contains("空文件夹", StringComparison.Ordinal)); }
+        try { store.ValidateDestination(Path.GetPathRoot(f.Root)!); throw new Exception("Drive root accepted."); }
+        catch (IOException error) { Equal(true, error.Message.Contains("根目录", StringComparison.Ordinal) && error.Message.Contains("PCLLF-Backups", StringComparison.Ordinal)); }
+        Equal(f.Profile, store.Root); Equal(false, File.Exists(Path.Combine(f.Profile, "backup-storage.json")));
+        Equal("foreign", File.ReadAllText(Path.Combine(occupied, "keep.txt")));
+        Equal(0, Directory.GetFileSystemEntries(f.Target).Length);
     }
     private static void Legacy() {
         using Fixture f = new(); var store = new BackupStorageLocation(f.Profile);

@@ -33,7 +33,7 @@ internal static class Program
         ["toolbox"] = ToolboxChecks.Run,
         ["visual-assets"] = VisualAssetChecks.Run,
         ["launcher-lifecycle"] = LauncherLifecycleChecks.Run,
-        ["modpack-mode"] = ModpackModeChecks.Run,
+        ["modpack-mode"] = environment => { ModpackExportChecks.Run(environment); ModpackModeChecks.Run(environment); },
         ["review-fixes"] = ReviewFixesChecks.Run,
         ["migrated-controls"] = ControlOriginalChecks.Run,
         ["map-install-recycle"] = MapInstallChecks.Run,

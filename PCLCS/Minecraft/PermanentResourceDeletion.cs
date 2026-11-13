@@ -84,8 +84,11 @@ public static class PermanentResourceDeletion {
                 if (string.Equals(Path.GetFileName(folder), "PCL", StringComparison.OrdinalIgnoreCase)) {
                     if (CleanupLegacyDirectory(boundary, Path.Combine(folder, "ResourceRecycle"), token)) removed++;
                 }
-            } catch (Exception error) when (error is IOException or UnauthorizedAccessException) {
+            } catch (FileNotFoundException) { continue; }
+            catch (DirectoryNotFoundException) { continue; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) {
                 warn?.Invoke(error, folder);
+                continue;
             }
             try {
                 // Recheck before enumeration in case the directory changed
@@ -97,7 +100,9 @@ public static class PermanentResourceDeletion {
                             string.Equals(Path.GetFileName(child), "ResourceRecycle", StringComparison.OrdinalIgnoreCase)) continue;
                     pending.Push(child);
                 }
-            } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { warn?.Invoke(error, folder); }
+            } catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { warn?.Invoke(error, folder); }
         }
         return removed;
     }
