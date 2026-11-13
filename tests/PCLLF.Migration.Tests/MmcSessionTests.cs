@@ -15,6 +15,7 @@ internal static partial class MmcSessionTests {
         yield return ("MMC wrapper exit never concludes the game exited while managed Java survives", WrapperExitTable);
         yield return ("MMC wrapper exit registers both identities and proves the whole group gone", WrapperGroup);
         yield return ("MMC wrapper early exit retains live pipes, refuses premature settlement and reconciles managed Java", WrapperEarlyExitAndReconcile);
+        yield return ("MMC wrapper writing >16 KB startup output before Java does not deadlock pipe and replays FIFO", WrapperPipePreBufferDrainsLargeStartupBanner);
         yield return ("MMC wrapper identity mismatch and early exit without Java clean up without leaking pins", WrapperFailureCleanup);
         yield return ("MMC session interrupted Launching without PID cannot be guessed exited", LaunchingInterruption);
         yield return ("MMC session rejects stale generation layout and caller nonce overrides", InvalidLaunch);
@@ -33,8 +34,31 @@ internal static partial class MmcSessionTests {
         if(TryRunShortHostChild(args,out exitCode))return true;
         string? nonce = args.FirstOrDefault(a => a.StartsWith(MmcSessions.NonceArgumentPrefix, StringComparison.Ordinal))?[MmcSessions.NonceArgumentPrefix.Length..];
         string[] data = args.Where(a => !a.StartsWith(MmcSessions.NonceArgumentPrefix, StringComparison.Ordinal)).ToArray();
-        if (data.Length == 0 || data[0] is not ("--mmc-session-child" or "--mmc-session-host-child")) return false;
+        if (data.Length == 0 || data[0] is not ("--mmc-session-child" or "--mmc-session-host-child" or "--mmc-session-banner-wrapper")) return false;
         try {
+            if (data[0] == "--mmc-session-banner-wrapper") {
+                if (data.Length < 6 || nonce is null) throw new Exception("Banner wrapper missing managed child args.");
+                string payload = new string('X', 80);
+                for (int i = 0; i < 250; i++) Console.WriteLine($"BANNER-OUT-{i:D3}:{payload}");
+                for (int i = 0; i < 250; i++) Console.Error.WriteLine($"BANNER-ERR-{i:D3}:{payload}");
+                Console.Out.Flush(); Console.Error.Flush();
+                // Inherit wrapper stdout/stderr pipes directly into the child just like native Win32/cmd wrappers.
+                var cmd = new StringBuilder();
+                cmd.Append('"').Append(data[1]).Append('"');
+                foreach (string a in data[2..]) cmd.Append(" \"").Append(a.Replace("\"", "\\\"")).Append('"');
+                cmd.Append(" \"").Append(MmcSessions.NonceArgumentPrefix).Append(nonce).Append('"');
+                StartupInfo startup = new() {
+                    Size = (uint)Marshal.SizeOf<StartupInfo>(),
+                    Flags = 0x00000100,
+                    Input = GetStdHandle(-10),
+                    Output = GetStdHandle(-11),
+                    Error = GetStdHandle(-12)
+                };
+                if (!CreateProcessW(data[1], cmd, IntPtr.Zero, IntPtr.Zero, true, 0x08000000, IntPtr.Zero, Environment.CurrentDirectory, ref startup, out var created))
+                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Banner wrapper failed to start managed child.");
+                CloseHandle(created.Thread); CloseHandle(created.Process);
+                exitCode = 0; return true;
+            }
             if (data[0] == "--mmc-session-child") {
                 if (data.Length < 4 || nonce is null) throw new Exception("Controlled child has no protected nonce.");
                 File.WriteAllText(data[1], Environment.ProcessId + "\n" + nonce);
@@ -233,6 +257,48 @@ internal static partial class MmcSessionTests {
         Equal(true, File.ReadAllText(history).Contains("WrapperManagedExit", StringComparison.Ordinal));
     }
 
+    private static void WrapperPipePreBufferDrainsLargeStartupBanner() {
+        using Fixture fixture = new(); using var lease = fixture.Lease();
+        string workingDirectory = Path.Combine(fixture.Root, "minecraft");
+        string hostPath = AppHost();
+        MmcExecutableIdentity wrapperIdentity = MmcSessions.ObserveExecutable(hostPath);
+        ProcessStartInfo outer = new(hostPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = workingDirectory };
+        foreach (string arg in new[] { "--mmc-session-banner-wrapper", hostPath, "--mmc-session-child", fixture.Ready, fixture.StopFile, "bounded-fixture", "--emit-stdout" })
+            outer.ArgumentList.Add(arg);
+        var request = fixture.Request() with {
+            StartInfo = outer,
+            IsWrapperManaged = true,
+            WrapperIdentity = wrapperIdentity,
+            NonceArgumentIndex = 2,
+            WrapperJavaDiscoveryTimeout = TimeSpan.FromSeconds(10)
+        };
+        var stdout = new List<string>();
+        var stderr = new List<string>();
+        using var outDone = new ManualResetEventSlim();
+        using var errDone = new ManualResetEventSlim();
+        using var session = MmcSessions.Launch(lease, request, () => { }, (_, image) => new FixturePin(image, fixture.PinFile));
+        fixture.WaitChild();
+        Equal(true, session.WrapperProcess!.WaitForExit(10000));
+        // Attach only AFTER wrapper finished emitting ~48 KB across stdout/stderr and exited.
+        session.BeginReadPipes(
+            line => { if (line is null) outDone.Set(); else lock (stdout) stdout.Add(line); },
+            line => { if (line is null) errDone.Set(); else lock (stderr) stderr.Add(line); });
+        fixture.Stop();
+        session.WaitForExitAsync().GetAwaiter().GetResult();
+        session.PipeDrainTask.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+        Equal(true, outDone.Wait(5000));
+        Equal(true, errDone.Wait(5000));
+        if (stdout.Count != 251) throw new Exception($"Expected 251 stdout lines, got {stdout.Count}; first=[{(stdout.Count > 0 ? stdout[0] : "")}]; last=[{(stdout.Count > 0 ? stdout[^1] : "")}].");
+        if (stderr.Count != 250) throw new Exception($"Expected 250 stderr lines, got {stderr.Count}; first=[{(stderr.Count > 0 ? stderr[0] : "")}]; last=[{(stderr.Count > 0 ? stderr[^1] : "")}].");
+        for (int i = 0; i < 250; i++) {
+            Equal(true, stdout[i].StartsWith($"BANNER-OUT-{i:D3}:", StringComparison.Ordinal));
+            Equal(true, stderr[i].StartsWith($"BANNER-ERR-{i:D3}:", StringComparison.Ordinal));
+        }
+        Equal("child-stdout-after-stop", stdout[250]);
+        session.CompleteVerifiedExit(lease);
+        MmcSessions.AssertNoActive(lease);
+    }
+
     private static void WrapperFailureCleanup() {
         using Fixture fixture = new(); using var lease = fixture.Lease();
         string workingDirectory = Path.Combine(fixture.Root, "minecraft");
@@ -382,6 +448,7 @@ internal static partial class MmcSessionTests {
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool TerminateProcess(IntPtr process, uint code);
     [DllImport("kernel32.dll")] private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetStdHandle(int nStdHandle);
     private static void KilledHost() {
         using Fixture fixture = new();
         ProcessStartInfo start = new(AppHost()) { UseShellExecute = false, CreateNoWindow = true };

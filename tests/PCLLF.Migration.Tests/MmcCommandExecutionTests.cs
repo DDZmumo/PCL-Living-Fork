@@ -212,6 +212,10 @@ internal static class MmcCommandExecutionTests {
         var context = Context(instance, "OverrideCommands=true\nPreLoadCommand=echo");
         ThrowsCode("MMC_RUNTIME_COMMAND", () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo \0"), "NUL command template");
         ThrowsCode("MMC_RUNTIME_COMMAND_LENGTH", () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, new string('a', 16385)), "Oversize command");
+        var hugePlan = new Dictionary<string, string>(StringComparer.Ordinal) { ["classpath"] = new string('a', MmcRuntimeWindowsCommandLine.MaximumLengthIncludingTerminator) };
+        ThrowsCode("MMC_RUNTIME_COMMAND_LENGTH",
+            () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, hugePlan, "echo ${classpath}"),
+            "Oversize post-expansion command");
         Require(instance.Observed is null, "A refused command must never reach the process entry.");
         // A missing GameRoot is refused: the command would otherwise run in an unverified directory.
         ThrowsCode("MMC_RUNTIME_WORKING_DIRECTORY",
@@ -304,6 +308,9 @@ internal static class MmcCommandExecutionTests {
         var expanded = MmcRuntimeCommandExecution.Redact("echo " + instance.Root.Replace('\\', '/') + " " + Secret, [Secret]);
         Require(!expanded.Contains(Secret, StringComparison.Ordinal) && expanded.Contains("[redacted]", StringComparison.Ordinal),
             "Redaction must also apply to a value substituted into the command.");
+        // Overlapping prefix/longer secrets replace the longest secret first so suffixes never leak.
+        var overlapped = MmcRuntimeCommandExecution.Redact("echo prefix_secret_longer_suffix", ["prefix_secret", "prefix_secret_longer_suffix"]);
+        Equal("echo [redacted]", overlapped, "Overlapping secret redaction");
     }
 
     // ---- 8. inactive source ---------------------------------------------------------------------------

@@ -396,6 +396,8 @@ internal static class MmcPhase2LaunchChecks {
                     DrainUi(DateTime.UtcNow.AddSeconds(10));
 
                     Native.Check(combo.State == ModBase.LoadState.Canceled, "Cancelled wrapped launch ended as " + combo.State);
+                    Native.Check(!watcherLogs.Any(line => line.Contains("崩溃", StringComparison.Ordinal)),
+                        "Cancelled wrapped launch unexpectedly triggered crash analysis.");
                     Native.Check(wrapperProc.HasExited && javaProc.HasExited && running.AreAllProcessesExited,
                         "CancelGame did not terminate both persistent wrapper and managed Java.");
                     var runtime = (MmcRuntimeLaunchPlan)Native.Get(context, "runtime")!;

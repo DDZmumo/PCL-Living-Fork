@@ -55,6 +55,7 @@ internal static partial class MmcInstanceBackendTests {
         yield return ("MMC backend rejects damaged authority and retains interrupted import ownership", FailureIsolation);
         yield return ("MMC launch preparation keeps complete generations and repairs only missing managed inputs offline", LaunchPreparation);
         yield return ("MMC launch preparation rejects stale identity, new variants and damaged support without adopting bytes", LaunchRefusals);
+        yield return ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption);
         yield return ("MMC import reports console and PermGen requirements as inert differences instead of substituting", PreferenceDifferences);
         yield return ("MMC private payload placement binds measured files and preserves canceled or conflicting private roots", PrivatePayload);
         yield return ("MMC initial import publishes thousands of tiny files without journal body copies", BulkPayloadImport);
@@ -312,6 +313,58 @@ internal static partial class MmcInstanceBackendTests {
         using var lease = MmcAdmissionGate.Acquire(fixture.VersionRoot, id, TimeSpan.Zero);
         refused = false; try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, ready.Snapshot); } catch (IOException) { refused = true; }
         Equal(true, refused); Equal(1L, MmcSavedSourceStore.ReadPrimary(ready.Snapshot.Paths).Definition.Generation);
+    }
+    private static void ParallelLaunchValidationDetectsTailCorruption() => ParallelLaunchValidationDetectsTailCorruptionAsync().GetAwaiter().GetResult();
+    private static async Task ParallelLaunchValidationDetectsTailCorruptionAsync() {
+        using Fixture fixture = new();
+        var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+        if (imported.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(imported.Failure);
+        Guid id = imported.Definition!.InstanceId; var backend = fixture.Backend(offline: true);
+        var ready = await backend.PrepareLaunchAsync(new(fixture.VersionRoot, new("windows", "x86_64", 8), id, 1));
+        if (ready.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(ready.Failure);
+        var snapshot = ready.Snapshot!;
+        var files = ImmutableArray.CreateBuilder<MmcInstanceLaunchFile>(snapshot.Files.Length + 40);
+        files.AddRange(snapshot.Files);
+        string tailPath = "";
+        byte[]? tailOriginal = null;
+        for (int i = 0; i < 40; i++) {
+            string relative = $"minecraft/mods/batch-{i % 4}/mod-{i:D2}.bin";
+            string full = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            byte[] payload = Encoding.UTF8.GetBytes($"parallel-fixture-entry-{i:D2}");
+            File.WriteAllBytes(full, payload);
+            string hash = Convert.ToHexStringLower(SHA256.HashData(payload));
+            files.Add(new(relative, hash, payload.LongLength));
+            if (i == 38) { tailPath = full; tailOriginal = payload; }
+        }
+        var expanded = new MmcPreparedInstanceLaunch(
+            snapshot.Definition, snapshot.PrimarySha256, snapshot.BoundPlan, snapshot.Paths,
+            snapshot.PackageConfiguration, snapshot.Targets, snapshot.Directories, files.ToImmutable());
+        byte[] supportBytes = Encoding.UTF8.GetBytes("reusable-support-bytes");
+        string supportHash = Convert.ToHexStringLower(SHA256.HashData(supportBytes));
+        var firstSupport = await MmcInstanceBackend<MmcArtifactDownloadSpec>.PrepareLaunchSupportAsync(expanded, [new("wrapper.jar", supportBytes, supportHash)]);
+        var secondSupport = await MmcInstanceBackend<MmcArtifactDownloadSpec>.PrepareLaunchSupportAsync(expanded, [new("wrapper.jar", supportBytes, supportHash)]);
+        Equal(firstSupport[0].ActualPath, secondSupport[0].ActualPath);
+        Equal(supportHash, Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(secondSupport[0].ActualPath))));
+
+        using var lease = MmcAdmissionGate.Acquire(fixture.VersionRoot, id, TimeSpan.Zero);
+        MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded);
+
+        byte[] tampered = (byte[])tailOriginal!.Clone();
+        tampered[0] ^= 0xFF;
+        File.WriteAllBytes(tailPath, tampered);
+        bool caughtIo = false;
+        try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded); }
+        catch (IOException ex) when (ex.GetType() == typeof(IOException)) { caughtIo = true; }
+        Equal(true, caughtIo);
+
+        File.WriteAllBytes(tailPath, tailOriginal);
+        using CancellationTokenSource canceled = new();
+        canceled.Cancel();
+        bool caughtCancel = false;
+        try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded, canceled.Token); }
+        catch (OperationCanceledException) { caughtCancel = true; }
+        Equal(true, caughtCancel);
     }
     private static async Task FailureIsolationAsync() {
         using (Fixture fixture = new()) {
