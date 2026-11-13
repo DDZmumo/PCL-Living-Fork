@@ -24,7 +24,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
 
  public static class Index {
 
-        public const global::System.Int32 Schema = 4;
+        public const global::System.Int32 Schema = 5;
         public const global::System.Int64 MaxBytes = (((32L) * 1024L) * 1024L);
         public static string CacheDirectory { get; set; } = global::System.IO.Path.Combine(global::System.Environment.GetFolderPath(global::System.Environment.SpecialFolder.LocalApplicationData), "PCLLivingFork", "Cache", "ModDependencyIndex");
         private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim> Gates = new global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim>(global::System.StringComparer.Ordinal);

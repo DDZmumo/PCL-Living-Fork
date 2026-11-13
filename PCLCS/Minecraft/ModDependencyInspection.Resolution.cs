@@ -175,7 +175,31 @@ public static global::System.String FilePathKey(global::System.String fullPath)
             Ids.UnionWith(Requirement.VerifiedLoaderIds);
             if (((Ids.Count) == (0)))
                 return new global::System.Collections.Generic.List<TMod>();
-            return Report.Edges.Where(Edge => (((((((((Edge.Owner.Enabled) && (SameFilePath(Edge.Owner.RootPath, OwnerPath))) && (Edge.Evaluated)) && (!(Edge.ConditionBypassed))) && (Edge.StateValue == ModDependencyMatchState.Satisfied)) && ((Edge.Requirement.Children.Count) == (0))) && (Edge.Requirement.KindValue != ModDependencyKind.Conflict)) && (Edge.Requirement.KindValue != ModDependencyKind.Incompatible)) && (Ids.Contains(Edge.Requirement.Id)))).SelectMany(Edge => Edge.Providers).Where(Item => (((((Item.Enabled) && (!(Item.IsBuiltin))) && (!(Item.IsMetadataOnly))) && (!(Item.IsCandidate))) && (!(Item.IncompatibleLoader)))).Distinct().ToList();
+            var providers = ProviderMap(ActiveMods(Report).Concat(Report.Builtins));
+            IEnumerable<TMod> SelectedProviders(TDependency dependency) {
+                if (dependency.IsUnknown || dependency.KindValue is ModDependencyKind.Conflict or ModDependencyKind.Incompatible)
+                    return Enumerable.Empty<TMod>();
+                var resolved = Resolve(dependency, providers, Report.Context);
+                if (resolved.State != ModDependencyMatchState.Satisfied) return Enumerable.Empty<TMod>();
+                return dependency.Children.Count == 0 ? resolved.Providers : dependency.Children.SelectMany(SelectedProviders);
+            }
+            IEnumerable<TMod> SatisfiedProviders(TDependency dependency) {
+                if (dependency.IsUnknown || dependency.KindValue is ModDependencyKind.Conflict or ModDependencyKind.Incompatible)
+                    return Enumerable.Empty<TMod>();
+                var resolved = Resolve(dependency, providers, Report.Context);
+                if (dependency.Children.Count == 0)
+                    return Ids.Contains(dependency.Id ?? "") && resolved.State == ModDependencyMatchState.Satisfied
+                        ? resolved.Providers : Enumerable.Empty<TMod>();
+                // A verified project can name one branch of a loader-declared
+                // alternative. Its satisfied sibling already fulfils that need.
+                if (dependency.Join == "any" && DependencyMentions(dependency, Ids) && resolved.State == ModDependencyMatchState.Satisfied)
+                    return dependency.Children.SelectMany(SelectedProviders);
+                return dependency.Children.SelectMany(SatisfiedProviders);
+            }
+            return Report.Edges.Where(edge => edge.Owner.Enabled && SameFilePath(edge.Owner.RootPath, OwnerPath) &&
+                    edge.Evaluated && !edge.ConditionBypassed).SelectMany(edge => SatisfiedProviders(edge.Requirement))
+                .Where(item => item.Enabled && !item.IsBuiltin && !item.IsMetadataOnly && !item.IsCandidate && !item.IncompatibleLoader)
+                .Distinct().ToList();
         }
 
         public static global::System.Boolean FileSatisfiesDependency(TReport report, global::System.String fullPath, TDependency requirement)
@@ -244,6 +268,22 @@ public static global::System.String FilePathKey(global::System.String fullPath)
             public global::System.Boolean Missing;
             public global::System.Collections.Generic.List<TMod> Providers = new global::System.Collections.Generic.List<TMod>();
         }
+        private static ModDependencyMatchState MatchProviderVersion(TMod provider, TDependency dependency, TContext context) {
+            var state = MatchVersions(Identities(provider)[dependency.Id], dependency.Versions, dependency.Syntax);
+            if (state != ModDependencyMatchState.Unsatisfied || !provider.IsBuiltin || dependency.Syntax != "maven" ||
+                !context.LoaderKnown || !context.LoaderVersions.ContainsKey("neoforge"))
+                return state;
+            // Factual builtin identities from the corresponding FML
+            // VersionSupportMatrix; unrelated runtimes keep ordinary matching.
+            string fallback = (context.MinecraftVersion, dependency.Id) switch {
+                ("1.21.1", "minecraft") => "1.21",
+                ("1.21.1", "neoforge") => "21.0.166",
+                ("1.21.8", "minecraft") => "1.21.7",
+                ("1.21.8", "neoforge") => "21.7.26-beta",
+                _ => null
+            };
+            return fallback is null ? state : Combine(new[] { state, MatchVersions(fallback, dependency.Versions, dependency.Syntax) }, false);
+        }
         private static Resolution Resolve(TDependency Requirement, global::System.Collections.Generic.Dictionary<global::System.String, global::System.Collections.Generic.List<TMod>> Providers, TContext Context, global::System.Int32 Depth = 0)
         {
             if ((((Depth) > (32)) || (Requirement.IsUnknown)))
@@ -269,7 +309,7 @@ public static global::System.String FilePathKey(global::System.String fullPath)
                 else
                 {
                     Result.Providers = Candidates.ToList();
-                    Result.State = Combine(Candidates.Select(Item => (Item.IsRuntimeCandidate) ? (ModDependencyMatchState.Unknown) : (MatchVersions(Identities(Item)[Requirement.Id], Requirement.Versions, Requirement.Syntax))), false);
+                    Result.State = Combine(Candidates.Select(Item => (Item.IsRuntimeCandidate) ? (ModDependencyMatchState.Unknown) : MatchProviderVersion(Item, Requirement, Context)), false);
                 }
             }
             if (Requirement.Unless is not null)
