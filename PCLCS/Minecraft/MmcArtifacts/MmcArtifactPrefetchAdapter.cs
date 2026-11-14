@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -74,6 +76,7 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
         int batches = 0, requested = 0;
         var freshCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var published = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         try {
             var staticArtifacts = compiled.Classpath.Concat(compiled.NativeArtifacts).Concat(compiled.DownloadOnlyArtifacts).Concat(compiled.AuxiliaryArtifacts)
                 .Concat(request.AdditionalPreservedArtifacts.IsDefault ? [] : request.AdditionalPreservedArtifacts).Where(x => x.Scope == MmcArtifactScope.Shared)
@@ -82,7 +85,7 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
             if (compiled.Assets.Artifact is { } index) {
                 if (!known.TryGetValue(index.Key, out var parent)) throw new IOException("Asset index was not obtained by the static batch.");
                 if (parent.Size > limits.MaxAssetIndexBytes) throw new IOException("Asset index exceeds its metadata budget.");
-                byte[] bytes = await ReadIndexAsync(parent.Source, cancellationToken).ConfigureAwait(false);
+                byte[] bytes = await ReadIndexAsync(parent.Source, verifiedDirectories, cancellationToken).ConfigureAwait(false);
                 var read = MmcAssetIndexReader.Read(new(index.Key, bytes), parent.Sha256, new MmcReadLimits {
                     MaxMetadataBytes = limits.MaxAssetIndexBytes, MaxArchiveEntries = limits.MaxAssetObjects,
                     MaxArchiveBytes = limits.MaxCopiedBytes, MaxEntryBytes = limits.MaxArtifactBytes
@@ -105,59 +108,57 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
             // The existing batch runner must stop/drain its I/O before returning/throwing.
             // Only this invocation's unpinned fresh candidates can be removed here.
             foreach (string path in freshCandidates.Where(path => !published.Contains(path))) {
-                MmcInstancePaths.EnsureNoLinks(path);
+                MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
                 if (File.Exists(path)) File.Delete(path);
             }
         }
 
         async Task PrefetchSetAsync(IReadOnlyList<MmcArtifactReference> artifacts) {
             if (artifacts.Count > limits.MaxArtifacts) throw new IOException("Prefetch artifact count budget exceeded.");
+            var preparedLocations = new (MmcArtifactLock? Adopted, string Address, string Root, string? UriFingerprint)[artifacts.Count];
+            if (artifacts.Count > 0) {
+                await Task.Run(() => MmcInstancePaths.ForEachBounded(artifacts, (index, artifact, token) => {
+                    token.ThrowIfCancellationRequested();
+                    if (!MmcArtifactIo.Digest(artifact.SourceRevision, 64) || artifact.Size < 0 || artifact.Size > limits.MaxArtifactBytes)
+                        throw new IOException("Prefetch artifact declaration is invalid.");
+                    prior.TryGetValue(artifact.Key, out var adopted);
+                    if (adopted is not null && !adopted.SourceRevision.Equals(artifact.SourceRevision, StringComparison.OrdinalIgnoreCase))
+                        throw new IOException("Prefetch cannot replace an adopted source revision.");
+                    var location = Address(artifact, verifiedDirectories);
+                    preparedLocations[index] = (adopted, location.Address, location.Root, location.UriFingerprint);
+                }, cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
             var groups = new Dictionary<string, Group>(StringComparer.OrdinalIgnoreCase);
-            foreach (var artifact in artifacts) {
+            for (int i = 0; i < artifacts.Count; i++) {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!MmcArtifactIo.Digest(artifact.SourceRevision, 64) || artifact.Size < 0 || artifact.Size > limits.MaxArtifactBytes)
-                    throw new IOException("Prefetch artifact declaration is invalid.");
-                prior.TryGetValue(artifact.Key, out var adopted);
-                if (adopted is not null && !adopted.SourceRevision.Equals(artifact.SourceRevision, StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("Prefetch cannot replace an adopted source revision.");
-                var location = Address(artifact);
-                if (!groups.TryGetValue(location.Address, out var group)) {
-                    group = new(artifact, location.Address, location.Root, location.UriFingerprint); groups.Add(location.Address, group);
+                var artifact = artifacts[i];
+                var (adopted, address, root, uriFingerprint) = preparedLocations[i];
+                if (!groups.TryGetValue(address, out var group)) {
+                    group = new(artifact, address, root, uriFingerprint); groups.Add(address, group);
                 } else group.References.Add(artifact);
                 Merge(group, artifact.Sha256, artifact.Sha1, artifact.Size);
                 if (adopted is not null) Merge(group, adopted.AdoptedSha256, null, adopted.SizeBytes);
             }
+            var groupList = groups.Values.ToArray();
+            var verifiedList = new VerifiedSource?[groupList.Length];
+            await Task.Run(() => MmcInstancePaths.ForEachBounded(groupList, (index, group, token) => {
+                verifiedList[index] = ResolveExistingGroup(group, token);
+            }, cancellationToken), cancellationToken).ConfigureAwait(false);
+
             var missing = new List<Group>();
-            foreach (var group in groups.Values) {
+            for (int i = 0; i < groupList.Length; i++) {
                 cancellationToken.ThrowIfCancellationRequested();
-                VerifiedSource? verified = null;
-                foreach (var artifact in group.References) {
-                    if (!prior.TryGetValue(artifact.Key, out var locked)) continue;
-                    string expectedObject = "PCL/MmcArtifacts/sha256/" + locked.AdoptedSha256.ToLowerInvariant();
-                    if (locked.RecoveryObjectRelativePath != expectedObject || !MmcArtifactIo.Digest(locked.AdoptedSha256, 64)) throw new IOException("Adopted recovery object is invalid.");
-                    verified = await VerifyAsync(new(request.Paths.InstanceRoot, request.Paths.ResolveRelative(MmcPathRole.Instance, expectedObject)), group,
-                        cancellationToken).ConfigureAwait(false);
-                    if (verified is not null) break;
+                Group group = groupList[i];
+                if (verifiedList[i] is { } verified) {
+                    foreach (var item in group.References) known[item.Key] = verified;
+                    continue;
                 }
-                if (verified is null && group.UriFingerprint is not null) {
-                    group.Pin = ReadPin(group);
-                    if (group.Pin is not null) { Merge(group, group.Pin.Sha256, group.Pin.Sha1, group.Pin.SizeBytes); group.DownloadPath = SafePath(group.Root, Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, group.Pin.FileName))); }
-                }
-                group.DownloadPath ??= group.UriFingerprint is null ? group.Address : SafePath(group.Root,
-                    Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, "payload-" + Guid.NewGuid().ToString("N") + ".bin")));
-                if (verified is null && (group.UriFingerprint is null || group.Pin is not null))
-                    verified = await VerifyAsync(new(group.Root, group.DownloadPath), group, cancellationToken).ConfigureAwait(false);
-                if (verified is null && roots.VersionsRoot is not null && group.Artifact.Role == MmcArtifactRole.MainJar && (group.Sha256 is not null || group.Sha1 is not null)) {
-                    ValidateSegment(compiled.MinecraftVersion);
-                    verified = await VerifyAsync(new(roots.VersionsRoot, SafePath(roots.VersionsRoot, compiled.MinecraftVersion + "/" + compiled.MinecraftVersion + ".jar")), group, cancellationToken).ConfigureAwait(false);
-                }
-                if (verified is not null) { foreach (var item in group.References) known[item.Key] = verified; continue; }
                 if (group.References.SelectMany(x => x.DownloadUrls.IsDefault ? [] : x.DownloadUrls).Any() == false) throw new IOException("Missing artifact has no fixed download source.");
                 if (group.UriFingerprint is not null && group.Pin is null) {
                     if (File.Exists(group.DownloadPath) || Directory.Exists(group.DownloadPath)) throw new IOException("Fresh source candidate unexpectedly exists.");
-                    freshCandidates.Add(group.DownloadPath);
+                    freshCandidates.Add(group.DownloadPath!);
                 }
-                MmcArtifactIo.Directory(Path.GetDirectoryName(group.DownloadPath)!);
+                MmcArtifactIo.Directory(Path.GetDirectoryName(group.DownloadPath)!, verifiedDirectories);
                 missing.Add(group);
             }
             if (missing.Count == 0) return;
@@ -172,49 +173,78 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
             cancellationToken.ThrowIfCancellationRequested(); batches++; requested = checked(requested + files.Length);
             await runBatch(files, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var group in missing) {
-                var verified = await VerifyAsync(new(group.Root, group.DownloadPath!), group, cancellationToken).ConfigureAwait(false)
-                    ?? throw new IOException("Batch completion did not produce the expected artifact bytes.");
+            var downloaded = new VerifiedSource?[missing.Count];
+            await Task.Run(() => MmcInstancePaths.ForEachBounded(missing, (index, group, token) => {
+                downloaded[index] = VerifyFile(new(group.Root, group.DownloadPath!), group, verifiedDirectories, token);
+            }, cancellationToken), cancellationToken).ConfigureAwait(false);
+            for (int i = 0; i < missing.Count; i++) {
+                Group group = missing[i];
+                var verified = downloaded[i] ?? throw new IOException("Batch completion did not produce the expected artifact bytes.");
                 if (group.UriFingerprint is not null) {
                     var pin = new SourcePin(1, group.Artifact.SourceRevision, group.UriFingerprint, Path.GetFileName(group.DownloadPath!), verified.Sha256, verified.Sha1, verified.Size);
-                    SourcePin accepted = PublishPin(group, pin);
+                    SourcePin accepted = PublishPin(group, pin, verifiedDirectories);
                     if (accepted.Sha256 != pin.Sha256 || accepted.Sha1 != pin.Sha1 || accepted.SizeBytes != pin.SizeBytes)
                         throw new IOException("Source scope already pins different bytes; explicit source revision is required.");
                     Merge(group, accepted.Sha256, accepted.Sha1, accepted.SizeBytes);
                     if (accepted.FileName != pin.FileName) {
-                        verified = await VerifyAsync(new(group.Root, SafePath(group.Root, Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, accepted.FileName)))), group, cancellationToken).ConfigureAwait(false)
+                        verified = VerifyFile(new(group.Root, SafePath(group.Root, Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, accepted.FileName)), verifiedDirectories)), group, verifiedDirectories, cancellationToken)
                             ?? throw new IOException("Pinned source candidate is not available.");
                     } else published.Add(group.DownloadPath!);
                 }
                 foreach (var item in group.References) known[item.Key] = verified;
             }
         }
+
+        VerifiedSource? ResolveExistingGroup(Group group, CancellationToken token) {
+            VerifiedSource? verified = null;
+            foreach (var artifact in group.References) {
+                if (!prior.TryGetValue(artifact.Key, out var locked)) continue;
+                string expectedObject = "PCL/MmcArtifacts/sha256/" + locked.AdoptedSha256.ToLowerInvariant();
+                if (locked.RecoveryObjectRelativePath != expectedObject || !MmcArtifactIo.Digest(locked.AdoptedSha256, 64)) throw new IOException("Adopted recovery object is invalid.");
+                verified = VerifyFile(new(request.Paths.InstanceRoot, request.Paths.ResolveRelative(MmcPathRole.Instance, expectedObject, verifiedDirectories)), group,
+                    verifiedDirectories, token);
+                if (verified is not null) break;
+            }
+            if (verified is null && group.UriFingerprint is not null) {
+                group.Pin = ReadPin(group, verifiedDirectories);
+                if (group.Pin is not null) { Merge(group, group.Pin.Sha256, group.Pin.Sha1, group.Pin.SizeBytes); group.DownloadPath = SafePath(group.Root, Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, group.Pin.FileName)), verifiedDirectories); }
+            }
+            group.DownloadPath ??= group.UriFingerprint is null ? group.Address : SafePath(group.Root,
+                Path.GetRelativePath(group.Root, Path.Combine(Path.GetDirectoryName(group.Address)!, "payload-" + Guid.NewGuid().ToString("N") + ".bin")), verifiedDirectories);
+            if (verified is null && (group.UriFingerprint is null || group.Pin is not null))
+                verified = VerifyFile(new(group.Root, group.DownloadPath), group, verifiedDirectories, token);
+            if (verified is null && roots.VersionsRoot is not null && group.Artifact.Role == MmcArtifactRole.MainJar && (group.Sha256 is not null || group.Sha1 is not null)) {
+                ValidateSegment(compiled.MinecraftVersion);
+                verified = VerifyFile(new(roots.VersionsRoot, SafePath(roots.VersionsRoot, compiled.MinecraftVersion + "/" + compiled.MinecraftVersion + ".jar", verifiedDirectories)), group, verifiedDirectories, token);
+            }
+            return verified;
+        }
     }
 
-    private (string Address, string Root, string? UriFingerprint) Address(MmcArtifactReference artifact) {
+    private (string Address, string Root, string? UriFingerprint) Address(MmcArtifactReference artifact, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
         if (artifact.Sha256 is null && artifact.Sha1 is null) {
             string uris = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(artifact.DownloadUrls.IsDefault ? [] : artifact.DownloadUrls)));
-            return (SafePath(roots.SourceCacheRoot, "by-source/" + artifact.SourceRevision + "/" + uris + "/pin.json"), roots.SourceCacheRoot, uris);
+            return (SafePath(roots.SourceCacheRoot, "by-source/" + artifact.SourceRevision + "/" + uris + "/pin.json", verifiedDirectories), roots.SourceCacheRoot, uris);
         }
         string root = artifact.Role == MmcArtifactRole.AssetIndex || MmcArtifactMaterializer.IsAssetObjectReference(artifact) ? roots.AssetsRoot : roots.LibrariesRoot;
         if (artifact.Role == MmcArtifactRole.LoggingConfiguration) root = roots.SourceCacheRoot;
-        return (SafePath(root, artifact.RelativePath), root, null);
+        return (SafePath(root, artifact.RelativePath, verifiedDirectories), root, null);
     }
 
-    private async Task<VerifiedSource?> VerifyAsync(MmcArtifactSource source, Group group, CancellationToken token) {
+    private VerifiedSource? VerifyFile(MmcArtifactSource source, Group group, ConcurrentDictionary<string, byte>? verifiedDirectories, CancellationToken token) {
         if (!File.Exists(source.FilePath)) return null;
         try {
-            string file = MmcArtifactIo.AuthorizedSource(source);
-            var actual = await MmcArtifactIo.HashAsync(file, group.Artifact.Role == MmcArtifactRole.AssetIndex ? Math.Min(limits.MaxArtifactBytes, limits.MaxAssetIndexBytes) : limits.MaxArtifactBytes, token).ConfigureAwait(false);
+            string file = MmcArtifactIo.AuthorizedSource(source, verifiedDirectories);
+            var actual = MmcArtifactIo.HashFile(file, group.Artifact.Role == MmcArtifactRole.AssetIndex ? Math.Min(limits.MaxArtifactBytes, limits.MaxAssetIndexBytes) : limits.MaxArtifactBytes, token, verifiedDirectories: verifiedDirectories);
             if (group.Sha256 is not null && !actual.Sha256.Equals(group.Sha256, StringComparison.OrdinalIgnoreCase) ||
                 group.Sha1 is not null && !actual.Sha1.Equals(group.Sha1, StringComparison.OrdinalIgnoreCase) || group.Size is not null && group.Size != actual.Size) return null;
             return new(source, actual.Sha256, actual.Sha1, actual.Size);
         } catch (IOException) { return null; }
     }
 
-    private SourcePin? ReadPin(Group group) {
+    private SourcePin? ReadPin(Group group, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
         if (!File.Exists(group.Address)) return null;
-        MmcInstancePaths.EnsureNoLinks(group.Address);
+        MmcInstancePaths.EnsureNoLinks(group.Address, verifiedDirectories);
         if (new FileInfo(group.Address).Length > 4096) throw new IOException("Source cache pin exceeds its metadata budget.");
         byte[] bytes = File.ReadAllBytes(group.Address);
         if (bytes.Length > 4096) throw new IOException("Source cache pin actual metadata budget exceeded.");
@@ -234,8 +264,8 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
         } catch (JsonException error) { throw new IOException("Source cache pin JSON is invalid.", error); }
     }
 
-    private SourcePin PublishPin(Group group, SourcePin pin) {
-        MmcArtifactIo.Directory(Path.GetDirectoryName(group.Address)!);
+    private SourcePin PublishPin(Group group, SourcePin pin, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcArtifactIo.Directory(Path.GetDirectoryName(group.Address)!, verifiedDirectories);
         string temporary = Path.Combine(Path.GetDirectoryName(group.Address)!, ".pin-" + Guid.NewGuid().ToString("N") + ".tmp");
         bool owned = false;
         try {
@@ -243,14 +273,14 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
                 owned = true; file.Write(JsonSerializer.SerializeToUtf8Bytes(pin)); file.Flush(true);
             }
             try { File.Move(temporary, group.Address, false); owned = false; return pin; }
-            catch (IOException) when (File.Exists(group.Address)) { return ReadPin(group) ?? throw new IOException("Source cache pin disappeared."); }
+            catch (IOException) when (File.Exists(group.Address)) { return ReadPin(group, verifiedDirectories) ?? throw new IOException("Source cache pin disappeared."); }
         } finally {
-            if (owned) { MmcInstancePaths.EnsureNoLinks(temporary); File.Delete(temporary); }
+            if (owned) { MmcInstancePaths.EnsureNoLinks(temporary, verifiedDirectories); File.Delete(temporary); }
         }
     }
 
-    private async Task<byte[]> ReadIndexAsync(MmcArtifactSource source, CancellationToken token) {
-        string path = MmcArtifactIo.AuthorizedSource(source);
+    private async Task<byte[]> ReadIndexAsync(MmcArtifactSource source, ConcurrentDictionary<string, byte>? verifiedDirectories, CancellationToken token) {
+        string path = MmcArtifactIo.AuthorizedSource(source, verifiedDirectories);
         await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 32768, true);
         if (file.Length > limits.MaxAssetIndexBytes) throw new IOException("Asset index exceeds its metadata budget.");
         using var bytes = new MemoryStream(); byte[] buffer = new byte[32768]; int read;
@@ -272,18 +302,39 @@ public sealed class MmcArtifactPrefetchAdapter<TNetFile> where TNetFile : notnul
         if (!Path.IsPathFullyQualified(root) || root.StartsWith("\\\\?\\", StringComparison.Ordinal) || root.StartsWith("\\\\.\\", StringComparison.Ordinal)) throw new IOException("Cache roots must be ordinary absolute paths.");
         string path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)); MmcInstancePaths.EnsureNoLinks(path); return path;
     }
-    private static string SafePath(string root, string relative) {
-        relative = relative.Replace('\\', '/'); MmcArtifactIo.Relative(relative);
-        foreach (string segment in relative.Split('/')) ValidateSegment(segment);
-        string path = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+    private static readonly SearchValues<char> InvalidSegmentChars = SearchValues.Create("<>:\"|?*/\\");
+
+    private static string SafePath(string root, string relative, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        if (relative.Contains('\\')) relative = relative.Replace('\\', '/');
+        MmcArtifactIo.Relative(relative);
+        ReadOnlySpan<char> remaining = relative.AsSpan();
+        while (true) {
+            int sep = remaining.IndexOf('/');
+            if (sep < 0) { ValidateSegment(remaining); break; }
+            ValidateSegment(remaining[..sep]);
+            remaining = remaining[(sep + 1)..];
+        }
+        string normalized = OperatingSystem.IsWindows() ? relative.Replace('/', '\\') : relative;
+        string path = Path.GetFullPath(Path.Combine(root, normalized));
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new IOException("Cache path escapes its approved root.");
-        MmcInstancePaths.EnsureNoLinks(path); return path;
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories); return path;
     }
-    private static void ValidateSegment(string value) {
-        if (value.Length is 0 or > 255 || value is "." or ".." || value.EndsWith(' ') || value.EndsWith('.') || value.Any(c => c < 32 || "<>:\"|?*/\\".Contains(c))) throw new IOException("Cache path contains an unsafe segment.");
-        string stem = value.Split('.')[0];
-        if (new[] { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$" }.Contains(stem, StringComparer.OrdinalIgnoreCase) ||
-            stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) && (stem[3] is >= '1' and <= '9' or '¹' or '²' or '³'))
-            throw new IOException("Cache path contains a reserved Windows device name.");
+    private static void ValidateSegment(ReadOnlySpan<char> value) {
+        if (value.Length is 0 or > 255 || value is "." or ".." || value[^1] is ' ' or '.' || value.IndexOfAny(InvalidSegmentChars) >= 0)
+            throw new IOException("Cache path contains an unsafe segment.");
+        foreach (char c in value) {
+            if (c < 32) throw new IOException("Cache path contains an unsafe segment.");
+        }
+        int dot = value.IndexOf('.');
+        ReadOnlySpan<char> stem = dot >= 0 ? value[..dot] : value;
+        bool reserved = stem.Length switch {
+            3 => stem.Equals("CON", StringComparison.OrdinalIgnoreCase) || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+                 stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase),
+            4 => (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                 stem[3] is >= '1' and <= '9' or '¹' or '²' or '³',
+            6 => stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase) || stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+        if (reserved) throw new IOException("Cache path contains a reserved Windows device name.");
     }
 }

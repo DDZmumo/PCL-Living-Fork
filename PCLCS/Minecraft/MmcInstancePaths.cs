@@ -1,9 +1,11 @@
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -101,14 +103,16 @@ public sealed class MmcInstancePaths {
     private string ComputeRelativePath(MmcPathRole role, string relative) {
         ArgumentNullException.ThrowIfNull(relative);
         if (relative.Length == 0 || Path.IsPathRooted(relative) || relative[0] is '/' or '\\') throw new IOException("必须提供相对路径。");
-        string[] parts = relative.Replace('\\', '/').Split('/');
-        foreach (string part in parts) ValidateSegment(part);
+        ValidateSegments(relative);
         string root = role switch {
             MmcPathRole.Instance => InstanceRoot, MmcPathRole.Game => GameRoot,
             MmcPathRole.LocalLibraries => LocalLibraryRoot, MmcPathRole.Runtime => RuntimeRoot,
             _ => throw new ArgumentOutOfRangeException(nameof(role))
         };
-        string target = Path.GetFullPath(Path.Combine(root, Path.Combine(parts)));
+        string normalized = OperatingSystem.IsWindows()
+            ? (relative.Contains('/') ? relative.Replace('/', '\\') : relative)
+            : (relative.Contains('\\') ? relative.Replace('\\', '/') : relative);
+        string target = Path.GetFullPath(Path.Combine(root, normalized));
         string prefix = root + Path.DirectorySeparatorChar;
         if (!target.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("目标路径超出了所选目录角色。");
@@ -121,7 +125,7 @@ public sealed class MmcInstancePaths {
             throw new IOException("不接受设备命名空间路径。");
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(versionRoot));
         string volumeRoot = Path.GetPathRoot(root)!;
-        foreach (string segment in root[volumeRoot.Length..].Replace('\\', '/').Split('/')) ValidateSegment(segment);
+        ValidateSegments(root.AsSpan(volumeRoot.Length));
         string? parent = Path.GetDirectoryName(root);
         if (!string.Equals(Path.GetFileName(parent), "versions", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("版本必须位于 Minecraft 的 versions 目录中。");
@@ -178,19 +182,56 @@ public sealed class MmcInstancePaths {
             throw new IOException("路径的父目录被普通文件占用。");
     }
 
+    private const uint InvalidFileAttributes = uint.MaxValue;
+    private const int ErrorFileNotFound = 2, ErrorPathNotFound = 3;
+    private static readonly SearchValues<char> InvalidSegmentChars = SearchValues.Create("<>:\"|?*");
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFileAttributesW", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern uint GetFileAttributesW(string lpFileName);
+
     internal static FileAttributes? Attributes(string path) {
+        if (OperatingSystem.IsWindows() && (path.Length < 250 || path.StartsWith(@"\\?\", StringComparison.Ordinal))) {
+            uint raw = GetFileAttributesW(path);
+            if (raw != InvalidFileAttributes) return (FileAttributes)raw;
+            int error = Marshal.GetLastPInvokeError();
+            if (error is ErrorFileNotFound or ErrorPathNotFound) return null;
+        }
         try { return File.GetAttributes(path); }
         catch (FileNotFoundException) { return null; }
         catch (DirectoryNotFoundException) { return null; }
     }
 
-    private static void ValidateSegment(string segment) {
-        if (string.IsNullOrEmpty(segment) || segment is "." or ".." || segment.EndsWith(' ') || segment.EndsWith('.') ||
-            segment.Any(c => c < 32 || "<>:\"|?*".Contains(c))) throw new IOException("路径含有非法或不明确的片段。");
-        string stem = segment.Split('.')[0];
-        if (new[] { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$" }.Contains(stem, StringComparer.OrdinalIgnoreCase) ||
-            (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
-                (stem[3] is >= '1' and <= '9' or '\u00b9' or '\u00b2' or '\u00b3')))
-            throw new IOException("路径包含 Windows 保留设备名。");
+    private static void ValidateSegments(ReadOnlySpan<char> remaining) {
+        while (true) {
+            int separator = remaining.IndexOfAny('/', '\\');
+            if (separator < 0) {
+                ValidateSegment(remaining);
+                return;
+            }
+            ValidateSegment(remaining[..separator]);
+            remaining = remaining[(separator + 1)..];
+        }
+    }
+
+    private static void ValidateSegment(ReadOnlySpan<char> segment) {
+        if (segment.IsEmpty || segment is "." or ".." || segment[^1] is ' ' or '.' || segment.IndexOfAny(InvalidSegmentChars) >= 0)
+            throw new IOException("路径含有非法或不明确的片段。");
+        foreach (char c in segment) {
+            if (c < 32) throw new IOException("路径含有非法或不明确的片段。");
+        }
+        int dot = segment.IndexOf('.');
+        ReadOnlySpan<char> stem = dot >= 0 ? segment[..dot] : segment;
+        bool reserved = stem.Length switch {
+            3 => stem.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+                 stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+                 stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+                 stem.Equals("NUL", StringComparison.OrdinalIgnoreCase),
+            4 => (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                 stem[3] is >= '1' and <= '9' or '\u00b9' or '\u00b2' or '\u00b3',
+            6 => stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase) ||
+                 stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+        if (reserved) throw new IOException("路径包含 Windows 保留设备名。");
     }
 }

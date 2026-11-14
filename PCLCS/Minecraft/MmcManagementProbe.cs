@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,6 +17,9 @@ public static class MmcManagementProbe {
     // These are LF-owned stores, not loose MMC package metadata. Even derived
     // runtime leftovers remain ownership evidence when the definition is lost.
     private static readonly string[] ReservedStores = ["MmcSource", "MmcOverrides", "MmcArtifacts", "MmcRuntime", "MmcTransactionHistory", "MmcSessions", "MmcSessionHistory", "MmcLifecycle", "MmcHistory", "MmcDefinitionChanges", "MmcPackageUpdateReceipts", "MmcProjectionBackups"];
+    private static readonly string[] PendingNames = ["MmcImportPending.json", "MmcLifecyclePending.json", "MmcLegacyAdoptionPending.json"];
+    private static readonly string[] ReceiptNames = ["MmcImportPayload.json", "MmcClonePrepared.json"];
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     public static MmcManagementResult Read(string versionRoot) => MmcManagementReader.Evaluate(Capture(versionRoot));
 
     public static MmcManagementSnapshot Capture(string versionRoot) {
@@ -32,42 +36,43 @@ public static class MmcManagementProbe {
     // retains strict layout validation; a logical alias supplies the version JSON leaf explicitly.
     internal static MmcManagementSnapshot CaptureAtPhysicalRoot(string root, string logicalVersionName) {
         string pcl = Path.Combine(root, "PCL");
-        MmcManagementDocument definition = ReadDocument(Path.Combine(pcl, "InstanceDefinition.json"));
-        MmcManagementDocument configHint = ReadHint(Path.Combine(pcl, "config.json"), true);
-        MmcManagementDocument versionHint = ReadHint(Path.Combine(root, logicalVersionName + ".json"), false);
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+        MmcManagementDocument definition = ReadDocument(Path.Combine(pcl, "InstanceDefinition.json"), verifiedDirectories);
+        MmcManagementDocument configHint = ReadHint(Path.Combine(pcl, "config.json"), true, verifiedDirectories);
+        MmcManagementDocument versionHint = ReadHint(Path.Combine(root, logicalVersionName + ".json"), false, verifiedDirectories);
         bool sources = false, pending = false, complete = true;
-        foreach (string pendingName in new[] { "MmcImportPending.json", "MmcLifecyclePending.json", "MmcLegacyAdoptionPending.json" }) try {
+        foreach (string pendingName in PendingNames) try {
             string import = Path.Combine(pcl, pendingName);
-            MmcInstancePaths.EnsureNoLinks(pcl);
+            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
             if (MmcInstancePaths.Attributes(import) is not null) { sources = true; pending = true; }
-            MmcInstancePaths.EnsureNoLinks(import);
+            MmcInstancePaths.EnsureNoLinks(import, verifiedDirectories);
         } catch (Exception error) when (IsObservationFailure(error)) { complete = false; }
         foreach (string store in ReservedStores) {
             try {
                 string storePath = Path.Combine(pcl, store);
-                MmcInstancePaths.EnsureNoLinks(pcl);
+                MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
                 FileAttributes? attributes = MmcInstancePaths.Attributes(storePath);
                 sources |= attributes is not null;
-                MmcInstancePaths.EnsureNoLinks(storePath);
+                MmcInstancePaths.EnsureNoLinks(storePath, verifiedDirectories);
                 if (attributes is not null && (attributes.Value & FileAttributes.Directory) == 0) complete = false;
             } catch (Exception ex) when (IsObservationFailure(ex)) {
                 complete = false;
             }
         }
-        foreach (string receiptName in new[] { "MmcImportPayload.json", "MmcClonePrepared.json" }) try {
+        foreach (string receiptName in ReceiptNames) try {
             string payload = Path.Combine(pcl, receiptName);
-            MmcInstancePaths.EnsureNoLinks(pcl);
+            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
             FileAttributes? attributes = MmcInstancePaths.Attributes(payload);
             sources |= attributes is not null;
-            MmcInstancePaths.EnsureNoLinks(payload);
+            MmcInstancePaths.EnsureNoLinks(payload, verifiedDirectories);
             if (attributes is not null && (attributes.Value & FileAttributes.Directory) != 0) complete = false;
         } catch (Exception error) when (IsObservationFailure(error)) { complete = false; }
         try {
             string transactions = Path.Combine(pcl, "MmcTransactions");
-            MmcInstancePaths.EnsureNoLinks(pcl);
+            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
             FileAttributes? attributes = MmcInstancePaths.Attributes(transactions);
             if (attributes is not null) sources = true;
-            MmcInstancePaths.EnsureNoLinks(transactions);
+            MmcInstancePaths.EnsureNoLinks(transactions, verifiedDirectories);
             if (attributes is not null) {
                 sources = true;
                 // A future recovery service may recognize finalized journals. Until then every retained
@@ -78,14 +83,14 @@ public static class MmcManagementProbe {
         return new(definition, configHint, versionHint, sources, pending, complete);
     }
 
-    private static MmcManagementDocument ReadDocument(string path) {
+    private static MmcManagementDocument ReadDocument(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
         bool exists = false;
         try {
-            MmcInstancePaths.EnsureNoLinks(Path.GetDirectoryName(path)!);
+            MmcInstancePaths.EnsureNoLinks(Path.GetDirectoryName(path)!, verifiedDirectories);
             FileAttributes? attributes = MmcInstancePaths.Attributes(path);
             if (attributes is null) return MmcManagementDocument.Missing;
             exists = true;
-            MmcInstancePaths.EnsureNoLinks(path);
+            MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
             if ((attributes.Value & FileAttributes.Directory) != 0) throw new IOException("管理文件被目录占用。");
             using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (stream.Length > MmcManagementReader.MaximumDocumentBytes) throw new InvalidDataException("管理文件超过读取预算。");
@@ -96,7 +101,7 @@ public static class MmcManagementProbe {
                 if (buffer.Length + read > MmcManagementReader.MaximumDocumentBytes) throw new InvalidDataException("管理文件读取期间超过预算。");
                 buffer.Write(chunk, 0, read);
             }
-            string content = new UTF8Encoding(false, true).GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
+            string content = StrictUtf8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
             if (content.Length > 0 && content[0] == '\uFEFF') content = content[1..];
             return new(true, content);
         } catch (Exception ex) when (IsObservationFailure(ex)) {
@@ -104,8 +109,8 @@ public static class MmcManagementProbe {
         }
     }
 
-    private static MmcManagementDocument ReadHint(string path, bool config) {
-        MmcManagementDocument file = ReadDocument(path);
+    private static MmcManagementDocument ReadHint(string path, bool config, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcManagementDocument file = ReadDocument(path, verifiedDirectories);
         if (file.Error is not null) return new(false, Error: file.Error);
         if (!file.Exists) return MmcManagementDocument.Missing;
         bool knownHint = false;

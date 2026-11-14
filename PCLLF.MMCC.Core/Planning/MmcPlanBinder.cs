@@ -21,7 +21,7 @@ public static partial class MmcPlanBinder {
             diagnostics.AddRange(MmcDefinitionCodec.Validate(definition, MmcDefinitionValidationMode.Draft, limits));
             if (diagnostics.Count != 0) return new(null, null, diagnostics.ToImmutableArray());
             MmcInstanceDefinition? authority = publishedBaseline;
-            if (authority is not null) ValidatePublished(authority);
+            if (authority is not null && !(ReferenceEquals(authority, definition) && definition.InstalledProjection is not null)) ValidatePublished(authority);
             if (options.Intent != MmcBindingIntent.InitialImport) {
                 authority ??= definition.InstalledProjection is not null ? definition : null;
                 if (authority is null) Fail("MMC_BIND_AUTHORITY", "Noninitial binding requires a separately verified published baseline.");
@@ -253,6 +253,16 @@ public static partial class MmcPlanBinder {
         string sources = MmcDerivedProofs.ComputeAssetSourceSetFingerprint(index.Key, parent.ObservedSha256, parent.SizeBytes);
         string context = MmcDerivedProofs.ComputeDerivedContextFingerprint(plan.RuntimePlanFingerprint, sources, "bounded-assets-v1");
         var oldObjects = definition.DerivedOutputs.Where(d => d.Kind == MmcDerivedOutputKind.AssetObject).GroupBy(d => d.ArtifactKey!).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        Dictionary<(MmcDerivedOutputKind Kind, string TargetRelativePath), (MmcDerivedOutputRecord First, int Count)>? aliasMap = null;
+        if (read.Index.Virtual || read.Index.EffectiveMapToResources) {
+            aliasMap = new(supplied.Count);
+            foreach (var d in supplied) {
+                if (d.Kind is MmcDerivedOutputKind.AssetVirtualFile or MmcDerivedOutputKind.AssetMappedResource) {
+                    var k = (d.Kind, d.TargetRelativePath);
+                    aliasMap[k] = aliasMap.TryGetValue(k, out var existing) ? (existing.First, existing.Count + 1) : (d, 1);
+                }
+            }
+        }
         Dictionary<string, MmcDerivedOutputRecord> adopted = new(StringComparer.Ordinal);
         foreach (var asset in read.Index.Objects) {
             string key = MmcDerivedProofs.ComputeAssetObjectKey(index.Key, parent.ObservedSha256, asset.Sha1, asset.SizeBytes);
@@ -267,16 +277,20 @@ public static partial class MmcPlanBinder {
             var item = new MmcDerivedOutputRecord(MmcDerivedOutputKind.AssetObject, index.Key, parent.ObservedSha256, "bounded-assets-v1", sources, plan.RuntimePlanFingerprint, context, view,
                 relative, target, fact.ObservedSha256, fact.SizeBytes, key, fact.ObservedSha1, fact.RecoveryObjectRelativePath);
             if (adopted.TryAdd(key, item)) accepted.Add(item);
-            var outputKinds = (read.Index.Virtual ? new[] { MmcDerivedOutputKind.AssetVirtualFile } : []).Concat(read.Index.EffectiveMapToResources ? [MmcDerivedOutputKind.AssetMappedResource] : []);
-            foreach (var kind in outputKinds) {
+            if (read.Index.Virtual) CheckAlias(MmcDerivedOutputKind.AssetVirtualFile);
+            if (read.Index.EffectiveMapToResources) CheckAlias(MmcDerivedOutputKind.AssetMappedResource);
+
+            void CheckAlias(MmcDerivedOutputKind kind) {
                 bool virtualFile = kind == MmcDerivedOutputKind.AssetVirtualFile;
                 string outputRelative = virtualFile ? "virtual/" + plan.Assets.Id + "/" + asset.Name : asset.Name;
-                string outputTarget = virtualFile ? "PCL/MmcRuntime/" + view + "/assets/" + outputRelative : definition.Layout.GameRootLeaf + "/resources/" + asset.Name;
-                var provided = supplied.Where(d => d.Kind == kind && d.TargetRelativePath == outputTarget).ToArray();
-                if (provided.Length != 1 || provided[0].ParentArtifactKey != key || provided[0].ParentSha256 != fact.ObservedSha256 || provided[0].Sha256 != fact.ObservedSha256 || provided[0].ObservedSha1 != fact.ObservedSha1 ||
-                    provided[0].SizeBytes != fact.SizeBytes || provided[0].RelativePath != outputRelative || provided[0].ProducerVersion != "bounded-assets-v1" || provided[0].SourceSetFingerprint != sources || provided[0].ContextFingerprint != context || provided[0].RuntimePlanFingerprint != plan.RuntimePlanFingerprint || provided[0].ViewKey != view)
+                string outputTarget = virtualFile ? "PCL/MmcRuntime/" + parentView + "/assets/" + outputRelative : definition.Layout.GameRootLeaf + "/resources/" + asset.Name;
+                if (!aliasMap!.TryGetValue((kind, outputTarget), out var match) || match.Count != 1)
                     Fail("MMC_BIND_ASSET_DERIVED", "Indexed virtual/resource file lacks a matching verified output fact.");
-                accepted.Add(provided[0]);
+                var found = match.First;
+                if (found.ParentArtifactKey != key || found.ParentSha256 != fact.ObservedSha256 || found.Sha256 != fact.ObservedSha256 || found.ObservedSha1 != fact.ObservedSha1 ||
+                    found.SizeBytes != fact.SizeBytes || found.RelativePath != outputRelative || found.ProducerVersion != "bounded-assets-v1" || found.SourceSetFingerprint != sources || found.ContextFingerprint != context || found.RuntimePlanFingerprint != plan.RuntimePlanFingerprint || found.ViewKey != parentView)
+                    Fail("MMC_BIND_ASSET_DERIVED", "Indexed virtual/resource file lacks a matching verified output fact.");
+                accepted.Add(found);
             }
         }
         if (dynamicFacts.Keys.Any(key => !adopted.ContainsKey(key))) Fail("MMC_BIND_DERIVED_UNDECLARED", "Extra dynamic asset fact is not listed by the verified index.");

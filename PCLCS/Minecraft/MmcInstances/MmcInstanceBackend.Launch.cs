@@ -31,7 +31,14 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 }
                 progress?.Report(new("preparing-existing-launch"));
                 progress?.Report(new("launch-sources-start"));
-                var saved = await MmcSavedSourceStore.LoadAsync(paths, definition, cancellationToken).ConfigureAwait(false);
+                MmcSavedInstanceSources saved;
+                if (attempt == 0 && request.PreloadedSources is { } preloaded &&
+                    string.Equals(request.PreloadedSourcesPrimarySha256, primary.Sha256, StringComparison.Ordinal) &&
+                    PreloadedSourcesMatch(preloaded, paths, definition)) {
+                    saved = preloaded;
+                } else {
+                    saved = await MmcSavedSourceStore.LoadAsync(paths, definition, cancellationToken).ConfigureAwait(false);
+                }
                 progress?.Report(new("launch-sources-complete"));
                 progress?.Report(new("launch-compile-start"));
                 var compiled = Compile(saved.Resolved.Resolution, request.Environment);
@@ -112,9 +119,9 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         ArgumentNullException.ThrowIfNull(snapshot);
         // Thread-affine gate/primary/source verification runs on the caller thread holding lease.
         AssertPrimary(lease, snapshot.Paths, new(snapshot.Definition, snapshot.PrimarySha256), allowIncomplete: false);
-        VerifySourceRecords(snapshot.Paths, snapshot.Definition);
-        if (snapshot.Files.IsDefaultOrEmpty) return;
         var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+        VerifySourceRecords(snapshot.Paths, snapshot.Definition, cancellationToken, verifiedDirectories);
+        if (snapshot.Files.IsDefaultOrEmpty) return;
         MmcInstancePaths.ForEachBounded(snapshot.Files, (_, file, token) => {
             token.ThrowIfCancellationRequested();
             string path = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath, verifiedDirectories);
@@ -152,9 +159,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
     private static ImmutableArray<MmcInstanceLaunchFile> LaunchFiles(MmcInstancePaths paths, MmcInstanceDefinition definition,
         MmcPreparedArtifacts prepared, ImmutableArray<MmcArtifactReference> preserved) {
         Dictionary<string, MmcInstanceLaunchFile> files = new(StringComparer.OrdinalIgnoreCase);
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         void Add(string relative, string sha256, long size) {
-            paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
             if (files.TryGetValue(relative, out var existing) && (existing.Sha256 != sha256 || existing.SizeBytes != size)) throw new IOException("Launch input observations conflict at one path.");
             files[relative] = new(relative, sha256, size);
         }
@@ -163,6 +168,21 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         var preservedKeys = preserved.Select(value => value.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var value in definition.PackageFileLocks.Where(value => preservedKeys.Contains(value.ArtifactKey))) Add(value.TargetRelativePath, value.AdoptedSha256, value.SizeBytes);
         foreach (var value in definition.DerivedOutputs.Where(value => value.ViewKey == prepared.ViewKey)) Add(value.TargetRelativePath, value.Sha256, value.SizeBytes);
-        return files.Values.OrderBy(value => value.RelativePath, StringComparer.Ordinal).ToImmutableArray();
+        var ordered = files.Values.OrderBy(value => value.RelativePath, StringComparer.Ordinal).ToImmutableArray();
+        if (!ordered.IsEmpty) {
+            var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
+            MmcInstancePaths.ForEachBounded(ordered, (_, file, _) => paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath, verifiedDirectories), CancellationToken.None);
+        }
+        return ordered;
+    }
+
+    private static bool PreloadedSourcesMatch(MmcSavedInstanceSources saved, MmcInstancePaths paths, MmcInstanceDefinition definition) {
+        if (saved.Resolved.Resolution is not { IsComplete: true, Profile: { } profile }) return false;
+        if (!string.Equals(profile.SourceFingerprint, definition.SourceBundle.ResolutionFingerprint, StringComparison.Ordinal)) return false;
+        if (!string.Equals(saved.Baseline.GameRootLeaf, paths.GameRootLeaf, StringComparison.Ordinal)) return false;
+        if (!string.Equals(saved.Baseline.GameRootLeaf, definition.Layout.GameRootLeaf, StringComparison.Ordinal)) return false;
+        if (!string.Equals(saved.Package.RelativeRoot, definition.SourceBundle.RelativeRoot, StringComparison.Ordinal)) return false;
+        if (definition.AuthorFileBaseline is null) return false;
+        return MmcDefinitionCodec.Validate(definition).IsEmpty;
     }
 }

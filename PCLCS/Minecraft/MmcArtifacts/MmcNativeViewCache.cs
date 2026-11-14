@@ -16,12 +16,13 @@ public sealed partial class MmcArtifactMaterializer {
             x.Lock.AdoptedSha256, x.Lock.SizeBytes)).ToArray());
 
     private async Task<ImmutableArray<MmcNativeFileBinding>?> ReuseNativeCacheAsync(MmcNativeViewCache? cache,
-        PreparedInput[] sources, string viewKey, MmcInstancePaths paths, MmcRuntimeTargetClaims targetClaims, CancellationToken token) {
+        PreparedInput[] sources, string viewKey, MmcInstancePaths paths, MmcRuntimeTargetClaims targetClaims,
+        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
         if (sources.Length == 0 || cache is null || cache.ViewKey != viewKey || cache.SourceSetFingerprint != NativeSourceSet(sources)) return null;
         if (cache.CompleteFiles.IsDefault || cache.CompleteFiles.Length > limits.MaxNativeEntries) throw new IOException("Trusted native cache record exceeds its output budget.");
         var keys = sources.Select(x => x.Artifact.Key).ToHashSet(StringComparer.Ordinal);
         var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var result = ImmutableArray.CreateBuilder<MmcNativeFileBinding>();
+        var jobs = new List<(MmcNativeFileFact Fact, string Relative, string Expected, string Target)>(cache.CompleteFiles.Length);
         long bytes = 0;
         foreach (var fact in cache.CompleteFiles) {
             token.ThrowIfCancellationRequested();
@@ -35,11 +36,21 @@ public sealed partial class MmcArtifactMaterializer {
             string expected = fact.Sha256.ToLowerInvariant();
             if (facts.TryGetValue(relative, out string? old) && old != expected) throw new IOException("Trusted native cache target facts conflict.");
             facts[relative] = expected;
-            string target = paths.ResolveRelative(MmcPathRole.Instance, relative);
-            if (!File.Exists(target)) return null;
-            var actual = await MmcArtifactIo.HashAsync(target, limits.MaxNativeBytes, token).ConfigureAwait(false);
-            if (actual.Sha256 != expected || actual.Size != fact.SizeBytes) return null;
-            result.Add(new(fact.SourceArtifactKey, fact.RelativePath, target, actual.Sha256, actual.Size));
+            string target = paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
+            if (MmcInstancePaths.Attributes(target) is null) return null;
+            jobs.Add((fact, relative, expected, target));
+        }
+        var bindings = new MmcNativeFileBinding?[jobs.Count];
+        await Task.Run(() => MmcInstancePaths.ForEachBounded(jobs, (index, job, ct) => {
+            if (MmcInstancePaths.Attributes(job.Target) is null) return;
+            var actual = MmcArtifactIo.HashSha256(job.Target, limits.MaxNativeBytes, ct, verifiedDirectories);
+            if (actual.Sha256 == job.Expected && actual.Size == job.Fact.SizeBytes)
+                bindings[index] = new(job.Fact.SourceArtifactKey, job.Fact.RelativePath, job.Target, actual.Sha256, actual.Size);
+        }, token), token).ConfigureAwait(false);
+        var result = ImmutableArray.CreateBuilder<MmcNativeFileBinding>(jobs.Count);
+        foreach (var binding in bindings) {
+            if (binding is null) return null;
+            result.Add(binding);
         }
         foreach (var claim in facts) {
             if (targetClaims.TryGetValue(claim.Key, out string? old) && old != claim.Value) throw new IOException("Trusted native cache collides with another runtime input.");
@@ -48,17 +59,18 @@ public sealed partial class MmcArtifactMaterializer {
         return result.ToImmutable();
     }
 
-    private void ValidateNativeTree(ImmutableArray<MmcNativeFileBinding> expected, string viewKey, MmcInstancePaths paths, CancellationToken token) {
-        string root = paths.ResolveRelative(MmcPathRole.Runtime, viewKey + "/natives");
+    private void ValidateNativeTree(ImmutableArray<MmcNativeFileBinding> expected, string viewKey, MmcInstancePaths paths,
+        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
+        string root = paths.ResolveRelative(MmcPathRole.Runtime, viewKey + "/natives", verifiedDirectories);
         if (!MmcInstancePaths.CheckDirectoryRole(root)) return;
         var allowed = expected.Select(x => x.TargetPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pending = new Stack<string>(); pending.Push(root);
         long prefixCharacters = 0; int count = 0;
         while (pending.Count != 0) {
-            string directory = pending.Pop(); MmcInstancePaths.EnsureNoLinks(directory);
+            string directory = pending.Pop(); MmcInstancePaths.EnsureNoLinks(directory, verifiedDirectories);
             foreach (string entry in Directory.EnumerateFileSystemEntries(directory)) {
-                token.ThrowIfCancellationRequested(); MmcInstancePaths.EnsureNoLinks(entry);
+                token.ThrowIfCancellationRequested(); MmcInstancePaths.EnsureNoLinks(entry, verifiedDirectories);
                 if (++count > limits.MaxNativeEntries * 2L) throw new IOException("Native runtime tree exceeds its node budget.");
                 string relative = Path.GetRelativePath(root, entry).Replace('\\', '/'); MmcArtifactIo.Relative(relative);
                 prefixCharacters += relative.Length;

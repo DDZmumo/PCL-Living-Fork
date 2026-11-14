@@ -50,6 +50,76 @@ public static class MmcLaunch {
         };
     }
 
+    private static IProgress<MmcInstanceBackendProgress> CreateBackendProgress(ProgressProvider prepInitProgress,
+        ProgressProvider prepDownloadProgress, ProgressProvider prepWorkProgress) => new BackendProgressAdapter(prepInitProgress, prepDownloadProgress, prepWorkProgress);
+
+    private sealed class BackendProgressAdapter(ProgressProvider prepInitProgress, ProgressProvider prepDownloadProgress, ProgressProvider prepWorkProgress) : IProgress<MmcInstanceBackendProgress> {
+        private readonly object sync = new();
+        private readonly System.Collections.Generic.HashSet<string> loggedPhases = new(StringComparer.Ordinal);
+        private double maxInit;
+        private double maxWork;
+
+        public void Report(MmcInstanceBackendProgress value) {
+            if (string.IsNullOrEmpty(value.Phase)) return;
+            bool shouldLog = false;
+            lock (sync) {
+                switch (value.Phase) {
+                    case "preparing-existing-launch": Advance(prepInitProgress, ref maxInit, 0.15); break;
+                    case "launch-sources-start": Advance(prepInitProgress, ref maxInit, 0.25); shouldLog = loggedPhases.Add(value.Phase); break;
+                    case "launch-sources-complete": Advance(prepInitProgress, ref maxInit, 0.60); break;
+                    case "launch-compile-start": Advance(prepInitProgress, ref maxInit, 0.75); break;
+                    case "launch-compile-complete": Advance(prepInitProgress, ref maxInit, 0.95); break;
+                    case "launch-prefetch-start":
+                        Advance(prepInitProgress, ref maxInit, 1.0);
+                        shouldLog = loggedPhases.Add(value.Phase);
+                        break;
+                    case "launch-prefetch-complete":
+                        Advance(prepInitProgress, ref maxInit, 1.0);
+                        prepDownloadProgress?.Set(1);
+                        break;
+                    case "launch-artifact-scope-start":
+                        Advance(prepInitProgress, ref maxInit, 1.0);
+                        prepDownloadProgress?.Set(1);
+                        Advance(prepWorkProgress, ref maxWork, 0.05);
+                        shouldLog = loggedPhases.Add(value.Phase);
+                        break;
+                    case "runtime-view-materialization": Advance(prepWorkProgress, ref maxWork, 0.18); break;
+                    case "asset-index-preparation": Advance(prepWorkProgress, ref maxWork, 0.28); break;
+                    case "asset-object-preparation": Advance(prepWorkProgress, ref maxWork, 0.45); break;
+                    case "asset-view-materialization": Advance(prepWorkProgress, ref maxWork, 0.65); break;
+                    case "launch-preserved-check-start": Advance(prepWorkProgress, ref maxWork, 0.72); break;
+                    case "launch-preserved-check-complete": Advance(prepWorkProgress, ref maxWork, 0.78); break;
+                    case "launch-bind-start": Advance(prepWorkProgress, ref maxWork, 0.82); break;
+                    case "launch-bind-complete": Advance(prepWorkProgress, ref maxWork, 0.88); break;
+                    case "launch-final-validation-start": Advance(prepWorkProgress, ref maxWork, 0.90); shouldLog = loggedPhases.Add(value.Phase); break;
+                    case "launch-final-validation-complete": Advance(prepWorkProgress, ref maxWork, 0.97); break;
+                    case "launch-inputs-ready":
+                    case "completed":
+                        Advance(prepInitProgress, ref maxInit, 1.0);
+                        prepDownloadProgress?.Set(1);
+                        Advance(prepWorkProgress, ref maxWork, 1.0);
+                        break;
+                }
+            }
+            if (shouldLog) {
+                string message = value.Phase switch {
+                    "launch-sources-start" => "MMC 环境准备：读取实例源码与配置",
+                    "launch-prefetch-start" => "MMC 环境准备：校验并补齐运行库与资源索引",
+                    "launch-artifact-scope-start" => "MMC 环境准备：构建运行目录与资源视图",
+                    "launch-final-validation-start" => "MMC 环境准备：执行启动前完整性终检",
+                    _ => null
+                };
+                if (message is not null) ModLaunch.McLaunchLog(message);
+            }
+        }
+
+        private static void Advance(ProgressProvider target, ref double maxValue, double next) {
+            if (next <= maxValue) return;
+            maxValue = next;
+            target?.Set(next);
+        }
+    }
+
     private sealed class Context(ModMinecraft.McInstance instance, ModLaunch.McLaunchOptions options, Action<Java> selectedJava) {
         private readonly Guid sessionId = Guid.NewGuid();
         private MmcSavedInstanceSources saved;
@@ -90,10 +160,23 @@ public static class MmcLaunch {
             // that only the runtime plan can supply is refused at the stage boundary rather than guessed.
             commandContext = new(instance.PathVersion, paths.GameRoot, sessionId, "PCL Living Fork", ModBase.VersionDisplay,
                 0, 0);
+            var progressSlices = progress?.SplitBy(0.15, 0.70, 0.15);
+            var initProgress = progressSlices?[0];
+            var prepareProgress = progressSlices?[1];
+            var tailProgress = progressSlices?[2];
+            var initSlices = initProgress?.SplitBy(0.55, 0.45);
+            var initLoadProgress = initSlices?[0];
+            var initJavaProgress = initSlices?[1];
+            var prepSlices = prepareProgress?.SplitBy(0.15, 0.35, 0.50);
+            var prepInitProgress = prepSlices?[0];
+            var prepDownloadProgress = prepSlices?[1];
+            var prepWorkProgress = prepSlices?[2];
+            ProgressProvider activeDownloadProgress = null;
             var primary = MmcSavedSourceStore.ReadPrimary(paths);
             paths = MmcInstancePaths.Resolve(instance.PathVersion, primary.Definition.Layout.GameRootLeaf);
             ReconcilePrevious(paths, primary.Definition.InstanceId, pins, token,runtimeAuthority);
             saved = await MmcSavedSourceStore.LoadAsync(paths, primary.Definition, token).ConfigureAwait(false);
+            initLoadProgress?.Set(0.75);
             preferences = MmcLaunchPreferences.Capture(instance, saved.PackageConfiguration, sessionId);
             // The active package configuration is the stage source; the runtime plan does not exist yet, so
             // the stage still reads its command text from here and expands only the frozen root variables.
@@ -104,6 +187,7 @@ public static class MmcLaunch {
                 ResolutionWidth = preferences.RuntimeSettings.ResolutionWidth,
                 ResolutionHeight = preferences.RuntimeSettings.ResolutionHeight
             };
+            initLoadProgress?.Set(1);
             // The existing login step is non-blocking. Bind only its completed
             // result, never a previous account result while refresh is in flight.
             var loginTask = ModLaunch.McLoginLoader;
@@ -116,16 +200,18 @@ public static class MmcLaunch {
             authentication = MmcLaunchAuthentication.Capture(instance, ModLaunch.McLoginLoader.Output.Type);
             java = await MmcLaunchJava.SelectAsync(instance, primary.Definition, saved.Resolved.Resolution.Profile,
                 preferences.JavaPreference, token, authentication.JavaConstraints, minimumVersion: authentication.MinimumJavaVersion).ConfigureAwait(false);
+            initJavaProgress?.Set(0.5);
             selectedJava(java.Java);
             ModLaunch.McLaunchLog("MMC 本次使用 Java " + java.Java.Version + "：" + java.Java.JavaExePath);
             string gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(paths.InstanceRoot))!;
             string cache = Path.Combine(gameRoot, "PCL", "MmcCache");
             var backend = new MmcInstanceBackend<ModNet.NetFile>(MmcDownloads.CreateMetadataStore(Path.Combine(cache, "metadata")),
                 new(Path.Combine(gameRoot, "libraries"), Path.Combine(gameRoot, "assets"), Path.Combine(cache, "sources"), Path.Combine(gameRoot, "versions")),
-                MmcDownloads.BuildFile, (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, progress));
+                MmcDownloads.BuildFile, (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, activeDownloadProgress));
             if (java.RequiresVariantAdoption) {
                 if (!ConfirmVariantAdoption(instance, java)) throw new OperationCanceledException(token);
                 token.ThrowIfCancellationRequested(); MmcLaunchPreferences.Revalidate(instance, preferences);
+                activeDownloadProgress = initJavaProgress?.SplitTo(0.95);
                 var adopted = await backend.AdoptVariantAsync(new(paths.InstanceRoot, java.Environment, primary.Definition.InstanceId,
                     primary.Definition.Generation, primary.Sha256), token).ConfigureAwait(false);
                 if (adopted.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(token);
@@ -133,26 +219,38 @@ public static class MmcLaunch {
                     throw new IOException("Java 环境未完成配置：" + adopted.Failure);
                 primary = MmcSavedSourceStore.ReadPrimary(paths);
             }
+            initJavaProgress?.Set(1);
+            initProgress?.Set(1);
             // Package stage contract §1.2 & D13: fail-closed confirmation of active redacted package
             // commands precedes the first package stage execution, and PreLoad runs without package Env.
             EnsurePackageCommandsConfirmed(instance, saved.PackageConfiguration, CommandRedactionSecrets(), token);
             EnsureGameRootDirectory(paths, primary.Definition.InstanceId, token);
             RunPackageCommand(MmcRuntimeCommandStage.PreLoad, null, token);
+            activeDownloadProgress = prepDownloadProgress;
+            var backendProgress = CreateBackendProgress(prepInitProgress, prepDownloadProgress, prepWorkProgress);
             var result = await backend.PrepareLaunchAsync(new(paths.InstanceRoot, java.Environment, primary.Definition.InstanceId,
-                primary.Definition.Generation), token).ConfigureAwait(false);
+                primary.Definition.Generation) {
+                    PreloadedSources = java.RequiresVariantAdoption ? null : saved,
+                    PreloadedSourcesPrimarySha256 = java.RequiresVariantAdoption ? null : primary.Sha256
+                }, token, backendProgress).ConfigureAwait(false);
             if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(token);
             prepared = result.Snapshot ?? throw new IOException("MMC 环境准备未完成：" + result.Failure);
+            prepareProgress?.Set(1);
             instance.Load();
             support = preferences.RuntimeSettings.WrapperMode == MmcRuntimeWrapperMode.JavaWrapper
                 ? (await MmcInstanceBackend<ModNet.NetFile>.PrepareLaunchSupportAsync(prepared,
                     new[] { new MmcInstanceLaunchSupportInput("JavaWrapper.jar", WrapperBytes(), WrapperSha256),
                         new MmcInstanceLaunchSupportInput("MmcExactBridge.jar", MmcRuntimeBridgeTransport.CreateJarBytes(), MmcRuntimeBridgeTransport.JarSha256()) }, token).ConfigureAwait(false)).ToArray()
                 : [];
-            await authentication.PrepareAsync(prepared, java.Java, progress, token).ConfigureAwait(false);
+            var authProgress = tailProgress?.SplitTo(0.65);
+            await authentication.PrepareAsync(prepared, java.Java, authProgress, token).ConfigureAwait(false);
+            tailProgress?.Set(0.7);
             WorldBackups.RecoverBeforeLaunch(prepared.Paths.GameRoot, token);
             try { options.PersonalOptions = PersonalGameSettings.Prepare(instance); }
             catch (Exception error) { Logger.Warn(error, "MMC 个人游戏设置同步未完成，保留现有配置"); }
             options.QuickPlay = QuickPlayWorlds.Prepare(instance, options.QuickPlayWorld, options.ExtraGameArgs, false);
+            tailProgress?.Set(1);
+            progress?.Set(1);
             token.ThrowIfCancellationRequested();
         }
 

@@ -56,6 +56,7 @@ internal static partial class MmcInstanceBackendTests {
         yield return ("MMC launch preparation keeps complete generations and repairs only missing managed inputs offline", LaunchPreparation);
         yield return ("MMC launch preparation rejects stale identity, new variants and damaged support without adopting bytes", LaunchRefusals);
         yield return ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption);
+        yield return ("MMC preloaded launch sources, baseline disk tamper detection, and preserved target repair stay strict", PreloadedSourcesAndPreservedRepairInvariants);
         yield return ("MMC import reports console and PermGen requirements as inert differences instead of substituting", PreferenceDifferences);
         yield return ("MMC private payload placement binds measured files and preserves canceled or conflicting private roots", PrivatePayload);
         yield return ("MMC initial import publishes thousands of tiny files without journal body copies", BulkPayloadImport);
@@ -365,6 +366,85 @@ internal static partial class MmcInstanceBackendTests {
         try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded, canceled.Token); }
         catch (OperationCanceledException) { caughtCancel = true; }
         Equal(true, caughtCancel);
+    }
+
+    private static void PreloadedSourcesAndPreservedRepairInvariants() => PreloadedSourcesAndPreservedRepairInvariantsAsync().GetAwaiter().GetResult();
+    private static async Task PreloadedSourcesAndPreservedRepairInvariantsAsync() {
+        using Fixture fixture = new(withAssetObject: true);
+        var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+        if (imported.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(imported.Failure);
+        Guid id = imported.Definition!.InstanceId;
+        var paths = imported.Paths!;
+        File.Delete(fixture.Archive); Directory.Delete(fixture.CacheRoot, true);
+        var offline = fixture.Backend(offline: true);
+        var primary = MmcSavedSourceStore.ReadPrimary(paths);
+        var preloaded = await MmcSavedSourceStore.LoadAsync(paths, primary.Definition);
+
+        List<string> phases = [];
+        object phaseGate = new();
+        var request = new MmcInstancePrepareLaunchRequest(fixture.VersionRoot, new("windows", "x86_64", 8), id, 1);
+        var ready = await offline.PrepareLaunchAsync(request with {
+            PreloadedSources = preloaded,
+            PreloadedSourcesPrimarySha256 = primary.Sha256
+        }, progress: new BackendProgress(value => { lock (phaseGate) phases.Add(value.Phase); }));
+        if (ready.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(ready.Failure);
+        Equal(false, ready.Repaired);
+        Equal(imported.BoundPlan!.BoundFingerprint, ready.Snapshot!.BoundPlan.BoundFingerprint);
+        string[] expectedPhases = [
+            "launch-sources-start", "launch-prefetch-start", "launch-prefetch-complete",
+            "launch-artifact-scope-start", "launch-final-validation-start", "launch-final-validation-complete"
+        ];
+        int lastPhaseIndex = -1;
+        foreach (string expected in expectedPhases) {
+            int found = phases.IndexOf(expected);
+            Equal(true, found > lastPhaseIndex);
+            lastPhaseIndex = found;
+        }
+
+        // Mismatched digest or incomplete preloaded resolution safely falls back to loading from disk.
+        var brokenPreloaded = preloaded with {
+            Resolved = new(new(null, [], []), [])
+        };
+        var mismatchedDigest = await offline.PrepareLaunchAsync(request with {
+            PreloadedSources = brokenPreloaded,
+            PreloadedSourcesPrimarySha256 = new('0', 64)
+        });
+        Equal(MmcInstanceBackendStatus.Succeeded, mismatchedDigest.Status);
+        Equal(imported.BoundPlan.BoundFingerprint, mismatchedDigest.Snapshot!.BoundPlan.BoundFingerprint);
+
+        var incompleteMatch = await offline.PrepareLaunchAsync(request with {
+            PreloadedSources = brokenPreloaded,
+            PreloadedSourcesPrimarySha256 = primary.Sha256
+        });
+        Equal(MmcInstanceBackendStatus.Succeeded, incompleteMatch.Status);
+        Equal(imported.BoundPlan.BoundFingerprint, incompleteMatch.Snapshot!.BoundPlan.BoundFingerprint);
+
+        // Deleted preserved package target is detected and restored offline alongside parallel preserved-target scan.
+        string preservedPath = paths.ResolveRelative(MmcPathRole.Instance, "libraries/unreferenced.jar");
+        Equal(true, File.Exists(preservedPath));
+        File.Delete(preservedPath);
+        var repairedPreserved = await offline.PrepareLaunchAsync(request with {
+            PreloadedSources = preloaded,
+            PreloadedSourcesPrimarySha256 = primary.Sha256
+        });
+        if (repairedPreserved.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(repairedPreserved.Failure);
+        Equal(true, repairedPreserved.Repaired);
+        Equal(2L, repairedPreserved.Snapshot!.Definition.Generation);
+        Equal("unreferenced original", File.ReadAllText(preservedPath));
+
+        // Even with valid matching PreloadedSources, disk tampering of AuthorFileBaseline must fail closed in VerifySourceRecords.
+        var primary2 = MmcSavedSourceStore.ReadPrimary(paths);
+        var preloaded2 = await MmcSavedSourceStore.LoadAsync(paths, primary2.Definition);
+        string baselineFile = paths.ResolveRelative(MmcPathRole.Instance, primary2.Definition.AuthorFileBaseline!.ObjectRelativePath);
+        byte[] baselineBytes = File.ReadAllBytes(baselineFile);
+        baselineBytes[0] ^= 0x20;
+        File.WriteAllBytes(baselineFile, baselineBytes);
+        var tamperedBaseline = await offline.PrepareLaunchAsync(request with {
+            ExpectedGeneration = 2,
+            PreloadedSources = preloaded2,
+            PreloadedSourcesPrimarySha256 = primary2.Sha256
+        });
+        Equal(MmcInstanceBackendStatus.NeedsRecovery, tamperedBaseline.Status);
     }
     private static async Task FailureIsolationAsync() {
         using (Fixture fixture = new()) {

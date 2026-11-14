@@ -25,7 +25,8 @@ public sealed partial class MmcArtifactMaterializer {
     private async Task<AssetPlan?> PrepareAssetInputsAsync(MmcAssetIndex? requestedAssets, ImmutableArray<MmcArtifactReference> artifacts,
         Dictionary<string, PreparedInput> inputs, Dictionary<string, MmcArtifactLock> locks, MmcArtifactIntent intent,
         MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io, MmcArtifactSourceAccess access,
-        Dictionary<string, MmcArtifactStagedMutation> mutations, IProgress<MmcArtifactProgress>? progress, CancellationToken token) {
+        Dictionary<string, MmcArtifactStagedMutation> mutations, IProgress<MmcArtifactProgress>? progress,
+        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
         var indexes = artifacts.Where(x => x.Role == MmcArtifactRole.AssetIndex).ToArray();
         if (indexes.Length == 0) return null;
         if (indexes.Length != 1) throw new IOException("Exactly one effective asset index is required.");
@@ -34,7 +35,7 @@ public sealed partial class MmcArtifactMaterializer {
         if (index.Scope != MmcArtifactScope.Shared || !index.RelativePath.StartsWith("indexes/", StringComparison.Ordinal) ||
             !index.RelativePath.EndsWith(".json", StringComparison.Ordinal)) throw new IOException("Asset index location is not canonical.");
         string id = index.RelativePath[8..^5]; MmcArtifactIo.Relative(id);
-        paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/virtual/" + id);
+        paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/virtual/" + id, verifiedDirectories);
         if (requestedAssets is not null && (requestedAssets.Id != id || requestedAssets.Artifact?.Key != index.Key))
             throw new IOException("Asset index declaration and selected input disagree.");
         PreparedInput source = inputs[index.Key];
@@ -55,12 +56,17 @@ public sealed partial class MmcArtifactMaterializer {
         });
         token.ThrowIfCancellationRequested();
         if (parsed.HasErrors || parsed.Index is null) throw new IOException("Asset index cannot be safely compiled: " + string.Join("; ", parsed.Diagnostics.Select(x => x.Code + ": " + x.Message)));
-        var entries = ImmutableArray.CreateBuilder<AssetEntry>();
+        if (!parsed.Index.Objects.IsEmpty) {
+            await Task.Run(() => MmcInstancePaths.ForEachBounded(parsed.Index.Objects, (_, entry, t) => {
+                t.ThrowIfCancellationRequested();
+                if (entry.Name.Contains('\\')) throw new IOException("Asset logical names must use forward separators.");
+                paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/" + entry.Name, verifiedDirectories);
+            }, token), token).ConfigureAwait(false);
+        }
+        var entries = ImmutableArray.CreateBuilder<AssetEntry>(parsed.Index.Objects.Length);
         var unique = new Dictionary<string, MmcArtifactReference>(StringComparer.Ordinal);
         foreach (var entry in parsed.Index.Objects) {
             token.ThrowIfCancellationRequested();
-            if (entry.Name.Contains('\\')) throw new IOException("Asset logical names must use forward separators.");
-            paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/" + entry.Name);
             string hash = entry.Sha1; long size = entry.SizeBytes;
             if (unique.TryGetValue(hash, out var repeated) && repeated.Size != size) throw new IOException("One asset hash has conflicting declared sizes.");
             if (repeated is null) {
@@ -77,46 +83,101 @@ public sealed partial class MmcArtifactMaterializer {
             new(index.Key, parsed.Index.ContentSha256, ImmutableArray.CreateRange(json)));
         long adoptedBytes = inputs.Values.Sum(x => x.Lock.SizeBytes);
         progress?.Report(new("asset-object-preparation", index.Key, 0));
-        foreach (var artifact in plan.Objects) {
-            if (inputs.Count >= limits.MaxArtifacts) throw new IOException("Combined library and asset artifact count budget exceeded.");
+        var jobs = new List<(MmcArtifactReference Artifact, MmcArtifactLock? Adopted, long MaximumBytes)>(plan.Objects.Length);
+        long plannedBytes = adoptedBytes;
+        for (int i = 0; i < plan.Objects.Length; i++) {
+            var artifact = plan.Objects[i];
+            if (inputs.Count + i >= limits.MaxArtifacts) throw new IOException("Combined library and asset artifact count budget exceeded.");
             locks.TryGetValue(artifact.Key, out var adopted);
             if (adopted is null && intent == MmcArtifactIntent.RepairExisting) throw new IOException("Repair cannot first-adopt an asset object.");
             if (adopted is not null && (adopted.SourceRevision != artifact.SourceRevision || adopted.SizeBytes != artifact.Size)) throw new IOException("Asset object lock disagrees with its index source.");
-            if (artifact.Size > limits.MaxCopiedBytes - adoptedBytes) throw new IOException("Aggregate asset object byte budget exceeded.");
-            var prepared = await PrepareInputAsync(artifact, adopted, paths, workspace, io, access, mutations, progress, token).ConfigureAwait(false);
+            if (artifact.Size > limits.MaxCopiedBytes - plannedBytes) throw new IOException("Aggregate asset object byte budget exceeded.");
+            plannedBytes = checked(plannedBytes + artifact.Size!.Value);
+            if (artifact.Size > limits.MaxArtifactBytes) throw new IOException("Artifact or asset-index byte budget exceeded.");
+            jobs.Add((artifact, adopted, limits.MaxArtifactBytes));
+        }
+        var fastOriginals = await VerifyAdoptedOriginalsAsync(jobs, paths, verifiedDirectories, token).ConfigureAwait(false);
+        for (int i = 0; i < jobs.Count; i++) {
+            token.ThrowIfCancellationRequested();
+            var job = jobs[i];
+            if (job.Artifact.Size > limits.MaxCopiedBytes - adoptedBytes) throw new IOException("Aggregate asset object byte budget exceeded.");
+            var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, verifiedDirectories, token).ConfigureAwait(false);
             adoptedBytes = checked(adoptedBytes + prepared.Lock.SizeBytes);
             if (adoptedBytes > limits.MaxCopiedBytes) throw new IOException("Aggregate asset object actual byte budget exceeded.");
-            inputs.Add(artifact.Key, prepared);
+            inputs.Add(job.Artifact.Key, prepared);
         }
         return plan;
     }
 
     private async Task<ImmutableArray<MmcAssetFileBinding>> StageAssetsAsync(AssetPlan? plan, Dictionary<string, PreparedInput> inputs,
         string viewKey, MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io,
-        Dictionary<string, MmcArtifactStagedMutation> mutations, MmcRuntimeTargetClaims targetClaims, CancellationToken token) {
+        Dictionary<string, MmcArtifactStagedMutation> mutations, MmcRuntimeTargetClaims targetClaims,
+        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
         if (plan is null) return [];
+        var objectSpecs = new List<(MmcArtifactReference Artifact, PreparedInput Input, string Relative)>(plan.Objects.Length);
         foreach (var artifact in plan.Objects) {
             var input = inputs[artifact.Key];
             string relative = "PCL/MmcRuntime/" + viewKey + "/assets/" + artifact.RelativePath;
             Claim(relative, input.Lock.AdoptedSha256);
-            await StageTargetAsync(input.OriginalInput, relative, input.Lock.AdoptedSha256, input.Lock.SizeBytes,
-                artifact.Key, paths, workspace, io, mutations, token).ConfigureAwait(false);
+            objectSpecs.Add((artifact, input, relative));
         }
-        var result = ImmutableArray.CreateBuilder<MmcAssetFileBinding>();
+        var objectTargets = new string[objectSpecs.Count];
+        if (objectSpecs.Count > 0) {
+            await Task.Run(() => MmcInstancePaths.ForEachBounded(objectSpecs, (index, item, t) => {
+                t.ThrowIfCancellationRequested();
+                objectTargets[index] = paths.ResolveRelative(MmcPathRole.Instance, item.Relative, verifiedDirectories);
+            }, token), token).ConfigureAwait(false);
+        }
+        var objectPlans = new List<(MmcArtifactReference Artifact, PreparedInput Input, string Relative, string Target)>(objectSpecs.Count);
+        for (int i = 0; i < objectSpecs.Count; i++) {
+            var spec = objectSpecs[i];
+            objectPlans.Add((spec.Artifact, spec.Input, spec.Relative, objectTargets[i]));
+        }
+        var entrySpecs = new List<(AssetEntry Entry, PreparedInput Input, string ObjectRelative, string? Relative)>(plan.Entries.Length);
         foreach (var entry in plan.Entries) {
             var input = inputs[entry.Object.Key];
-            string? virtualPath = null, mappedPath = null;
+            string objectRelative = viewKey + "/assets/" + entry.Object.RelativePath;
+            string? relative = null;
             if (plan.Virtual || plan.MapToResources) {
-                string relative = plan.Virtual ? "PCL/MmcRuntime/" + viewKey + "/assets/virtual/" + plan.IndexId + "/" + entry.Name :
+                relative = plan.Virtual ? "PCL/MmcRuntime/" + viewKey + "/assets/virtual/" + plan.IndexId + "/" + entry.Name :
                     paths.GameRootLeaf + "/resources/" + entry.Name;
                 Claim(relative, input.Lock.AdoptedSha256);
-                await StageTargetAsync(input.OriginalInput, relative, input.Lock.AdoptedSha256, input.Lock.SizeBytes,
-                    entry.Object.Key, paths, workspace, io, mutations, token).ConfigureAwait(false);
-                if (plan.Virtual) virtualPath = paths.ResolveRelative(MmcPathRole.Instance, relative);
-                else mappedPath = paths.ResolveRelative(MmcPathRole.Instance, relative);
             }
-            result.Add(new(entry.Name, entry.Object.Key, input.ObservedSha1, input.Lock.AdoptedSha256, input.Lock.SizeBytes,
-                paths.ResolveRelative(MmcPathRole.Runtime, viewKey + "/assets/" + entry.Object.RelativePath), virtualPath, mappedPath));
+            entrySpecs.Add((entry, input, objectRelative, relative));
+        }
+        var resolvedEntries = new (string ObjectPath, string? Target)[entrySpecs.Count];
+        if (entrySpecs.Count > 0) {
+            await Task.Run(() => MmcInstancePaths.ForEachBounded(entrySpecs, (index, item, t) => {
+                t.ThrowIfCancellationRequested();
+                string objectPath = paths.ResolveRelative(MmcPathRole.Runtime, item.ObjectRelative, verifiedDirectories);
+                string? target = item.Relative is null ? null : paths.ResolveRelative(MmcPathRole.Instance, item.Relative, verifiedDirectories);
+                resolvedEntries[index] = (objectPath, target);
+            }, token), token).ConfigureAwait(false);
+        }
+        var entryPlans = new List<(AssetEntry Entry, PreparedInput Input, string ObjectPath, string? Relative, string? Target)>(entrySpecs.Count);
+        for (int i = 0; i < entrySpecs.Count; i++) {
+            var spec = entrySpecs[i];
+            var (objectPath, target) = resolvedEntries[i];
+            entryPlans.Add((spec.Entry, spec.Input, objectPath, spec.Relative, target));
+        }
+        var prechecked = await InspectExistingTargetsAsync(
+            objectPlans.Select(x => (x.Relative, x.Target)).Concat(entryPlans.Where(x => x.Relative is not null).Select(x => (x.Relative!, x.Target!))),
+            limits.MaxArtifactBytes, verifiedDirectories, token).ConfigureAwait(false);
+        foreach (var item in objectPlans) {
+            await StageTargetAsync(item.Input.OriginalInput, item.Relative, item.Target, item.Input.Lock.AdoptedSha256, item.Input.Lock.SizeBytes,
+                item.Artifact.Key, paths, workspace, io, mutations, prechecked, verifiedDirectories, token).ConfigureAwait(false);
+        }
+        var result = ImmutableArray.CreateBuilder<MmcAssetFileBinding>(entryPlans.Count);
+        foreach (var item in entryPlans) {
+            string? virtualPath = null, mappedPath = null;
+            if (item.Relative is not null) {
+                await StageTargetAsync(item.Input.OriginalInput, item.Relative, item.Target!, item.Input.Lock.AdoptedSha256, item.Input.Lock.SizeBytes,
+                    item.Entry.Object.Key, paths, workspace, io, mutations, prechecked, verifiedDirectories, token).ConfigureAwait(false);
+                if (plan.Virtual) virtualPath = item.Target;
+                else mappedPath = item.Target;
+            }
+            result.Add(new(item.Entry.Name, item.Entry.Object.Key, item.Input.ObservedSha1, item.Input.Lock.AdoptedSha256, item.Input.Lock.SizeBytes,
+                item.ObjectPath, virtualPath, mappedPath));
         }
         return result.ToImmutable();
 

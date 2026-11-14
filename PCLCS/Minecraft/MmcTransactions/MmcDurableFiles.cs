@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -17,21 +19,36 @@ internal static class MmcDurableFiles {
     internal const long MaximumFileBytes = 4L * 1024 * 1024 * 1024;
     internal static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
     internal static bool IsHash(string? value) => value is not null && value.Length == 64 && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
-    internal static string? Observe(string path) {
-        MmcInstancePaths.EnsureNoLinks(path);
+    internal static string? Observe(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
         var attributes = MmcInstancePaths.Attributes(path);
         if (attributes is null) return null;
         if ((attributes.Value & FileAttributes.Directory) != 0) throw new IOException("事务文件目标被目录占用。");
-        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.SequentialScan);
         if (stream.Length > MaximumFileBytes) throw new IOException("事务文件超过预算。");
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] bytes = new byte[81920]; long total = 0; int count;
-        while ((count = stream.Read(bytes, 0, bytes.Length)) != 0) {
-            FileTaskProgress.RecordRead(count);
-            total += count; if (total > MaximumFileBytes) throw new IOException("事务文件读取期间超过预算。");
-            hash.AppendData(bytes, 0, count);
+        if (stream.CanSeek && stream.Length <= 16 * 1024 * 1024) {
+            Span<byte> digest = stackalloc byte[32];
+            SHA256.HashData(stream, digest);
+            long observed = stream.Position;
+            if (observed > MaximumFileBytes) throw new IOException("事务文件读取期间超过预算。");
+            if (observed > 0) FileTaskProgress.RecordRead((int)observed);
+            return Convert.ToHexStringLower(digest);
         }
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long total = 0; int count;
+            while ((count = stream.Read(bytes, 0, bytes.Length)) != 0) {
+                FileTaskProgress.RecordRead(count);
+                total += count; if (total > MaximumFileBytes) throw new IOException("事务文件读取期间超过预算。");
+                hash.AppendData(bytes, 0, count);
+            }
+            Span<byte> digest = stackalloc byte[32];
+            hash.TryGetHashAndReset(digest, out _);
+            return Convert.ToHexStringLower(digest);
+        } finally {
+            ArrayPool<byte>.Shared.Return(bytes);
+        }
     }
     internal static void WriteNew(string path, ReadOnlySpan<byte> content) {
         MmcInstancePaths.EnsureNoLinks(path);

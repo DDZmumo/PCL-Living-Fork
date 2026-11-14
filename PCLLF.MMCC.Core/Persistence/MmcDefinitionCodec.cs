@@ -9,6 +9,7 @@ namespace PCLLF.MMCC.Core;
 
 /// <summary>Pure structural persistence. Unknown or damaged managed data never means a legacy instance.</summary>
 public static class MmcDefinitionCodec {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly JsonSerializerOptions Options = new() {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = false,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, MaxDepth = 64,
@@ -18,7 +19,7 @@ public static class MmcDefinitionCodec {
     public static MmcDefinitionReadResult Read(string json, MmcReadLimits? limits = null) {
         limits ??= new();
         try {
-            if (json is null || new UTF8Encoding(false, true).GetByteCount(json) > limits.MaxMetadataBytes)
+            if (json is null || StrictUtf8.GetByteCount(json) > limits.MaxMetadataBytes)
                 throw new MmcInputException("MMC_DEFINITION_BUDGET", "definition", "Definition JSON exceeds its byte budget.");
             using var document = MmcJson.Read(json, "definition", Math.Min(64, limits.MaxDepth));
             JsonElement root = document.RootElement;
@@ -67,7 +68,7 @@ public static class MmcDefinitionCodec {
             long estimated = 2048;
             void Text(string? value, int maximum = 4096) {
                 if (value is null || value.Length > maximum || value.Any(char.IsControl)) MmcJson.Fail("definition", "Invalid or overlong structural string.");
-                estimated += new UTF8Encoding(false, true).GetByteCount(value) + 64L;
+                estimated += StrictUtf8.GetByteCount(value) + 64L;
                 if (estimated > limits.MaxMetadataBytes) throw new MmcInputException("MMC_DEFINITION_BUDGET", "definition", "Definition field budget exceeded.");
             }
             CheckHash(definition.Origin.PackageSha256);

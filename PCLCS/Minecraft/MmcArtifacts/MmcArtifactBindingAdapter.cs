@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using PCLLF.MMCC.Core;
 
 namespace PCLCS;
@@ -24,6 +26,7 @@ public static class MmcArtifactBindingAdapter {
         var paths = request.Paths;
         if (!prepared.StageRoot.StartsWith(paths.RuntimeRoot + Path.DirectorySeparatorChar + ".staging" + Path.DirectorySeparatorChar,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new IOException("Prepared bytes belong to a different instance workspace.");
+        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         var observations = prepared.Observations.ToDictionary(x => x.ArtifactKey, StringComparer.OrdinalIgnoreCase);
         var locks = prepared.AdoptedLocks.ToDictionary(x => x.ArtifactKey, StringComparer.OrdinalIgnoreCase);
         if (observations.Count != locks.Count) throw new IOException("Prepared locks and actual observations have different identities.");
@@ -37,8 +40,11 @@ public static class MmcArtifactBindingAdapter {
                 throw new IOException("Prepared artifact identity has inconsistent declarations.");
             declared[artifact.Key] = artifact;
         }
-        foreach (var asset in prepared.AssetFiles) targets[asset.ArtifactKey] = Relative(paths, asset.ObjectPath);
-        var facts = ImmutableArray.CreateBuilder<MmcMaterializedArtifactFact>();
+        if (!prepared.AssetFiles.IsEmpty) {
+            var assetObjectRelatives = MapParallel(prepared.AssetFiles, asset => Relative(paths, asset.ObjectPath, verifiedDirectories));
+            for (int i = 0; i < prepared.AssetFiles.Length; i++) targets[prepared.AssetFiles[i].ArtifactKey] = assetObjectRelatives[i];
+        }
+        var facts = ImmutableArray.CreateBuilder<MmcMaterializedArtifactFact>(prepared.AdoptedLocks.Length);
         foreach (var value in prepared.AdoptedLocks) {
             if (!observations.TryGetValue(value.ArtifactKey, out var observed) || observed.ObservedSha256 != value.AdoptedSha256 || observed.SizeBytes != value.SizeBytes ||
                 !MmcArtifactIo.Digest(observed.ObservedSha1, 40)) throw new IOException("An adopted record lacks matching measured contents.");
@@ -47,11 +53,14 @@ public static class MmcArtifactBindingAdapter {
                 // A preserved inactive input is not promoted into OrderedBindings/classpath.
                 target = MmcArtifactMaterializer.BindingTargetRelative(artifact, prepared.ViewKey);
             }
-            paths.ResolveRelative(MmcPathRole.Instance, target);
             facts.Add(new(value.ArtifactKey, value.SourceRevision, observed.ObservedSha256, observed.SizeBytes,
                 value.RecoveryObjectRelativePath, target, observed.ObservedSha1));
         }
-        var factMap = facts.ToImmutable().ToDictionary(x => x.ArtifactKey, StringComparer.OrdinalIgnoreCase);
+        var builtFacts = facts.MoveToImmutable();
+        if (!builtFacts.IsEmpty) {
+            MmcInstancePaths.ForEachBounded(builtFacts, (_, fact, _) => paths.ResolveRelative(MmcPathRole.Instance, fact.TargetRelativePath, verifiedDirectories), CancellationToken.None);
+        }
+        var factMap = builtFacts.ToDictionary(x => x.ArtifactKey, StringComparer.OrdinalIgnoreCase);
         var derived = ImmutableArray.CreateBuilder<MmcDerivedOutputRecord>();
         MmcDerivationCompletion? nativeCompletion = null;
         if (!compiled.NativeArtifacts.IsEmpty) {
@@ -62,11 +71,19 @@ public static class MmcArtifactBindingAdapter {
                 prepared.NativeCache.CompleteFiles.Length != prepared.NativeFiles.Length) throw new IOException("Native cache batch differs from its locked inputs.");
             string context = MmcDerivedProofs.ComputeDerivedContextFingerprint(compiled.RuntimePlanFingerprint, sources, NativeProducer);
             var nativeKeys = compiled.NativeArtifacts.Select(x => x.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in prepared.NativeFiles) {
+            var nativeParents = new MmcMaterializedArtifactFact[prepared.NativeFiles.Length];
+            for (int i = 0; i < prepared.NativeFiles.Length; i++) {
+                var file = prepared.NativeFiles[i];
                 if (!nativeKeys.Contains(file.SourceArtifactKey) || !factMap.TryGetValue(file.SourceArtifactKey, out var parent)) throw new IOException("Native output has no active parent.");
+                nativeParents[i] = parent;
+            }
+            string[] nativeTargets = MapParallel(prepared.NativeFiles, file => Relative(paths, file.TargetPath, verifiedDirectories));
+            for (int i = 0; i < prepared.NativeFiles.Length; i++) {
+                var file = prepared.NativeFiles[i];
+                var parent = nativeParents[i];
                 derived.Add(new(MmcDerivedOutputKind.NativeFile, parent.ArtifactKey, parent.ObservedSha256, NativeProducer,
                     sources, compiled.RuntimePlanFingerprint, context, prepared.ViewKey, file.RelativePath,
-                    Relative(paths, file.TargetPath), file.Sha256, file.SizeBytes));
+                    nativeTargets[i], file.Sha256, file.SizeBytes));
             }
             nativeCompletion = new(NativeProducer, sources, compiled.RuntimePlanFingerprint, prepared.ViewKey, prepared.NativeFiles.Length, true);
         } else if (!prepared.NativeFiles.IsEmpty) throw new IOException("Unexpected native outputs are not part of the compiled profile.");
@@ -76,32 +93,47 @@ public static class MmcArtifactBindingAdapter {
                 throw new IOException("Asset outputs have no verified index parent.");
             string sources = MmcDerivedProofs.ComputeAssetSourceSetFingerprint(parent.ArtifactKey, parent.ObservedSha256, parent.SizeBytes, AssetProducer);
             string context = MmcDerivedProofs.ComputeDerivedContextFingerprint(compiled.RuntimePlanFingerprint, sources, AssetProducer);
+            string ownedAssetsRoot = prepared.AssetsRoot ?? throw new IOException("Owned assets root is missing.");
             foreach (var asset in prepared.AssetFiles.DistinctBy(x => x.ArtifactKey, StringComparer.OrdinalIgnoreCase)) {
                 var fact = factMap[asset.ArtifactKey];
                 if (fact.ObservedSha256 != asset.Sha256 || fact.ObservedSha1 != asset.Sha1 || fact.SizeBytes != asset.SizeBytes || fact.SourceRevision != parent.ObservedSha256)
                     throw new IOException("Asset output differs from its measured original object.");
-                string relative = RelativeUnder(prepared.AssetsRoot ?? throw new IOException("Owned assets root is missing."), asset.ObjectPath);
+                string relative = RelativeUnder(ownedAssetsRoot, asset.ObjectPath);
                 derived.Add(new(MmcDerivedOutputKind.AssetObject, index.Key, parent.ObservedSha256, AssetProducer, sources,
                     compiled.RuntimePlanFingerprint, context, prepared.ViewKey, relative, fact.TargetRelativePath,
                     fact.ObservedSha256, fact.SizeBytes, fact.ArtifactKey, fact.ObservedSha1, fact.RecoveryObjectRelativePath));
             }
-            foreach (var asset in prepared.AssetFiles) {
-                var fact = factMap[asset.ArtifactKey];
-                if (asset.VirtualPath is { } virtualPath) AddAlias(MmcDerivedOutputKind.AssetVirtualFile,
-                    RelativeUnder(prepared.AssetsRoot!, virtualPath), virtualPath, fact);
-                if (asset.MappedResourcePath is { } mapped) AddAlias(MmcDerivedOutputKind.AssetMappedResource, asset.Name, mapped, fact);
+            bool hasAliases = prepared.AssetFiles.Any(a => a.VirtualPath is not null || a.MappedResourcePath is not null);
+            if (hasAliases) {
+                var aliasTargets = MapParallel(prepared.AssetFiles, asset => (
+                    Virtual: asset.VirtualPath is { } v ? Relative(paths, v, verifiedDirectories) : null,
+                    Mapped: asset.MappedResourcePath is { } m ? Relative(paths, m, verifiedDirectories) : null));
+                for (int i = 0; i < prepared.AssetFiles.Length; i++) {
+                    var asset = prepared.AssetFiles[i];
+                    var fact = factMap[asset.ArtifactKey];
+                    if (asset.VirtualPath is { } virtualPath) AddAlias(MmcDerivedOutputKind.AssetVirtualFile,
+                        RelativeUnder(ownedAssetsRoot, virtualPath), aliasTargets[i].Virtual!, fact);
+                    if (asset.MappedResourcePath is { } mapped) AddAlias(MmcDerivedOutputKind.AssetMappedResource, asset.Name, aliasTargets[i].Mapped!, fact);
+                }
+                void AddAlias(MmcDerivedOutputKind kind, string relative, string targetRelative, MmcMaterializedArtifactFact fact) =>
+                    derived.Add(new(kind, fact.ArtifactKey, fact.ObservedSha256, AssetProducer, sources, compiled.RuntimePlanFingerprint,
+                        context, prepared.ViewKey, relative, targetRelative, fact.ObservedSha256, fact.SizeBytes, ObservedSha1: fact.ObservedSha1));
             }
-            void AddAlias(MmcDerivedOutputKind kind, string relative, string target, MmcMaterializedArtifactFact fact) =>
-                derived.Add(new(kind, fact.ArtifactKey, fact.ObservedSha256, AssetProducer, sources, compiled.RuntimePlanFingerprint,
-                    context, prepared.ViewKey, relative, Relative(paths, target), fact.ObservedSha256, fact.SizeBytes, ObservedSha1: fact.ObservedSha1));
         } else if (!prepared.AssetFiles.IsEmpty || !indexes.IsEmpty) throw new IOException("Unexpected asset outputs have no compiled index.");
-        return new(facts.ToImmutable(), derived.ToImmutable(), indexes, nativeCompletion);
+        return new(builtFacts, derived.ToImmutable(), indexes, nativeCompletion);
+    }
+
+    private static TResult[] MapParallel<TSource, TResult>(IReadOnlyList<TSource> items, Func<TSource, TResult> map) {
+        var results = new TResult[items.Count];
+        if (items.Count == 0) return results;
+        MmcInstancePaths.ForEachBounded(items, (index, item, _) => results[index] = map(item), CancellationToken.None);
+        return results;
     }
 
     private static MmcArtifactDigestFact DigestFact(MmcMaterializedArtifactFact fact) => new(fact.ArtifactKey, fact.SourceRevision, fact.ObservedSha256, fact.SizeBytes);
-    private static string Relative(MmcInstancePaths paths, string target) {
+    private static string Relative(MmcInstancePaths paths, string target, ConcurrentDictionary<string, byte> verifiedDirectories) {
         string relative = RelativeUnder(paths.InstanceRoot, target);
-        string authorized = paths.ResolveRelative(MmcPathRole.Instance, relative);
+        string authorized = paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
         if (!string.Equals(authorized, Path.GetFullPath(target), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("Prepared target does not match the instance boundary.");
         return relative;

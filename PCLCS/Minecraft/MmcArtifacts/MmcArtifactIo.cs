@@ -88,22 +88,23 @@ internal sealed class MmcArtifactIo {
     private long copied;
     internal MmcArtifactIo(MmcArtifactLimits limits, IProgress<MmcArtifactProgress>? progress) { this.limits = limits; this.progress = progress; }
 
-    internal static void Directory(string path) {
-        MmcInstancePaths.EnsureNoLinks(path);
+    internal static void Directory(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
         System.IO.Directory.CreateDirectory(path);
-        MmcInstancePaths.EnsureNoLinks(path);
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
     }
 
-    internal static string AuthorizedSource(MmcArtifactSource source) {
+    internal static string AuthorizedSource(MmcArtifactSource source, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
         if (!Path.IsPathFullyQualified(source.ApprovedRoot) || !Path.IsPathFullyQualified(source.FilePath))
             throw new IOException("Artifact source must have an absolute approved boundary.");
-        if (new[] { source.ApprovedRoot, source.FilePath }.Any(x => x.StartsWith("\\\\?\\", StringComparison.Ordinal) || x.StartsWith("\\\\.\\", StringComparison.Ordinal)))
+        if (source.ApprovedRoot.StartsWith("\\\\?\\", StringComparison.Ordinal) || source.ApprovedRoot.StartsWith("\\\\.\\", StringComparison.Ordinal) ||
+            source.FilePath.StartsWith("\\\\?\\", StringComparison.Ordinal) || source.FilePath.StartsWith("\\\\.\\", StringComparison.Ordinal))
             throw new IOException("Artifact sources cannot use device namespaces.");
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(source.ApprovedRoot));
         string file = Path.GetFullPath(source.FilePath);
         if (!file.StartsWith(root + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("Artifact source escapes its approved boundary.");
-        MmcInstancePaths.EnsureNoLinks(root); MmcInstancePaths.EnsureNoLinks(file);
+        MmcInstancePaths.EnsureNoLinks(root, verifiedDirectories); MmcInstancePaths.EnsureNoLinks(file, verifiedDirectories);
         if ((File.GetAttributes(file) & FileAttributes.Directory) != 0) throw new IOException("Artifact source is a directory.");
         return file;
     }
@@ -111,63 +112,173 @@ internal sealed class MmcArtifactIo {
     internal static void Relative(string path) {
         if (string.IsNullOrEmpty(path) || path.Length > 32767 || Path.IsPathRooted(path) || path[0] is '/' or '\\')
             throw new IOException("Artifact logical path is invalid.");
-        string[] segments = path.Replace('\\', '/').Split('/');
-        if (segments.Length > 128 || segments.Any(x => x.Length is 0 or > 255 || x is "." or ".."))
-            throw new IOException("Artifact logical path exceeds its segment budget.");
+        int count = 0;
+        ReadOnlySpan<char> remaining = path.AsSpan();
+        while (true) {
+            if (++count > 128) throw new IOException("Artifact logical path exceeds its segment budget.");
+            int sep = remaining.IndexOfAny('/', '\\');
+            ReadOnlySpan<char> segment = sep < 0 ? remaining : remaining[..sep];
+            if (segment.Length is 0 or > 255 || segment is "." or "..")
+                throw new IOException("Artifact logical path exceeds its segment budget.");
+            if (sep < 0) return;
+            remaining = remaining[(sep + 1)..];
+        }
     }
 
     internal static bool Digest(string? value, int length) => value is not null && value.Length == length && value.All(Uri.IsHexDigit);
 
-    internal static async Task<(string Sha256, long Size, string Sha1)> HashAsync(string path, long maximum, CancellationToken token, string? expectedSha1 = null) {
-        MmcInstancePaths.EnsureNoLinks(path);
-        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true);
+    internal static (string Sha256, long Size, string Sha1) HashFile(string path, long maximum, CancellationToken token,
+        string? expectedSha1 = null, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+        long initialLength = input.CanSeek ? input.Length : -1;
+        if (initialLength > maximum) throw new IOException("Artifact byte budget exceeded.");
+        Span<byte> sha1Digest = stackalloc byte[20];
+        Span<byte> sha256Digest = stackalloc byte[32];
+        if (initialLength is >= 0 and <= 1024 * 1024) {
+            int len = (int)initialLength;
+            byte[] small = len == 0 ? Array.Empty<byte>() : System.Buffers.ArrayPool<byte>.Shared.Rent(len);
+            try {
+                int filled = 0;
+                while (filled < len) {
+                    int chunk = input.Read(small, filled, len - filled);
+                    if (chunk == 0) break;
+                    token.ThrowIfCancellationRequested();
+                    FileTaskProgress.RecordRead(chunk);
+                    filled += chunk;
+                }
+                token.ThrowIfCancellationRequested();
+                ReadOnlySpan<byte> span = small.AsSpan(0, filled);
+                SHA1.HashData(span, sha1Digest);
+                string fastSha1 = Convert.ToHexStringLower(sha1Digest);
+                if (expectedSha1 is not null && !fastSha1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Artifact content does not match its declared SHA1.");
+                SHA256.HashData(span, sha256Digest);
+                return (Convert.ToHexStringLower(sha256Digest), filled, fastSha1);
+            } finally {
+                if (small.Length > 0) System.Buffers.ArrayPool<byte>.Shared.Return(small);
+            }
+        }
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long size = 0; int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0) {
+                token.ThrowIfCancellationRequested();
+                FileTaskProgress.RecordRead(read);
+                size = checked(size + read);
+                if (size > maximum) throw new IOException("Artifact actual byte budget exceeded.");
+                hash.AppendData(buffer, 0, read);
+                sha1.AppendData(buffer, 0, read);
+            }
+            token.ThrowIfCancellationRequested();
+            sha1.TryGetHashAndReset(sha1Digest, out _);
+            string observedSha1 = Convert.ToHexStringLower(sha1Digest);
+            if (expectedSha1 is not null && !observedSha1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Artifact content does not match its declared SHA1.");
+            hash.TryGetHashAndReset(sha256Digest, out _);
+            return (Convert.ToHexStringLower(sha256Digest), size, observedSha1);
+        } finally {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    internal static (string Sha256, long Size) HashSha256(string path, long maximum, CancellationToken token,
+        ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+        if (input.Length > maximum) throw new IOException("Artifact byte budget exceeded.");
+        if (input.CanSeek && input.Length <= 16 * 1024 * 1024) {
+            token.ThrowIfCancellationRequested();
+            Span<byte> digest = stackalloc byte[32];
+            SHA256.HashData(input, digest);
+            long observed = input.Position;
+            if (observed > maximum) throw new IOException("Artifact actual byte budget exceeded.");
+            if (observed > 0) FileTaskProgress.RecordRead((int)observed);
+            token.ThrowIfCancellationRequested();
+            return (Convert.ToHexStringLower(digest), observed);
+        }
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long size = 0; int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0) {
+                token.ThrowIfCancellationRequested();
+                FileTaskProgress.RecordRead(read);
+                size = checked(size + read);
+                if (size > maximum) throw new IOException("Artifact actual byte budget exceeded.");
+                hash.AppendData(buffer, 0, read);
+            }
+            token.ThrowIfCancellationRequested();
+            Span<byte> digest = stackalloc byte[32];
+            hash.TryGetHashAndReset(digest, out _);
+            return (Convert.ToHexStringLower(digest), size);
+        } finally {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    internal static async Task<(string Sha256, long Size, string Sha1)> HashAsync(string path, long maximum, CancellationToken token,
+        string? expectedSha1 = null, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (input.Length > maximum) throw new IOException("Artifact byte budget exceeded.");
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-        byte[] buffer = new byte[131072]; long size = 0;
-        int read;
-        while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
-            FileTaskProgress.RecordRead(read);
-            size = checked(size + read);
-            if (size > maximum) throw new IOException("Artifact actual byte budget exceeded.");
-            hash.AppendData(buffer, 0, read);
-            sha1.AppendData(buffer, 0, read);
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long size = 0; int read;
+            while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
+                FileTaskProgress.RecordRead(read);
+                size = checked(size + read);
+                if (size > maximum) throw new IOException("Artifact actual byte budget exceeded.");
+                hash.AppendData(buffer, 0, read);
+                sha1.AppendData(buffer, 0, read);
+            }
+            string observedSha1 = Convert.ToHexStringLower(sha1.GetHashAndReset());
+            if (expectedSha1 is not null && !observedSha1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Artifact content does not match its declared SHA1.");
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), size, observedSha1);
+        } finally {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
-        string observedSha1 = Convert.ToHexStringLower(sha1.GetHashAndReset());
-        if (expectedSha1 is not null && !observedSha1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Artifact content does not match its declared SHA1.");
-        return (Convert.ToHexStringLower(hash.GetHashAndReset()), size, observedSha1);
     }
 
     internal async Task<(string Sha256, long Size, string Sha1)> CopyAsync(string source, string target, string key,
         string? expectedSha256, string? expectedSha1, long? expectedSize, CancellationToken token, long? maximumBytes = null) {
         MmcInstancePaths.EnsureNoLinks(source); MmcInstancePaths.EnsureNoLinks(target);
         Directory(Path.GetDirectoryName(target)!);
-        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true);
+        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.Asynchronous | FileOptions.SequentialScan);
         long maximum = Math.Min(limits.MaxArtifactBytes, maximumBytes ?? limits.MaxArtifactBytes);
         if (input.Length > maximum) throw new IOException("Artifact declared byte budget exceeded: " + key);
         await using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131072, true);
         using var sha256 = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-        byte[] buffer = new byte[131072]; long size = 0;
-        int read;
-        while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
-            FileTaskProgress.RecordRead(read);
-            size = checked(size + read); copied = checked(copied + read);
-            if (size > maximum || copied > limits.MaxCopiedBytes) throw new IOException("Artifact actual copy budget exceeded: " + key);
-            sha256.AppendData(buffer, 0, read); sha1.AppendData(buffer, 0, read);
-            await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
-            FileTaskProgress.RecordWrite(read);
-            progress?.Report(new("copy", key, copied));
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long size = 0; int read;
+            while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
+                FileTaskProgress.RecordRead(read);
+                size = checked(size + read);
+                long totalCopied = Interlocked.Add(ref copied, read);
+                if (size > maximum || totalCopied > limits.MaxCopiedBytes) throw new IOException("Artifact actual copy budget exceeded: " + key);
+                sha256.AppendData(buffer, 0, read); sha1.AppendData(buffer, 0, read);
+                await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                FileTaskProgress.RecordWrite(read);
+                progress?.Report(new("copy", key, totalCopied));
+            }
+            await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true);
+            string digest = Convert.ToHexStringLower(sha256.GetHashAndReset());
+            string digest1 = Convert.ToHexStringLower(sha1.GetHashAndReset());
+            if ((expectedSha256 is not null && !digest.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase)) ||
+                (expectedSha1 is not null && !digest1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase)) ||
+                (expectedSize is not null && expectedSize != size))
+                throw new IOException("Artifact content does not match the locked/declared digest or size: " + key);
+            return (digest, size, digest1);
+        } finally {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
-        await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true);
-        string digest = Convert.ToHexStringLower(sha256.GetHashAndReset());
-        string digest1 = Convert.ToHexStringLower(sha1.GetHashAndReset());
-        if ((expectedSha256 is not null && !digest.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase)) ||
-            (expectedSha1 is not null && !digest1.Equals(expectedSha1, StringComparison.OrdinalIgnoreCase)) ||
-            (expectedSize is not null && expectedSize != size))
-            throw new IOException("Artifact content does not match the locked/declared digest or size: " + key);
-        return (digest, size, digest1);
     }
 
     internal async Task<(string Sha256, long Size, string Sha1)> ExtractAsync(Stream input, string target, string key,
@@ -176,22 +287,27 @@ internal sealed class MmcArtifactIo {
         await using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 131072, true);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
-        byte[] buffer = new byte[131072]; long size = 0; uint crc = uint.MaxValue;
-        int read;
-        while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
-            FileTaskProgress.RecordRead(read);
-            size = checked(size + read); copied = checked(copied + read);
-            if (size > maximum || size > expectedSize || copied > limits.MaxCopiedBytes) throw new IOException("Native actual output budget or declared size exceeded.");
-            hash.AppendData(buffer, 0, read);
-            sha1.AppendData(buffer, 0, read);
-            for (int index = 0; index < read; index++) crc = CrcTable[(crc ^ buffer[index]) & 255] ^ (crc >> 8);
-            await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
-            FileTaskProgress.RecordWrite(read);
-            progress?.Report(new(phase, key, copied));
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(131072);
+        try {
+            long size = 0; uint crc = uint.MaxValue; int read;
+            while ((read = await input.ReadAsync(buffer, token).ConfigureAwait(false)) != 0) {
+                FileTaskProgress.RecordRead(read);
+                size = checked(size + read);
+                long totalCopied = Interlocked.Add(ref copied, read);
+                if (size > maximum || size > expectedSize || totalCopied > limits.MaxCopiedBytes) throw new IOException("Native actual output budget or declared size exceeded.");
+                hash.AppendData(buffer, 0, read);
+                sha1.AppendData(buffer, 0, read);
+                for (int index = 0; index < read; index++) crc = CrcTable[(crc ^ buffer[index]) & 255] ^ (crc >> 8);
+                await output.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                FileTaskProgress.RecordWrite(read);
+                progress?.Report(new(phase, key, totalCopied));
+            }
+            if (size != expectedSize || ~crc != expectedCrc32) throw new IOException("Native actual output differs from its declared size or CRC32.");
+            await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true);
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), size, Convert.ToHexStringLower(sha1.GetHashAndReset()));
+        } finally {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
-        if (size != expectedSize || ~crc != expectedCrc32) throw new IOException("Native actual output differs from its declared size or CRC32.");
-        await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true);
-        return (Convert.ToHexStringLower(hash.GetHashAndReset()), size, Convert.ToHexStringLower(sha1.GetHashAndReset()));
     }
 
     private static uint[] BuildCrcTable() {

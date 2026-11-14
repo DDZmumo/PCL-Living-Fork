@@ -8,6 +8,10 @@ namespace PCLLF.MMCC.Core;
 
 /// <summary>A bounded external author-file baseline. Metadata authority references its hash, not a mutable file list.</summary>
 public static class MmcPackageFileBaselineCodec {
+    private static readonly HashSet<string> ForeignLauncherFiles = new(StringComparer.OrdinalIgnoreCase) {
+        "launcher_profiles.json", "launcher_accounts.json", "accounts.json", "accounts.cfg", "prismlauncher.cfg", "multimc.cfg"
+    };
+
     private static readonly JsonSerializerOptions Options = new() {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(allowIntegerValues: false) }
@@ -45,12 +49,11 @@ public static class MmcPackageFileBaselineCodec {
             if (reader.TokenType != JsonTokenType.EndObject || reader.Read() || fields.Count != 5 || package is null || root is null || entries.IsDefault || files.IsDefault)
                 Fail("MMC_PACKAGE_BASELINE_JSON", "Baseline has missing/trailing data.");
             var document = new MmcPackageFileBaseline(format, package, root, entries, files);
-            var diagnostics = Validate(document, limits);
+            var diagnostics = ValidateInternal(document, limits, out var inspection);
             if (!diagnostics.IsEmpty) return new(null, diagnostics);
             if (!MmcDefinitionCodec.SameHash(package, expectedPackageSha256) || root != expectedRelativeRoot || files.Length != expectedReference.EntryCount)
                 Fail("MMC_PACKAGE_BASELINE_IDENTITY", "Baseline does not match the package/root/count authority.");
-            var inspection = MmcPackageReader.InspectArchive(entries.Select(e => new MmcArchiveEntry(e.Path, e.SizeBytes, e.IsDirectory)).ToArray(), limits.ArchiveLimits);
-            return new(new(digest, expectedReference, document, inspection.GameRootLeaf!), diagnostics);
+            return new(new(digest, expectedReference, document, inspection!.GameRootLeaf!), diagnostics);
         } catch (MmcInputException error) { return new(null, [new(error.Code, MmcDiagnosticSeverity.Error, "package-baseline", error.Message)]); }
         catch (Exception error) when (error is JsonException or OverflowException or FormatException or InvalidOperationException) {
             return new(null, [new("MMC_PACKAGE_BASELINE_JSON", MmcDiagnosticSeverity.Error, "package-baseline", "Invalid package baseline JSON: " + error.Message)]);
@@ -66,23 +69,27 @@ public static class MmcPackageFileBaselineCodec {
         return result;
     }
 
-    public static ImmutableArray<MmcDiagnostic> Validate(MmcPackageFileBaseline baseline, MmcPackageBaselineLimits? limits = null) {
-        limits ??= new();
+    public static ImmutableArray<MmcDiagnostic> Validate(MmcPackageFileBaseline baseline, MmcPackageBaselineLimits? limits = null) =>
+        ValidateInternal(baseline, limits ?? new(), out _);
+
+    private static ImmutableArray<MmcDiagnostic> ValidateInternal(MmcPackageFileBaseline baseline, MmcPackageBaselineLimits limits,
+        out MmcArchiveInspection? inspection) {
+        inspection = null;
         try {
             if (baseline is null || baseline.FormatVersion != 1 || baseline.ArchiveEntries.IsDefault || baseline.Files.IsDefault || baseline.ArchiveEntries.Length > limits.ArchiveLimits.MaxArchiveEntries || baseline.Files.Length > limits.ArchiveLimits.MaxArchiveEntries)
                 Fail("MMC_PACKAGE_BASELINE_BUDGET", "Baseline format/arrays exceed the supported bounds.");
             MmcDefinitionCodec.CheckHash(baseline.PackageSha256);
             if (baseline.ArchiveEntries.Any(e => e is null) || baseline.Files.Any(f => f is null)) Fail("MMC_PACKAGE_BASELINE_JSON", "Null file/entry record.");
-            var inspection = MmcPackageReader.InspectArchive(baseline.ArchiveEntries.Select(e => new MmcArchiveEntry(e.Path, e.SizeBytes, e.IsDirectory)).ToArray(), limits.ArchiveLimits);
+            inspection = MmcPackageReader.InspectArchive(baseline.ArchiveEntries.Select(e => new MmcArchiveEntry(e.Path, e.SizeBytes, e.IsDirectory)).ToArray(), limits.ArchiveLimits);
             if (inspection.HasErrors) return inspection.Diagnostics;
             if (inspection.RelativeRoot != baseline.RelativeRoot) Fail("MMC_PACKAGE_BASELINE_IDENTITY", "Baseline root differs from its real unique archive root.");
-            Dictionary<string, MmcPackageArchiveDescriptor> descriptors = new(StringComparer.Ordinal);
+            Dictionary<string, MmcPackageArchiveDescriptor> descriptors = new(baseline.ArchiveEntries.Length, StringComparer.Ordinal);
             foreach (var entry in baseline.ArchiveEntries) {
                 if (entry.IsDirectory) { if (entry.SizeBytes != 0 || entry.Crc32 != 0) Fail("MMC_PACKAGE_BASELINE_IDENTITY", "Directory descriptors cannot contain file payload."); continue; }
                 descriptors.Add(entry.Path.Replace('\\', '/'), entry);
             }
             if (descriptors.Count != baseline.Files.Length) Fail("MMC_PACKAGE_BASELINE_IDENTITY", "Every archive file requires exactly one measured baseline record.");
-            HashSet<string> seen = new(StringComparer.Ordinal);
+            HashSet<string> seen = new(baseline.Files.Length, StringComparer.Ordinal);
             long paths = baseline.RelativeRoot.Length;
             long estimatedBytes = 1024 + baseline.ArchiveEntries.Length * 128L + baseline.Files.Length * 256L;
             foreach (var entry in baseline.ArchiveEntries) { paths += entry.Path.Length; estimatedBytes += entry.Path.Length * 6L; }
@@ -104,10 +111,11 @@ public static class MmcPackageFileBaselineCodec {
         MmcArtifactRules.Relative(sourceRelativePath, "package-baseline");
         if (relativeRoot.Length > 0 && !sourceRelativePath.StartsWith(relativeRoot, StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.InstanceExtra, null);
         string relative = sourceRelativePath[relativeRoot.Length..];
-        foreach (string game in new[] { "minecraft", ".minecraft" }) if (relative.StartsWith(game + "/", StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.Game, game + relative[game.Length..]);
+        if (relative.StartsWith("minecraft/", StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.Game, "minecraft" + relative["minecraft".Length..]);
+        if (relative.StartsWith(".minecraft/", StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.Game, ".minecraft" + relative[".minecraft".Length..]);
         if (relative.StartsWith("libraries/", StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.LocalLibrary, "libraries/" + relative["libraries/".Length..]);
         if (relative.Equals("mmc-pack.json", StringComparison.OrdinalIgnoreCase) || relative.Equals("instance.cfg", StringComparison.OrdinalIgnoreCase) || relative.StartsWith("patches/", StringComparison.OrdinalIgnoreCase)) return (MmcPackageFileRole.Metadata, null);
-        if (relative.StartsWith("PCL/", StringComparison.OrdinalIgnoreCase) || new[] { "launcher_profiles.json", "launcher_accounts.json", "accounts.json", "accounts.cfg", "prismlauncher.cfg", "multimc.cfg" }.Contains(relative, StringComparer.OrdinalIgnoreCase))
+        if (relative.StartsWith("PCL/", StringComparison.OrdinalIgnoreCase) || ForeignLauncherFiles.Contains(relative))
             return (MmcPackageFileRole.ForeignLauncherMetadata, null);
         return (MmcPackageFileRole.InstanceExtra, relative);
     }
@@ -117,17 +125,21 @@ public static class MmcPackageFileBaselineCodec {
         var result = ImmutableArray.CreateBuilder<MmcPackageArchiveDescriptor>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) {
             if (result.Count >= limits.ArchiveLimits.MaxArchiveEntries || reader.TokenType != JsonTokenType.StartObject) Fail("MMC_PACKAGE_BASELINE_BUDGET", "Archive descriptor count/shape invalid.");
-            HashSet<string> fields = new(StringComparer.Ordinal); string? path = null; bool directory = false; long size = -1; uint crc = 0;
+            uint seenMask = 0; string? path = null; bool directory = false; long size = -1; uint crc = 0;
             while (reader.Read() && reader.TokenType != JsonTokenType.EndObject) {
-                switch (Property(ref reader, fields)) {
-                    case "path": path = Path(ref reader, ref characters, limits); break;
-                    case "isDirectory": if (reader.TokenType is not (JsonTokenType.True or JsonTokenType.False)) Fail("MMC_PACKAGE_BASELINE_JSON", "isDirectory must be Boolean."); directory = reader.GetBoolean(); break;
-                    case "sizeBytes": size = Integer(ref reader); break;
-                    case "crc32": crc = checked((uint)Integer(ref reader)); break;
-                    default: Fail("MMC_PACKAGE_BASELINE_JSON", "Unknown archive descriptor field."); break;
+                int field = MatchProperty(ref reader, ref seenMask, static (ref Utf8JsonReader r) =>
+                    r.ValueTextEquals("path"u8) ? 0 :
+                    r.ValueTextEquals("isDirectory"u8) ? 1 :
+                    r.ValueTextEquals("sizeBytes"u8) ? 2 :
+                    r.ValueTextEquals("crc32"u8) ? 3 : -1);
+                switch (field) {
+                    case 0: path = Path(ref reader, ref characters, limits); break;
+                    case 1: if (reader.TokenType is not (JsonTokenType.True or JsonTokenType.False)) Fail("MMC_PACKAGE_BASELINE_JSON", "isDirectory must be Boolean."); directory = reader.GetBoolean(); break;
+                    case 2: size = Integer(ref reader); break;
+                    case 3: crc = checked((uint)Integer(ref reader)); break;
                 }
             }
-            if (reader.TokenType != JsonTokenType.EndObject || fields.Count != 4 || path is null) Fail("MMC_PACKAGE_BASELINE_JSON", "Archive descriptor field missing.");
+            if (reader.TokenType != JsonTokenType.EndObject || seenMask != 0b1111u || path is null) Fail("MMC_PACKAGE_BASELINE_JSON", "Archive descriptor field missing.");
             result.Add(new(path, directory, size, crc));
         }
         if (reader.TokenType != JsonTokenType.EndArray) Fail("MMC_PACKAGE_BASELINE_JSON", "Unterminated archiveEntries array.");
@@ -138,27 +150,44 @@ public static class MmcPackageFileBaselineCodec {
         var result = ImmutableArray.CreateBuilder<MmcPackageFileRecord>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) {
             if (result.Count >= limits.ArchiveLimits.MaxArchiveEntries || reader.TokenType != JsonTokenType.StartObject) Fail("MMC_PACKAGE_BASELINE_BUDGET", "File record count/shape invalid.");
-            HashSet<string> fields = new(StringComparer.Ordinal); string? path = null, target = null, sha256 = null, sha1 = null; MmcPackageFileRole role = default; long size = -1; uint crc = 0;
+            uint seenMask = 0; string? path = null, target = null, sha256 = null, sha1 = null; MmcPackageFileRole role = default; long size = -1; uint crc = 0;
             while (reader.Read() && reader.TokenType != JsonTokenType.EndObject) {
-                switch (Property(ref reader, fields)) {
-                    case "relativePath": path = Path(ref reader, ref characters, limits); break;
-                    case "role":
+                int field = MatchProperty(ref reader, ref seenMask, static (ref Utf8JsonReader r) =>
+                    r.ValueTextEquals("relativePath"u8) ? 0 :
+                    r.ValueTextEquals("role"u8) ? 1 :
+                    r.ValueTextEquals("targetRelativePath"u8) ? 2 :
+                    r.ValueTextEquals("sha256"u8) ? 3 :
+                    r.ValueTextEquals("sha1"u8) ? 4 :
+                    r.ValueTextEquals("sizeBytes"u8) ? 5 :
+                    r.ValueTextEquals("crc32"u8) ? 6 : -1);
+                switch (field) {
+                    case 0: path = Path(ref reader, ref characters, limits); break;
+                    case 1:
                         string roleName = String(ref reader, 64);
                         if (!Enum.TryParse(roleName, out role) || !Enum.IsDefined(role) || Enum.GetName(role) != roleName) Fail("MMC_PACKAGE_BASELINE_ROLE", "Unknown package file role.");
                         break;
-                    case "targetRelativePath": target = reader.TokenType == JsonTokenType.Null ? null : Path(ref reader, ref characters, limits); break;
-                    case "sha256": sha256 = String(ref reader, 64); break;
-                    case "sha1": sha1 = String(ref reader, 40); break;
-                    case "sizeBytes": size = Integer(ref reader); break;
-                    case "crc32": crc = checked((uint)Integer(ref reader)); break;
-                    default: Fail("MMC_PACKAGE_BASELINE_JSON", "Unknown package file field."); break;
+                    case 2: target = reader.TokenType == JsonTokenType.Null ? null : Path(ref reader, ref characters, limits); break;
+                    case 3: sha256 = String(ref reader, 64); break;
+                    case 4: sha1 = String(ref reader, 40); break;
+                    case 5: size = Integer(ref reader); break;
+                    case 6: crc = checked((uint)Integer(ref reader)); break;
                 }
             }
-            if (reader.TokenType != JsonTokenType.EndObject || fields.Count != 7 || path is null || sha256 is null || sha1 is null) Fail("MMC_PACKAGE_BASELINE_JSON", "File checksum/descriptor field missing.");
+            if (reader.TokenType != JsonTokenType.EndObject || seenMask != 0b111_1111u || path is null || sha256 is null || sha1 is null) Fail("MMC_PACKAGE_BASELINE_JSON", "File checksum/descriptor field missing.");
             result.Add(new(path, role, target, sha256, sha1, size, crc));
         }
         if (reader.TokenType != JsonTokenType.EndArray) Fail("MMC_PACKAGE_BASELINE_JSON", "Unterminated files array.");
         return result.ToImmutable();
+    }
+    private delegate int PropertyMatcher(ref Utf8JsonReader reader);
+    private static int MatchProperty(ref Utf8JsonReader reader, ref uint seenMask, PropertyMatcher match) {
+        if (reader.TokenType != JsonTokenType.PropertyName || reader.ValueSpan.Length > 128) Fail("MMC_PACKAGE_BASELINE_JSON", "Expected a bounded property name.");
+        int bit = match(ref reader);
+        if (bit < 0) Fail("MMC_PACKAGE_BASELINE_JSON", "Unknown package baseline field.");
+        uint flag = 1u << bit;
+        if ((seenMask & flag) != 0 || !reader.Read()) Fail("MMC_PACKAGE_BASELINE_JSON", "Duplicate/missing package baseline property.");
+        seenMask |= flag;
+        return bit;
     }
     private static string Property(ref Utf8JsonReader reader, HashSet<string> seen) {
         if (reader.TokenType != JsonTokenType.PropertyName || reader.ValueSpan.Length > 128) Fail("MMC_PACKAGE_BASELINE_JSON", "Expected a bounded property name.");

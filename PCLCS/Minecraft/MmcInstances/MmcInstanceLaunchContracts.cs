@@ -8,6 +8,10 @@ public sealed record MmcInstancePrepareLaunchRequest(string VersionRoot, MmcRunt
     Guid ExpectedInstanceId, long? ExpectedGeneration = null, bool RepairIncomplete = true) {
     /// <summary>Optional exact selected definition; preparation and any repair must start from these bytes.</summary>
     public string? ExpectedPrimarySha256 { get; init; }
+    /// <summary>Optional source bundle already loaded for the exact same primary digest during this launch.</summary>
+    public MmcSavedInstanceSources? PreloadedSources { get; init; }
+    /// <summary>Primary SHA256 digest matching <see cref="PreloadedSources"/>; mismatched digests trigger a fresh reload.</summary>
+    public string? PreloadedSourcesPrimarySha256 { get; init; }
 }
 public sealed record MmcInstanceLaunchTarget(string ArtifactKey, string TargetRelativePath, string ActualPath);
 public sealed record MmcInstanceLaunchDirectories(string ViewKey, string NativeDirectory, string AssetsRoot, string GameAssetsRoot);
