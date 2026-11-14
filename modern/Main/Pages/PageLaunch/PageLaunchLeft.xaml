@@ -30,7 +30,10 @@
         <local:MyCheckBox x:Name="CheckMoreSettings" Grid.Row="2" Grid.ColumnSpan="5" Text="更多设置"
                           local:SettingService.Key="UiLaunchMoreSettings" Height="22" Margin="20,0,20,9" HorizontalAlignment="Right"
                           ToolTip="显示或隐藏模组依赖选项和上次游玩。" />
-        <Grid Grid.ColumnSpan="5" Grid.Row="1" Margin="20,0" VerticalAlignment="Center" x:Name="PanLogin" />
+        <Viewbox Grid.ColumnSpan="5" Grid.Row="1" Margin="20,0" VerticalAlignment="Center"
+                 Stretch="Uniform" StretchDirection="DownOnly">
+            <Grid Width="260" x:Name="PanLogin" />
+        </Viewbox>
         <Grid Grid.ColumnSpan="5" Margin="20,24,20,-4" Name="PanTypeOne">
             <Border HorizontalAlignment="Center" VerticalAlignment="Center" Background="{DynamicResource ColorBrushSemiTransparent}" CornerRadius="13" MinHeight="27" MaxHeight="27">
                 <StackPanel Orientation="Horizontal">
