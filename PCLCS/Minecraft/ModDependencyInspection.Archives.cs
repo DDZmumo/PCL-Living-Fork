@@ -39,6 +39,12 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             RememberLoaderWarnings(ModsFolder, Result);
             return Result;
         }
+        public static TReport InspectForImpact(string modsFolder, TContext context, CancellationToken token = default)
+        {
+            var result = Index.InspectForImpact(modsFolder, context ?? new TContext(), token);
+            RememberLoaderWarnings(modsFolder, result);
+            return result;
+        }
         /// <summary>Read one archive with the shared loader parser, without folder scans, disk indexes or legacy caches.</summary>
         public static TReport ReadSingleArchive(string fileName, TContext context, CancellationToken token = default)
         {
@@ -75,6 +81,10 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             return result;
         }
         public static TReport ScanRaw(global::System.String ModsFolder, TContext Context, global::System.Threading.CancellationToken Token, global::System.Boolean ForceFresh = false)
+            => ScanRawCore(ModsFolder, Context, Token, ForceFresh, null);
+
+        private static TReport ScanRawCore(string ModsFolder, TContext Context, CancellationToken Token, bool ForceFresh,
+            Func<string, TReport> ReadMetadata)
         {
             var Result = new TReport() { Context = (Context) ?? (new TContext()) };
             Result.Builtins = CreateBuiltins(Result.Context);
@@ -109,38 +119,53 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                 foreach (var FullPath in Files)
                 {
                     Token.ThrowIfCancellationRequested();
-                    global::System.Boolean Enabled = ((!(FullPath.EndsWith(".disabled", global::System.StringComparison.OrdinalIgnoreCase))) && (!(FullPath.EndsWith(".old", global::System.StringComparison.OrdinalIgnoreCase))));
-                    try
-                    {
-                        if (((global::System.Int32)(((global::System.IO.File.GetAttributes(FullPath) & global::System.IO.FileAttributes.ReparsePoint))) != (0)))
-                            throw new global::System.IO.IOException("跳过链接文件");
-                        using (var Stream = new global::System.IO.FileStream(FullPath, global::System.IO.FileMode.Open, global::System.IO.FileAccess.Read, global::System.IO.FileShare.ReadWrite | global::System.IO.FileShare.Delete))
-                        using (var Archive = new global::System.IO.Compression.ZipArchive(Stream, global::System.IO.Compression.ZipArchiveMode.Read, false))
-                        {
-                            var Budget = new ReadBudget() { ForceFresh = ForceFresh };
-                            ReadArchive(Archive, global::System.IO.Path.GetFullPath(FullPath), "", Enabled, false, 0, Result, Budget, Token);
-                        }
-                    }
-                    catch (global::System.OperationCanceledException )
-                    {
-                        throw;
-                    }
-                    catch (global::System.Exception ex) when (((((((ex is global::System.IO.IOException) || (ex is global::System.IO.InvalidDataException)) || (ex is global::System.UnauthorizedAccessException)) || (ex is global::Newtonsoft.Json.JsonException)) || (ex is global::System.FormatException)) || (ex is global::System.Text.DecoderFallbackException)))
-                    {
-                        if ((((((ex is global::System.IO.IOException) && (!(ex is global::System.IO.InvalidDataException))))) || (ex is global::System.UnauthorizedAccessException)))
-                            Result.IndexReadFailed = true;
-                        if (Enabled)
-                        {
-                            Incomplete(Result, ((global::System.IO.Path.GetFileName(FullPath) + "：无法完整读取元数据（") + ex.Message) + "）。");
-                        }
-                        else
-                        {
-                            Result.Notices.Add(global::System.IO.Path.GetFileName(FullPath) + "：已禁用，无法读取元数据。");
-                        }
-                    }
+                    var Metadata = ReadMetadata is null ? ReadFileMetadata(FullPath, Result.Context, Token, ForceFresh) : ReadMetadata(FullPath);
+                    Result.Mods.AddRange(Metadata.Mods);
+                    Result.Notices.AddRange(Metadata.Notices);
+                    Result.MetadataIncomplete |= Metadata.MetadataIncomplete;
+                    Result.IndexReadFailed |= Metadata.IndexReadFailed;
                 }
             }
             BuildReport(Result, Token);
+            return Result;
+        }
+
+        private static bool ArchiveEnabled(string Path) => !Path.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase) && !Path.EndsWith(".old", StringComparison.OrdinalIgnoreCase);
+
+        // Keep per-file parse diagnostics separate from graph evaluation so a changed inventory
+        // can reuse the declarations of unchanged files without carrying stale graph warnings.
+        private static TReport ReadFileMetadata(string FullPath, TContext Context, CancellationToken Token, bool ForceFresh)
+        {
+            var Result = new TReport { Context = Context };
+            bool Enabled = ArchiveEnabled(FullPath);
+            try
+            {
+                if (((global::System.Int32)(((global::System.IO.File.GetAttributes(FullPath) & global::System.IO.FileAttributes.ReparsePoint))) != (0)))
+                    throw new global::System.IO.IOException("跳过链接文件");
+                using (var Stream = new global::System.IO.FileStream(FullPath, global::System.IO.FileMode.Open, global::System.IO.FileAccess.Read, global::System.IO.FileShare.ReadWrite | global::System.IO.FileShare.Delete))
+                using (var Archive = new global::System.IO.Compression.ZipArchive(Stream, global::System.IO.Compression.ZipArchiveMode.Read, false))
+                {
+                    var Budget = new ReadBudget() { ForceFresh = ForceFresh };
+                    ReadArchive(Archive, global::System.IO.Path.GetFullPath(FullPath), "", Enabled, false, 0, Result, Budget, Token);
+                }
+            }
+            catch (global::System.OperationCanceledException )
+            {
+                throw;
+            }
+            catch (global::System.Exception ex) when (((((((ex is global::System.IO.IOException) || (ex is global::System.IO.InvalidDataException)) || (ex is global::System.UnauthorizedAccessException)) || (ex is global::Newtonsoft.Json.JsonException)) || (ex is global::System.FormatException)) || (ex is global::System.Text.DecoderFallbackException)))
+            {
+                if ((((((ex is global::System.IO.IOException) && (!(ex is global::System.IO.InvalidDataException))))) || (ex is global::System.UnauthorizedAccessException)))
+                    Result.IndexReadFailed = true;
+                if (Enabled)
+                {
+                    Incomplete(Result, ((global::System.IO.Path.GetFileName(FullPath) + "：无法完整读取元数据（") + ex.Message) + "）。");
+                }
+                else
+                {
+                    Result.Notices.Add(global::System.IO.Path.GetFileName(FullPath) + "：已禁用，无法读取元数据。");
+                }
+            }
             return Result;
         }
         public static void Reevaluate(TReport Report, TContext Context, global::System.Threading.CancellationToken Token)

@@ -95,6 +95,7 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         LocalLoaderAndLegacy(f);
         LocalInstanceContext();
         LocalIndex(f, environment);
+        LocalMutationPreview(f, environment);
         var expected = NativeDependencyOriginalAssertions.Local.Keys.Except(new[] { 620, 624 }).ToHashSet();
         Native.Check(LocalSeen.SetEquals(expected), "Local source assertion coverage mismatch: missing=" + string.Join(',', expected.Except(LocalSeen)) + " extra=" + string.Join(',', LocalSeen.Except(expected)));
         Console.WriteLine("PASS native dependency-local: " + localCount + " assertions across " + LocalSeen.Count + " fixed-LF50 source statements; external real-pack opt-in620/624 was not selected.");
@@ -226,6 +227,34 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         string forgeJar = Jar(folder, "outer.jar", Entries(("META-INF/mods.toml", fo), ("META-INF/jarjar/metadata.json", """{"jars":[{"path":"META-INF/jarjar/library.jar"}]}"""), ("META-INF/jarjar/library.jar", File.ReadAllBytes(fi))));
         report = Scan(folder, Context("forge", "47.1.0"));
         L(399, Embedded(report, forgeJar).Count == 1 && report.Mods.Count(m => m.IsNested) == 1);
+    }
+
+    private static void LocalMutationPreview(Scope f, FixtureEnvironment environment)
+    {
+        var owner = BackupResourceChecks.Instance(f.Folder("preview/.minecraft/versions/preview"));
+        owner.Version = new McVersion("1.20.1", true);
+        string folder = Path.Combine(owner.PathIndie, "mods");
+        string core = Fabric(folder, "core.jar", "core", "1.0");
+        string user = Fabric(folder, "user.jar", "user", "1.0", Obj("""{"depends":{"core":"*"}}"""));
+        Type runtime = Native.Type("PCL.LocalModPageRuntime");
+        IList impacts = (IList)Native.Call(runtime, "InspectImpacts", null, owner, new[] { core })!;
+        Native.Check(impacts.Count == 1, "The actual mod-page removal handler lost an ordinary instance's local dependency warning.");
+        using (FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None)) {
+            File.Move(core, core + ".disabled");
+            var disabled = (TReport)Native.Call(Inspector, "InspectForImpact", null, folder,
+                Native.Call(Inspector, "ContextForInstance", null, owner, null)!, CancellationToken.None)!;
+            Native.Check(disabled.HasErrors && disabled.IndexArchivesRead == 0 && !disabled.IndexReadFailed,
+                "The actual removal facade reopened the unchanged consumer after disabling its provider.");
+            File.Move(core + ".disabled", core);
+            impacts = (IList)Native.Call(runtime, "InspectImpacts", null, owner, new[] { core })!;
+            Native.Check(impacts.Count == 1, "Reenabling the cached provider lost its local removal impact.");
+        }
+        TReport cached = Scan(folder);
+        cached.OnlineFiles.Add(new TOnlineFile { FullPath = user, Enabled = true, IsSupplementTarget = true,
+            Matches = new List<TOnlineProject> { new() { Platform = "Modrinth", IsExact = true, Dependencies = new() } } });
+        impacts = (IList)Native.Call(Native.Type("PCL.ModDependencyImpactView"), "Collect", null, cached, new[] { core })!;
+        Native.Check(impacts.Count == 1, "An exact cached platform project hid a required local dependency.");
+        environment.AssertNoForbiddenIo();
     }
 
     private static void LocalLoaderAndLegacy(Scope f)
