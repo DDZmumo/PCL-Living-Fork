@@ -405,6 +405,37 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The original optional LegacyLink mode failed Windows compilation.' }
           Write-Output 'Compiled EnableLegacyLink=true only; optional network services were not executed. Main warnings remain in legacy-link-build.log.'
 
+      - name: Require public slim EXE legacy identity and exact ZIP payload
+        if: matrix.configuration == 'Release'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'lf-public-slim-compatibility'
+          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source
+          $index = Get-Content -LiteralPath (Join-Path $output 'SlimRelease.Artifacts.json') -Raw | ConvertFrom-Json
+          if ($index.selfContained -isnot [bool] -or $index.selfContained -or $index.legacyBridgeIncluded -isnot [bool] -or -not $index.legacyBridgeIncluded) { throw 'Public slim package lost legacy compatibility or bundled a runtime.' }
+          $exe = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-exe').fileName
+          $zipPath = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-zip').fileName
+          if ([Reflection.AssemblyName]::GetAssemblyName($exe).Name -cne 'LivingPCL' -or [Diagnostics.FileVersionInfo]::GetVersionInfo($exe).ProductName -cne 'LivingPCL') { throw 'Old launchers cannot validate the public EXE.' }
+          function Hash-Stream($stream) {
+            $hash = [Security.Cryptography.SHA256]::Create()
+            try { return [Convert]::ToHexString($hash.ComputeHash($stream)).ToLowerInvariant() } finally { $hash.Dispose() }
+          }
+          $assembly = [Reflection.Assembly]::LoadFile($exe)
+          $payload = $assembly.GetManifestResourceStream('PCLLivingFork.Payload')
+          try { $embeddedHash = Hash-Stream $payload } finally { $payload.Dispose() }
+          $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            if ($zip.Entries.Count -ne 1 -or $zip.Entries[0].FullName -cne [IO.Path]::GetFileName($exe)) { throw 'Public ZIP layout changed.' }
+            $entry = $zip.Entries[0].Open()
+            try { $zipHash = Hash-Stream $entry } finally { $entry.Dispose() }
+          } finally { $zip.Dispose() }
+          if ($embeddedHash -cne $zipHash -or $embeddedHash -cne $index.nativePayloadSha256) { throw 'The legacy EXE and public ZIP contain different programs.' }
+          foreach ($artifact in $index.artifacts) {
+            $actual = (Get-FileHash -LiteralPath (Join-Path $output $artifact.fileName) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -cne $artifact.sha256) { throw 'Public package receipt hash mismatch.' }
+          }
+          [ordered]@{ kind = 'PCLLF.PublicSlimCompatibility'; productVersion = $index.productVersion; embeddedPayloadSha256 = $embeddedHash; legacyManagedIdentity = $true; zipPayloadIdentical = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:NATIVE_LOG_DIRECTORY 'public-slim-compatibility.json') -Encoding utf8
+
       - name: Upload small actual native startup evidence
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v7
