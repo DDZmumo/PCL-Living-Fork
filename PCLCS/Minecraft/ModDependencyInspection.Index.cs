@@ -22,13 +22,14 @@ namespace PCLCS;
 // PCL/CE fixed-source provenance remains in Contracts; no CE policy imported.
 public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile> {
 
- public static class Index {
+ public static partial class Index {
 
         public const global::System.Int32 Schema = 4;
         public const global::System.Int64 MaxBytes = (((32L) * 1024L) * 1024L);
         public static string CacheDirectory { get; set; } = global::System.IO.Path.Combine(global::System.Environment.GetFolderPath(global::System.Environment.SpecialFolder.LocalApplicationData), "PCLLivingFork", "Cache", "ModDependencyIndex");
         private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim> Gates = new global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::System.Threading.SemaphoreSlim>(global::System.StringComparer.Ordinal);
         private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, Index.MemoryEntry> Memory = new global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, Index.MemoryEntry>(global::System.StringComparer.Ordinal);
+        private static readonly ConcurrentDictionary<string, MemoryEntry> ImpactMemory = new(StringComparer.Ordinal);
         private static readonly global::Newtonsoft.Json.JsonSerializerSettings JsonOptions = new global::Newtonsoft.Json.JsonSerializerSettings()
         {
             PreserveReferencesHandling = global::Newtonsoft.Json.PreserveReferencesHandling.Objects,
@@ -48,6 +49,8 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             public global::System.String Fingerprint;
             public global::System.String Generation;
             public TReport Tree;
+            // Optional for older indexes: they remain readable and gain snapshots on the next scan.
+            public List<ArchiveSnapshot> Archives;
         }
         private class MemoryEntry
         {
@@ -59,6 +62,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
         {
             public global::System.String Signature;
             public global::System.Collections.Generic.HashSet<global::System.String> Files = new global::System.Collections.Generic.HashSet<global::System.String>(global::System.StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, ArchiveStamp> Stamps = new(StringComparer.OrdinalIgnoreCase);
         }
 
         private static global::System.String RootKey(global::System.String Root)
@@ -83,6 +87,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
         public static void ClearMemory()
         {
             Index.Memory.Clear();
+            ImpactMemory.Clear();
         }
 
         private static Index.Inventory Capture(global::System.String Root, TContext Context, global::System.Threading.CancellationToken Token)
@@ -112,6 +117,9 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                     var Info = new global::System.IO.FileInfo(FullPath);
                     global::System.String Key = FilePathKey(FullPath);
                     Result.Files.Add(Key);
+                    Result.Stamps.Add(Key, new ArchiveStamp { Path = Key, Length = Info.Length,
+                        LastWrite = Info.LastWriteTimeUtc.Ticks, Created = Info.CreationTimeUtc.Ticks,
+                        Reparse = (int)(Info.Attributes & FileAttributes.ReparsePoint) });
                     Lines.Add((((((((Key.ToUpperInvariant() + "|") + Info.Length) + "|") + Info.LastWriteTimeUtc.Ticks) + "|") + Info.CreationTimeUtc.Ticks) + "|") + ((global::System.Int32)(Info.Attributes & global::System.IO.FileAttributes.ReparsePoint)));
                 }
             }
@@ -243,6 +251,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
         }
         private static void Save(global::System.String FileName, Index.Document Value, global::System.Threading.CancellationToken Token)
         {
+            ImpactMemory.TryRemove(FileName, out _);
             Token.ThrowIfCancellationRequested();
             Value.Tree.IndexPersisted = false;
             global::System.String Content = global::Newtonsoft.Json.JsonConvert.SerializeObject(Value, global::Newtonsoft.Json.Formatting.None, Index.JsonOptions);
@@ -306,58 +315,98 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             {
                 using (var Lease = new Index.IndexLease(Index.Digest(FileName.ToUpperInvariant()), Token))
                 {
-                    for (global::System.Int32 Attempt = 0; Attempt <= 1; Attempt++)
-                    {
-                        Token.ThrowIfCancellationRequested();
-                        Index.Inventory Before;
-                        try
-                        {
-                            Before = Index.Capture(Root, Context, Token);
-                        }
-                        catch (global::System.Exception ex) when (((ex is global::System.IO.IOException) || (ex is global::System.UnauthorizedAccessException)))
-                        {
-                            return ScanRaw(Root, Context, Token, Force);
-                        }
-                        var Saved = (Force) ? (Index.Document)(null) : (Index.ReadDocument(FileName));
-                        if (Index.Valid(Saved, Root, Index.ParseScope(Context), Before))
-                        {
-                            var Result = Saved.Tree;
-                            Result.IndexHit = true;
-                            if (!(global::Newtonsoft.Json.Linq.JToken.DeepEquals(global::Newtonsoft.Json.Linq.JObject.FromObject(Context), global::Newtonsoft.Json.Linq.JObject.FromObject(Result.Context))))
-                            {
-                                Reevaluate(Result, Context, Token);
-                                Result.IndexReevaluated = true;
-                                Index.Save(FileName, Saved, Token);
-                            }
-                            if (((Index.Capture(Root, Context, Token).Signature ?? "") != (Before.Signature ?? "")))
-                                continue;
-                            Index.Bind(Result, Saved, FileName);
-                            return Result;
-                        }
-                        var Tree = ScanRaw(Root, Context, Token, Force);
-                        if (((Index.Capture(Root, Context, Token).Signature ?? "") != (Before.Signature ?? "")))
-                            continue;
-                        if (Tree.IndexReadFailed)
-                            return Tree;
-                        var Value = new Index.Document()
-                        {
-                            Root = Index.RootKey(Root),
-                            Scope = Index.ParseScope(Context),
-                            Fingerprint = Before.Signature,
-                            Generation = global::System.Guid.NewGuid().ToString("N"),
-                            Tree = Tree
-                        };
-                        Index.Save(FileName, Value, Token);
-                        Index.Bind(Tree, Value, FileName);
-                        return Tree;
-                    }
-                    throw new global::System.IO.IOException("模组文件在建立依赖索引期间发生变化，请稍后重试。");
+                    return InspectCore(Root, Context, Token, Force, FileName, false);
                 }
             }
             finally
             {
                 Gate.Release();
             }
+        }
+
+        // A removal preview never writes the shared disk index and must not queue behind
+        // an explicit rebuild or another launcher's index writer. Atomic JSON snapshots,
+        // inventory revalidation and the caller's later mutation guard still apply.
+        public static TReport InspectForImpact(string Root, TContext Context, CancellationToken Token = default)
+        {
+            Token.ThrowIfCancellationRequested();
+            return InspectCore(Root, Context, Token, false, IndexPath(Root, Context), true);
+        }
+
+        private static void Commit(string fileName, Document value, CancellationToken token, bool forImpact, string observedStamp)
+        {
+            if (!forImpact) { Save(fileName, value, token); return; }
+            token.ThrowIfCancellationRequested();
+            value.Tree.IndexPersisted = false;
+            string json = JsonConvert.SerializeObject(value, Formatting.None, JsonOptions);
+            token.ThrowIfCancellationRequested();
+            if (Encoding.UTF8.GetByteCount(json) > MaxBytes) return;
+            if (ImpactMemory.Count > 16) ImpactMemory.Clear();
+            // Keep the stamp observed before reading. A concurrent writer may have committed
+            // newer metadata while this read-only preview was evaluating its private tree.
+            ImpactMemory[fileName] = new MemoryEntry { Json = json, DiskStamp = observedStamp };
+        }
+
+        private static TReport InspectCore(string Root, TContext Context, CancellationToken Token, bool Force, string FileName, bool ForImpact)
+        {
+            for (global::System.Int32 Attempt = 0; Attempt <= 1; Attempt++)
+            {
+                Token.ThrowIfCancellationRequested();
+                string ObservedStamp = DiskStamp(FileName);
+                Index.Inventory Before;
+                try
+                {
+                    Before = Index.Capture(Root, Context, Token);
+                }
+                catch (global::System.Exception ex) when (((ex is global::System.IO.IOException) || (ex is global::System.UnauthorizedAccessException)))
+                {
+                    return ScanRaw(Root, Context, Token, Force);
+                }
+                Document Saved = null;
+                if (!Force)
+                {
+                    if (ForImpact && ImpactMemory.TryGetValue(FileName, out var Cached) && Cached.DiskStamp == ObservedStamp)
+                        Saved = JsonConvert.DeserializeObject<Document>(Cached.Json, JsonOptions);
+                    else Saved = ReadDocument(FileName);
+                }
+                if (Index.Valid(Saved, Root, Index.ParseScope(Context), Before))
+                {
+                    var Result = Saved.Tree;
+                    Result.IndexHit = true;
+                    Result.IndexArchivesReused = Before.Stamps.Count;
+                    if (!(global::Newtonsoft.Json.Linq.JToken.DeepEquals(global::Newtonsoft.Json.Linq.JObject.FromObject(Context), global::Newtonsoft.Json.Linq.JObject.FromObject(Result.Context))))
+                    {
+                        Reevaluate(Result, Context, Token);
+                        Result.IndexReevaluated = true;
+                        Commit(FileName, Saved, Token, ForImpact, ObservedStamp);
+                    }
+                    if (((Index.Capture(Root, Context, Token).Signature ?? "") != (Before.Signature ?? "")))
+                        continue;
+                    Index.Bind(Result, Saved, FileName);
+                    return Result;
+                }
+                TReport Tree;
+                List<ArchiveSnapshot> Archives;
+                try { Tree = ScanIncremental(Root, Context, Token, Force, Before, Saved, out Archives); }
+                catch (InventoryChangedException) { continue; }
+                if (((Index.Capture(Root, Context, Token).Signature ?? "") != (Before.Signature ?? "")))
+                    continue;
+                if (Tree.IndexReadFailed)
+                    return Tree;
+                var Value = new Index.Document()
+                {
+                    Root = Index.RootKey(Root),
+                    Scope = Index.ParseScope(Context),
+                    Fingerprint = Before.Signature,
+                    Generation = global::System.Guid.NewGuid().ToString("N"),
+                    Tree = Tree,
+                    Archives = Archives
+                };
+                Commit(FileName, Value, Token, ForImpact, ObservedStamp);
+                Index.Bind(Tree, Value, FileName);
+                return Tree;
+            }
+            throw new global::System.IO.IOException("模组文件在建立依赖索引期间发生变化，请稍后重试。");
         }
 
         public static void RememberOnline(global::System.String Root, TReport Tree, global::System.Threading.CancellationToken Token)
@@ -376,6 +425,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                     var Current = Index.ReadDocument(Tree.IndexFile);
                     if ((((!(Index.Valid(Current, Root, Index.ParseScope(Tree.Context), Files))) || ((Current.Generation ?? "") != (Tree.IndexGeneration ?? ""))) || ((Files.Signature ?? "") != (Tree.IndexFingerprint ?? ""))))
                         return;
+                    RelinkArchives(Current, Tree);
                     Current.Tree = Tree;
                     Index.Save(Tree.IndexFile, Current, Token);
                 }

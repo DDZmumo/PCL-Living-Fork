@@ -79,6 +79,7 @@
     <Compile Include="../../PCLCS/Minecraft/InstanceCloneExportIsolation.cs" Link="Production/InstanceCloneExportIsolation.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Contracts.cs" Link="Production/ModDependencyInspection.Contracts.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Index.cs" Link="Production/ModDependencyInspection.Index.cs" />
+    <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Incremental.cs" Link="Production/ModDependencyInspection.Incremental.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Archives.cs" Link="Production/ModDependencyInspection.Archives.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Resolution.cs" Link="Production/ModDependencyInspection.Resolution.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyVersions.cs" Link="Production/ModDependencyVersions.cs" />

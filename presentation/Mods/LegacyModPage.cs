@@ -79,7 +79,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         if(!AllowModWrite(host))return;
         TInstance? target=host.Instance();string[] candidates=paths.ToArray();if(target is null||candidates.Length==0){continuation();return;}
         if(Interlocked.CompareExchange(ref dependencyChecking,1,0)!=0){host.Hint("正在检查模组依赖，请稍候。",0,true);return;}
-        host.Hint("正在获取模组依赖影响声明……",0,true);
+        host.Hint("正在检查本地模组依赖影响……",0,true);
         host.Background(()=>{
             string? caption=null,stamp=null;Exception? failure=null;List<TImpact>? impacts=null;
             try{stamp=DependencyStamp(host.GameFolder(target));impacts=host.InspectImpacts(target,candidates);caption=impacts.Count==0?null:string.Join("\r\n",impacts.Select(item=>item.Name+"："+string.Join("；",item.Reasons)));}catch(Exception error){failure=error;}
