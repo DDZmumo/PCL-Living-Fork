@@ -51,7 +51,7 @@ public sealed class InstanceResourceOnlineHost<TVersion, TDownload> where TVersi
     public Action<Exception, string> Warn = null!;
 }
 
-/// <summary>LF 资源哈希匹配、兼容候选选择及回收后替换；保留原注入式网络和下载入口。</summary>
+/// <summary>LF 资源哈希匹配、兼容候选选择及校验后直接替换；保留原注入式网络和下载入口。</summary>
 public sealed class InstanceResourceOnlineFiles<TEntry, TVersion, TDownload, TInfo>
         where TEntry : InstanceResourceEntryData where TVersion : class where TDownload : class
         where TInfo : InstanceResourceOnlineInfoData<TEntry, TVersion> {

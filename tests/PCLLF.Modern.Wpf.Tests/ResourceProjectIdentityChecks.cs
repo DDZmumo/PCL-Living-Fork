@@ -8,6 +8,7 @@ namespace PCLLF.Modern.Wpf.Tests;
 
 internal static class ResourceProjectIdentityChecks {
     internal static void Run() {
+        ResourceWikiIdentityChecks.Run();
         var projects = new Dictionary<string, ResourceProjectModel>();
         var versions = new Dictionary<string, List<ResourceVersionModel>>();
         var requests = new List<string>();

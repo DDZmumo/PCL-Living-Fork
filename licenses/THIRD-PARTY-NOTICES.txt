@@ -764,6 +764,8 @@ scripts/tests/Test-VbCompilerDiscovery.ps1
 tests/PCLLF.Native.Facade.Tests/ModpackExportChecks.cs
 tests/PCLLF.Migration.Tests/ModDependencyAlternativeTests.cs
 tests/PCLLF.Migration.Tests/ModDependencyRuleExpansionTests.cs
+PCLCS/Resources/ResourceWikiIdentity.cs
+tests/PCLLF.Modern.Wpf.Tests/ResourceWikiIdentityChecks.cs
 
 
 ========================================================================
