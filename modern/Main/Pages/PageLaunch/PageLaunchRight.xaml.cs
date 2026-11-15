@@ -21,6 +21,7 @@ namespace PCL
         // 保留真实下载任务与输入身份；读取/版本/缓存/内容处理在 C# 中。
         private ModLoader.LoaderTask<(string Address, bool ShouldRefresh), int> OnlineLoader;
         private bool? moreSettingsVisible;
+        internal Func<bool> MoreSettingsLaunchLoading = () => ModLaunch.McLaunchLoader.State == ModBase.LoadState.Loading;
         public PageLaunchRight()
         {
             __LfAttachOwnHandles();
@@ -125,7 +126,7 @@ namespace PCL
                 Warn = new Action<Exception, string>((ErrorValue, Message) => Logger.Warn(ErrorValue, Message)),
                 Error = new Action<Exception, string>((ErrorValue, Message) => Logger.Error(ErrorValue, Message, LogBehavior.Toast)),
                 HasRunningGame = new Func<bool>(() => ModWatcher.HasRunningMinecraft),
-                LaunchLoading = new Func<bool>(() => ModLaunch.McLaunchLoader.State == ModBase.LoadState.Loading),
+                LaunchLoading = () => MoreSettingsLaunchLoading(),
                 AnimationEnabled = new Func<bool>(() => ModAnimation.AniControlEnabled == 0),
                 Enabled = new Func<bool>(() => Settings.Get<bool>("LaunchRecentWorlds")),
                 ApplyDependencyOptionsState = ApplyDependencyOptionsState,
@@ -176,7 +177,7 @@ namespace PCL
 
         internal void RefreshMoreSettings(bool animate = true)
         {
-            bool visible = Settings.Get<bool>("UiLaunchMoreSettings");
+            bool visible = Settings.Get<bool>("UiLaunchMoreSettings") && !MoreSettingsLaunchLoading();
             string name = "Launch More Settings " + PageUuid;
             if (animate && moreSettingsVisible == visible && (ModAnimation.AniIsRun(name) ||
                 PanMoreSettings.Visibility == (visible ? Visibility.Visible : Visibility.Collapsed))) return;
@@ -235,6 +236,7 @@ namespace PCL
         internal void ApplyDependencyOptionsState(bool GameActive, bool Animate, bool RecentVisible)
         {
             Native.ApplyDependencyOptionsState(GameActive, Animate, RecentVisible);
+            RefreshMoreSettings(Animate);
         }
 
         private void RecentWorldClick(object Sender, MouseButtonEventArgs e)

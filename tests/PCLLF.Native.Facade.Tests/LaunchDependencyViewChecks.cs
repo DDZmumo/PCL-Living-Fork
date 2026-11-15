@@ -12,9 +12,32 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         => (FrameworkElement)LaunchConstruct("PCL.ModDependencyCheckView", report, plan);
     private static Panel LaunchGroups(FrameworkElement view) => (Panel)Native.Get(view, "Groups")!;
 
+    private static void LaunchForbiddenRangeView(LaunchFixture f)
+    {
+        foreach(string version in new[]{"1.10.7+mc1.21.11","1.10.8+mc1.21.11"}) {
+            string folder=Path.Combine(f.Root,"forbidden-range-"+version); Directory.CreateDirectory(folder);
+            Jar(folder,"consumer.jar",Entries(("fabric.mod.json",new JObject { ["schemaVersion"]=1,["id"]="range_consumer",["version"]="0.8.15-beta.1",
+                ["breaks"]=new JObject { ["range_provider"]="<=1.10.7" } }.ToString())));
+            Jar(folder,"provider.jar",Entries(("fabric.mod.json",new JObject { ["schemaVersion"]=1,["id"]="range_provider",["version"]=version }.ToString())));
+            var report=Scan(folder,f.Context);
+            bool blocked=version.StartsWith("1.10.7+",StringComparison.Ordinal);
+            Native.Check(report.HasErrors==blocked,"A Fabric build suffix changed whether the declared forbidden version range matched.");
+            if(!blocked) continue;
+            var view=LaunchCheckView(report,null);
+            IEnumerable<DependencyObject> Walk(DependencyObject root) {
+                yield return root;
+                foreach(object child in LogicalTreeHelper.GetChildren(root))
+                    if(child is DependencyObject element) foreach(var nested in Walk(element)) yield return nested;
+            }
+            Native.Check(Walk(view).OfType<TextBlock>().Any(text=>text.Text.Contains("禁止共存版本：range_provider <=1.10.7",StringComparison.Ordinal)&&text.Text.Contains(version,StringComparison.Ordinal)),
+                "The actual launch conflict view did not identify its range as forbidden or lost the installed full version.");
+        }
+    }
+
     private static void LaunchViews(LaunchFixture f, object unavailable)
     {
         Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
+        LaunchForbiddenRangeView(f);
         FrameworkElement blocked = LaunchCheckView(PlanReport(unavailable), unavailable);
         LD(158, LaunchGroups(blocked).Children.OfType<MyHint>().Any(hint => hint.Text.StartsWith("暂不能自动补全", StringComparison.Ordinal)));
         PageLaunchRight page = new(); LaunchPart<FrameworkElement>(page, "PanLog").Visibility = Visibility.Collapsed;

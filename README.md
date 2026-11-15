@@ -12,16 +12,16 @@
 [![Downloads](https://img.shields.io/github/downloads/DDZmumo/PCL-Living-Fork/total?style=flat-square&label=Downloads&color=3b82f6)](https://github.com/DDZmumo/PCL-Living-Fork/releases)
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
-[下载 1.4.2 正式版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2) ·
+[下载 1.4.3 正式版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.3) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
-[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.2) ·
+[更新说明](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.4.3) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
 [加入 QQ 群](https://qm.qq.com/q/MX1RivlHeE)
 
 </div>
 
-当前正式版为 **1.4.2**，可从上方 GitHub 或 CNB 镜像下载。
+当前正式版为 **1.4.3**，可从上方 GitHub 或 CNB 镜像下载。
 
 ---
 
@@ -54,6 +54,8 @@
 ### 游戏资源与模组管理
 - **全局资源收藏**：顶栏收藏区沿用下载区的搜索、分类与列表界面，收藏整个在线项目；下载、版本资源管理与收藏页同步状态，同一平台项目的不同文件和版本只保留一条记录。已匹配在线项目的模组、资源包和光影包可直接从本地列表收藏。
 - **游戏资源管理**：在启动器内直接打理存档、截图、模组、资源包、光影包和投影/原理图，保留 PCL 原生列表、多选与动效；资源包与光影包支持在线更新，CurseForge 地图下载后自动归档至 `saves\PCLLFWorldDownload` 并解压安装，避免覆盖同名存档。
+- **模组版本替换与重复筛选**：主动下载同一模组的其他版本时，按实际 Mod ID 或经过文件摘要验证的平台项目替换已有版本，支持升级与降级；重复副本可分别选择，删除只影响选中的文件。
+- **资源简介翻译**：资源详情页可按需获取 MCIM 公开译文，保留原文，并区分不同平台和项目的缓存。
 - **资源直接删除**：确认后直接删除本地资源；升级后自动清空各游戏目录和共享缓存中旧版的 `PCL/ResourceRecycle`，不再提供资源回收站。
 - **模组依赖检查**：以圆角图标关系图直观展示模组的前置、被依赖关系与冲突；网络超时或平台未提供精确声明时自动回退参考本地声明，并缓存依赖树以加速后续打开。
 - **加载器匹配核查**：识别 Fabric、Forge、NeoForge 及旧版 Forge 的实际加载声明，减少旧整合包残留模板造成的误报；不匹配模组在列表中标红提醒，内置组件自动归组展示。
@@ -70,7 +72,7 @@
 
 ### 游玩体验与个性化
 - **继续上次的世界**：主页卡片与存档管理页可直接通过 Quick Play 进入上次游玩的 Java 版存档（主页卡片可在“个性化 → 主页”中关闭）。
-- **主页更多设置**：默认收起模组依赖与最近存档面板，勾选后通过 PCL 动画滑出。面板内的依赖检查和自动补全默认开启，收起面板不会停用它们。
+- **主页更多设置**：默认收起模组依赖与最近存档面板，勾选后通过 PCL 动画滑出。启动游戏时临时统一收起，结束或取消启动后按原开关状态恢复；面板内的依赖检查和自动补全默认开启，收起面板不会停用它们。
 - **工具百宝箱**：提供今日人品、内存优化、游戏垃圾清理与自定义文件下载。今日人品按本地日期和设备标识固定计算，重复点击不重新抽取；保留低分、零分和系统时间变化提示，未移植原版隐藏主题解锁。
 - **个人游戏习惯**：按类别跨版本同步基础按键、鼠标、视场角、视角摇晃和音量，编辑后显式保存；版本跟随全局时锁定编辑，不跟随时可独立保存此版本设置；按键管理支持搜索、同键占用检查与重新绑定，换新包也不必重头调键位 ( ´ ▽ ｀ )ﾉ
 - **浅色 / 深色外观与昼夜背景**：可在“设置 → 个性化”中即时切换浅色与深色主题，内置蓝白水晶角色背景会随主题自动切换白天与夜晚姿态；窗口、面板和背景图片的不透明度各自独立调节，不淡化文字与图标。自定义主题色等解锁功能请[赞助原作者龙腾猫跃](https://meloong.com/afd/a/LTCat)获取官方快照版 ♪(^∇^*)

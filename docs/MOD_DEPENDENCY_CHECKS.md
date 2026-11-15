@@ -47,6 +47,8 @@ Forge 的 `features.<modid>.java_version` 与 NeoForge 的 `features.<modid>.jav
 
 ## 回归验证
 
+冲突提示中的“禁止共存版本”表示模组声明的 `breaks`／`conflicts` 范围，不是推荐安装范围。Fabric 的语义版本比较忽略 `+` 后面的构建信息：例如 `1.10.7+mc1.21.11` 与 `1.10.7` 相等，因此会命中 `<=1.10.7` 的禁止范围；只有版本约束与所有方向的兼容声明都满足时才能共存。规则依据见 [Fabric 官方版本比较实现](https://github.com/FabricMC/fabric-loader/blob/cb9523bc29ef775c50b6aef5e43bc56927cd8e67/src/main/java/net/fabricmc/loader/impl/util/version/SemanticVersionImpl.java#L253-L313)。
+
 ```powershell
 dotnet run --project tests/PCLLF.Migration.Tests/PCLLF.Migration.Tests.csproj -- --group mod-dependencies --group mod-dependency-online
 ```
