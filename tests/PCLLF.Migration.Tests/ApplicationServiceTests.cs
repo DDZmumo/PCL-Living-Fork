@@ -67,6 +67,12 @@ internal static class ApplicationServiceTests {
         ports.Start = _ => throw new IOException("synthetic admission failure");
         Throws<IOException>(() => service.Start());
         Require(ReferenceEquals(service.Runtime.Target, original), "Failed admission replaced the previous target.");
+        bool started = false; object startedTarget = selected;
+        ports.IsActive = () => started;
+        ports.Start = _ => { started = true; throw new IOException("synthetic failure after loader activation"); };
+        Throws<IOException>(() => service.Start());
+        Require(ReferenceEquals(service.Runtime.Target, startedTarget) && service.Runtime.Operation is null,
+            "A fault after loader activation restored another session's target or process references.");
     }
     private static void ThreadAccess() {
         var ports = LaunchCommands(); int mutations = 0;

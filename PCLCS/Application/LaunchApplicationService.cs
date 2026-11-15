@@ -59,7 +59,12 @@ public sealed class LaunchApplicationService<TOptions, TInstance, TTask, TOperat
             bool accepted = commands.Start(options);
             if (!accepted) Runtime = previous;
             return accepted;
-        } catch { Runtime = previous; throw; }
+        } catch {
+            // The loader may already have accepted work before a later callback failed.
+            // Its live callbacks must keep the same session instead of reading previous process/target slots.
+            if (!commands.IsActive()) Runtime = previous;
+            throw;
+        }
         finally { admitting = false; }
     }
     public void RequestCancellation() { commands.VerifyAccess(); if (commands.IsActive()) commands.Cancel(); }
