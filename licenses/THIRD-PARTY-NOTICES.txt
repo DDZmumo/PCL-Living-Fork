@@ -767,6 +767,12 @@ tests/PCLLF.Migration.Tests/ModDependencyAlternativeTests.cs
 tests/PCLLF.Migration.Tests/ModDependencyRuleExpansionTests.cs
 PCLCS/Resources/ResourceWikiIdentity.cs
 tests/PCLLF.Modern.Wpf.Tests/ResourceWikiIdentityChecks.cs
+PCLCS/Minecraft/ModFileInstall.cs
+PCLCS/Resources/ResourceDescriptionTranslation.cs
+modern/Main/Modules/Minecraft/ModDownloadInstaller.cs
+tests/PCLLF.Migration.Tests/ModFileInstallTests.cs
+tests/PCLLF.Migration.Tests/ResourceDescriptionTranslationTests.cs
+tests/PCLLF.Native.Facade.Tests/NativeModDownloadChecks.cs
 
 
 ========================================================================

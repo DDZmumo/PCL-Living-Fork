@@ -64,14 +64,14 @@ internal static class LocalModSortChecks
         void Order(params string[] names) => Native.Check(Names().SequenceEqual(names), "Local mod page order differs: " + string.Join(",", Names()));
 
         Native.Check(page.FindName("ComboSort") is null && ResourceSortChecks.Mode(page) == 1 && sort.Text == "添加时间 · 倒序", "Real mod page must offer the compact descending addition-time action.");
-        page.SelectedMods.Add(older.EnabledName);
+        page.SelectedMods.Add(older.StorageKey);
         Call("LoadUI");
         Order(newer.File.Name, middle.File.Name, older.File.Name);
         ResourceSortChecks.SetSort(page, 1);
         Order(newer.File.Name, middle.File.Name, older.File.Name);
         Native.Check((LocalResourceSortOrder)Native.Property(controller.GetType(), "SortOrder").GetValue(controller)! == LocalResourceSortOrder.AddedNewest,
             "The real sort-button clicks did not reach the presentation controller.");
-        Native.Check(page.SelectedMods.SequenceEqual(new[] { older.EnabledName }) && rows.Children.OfType<MyLocalModItem>().Single(item => ReferenceEquals(item.Entry, older)).Checked,
+        Native.Check(page.SelectedMods.SequenceEqual(new[] { older.StorageKey }) && rows.Children.OfType<MyLocalModItem>().Single(item => ReferenceEquals(item.Entry, older)).Checked,
             "Switching sort lost the real row selection.");
         ResourceSortChecks.SetSort(page, 2);
         Order(older.File.Name, middle.File.Name, newer.File.Name);

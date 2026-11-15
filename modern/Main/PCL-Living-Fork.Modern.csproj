@@ -343,6 +343,7 @@
 <Compile Include="Controls/ThemeTransition.cs" />
 <Compile Include="Modules/ModLauncherUpdate.Deferred.cs" />
   <Resource Include="Images/Branding/DefaultBackgroundNight.png" />
-  <Compile Include="Modules/Minecraft/ModDependencyIndex.cs" />
+<Compile Include="Modules/Minecraft/ModDependencyIndex.cs" />
+<Compile Include="Modules/Minecraft/ModDownloadInstaller.cs" />
 </ItemGroup>
 </Project>

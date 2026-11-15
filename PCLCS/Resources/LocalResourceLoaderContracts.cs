@@ -10,6 +10,7 @@ namespace PCLCS;
 public sealed class LocalResourceCompatibilityContext {
     public string Folder = null!;
     public Action<string, CancellationToken> Inspect = null!;
+    public Func<string,CancellationToken,IReadOnlyDictionary<string,string[]>>? ReadIds;
 }
 public sealed class LocalResourceLoaderHost<TLocal, TProject, TVersion>
     where TLocal : LocalResourceFileData<TProject, TVersion>

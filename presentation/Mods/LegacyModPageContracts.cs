@@ -9,7 +9,7 @@ using PCLCS;
 
 namespace PCLLF.Presentation.Mods;
 
-public enum LegacyModFilter { All, Enabled, Disabled, CanUpdate }
+public enum LegacyModFilter { All, Enabled, Disabled, CanUpdate, Duplicate }
 public delegate void LegacyModSelectionBar(int count,ref int previous,bool animate);
 public sealed class LegacyModPageView {
     public Func<FrameworkElement> Root = null!, Back = null!, Empty = null!, ListBack = null!;

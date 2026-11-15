@@ -61,20 +61,20 @@ public sealed partial class LocalResourceLoaderEngine<TLocal, TProject, TVersion
             foreach (string file in modFiles) {
                 if (task.IsCanceled()) return;
                 TLocal entry = host.CreateLocal(file);
-                TLocal? duplicate = mods.FirstOrDefault(m => m.EnabledName == entry.EnabledName);
-                if (duplicate is not null) {
-                    TLocal disabled = duplicate.IsEnabled ? entry : duplicate;
-                    host.Warning($"重复的 Mod 文件：{duplicate.File.Name} 与 {entry.File.Name}，已忽略 {disabled.File.Name}");
-                    if (ReferenceEquals(disabled, entry)) continue;
-                    mods.Remove(disabled);
-                }
                 mods.Add(entry);
             }
             host.Info($"共发现 {mods.Count} 个 Mod");
             mods = mods.OrderBy(m => m.File.Name).ToList();
             LocalResourceCompatibilityContext? compatibility = host.ReadCompatibility();
             if (compatibility is not null && PathUtils.IsSame(task.Input(), compatibility.Folder)) {
-                try { compatibility.Inspect(task.Input(), task.CreateCancellationToken()); }
+                try {
+                    if (compatibility.ReadIds is null) compatibility.Inspect(task.Input(), task.CreateCancellationToken());
+                    else {
+                        var identities = compatibility.ReadIds(task.Input(), task.CreateCancellationToken());
+                        foreach (var mod in mods)
+                            if (identities.TryGetValue(mod.StorageKey,out var ids)) mod.DeclaredModIds = ids;
+                    }
+                }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { host.Warn(ex, "检查 Mod 列表的加载器兼容性失败，仍显示本地文件"); }
             }
