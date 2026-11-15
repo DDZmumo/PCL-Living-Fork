@@ -119,12 +119,12 @@ internal sealed class CloneFixture : IDisposable
 
     private void Save(Type owner, string name)
     {
-        FieldInfo field = Native.Field(owner, name);
+        var field = Native.State(owner, name);
         object? value = field.GetValue(null);
         restore.Push(() => field.SetValue(null, value));
     }
 
-    internal void SelectMinecraft(string path) => Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, Path.GetFullPath(path) + Path.DirectorySeparatorChar);
+    internal void SelectMinecraft(string path) => Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, Path.GetFullPath(path) + Path.DirectorySeparatorChar);
     internal string Folder(string name)
     {
         string path = Path.GetFullPath(Path.Combine(Root, name));

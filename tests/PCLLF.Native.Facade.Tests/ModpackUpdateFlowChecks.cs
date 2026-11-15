@@ -210,7 +210,7 @@ internal static class ModpackUpdateFlowChecks
         SeedOrigin(accepted, old, root, "accept-origin");
         LegacyPrunedOrigin(accepted);
         PageInstanceLeft.Instance = accepted;
-        Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, accepted);
+        Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, accepted);
         flow.Messages.Clear(); flow.Archives.Enqueue(next); flow.Archives.Enqueue(old);
         int previews = 0;
         flow.Preview = plan =>

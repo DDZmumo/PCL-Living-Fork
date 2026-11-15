@@ -33,16 +33,32 @@ Core 不允许引用 Main、Presentation、WPF 适配层或 WindowsDesktop。WPF
 - `LegacyMinecraftListOrder.SortByComparison` 保留原选择顺序、同值顺序和消耗输入列表的行为，供实例引擎和列表适配器共同使用。
 - `InstanceResourcePackageRules.OpenRead(Stream, bool)` 统一 ZIP 条目名称解码；默认随 archive 关闭输入流，`leaveOpen: true` 将流生命周期留给调用者。入口不替代调用者的路径、条目名和读取大小检查。
 
+## 应用服务与状态归属
+
+[应用服务](../PCLCS/Application)在 Core 内编译，由 Main 的 [组合入口](../modern/Main/Application/LauncherApplicationServices.cs)绑定既有模型、引擎和平台接口。新 WPF 界面使用 `LauncherApplicationServices.Launch`、`Accounts`、`Instances` 和 `Tasks` 四个职责接口；不再分别保存启动、账号或选择状态，也不需要直接配置大型 `LegacyLaunchHost`。
+
+| 职责 | 唯一状态来源 | 应用接口与兼容入口 |
+| --- | --- | --- |
+| 当前启动 | `LaunchApplicationService.Runtime` 中的选项、固定目标、Java、参数、编码、启动任务、进程和 Watcher 引用 | `ILaunchApplicationService<TOptions>` 提供启动、取消和只读快照；`ModLaunch` 同名成员转为转接属性 |
+| 登录会话 | `AccountApplicationService.Runtime` 中的主登录及四种登录 Loader；其真实输入、输出和状态仍由 Loader/认证引擎维护 | `IAccountApplicationService<TInput>` 提供显式输入验证、登录、取消、退出和不含凭据的元数据快照 |
+| 当前实例与目录 | `InstanceSelectionApplicationService.Runtime` 的当前实例、目录缓存；有效目录仍经 Minecraft 引擎处理整合包模式与配置规则 | `IInstanceSelectionApplicationService<TInstance>` 提供受占用检查的选择命令与变更事件；旧 setter 复用原引擎副作用顺序 |
+| 任务登记与观察 | `TaskApplicationService.RuntimeTasks` 的真实 Loader 集合，以及每个 Loader/Worker 自己的执行状态 | `ITaskApplicationService` 返回绑定真实对象的观察句柄；`ModLoader.LoaderTaskbar` 转接到同一个集合 |
+
+账号持久化仍由现有 `Settings`/注册表事务负责，应用服务不另存令牌、账号清单或已登录标志。显示名称来自当前登录方式；快照只包含方式、名称、任务元数据和由原存储推导的状态，不包含原始登录输入、令牌或异常正文。退出登录与取消启动的顺序提取为共享动作，现有页面与新应用入口调用同一份实现，原有失败提示继续留在表现层。
+
+启动准入在修改活动会话前检查重入、正在启动及未结束的实际线程。每次接受启动时固定目标；引擎在该启动及取消收尾期间读取固定目标，而选择服务继续表达当前 UI 选择。兼容模块仍保持原初始化顺序；反射工具读取已迁移成员时应使用属性或应用接口，不再依赖旧静态字段。
+
+任务观察不建立第二个状态机。`CancellationRequested` 仅表示真实 Loader 已请求取消；只有终态且 `WorkloadActive == false` 才能标为收尾完成。线程加载器跟踪实际线程的 `finally`，包括被替换但尚未退出的线程；Worker 使用其真实 `Running`，组合任务查看子任务。不能证明执行结束的适配器返回 `null`，不能把它当作 `false`。观察句柄在旧任务栏移除行后仍读取原对象；文件占用的释放始终由原事务、Worker 和实例锁负责，观察服务不提前释放。
+
+命令在 WPF UI 线程调用；变更订阅与快照刷新由界面自己的 Dispatcher 管理。现有选择流程成功后发布变更事件，同一实例引用不会重复通知；持久化或引擎异常继续向调用者传播，不伪造成功事件。业务测试的 `foundation`、`validation-loaders` 组及真实 Main 的 `application-services` 组分别验证服务准入、线程收尾和新旧入口共享状态；`account-ui` 单独验证真实加密存储与账号元数据。
+
 ## 当前仍存在的宿主约束
 
-这一步隔离了程序集依赖，尚未提供独立的完整启动器应用服务。
-
-- `ModLaunch` 仍拥有启动选项、登录任务、进程与 Watcher 等静态状态。`CreateLaunchHost` 已按原顺序逐项装配，字段表达式和状态来源保持一致。
-- `LegacyLaunchHost`、`PackUpdateFlowHost` 等仍通过委托访问既有任务、选中实例、确认窗口和页面刷新。部分入口要求 UI 线程；新 UI 不能把这些调用直接搬到任意后台线程。
-- Presentation 及 WPF 控制器含 `FrameworkElement`、页面元素和旧导航语义。新 UI 应按功能选择复用适配器或重新实现视图，不把这些类型带入 Core。
+- `LegacyLaunchHost`、`PackUpdateFlowHost` 等作为既有引擎的兼容适配仍存在；确认窗口、设备授权提示、导航和进度渲染仍需在新 UI 的组合入口绑定，不能把旧页面回调直接搬到后台线程。
+- 应用接口的泛型目前闭合到既有 Main DTO，保留既有数据与调用面。模型整体搬入 Core、替换账号输入控件与新窗口设计是后续工作，不由新增服务自动完成。
+- 多个已启动游戏的生命周期继续由原 Watcher 集合维护；应用启动状态描述当前启动会话，不复制全局游戏运行标志。
+- Presentation 及 WPF 控制器含 `FrameworkElement`、页面元素和旧导航语义。新 UI 按功能选择复用适配器或重新实现视图，不把这些类型带入 Core。
 - Core 内仍有 Windows 注册表类型、Win32 激活与路径兼容操作。`net10.0` 表示不依赖桌面框架，并非所有方法都支持其他操作系统。
-
-后续整套新 UI 的接入需要确定启动会话、账号、实例选择与任务状态的所有者，再按职责缩小宿主接口。每一项状态应只有一个真实来源，避免新旧界面各自保存一份并通过刷新回调同步。应用服务的提取不需要先改变现有登录、下载和文件操作策略。
 
 ## 必须保持的行为
 

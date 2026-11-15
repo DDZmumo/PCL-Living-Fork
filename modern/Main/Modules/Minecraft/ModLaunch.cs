@@ -46,20 +46,33 @@ namespace PCL
     // LF 原字段、嵌套类型及平台调用身份；完整启动／登录／参数／进程业务由 C# 实现维护。
     public static class ModLaunch
     {
-        public static global::PCL.ModLaunch.McLaunchOptions CurrentLaunchOptions = (global::PCL.ModLaunch.McLaunchOptions)null;
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object> McLaunchLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>("Loader Launch", global::PCL.ModLaunch.McLaunchStart) { OnStateChanged = Loader => global::PCL.ModLaunch.McLaunchState((global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>)Loader) };
-        public static global::PCL.ModLoader.LoaderCombo<global::System.Object> McLaunchLoaderReal;
-        public static global::System.Diagnostics.Process McLaunchProcess;
-        public static global::PCL.ModWatcher.Watcher McLaunchWatcher;
-        public static global::PCLCS.Java McLaunchJavaSelected = (global::PCLCS.Java)null;
-        private static global::System.String CanceledHint = (global::System.String)null;
-        private static global::System.String McLaunchArgument;
-        private static global::System.Text.Encoding McLaunchEncoding;
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginResult> McLoginLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginResult>("登录", global::PCL.ModLaunch.McLoginStart, global::PCL.ModLaunch.McLoginInput, global::System.Threading.ThreadPriority.BelowNormal) { ReloadTimeout = 1, ProgressWeight = 15d, Block = false };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginResult> McLoginMsLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginResult>("Loader Login Ms", global::PCL.ModLaunch.McLoginMsStart) { ReloadTimeout = 1 };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult> McLoginLegacyLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult>("Loader Login Legacy", global::PCL.ModLaunch.McLoginLegacyStart);
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> McLoginNideLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult>("Loader Login Nide", global::PCL.ModLaunch.McLoginServerStart) { ReloadTimeout = (((1000) * (60)) * (10)) };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> McLoginAuthLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult>("Loader Login Auth", global::PCL.ModLaunch.McLoginServerStart) { ReloadTimeout = (((1000) * (60)) * (10)) };
+        public static McLaunchOptions CurrentLaunchOptions { get => LauncherApplicationServices.LaunchOwner.Runtime.Options; set => LauncherApplicationServices.LaunchOwner.Runtime.Options = value; }
+        public static ModLoader.LoaderTask<McLaunchOptions, object> McLaunchLoader { get => LauncherApplicationServices.LaunchOwner.Runtime.Task; set => LauncherApplicationServices.LaunchOwner.Runtime.Task = value; }
+        public static ModLoader.LoaderCombo<object> McLaunchLoaderReal { get => LauncherApplicationServices.LaunchOwner.Runtime.Operation; set => LauncherApplicationServices.LaunchOwner.Runtime.Operation = value; }
+        public static Process McLaunchProcess { get => LauncherApplicationServices.LaunchOwner.Runtime.Process; set => LauncherApplicationServices.LaunchOwner.Runtime.Process = value; }
+        public static ModWatcher.Watcher McLaunchWatcher { get => LauncherApplicationServices.LaunchOwner.Runtime.Watcher; set => LauncherApplicationServices.LaunchOwner.Runtime.Watcher = value; }
+        public static Java McLaunchJavaSelected { get => LauncherApplicationServices.LaunchOwner.Runtime.Java; set => LauncherApplicationServices.LaunchOwner.Runtime.Java = value; }
+        private static string CanceledHint { get => LauncherApplicationServices.LaunchOwner.Runtime.CancellationHint; set => LauncherApplicationServices.LaunchOwner.Runtime.CancellationHint = value; }
+        private static string McLaunchArgument { get => LauncherApplicationServices.LaunchOwner.Runtime.Arguments; set => LauncherApplicationServices.LaunchOwner.Runtime.Arguments = value; }
+        private static Encoding McLaunchEncoding { get => LauncherApplicationServices.LaunchOwner.Runtime.Encoding; set => LauncherApplicationServices.LaunchOwner.Runtime.Encoding = value; }
+        public static ModLoader.LoaderTask<McLoginData, McLoginResult> McLoginLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Login; set => LauncherApplicationServices.AccountOwner.Runtime.Login = value; }
+        public static ModLoader.LoaderTask<McLoginMs, McLoginResult> McLoginMsLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Microsoft; set => LauncherApplicationServices.AccountOwner.Runtime.Microsoft = value; }
+        public static ModLoader.LoaderTask<McLoginLegacy, McLoginResult> McLoginLegacyLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Offline; set => LauncherApplicationServices.AccountOwner.Runtime.Offline = value; }
+        public static ModLoader.LoaderTask<McLoginServer, McLoginResult> McLoginNideLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Nide; set => LauncherApplicationServices.AccountOwner.Runtime.Nide = value; }
+        public static ModLoader.LoaderTask<McLoginServer, McLoginResult> McLoginAuthLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Auth; set => LauncherApplicationServices.AccountOwner.Runtime.Auth = value; }
+        private static readonly bool ApplicationTasksInitialized = InitializeApplicationTasks();
+        static ModLaunch() { _ = ApplicationTasksInitialized; }
+        internal static void EnsureApplicationServicesInitialized() { }
+        private static bool InitializeApplicationTasks()
+        {
+            McLaunchLoader = new("Loader Launch", McLaunchStart) { OnStateChanged = loader => McLaunchState((ModLoader.LoaderTask<McLaunchOptions, object>)loader) };
+            McLoginLoader = new("登录", McLoginStart, McLoginInput, ThreadPriority.BelowNormal) { ReloadTimeout = 1, ProgressWeight = 15d, Block = false };
+            McLoginMsLoader = new("Loader Login Ms", McLoginMsStart) { ReloadTimeout = 1 };
+            McLoginLegacyLoader = new("Loader Login Legacy", McLoginLegacyStart);
+            McLoginNideLoader = new("Loader Login Nide", McLoginServerStart) { ReloadTimeout = 1000 * 60 * 10 };
+            McLoginAuthLoader = new("Loader Login Auth", McLoginServerStart) { ReloadTimeout = 1000 * 60 * 10 };
+            return true;
+        }
         private readonly static global::PCLCS.LegacyLaunchEngine<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher> Service = new global::PCLCS.LegacyLaunchEngine<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher>(global::PCL.ModLaunch.CreateLaunchHost());
 
         public enum McLoginType
@@ -448,7 +461,7 @@ namespace PCL
             {
                 Options = new Func<global::PCL.ModLaunch.McLaunchOptions>(() => global::PCL.ModLaunch.CurrentLaunchOptions),
                 StoreOptions = new Action<global::PCL.ModLaunch.McLaunchOptions>(Value => global::PCL.ModLaunch.CurrentLaunchOptions = Value),
-                SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
+                SelectedInstance = LauncherApplicationServices.ReadLaunchInstance,
                 StoreSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value),
                 CreateInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name)),
                 SelectedFolder = new Func<global::System.String>(() => global::PCL.ModMinecraft.McFolderSelected),
@@ -949,8 +962,9 @@ namespace PCL
 
         public static global::System.Boolean McLaunchStart(global::PCL.ModLaunch.McLaunchOptions Options = null)
         {
-            return global::PCL.ModLaunch.Service.McLaunchStart(Options);
+            return LauncherApplicationServices.Launch.Start(Options);
         }
+        internal static bool StartFromApplication(McLaunchOptions options) => Service.McLaunchStart(options);
         public static void McLaunchLog(global::System.String Text, global::MeloongCore.LogLevel Level = global::MeloongCore.LogLevel.Info)
         {
             global::PCL.ModLaunch.Service.McLaunchLog(Text, Level);

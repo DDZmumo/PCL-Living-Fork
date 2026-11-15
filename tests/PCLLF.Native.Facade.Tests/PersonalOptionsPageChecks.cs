@@ -24,7 +24,7 @@ internal static class PersonalOptionsPageChecks {
         scope.SetGlobal("LaunchPersonalOptionsSync", false); scope.SetGlobal("LaunchPersonalOptionsExcluded", "[]"); scope.SetGlobal("LaunchPersonalOptionsCapture", false);
         foreach (string category in new[] { "Keys", "Mouse", "View", "Accessibility", "Audio" }) scope.SetGlobal("LaunchPersonalOptions" + category, true);
         var previousPage = ModMain.FrmSetupPersonal; var previousLeft = ModMain.FrmInstanceLeft; var previousContext = PageInstanceLeft.Instance;
-        var selected = Native.Field(typeof(ModMinecraft), "_McInstanceSelected"); object? oldSelected = selected.GetValue(null); selected.SetValue(null, source);
+        var selected = Native.State(typeof(ModMinecraft), "_McInstanceSelected"); object? oldSelected = selected.GetValue(null); selected.SetValue(null, source);
         var app = System.Windows.Application.Current; var oldMain = app.MainWindow;
         var window = new Window { Width = 870, Height = 740, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
         try {

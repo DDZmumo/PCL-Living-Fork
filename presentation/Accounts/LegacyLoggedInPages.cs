@@ -88,12 +88,13 @@ public sealed class LegacyLoggedInPage<TLegacy, TMs, TServer> {
     }
     public void ExitLogin() {
         try {
-            if (kind == "MsV2") {
-                host.MsLogin.Cancel();
-                host.SaveAccountGroup(new Dictionary<string, object?> { ["CacheMsV2OAuthRefresh"] = "", ["CacheMsV2Access"] = "", ["CacheMsV2ProfileJson"] = "", ["CacheMsV2Uuid"] = "", ["CacheMsV2Name"] = "", ["CacheMsV2Expires"] = 0L, ["CacheMsV2Migrated"] = true });
-            } else if (kind == "Auth") {
-                host.AuthLogin.Cancel(); host.SaveAccountGroup(new Dictionary<string, object?> { ["CacheAuthAccess"] = "", ["CacheAuthUuid"] = "", ["CacheAuthName"] = "" }); host.AuthLogin.ResetInput();
-            } else { host.NideLogin.Cancel(); host.SaveAccountGroup(new Dictionary<string, object?> { ["CacheNideAccess"] = "" }); host.NideLogin.ResetInput(); }
+            var provider = kind == "MsV2" ? PCLCS.Applications.AccountProvider.Microsoft :
+                kind == "Auth" ? PCLCS.Applications.AccountProvider.Auth : PCLCS.Applications.AccountProvider.Nide;
+            if (host.SignOut is not null) host.SignOut(provider);
+            else PCLCS.Applications.AccountSessionActions.SignOut(provider, new() {
+                CancelMicrosoft = host.MsLogin.Cancel, CancelAuth = host.AuthLogin.Cancel, CancelNide = host.NideLogin.Cancel,
+                ResetAuthInput = host.AuthLogin.ResetInput, ResetNideInput = host.NideLogin.ResetInput, Save = host.SaveAccountGroup
+            });
             host.RefreshLaunchPage(false, true);
         } catch (Exception) { Logger.Error("退出登录未能保存，原有账号状态已保留。请稍后重试。", LogBehavior.Toast); }
     }

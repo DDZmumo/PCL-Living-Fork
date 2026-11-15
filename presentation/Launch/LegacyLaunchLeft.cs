@@ -166,11 +166,12 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
         if (state == 3) host.GlobalButtons.MoreVisibility(host.ModpackMode() ? Visibility.Visible : host.GlobalButtons.ReadVersionVisibility());
     }
     public void CancelClick() {
-        if (host.HasRealLaunch()) {
-            host.RealLaunch().Cancel(); host.LaunchLog("已取消启动");
-            try { if (host.HasWatcher()) host.KillWatcher(); else if (host.LaunchProcess() is not null) { if (!host.LaunchProcess()!.HasExited) host.LaunchProcess()!.Kill(); } }
-            catch (Exception error) { Logger.Error(error, "取消启动结束进程失败", LogBehavior.Toast); }
-        }
+        if (host.CancelLaunch is not null) { host.CancelLaunch(); return; }
+        PCLCS.Applications.LaunchCancellationActions.Cancel(new() {
+            HasOperation = host.HasRealLaunch, CancelOperation = () => host.RealLaunch().Cancel(),
+            LogCancellation = () => host.LaunchLog("已取消启动"), HasWatcher = host.HasWatcher,
+            KillWatcher = host.KillWatcher, ReadProcess = host.LaunchProcess
+        });
     }
     public void MoreClick() {
         if (host.LaunchState() == LegacyLaunchPanelState.Loading) return;

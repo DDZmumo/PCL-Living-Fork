@@ -62,12 +62,19 @@ internal static class AccountUiChecks
         Native.Check(history.Count == 2 && (string?)history["FixtureA"] == "fixture-refresh-a" && history["FixtureB"] is null && (string?)history["FixtureBUpdated"] == "fixture-refresh-new", "Actual session commit did not preserve the other account and rename only the selected account.");
         Native.Check(Settings.Get<long>("CacheMsV2Expires") > DateTimeOffset.UtcNow.ToUnixTimeSeconds() && Settings.Get<bool>("CacheMsV2Migrated") && Settings.Get<ModLaunch.McLoginType>("LoginType") == ModLaunch.McLoginType.Ms, "Actual account commit lost Int64/bool/enum setting types.");
         string[] sessionKeys = scope.Store.Transactions.Skip(scope.SeedTransactionCount).Single(transaction => transaction.Contains("LoginMsJson_LF", StringComparer.Ordinal));
+        var applicationAccount = LauncherApplicationServices.Accounts.ReadSnapshot();
+        string accountMetadata = Newtonsoft.Json.JsonConvert.SerializeObject(applicationAccount);
+        Native.Check(applicationAccount.Provider == PCLCS.Applications.AccountProvider.Microsoft && applicationAccount.Authenticated &&
+            applicationAccount.DisplayName == saved.UserName && applicationAccount.Task.Id == scope.Loader.Uuid &&
+            !accountMetadata.Contains(saved.AccessToken, StringComparison.Ordinal) &&
+            !accountMetadata.Contains(saved.OAuthRefreshToken, StringComparison.Ordinal), "Application account metadata diverged from the actual session or exposed credentials.");
         Native.Check(sessionKeys.Length == 8 && sessionKeys[^1] == "CacheMsV2Migrated_LF" && scope.Store.GetValue("CacheMsV2OAuthRefresh_LF") is string cipher && cipher != "fixture-refresh-new" && !cipher.Contains("fixture-refresh-new", StringComparison.Ordinal), "Actual Microsoft session transaction lost marker-last LF mapping or stored its token as plaintext.");
 
         scope.At(AccountUiChecksScope.Checkpoint.Logout);
         Click(Part<MyIconButton>(skin, "BtnExit"));
         scope.AwaitUi(() => scope.IsCurrent<PageLoginMs>() && scope.Refreshes == 2);
         scope.At(AccountUiChecksScope.Checkpoint.PostLogout);
+        Native.Check(!LauncherApplicationServices.Accounts.ReadSnapshot().Authenticated, "Application account metadata retained a logged-out session.");
         Native.Check(ReferenceEquals(page, scope.Current<PageLoginMs>()), "Logout/navigation replaced the existing actual account page rather than using Main's page cache.");
         Native.Check(Settings.Get<string>("CacheMsV2OAuthRefresh") == "" && Settings.Get<string>("CacheMsV2Access") == "" && Settings.Get<string>("CacheMsV2Name") == "" && Settings.Get<string>("CacheMsV2Uuid") == "" && Settings.Get<string>("CacheMsV2ProfileJson") == "" && Settings.Get<long>("CacheMsV2Expires") == 0L && Settings.Get<bool>("CacheMsV2Migrated"), "Actual logout did not clear all active session values with the original types.");
         Native.Check(JToken.DeepEquals(history, JObject.Parse(Settings.Get<string>("LoginMsJson"))) && accounts.SelectedIndex == 0 && PageLoginMs.GetLoginData().OAuthRefreshToken == "", "Logout deleted saved accounts or retained an authenticated selected input.");

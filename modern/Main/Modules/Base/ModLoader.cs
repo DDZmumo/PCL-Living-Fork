@@ -11,6 +11,8 @@ namespace PCL
     // LF 的公开类型、事件委托、字段和原 UI/调度接线保留；完整加载器算法由 C# 承载。
     public static class ModLoader
     {
+        static ModLoader() { }
+        internal static void EnsureApplicationServicesInitialized() { }
         private readonly static LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> NativeLoaderHost = new LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>()
         {
             Waiting = PCL.ModBase.LoadState.Waiting,
@@ -142,6 +144,7 @@ namespace PCL
             public TIn Input = default;
             public TOut Output = default;
             private readonly LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> Native;
+            public override bool? HasActiveWorkload => Native.HasActiveWorkload;
             public LoaderTask()
             {
                 Native = new LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>(this);
@@ -348,6 +351,7 @@ namespace PCL
 
         public class LoaderWorker : LoaderBase
         {
+            public override bool? HasActiveWorkload => State == PCL.ModBase.LoadState.Loading || Worker?.Running == true;
             private IWorker _Worker;
             public virtual IWorker Worker
             {
@@ -409,6 +413,18 @@ namespace PCL
 
         public class LoaderCombo<InputType> : LoaderBase, ILegacyLoaderComboData<LoaderBase, InputType>
         {
+            public override bool? HasActiveWorkload {
+                get {
+                    if (State == PCL.ModBase.LoadState.Loading) return true;
+                    bool unknown = false;
+                    foreach (LoaderBase child in Loaders) {
+                        bool? active = child.HasActiveWorkload;
+                        if (active == true) return true;
+                        if (active is null) unknown = true;
+                    }
+                    return unknown ? null : false;
+                }
+            }
             public List<LoaderBase> Loaders = new List<LoaderBase>();
             public InputType Input;
             private readonly LegacyLoaderComboEngine<LoaderCombo<InputType>, InputType, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> Native;
@@ -502,7 +518,10 @@ namespace PCL
             InputType ILegacyLoaderComboData<LoaderBase, InputType>.CoreInput { get => CoreInput; set => CoreInput = value; }
         }
 
-        public static ConcurrentList<LoaderBase> LoaderTaskbar = new ConcurrentList<LoaderBase>();
+        public static ConcurrentList<LoaderBase> LoaderTaskbar {
+            get => LauncherApplicationServices.TaskOwner.RuntimeTasks;
+            set => LauncherApplicationServices.TaskOwner.RuntimeTasks = value;
+        }
         public static double LoaderTaskbarProgress = 0d;
         private static System.Windows.Shell.TaskbarItemProgressState LoaderTaskbarProgressLast = System.Windows.Shell.TaskbarItemProgressState.None;
         private readonly static LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> NativeTaskbar = CreateNativeTaskbar();

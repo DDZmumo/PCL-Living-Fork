@@ -85,7 +85,7 @@ internal sealed class AccountUiChecksScope : IDisposable
                 restore.Push(() => { cache.Clear(); foreach (var value in before) cache[value.Key] = value.Value; });
             }
             foreach (string name in new[] { "FrmMain", "FrmLaunchLeft", "FrmLoginLegacy", "FrmLoginMs", "FrmLoginMsSkin", "FrmLoginAuth", "FrmLoginAuthSkin", "FrmLoginNide", "FrmLoginNideSkin" }) Global(name, null);
-            SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
+            SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
             // Actual loader thread/cancellation fields are preserved, not replaced
             // by a task-state stub. All started bodies are joined before restore.
             // Restore backing fields only after producer/UI barriers. Invoking
@@ -309,7 +309,7 @@ internal sealed class AccountUiChecksScope : IDisposable
     }
     private void Replace(object owner, string name, object value) { FieldInfo field = Native.Field(owner.GetType(), name); object? before = field.GetValue(owner); restore.Push(() => { field.SetValue(owner, before); Native.Check(ReferenceEquals(field.GetValue(owner), before), "Account seam identity restoration failed: " + name); }); field.SetValue(owner, value); }
     private void SaveField(object owner, string name) { FieldInfo field = Native.Field(owner.GetType(), name); object? before = field.GetValue(owner); restore.Push(() => field.SetValue(owner, before)); }
-    private void SaveStatic(Type type, string name) { FieldInfo field = Native.Field(type, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
+    private void SaveStatic(Type type, string name) { var field = Native.State(type, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
     private void Global(string name, object? value) { SaveStatic(typeof(ModMain), name); Native.Field(typeof(ModMain), name).SetValue(null, value); }
     internal void SetCache(string name, object value) => Native.Cache(name, value);
     internal void VerifyController(PageLoginMs page) => Native.Check(ReferenceEquals(Native.Get(Native.Get(page, "Native")!, "host"), accounts), "Actual Microsoft page must close over the original LoginPageRuntime host.");

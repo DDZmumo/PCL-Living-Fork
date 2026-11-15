@@ -52,6 +52,8 @@ dotnet run --project tests/PCLLF.Migration.Tests/PCLLF.Migration.Tests.csproj --
 
 纯业务测试通过 `ProjectReference` 引用产品使用的 Core DLL，不再链接生产源码另编一份。`foundation` 组同时核对程序集边界、资源归属和 ZIP 流读取契约。Core 的框架目标为 `net10.0`；其中仍有 Windows 注册表和路径兼容接口，无 WPF 依赖不表示所有 API 都可跨平台运行。
 
+应用服务的状态归属和接入边界见 [架构说明](ARCHITECTURE.md#应用服务与状态归属)。定向验证使用 `foundation` 与 `validation-loaders` 业务组，以及 Windows Main 的 `application-services` 组；账号链另行选择 `account-ui`。本地 facade 运行前设置 `$env:PCL_NATIVE_REPOSITORY_ROOT = $PWD.Path`，不要伪造 CI 环境。
+
 ## Release 发布包
 
 普通 Debug、Release 和精简构建默认显示 `dev_edition`。`ModBase.ReleaseBaselineVersion` 用于更新比较，开发构建不会被同基线或更旧发布覆盖；更新通道仍决定是否接收预发布版。只有显式传入 `-OfficialRelease`／`LFOfficialRelease=true` 才使用正式发布身份。

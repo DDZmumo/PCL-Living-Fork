@@ -194,3 +194,11 @@ modern/Main/Modules/Minecraft/ModDownloadInstaller.cs
 tests/PCLLF.Migration.Tests/ModFileInstallTests.cs
 tests/PCLLF.Migration.Tests/ResourceDescriptionTranslationTests.cs
 tests/PCLLF.Native.Facade.Tests/NativeModDownloadChecks.cs
+PCLCS/Application/AccountApplicationService.cs
+PCLCS/Application/ApplicationSnapshots.cs
+PCLCS/Application/InstanceSelectionApplicationService.cs
+PCLCS/Application/LaunchApplicationService.cs
+PCLCS/Application/TaskApplicationService.cs
+modern/Main/Application/LauncherApplicationServices.cs
+tests/PCLLF.Migration.Tests/ApplicationServiceTests.cs
+tests/PCLLF.Native.Facade.Tests/ApplicationServiceChecks.cs

@@ -13,6 +13,7 @@
 <ItemGroup>
 <ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/>
 </ItemGroup><ItemGroup>
+<Compile Include="Application/*.cs" />
 <Compile Include="Controls/Behaviors/ClipboardInterceptor.cs" />
 <Compile Include="Controls/Behaviors/Interfaces.cs" />
 <Compile Include="Controls/Behaviors/LazyLoadBehavior.cs" />

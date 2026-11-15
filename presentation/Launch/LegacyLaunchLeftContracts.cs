@@ -100,6 +100,7 @@ public sealed class LegacyLaunchLeftHost<TInstance> where TInstance : class {
     public Func<bool> HasRealLaunch = null!, HasWatcher = null!;
     public Func<LegacyLaunchJobPort> RealLaunch = null!;
     public Action KillWatcher = null!;
+    public Action? CancelLaunch;
     public Func<Process?> LaunchProcess = null!;
     public Func<long> NetSpeed = null!;
     public Func<IEnumerable<LegacyLaunchItemPort>> NetTasks = null!;

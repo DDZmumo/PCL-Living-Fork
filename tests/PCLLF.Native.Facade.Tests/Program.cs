@@ -8,6 +8,7 @@ internal static class Program
     private static readonly Dictionary<string, Action<FixtureEnvironment>> Cases = new(StringComparer.Ordinal)
     {
         ["map-details"] = MapResourceChecks.MapDetails,
+        ["application-services"] = ApplicationServiceChecks.Run,
         ["instance-delete"] = InstanceDeletionChecks.Run,
         ["launcher-update-page"] = LauncherUpdatePageChecks.Run,
         ["title-theme-toggle"] = TitleThemeToggleChecks.Run,

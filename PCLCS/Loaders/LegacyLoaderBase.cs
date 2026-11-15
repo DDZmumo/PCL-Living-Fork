@@ -101,6 +101,8 @@ public abstract class LegacyLoaderBase<TLoader, TState, TLoadingState>
     public abstract void Start(object? Input = null, bool IsForceRestart = false);
     public abstract void Cancel();
     public abstract void Failed(Exception Ex);
+    /// <summary>Actual workload lifetime where supported; unknown must never be interpreted as completed cleanup.</summary>
+    public virtual bool? HasActiveWorkload => null;
     private CancellationTokenSource? cancellationTokenSource;
     public CancellationToken CreateCancellationToken() {
         lock (LockState) {

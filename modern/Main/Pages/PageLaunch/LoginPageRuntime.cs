@@ -49,6 +49,7 @@ namespace PCL
             WriteSetting = new Action<global::System.String, global::System.Object>((Key, Value) => global::PCL.Settings.Set(Key, Value)),
             AccountSnapshot = new Func<global::System.String, global::System.Collections.Generic.Dictionary<global::System.String, global::System.Object>>(Prefix => global::PCL.Settings.AccountSnapshot(Prefix)),
             SaveAccountGroup = new Action<global::System.Collections.Generic.Dictionary<global::System.String, global::System.Object>>(Values => global::PCL.Settings.SaveAccountGroup(Values)),
+            SignOut = provider => LauncherApplicationServices.Accounts.SignOut(provider),
             CreateLegacy = new Func<global::PCLLF.Presentation.Accounts.LegacyLoginInput, global::PCL.ModLaunch.McLoginLegacy>(Data => new global::PCL.ModLaunch.McLoginLegacy() { UserName = Data.UserName, SkinType = Data.SkinType, SkinName = Data.SkinName }),
             CreateMs = global::PCL.LoginPageRuntime.CreateMicrosoftData,
             CreateServer = global::PCL.LoginPageRuntime.CreateServerData,

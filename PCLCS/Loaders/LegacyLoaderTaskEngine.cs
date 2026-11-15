@@ -13,6 +13,8 @@ public sealed class LegacyLoaderTaskEngine<TTask, TIn, TOut, TLoader, TState, TL
     private readonly TTask owner;
     private LegacyLoaderHost<TLoader, TState, TLoadingState> Host => owner.Host;
     public LegacyLoaderTaskEngine(TTask owner) => this.owner = owner;
+    private int activeWorkloads;
+    public bool HasActiveWorkload => owner.IsState(owner.State, Host.Loading) || Volatile.Read(ref activeWorkloads) != 0;
     private static TIn ConvertInput(object? value) => Conversions.ToGenericParameter<TIn>(value)!;
     public bool IsCanceled => IsCanceledWithThread(Thread.CurrentThread);
     public bool IsCanceledWithThread(Thread Thread) => owner.CoreLastRunningThread is null || !ReferenceEquals(Thread, owner.CoreLastRunningThread) || owner.IsState(owner.State, Host.Canceled);
@@ -49,7 +51,9 @@ public sealed class LegacyLoaderTaskEngine<TTask, TIn, TOut, TLoader, TState, TL
             owner.CoreInput = typed;
             lock (owner.LockState) { owner.State = Host.Loading; owner.Progress = -1; }
         } else return;
-        owner.CoreLastRunningThread = new Thread(() => {
+        int registered = 1;
+        void ReleaseWorkload() { if (Interlocked.Exchange(ref registered, 0) != 0) Interlocked.Decrement(ref activeWorkloads); }
+        Thread thread = new(() => {
             try {
                 owner.IsForceRestarting = IsForceRestart;
                 Logger.Trace(() => $"加载线程 {owner.Name} 已{(owner.IsForceRestarting ? "强制" : "")}启动");
@@ -67,13 +71,14 @@ public sealed class LegacyLoaderTaskEngine<TTask, TIn, TOut, TLoader, TState, TL
                     Logger.Trace(error, $"加载线程 {owner.Name} 已取消，当前已完成 {Math.Round(owner.Progress * 100)}%");
                     if (!IsCanceled) owner.State = Host.Canceled;
                 } else Failed(error);
-            }
+            } finally { ReleaseWorkload(); }
         }) { Name = "L/" + owner.Name, Priority = owner.CoreThreadPriority };
-        try { owner.CoreLastRunningThread.Start(); }
-        catch (ThreadStateException) {
-            Thread.Sleep(500);
-            owner.CoreLastRunningThread!.Start();
-        }
+        owner.CoreLastRunningThread = thread;
+        Interlocked.Increment(ref activeWorkloads);
+        try {
+            try { thread.Start(); }
+            catch (ThreadStateException) { Thread.Sleep(500); thread.Start(); }
+        } catch { if (!thread.IsAlive) ReleaseWorkload(); throw; }
     }
     public void Failed(Exception ex) {
         owner.Error = ex;

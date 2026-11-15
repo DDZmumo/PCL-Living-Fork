@@ -237,7 +237,7 @@ internal static class MapResourceChecks
         expected = Path.Combine(fixture.Data, "downloads", "versions", "other", "mods");
         Native.Check(string.Equals(Native.Full(Choose(null, instances[1])), Native.Full(expected), StringComparison.OrdinalIgnoreCase), "A stale cache overrode the currently selected instance.");
         Native.Check(Choose(null, null) == cached, "Unbound downloads lost deliberate custom-folder state.");
-        var field = Native.Field(Native.Type("PCL.ModMinecraft"), "_McFolderSelected");
+        var field = Native.State(Native.Type("PCL.ModMinecraft"), "_McFolderSelected");
         object? previous = field.GetValue(null);
         try
         {

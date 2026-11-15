@@ -15,6 +15,20 @@ internal static class Native
     }
 
     internal static FieldInfo Field(Type type, string name) => type.GetField(name, Flags) ?? throw new MissingFieldException(type.FullName, name);
+    // State moved from module fields to forwarding properties. Keep Field() strict for all ABI/metadata assertions.
+    internal static StateSlot State(Type type, string name) => new(type, name);
+    internal sealed class StateSlot {
+        private readonly FieldInfo? field;
+        private readonly PropertyInfo? property;
+        internal StateSlot(Type type, string name) {
+            field = type.GetField(name, Flags); property = type.GetProperty(name, Flags);
+            if ((field is null) == (property is null)) throw new MissingMemberException(type.FullName, name);
+        }
+        internal object? GetValue(object? owner) => field is not null ? field.GetValue(owner) : property!.GetValue(owner);
+        internal void SetValue(object? owner, object? value) {
+            if (field is not null) field.SetValue(owner, value); else property!.SetValue(owner, value);
+        }
+    }
     internal static object? Get(object target, string name) => Field(target.GetType(), name).GetValue(target);
     internal static void Set(object target, string name, object? value) => Field(target.GetType(), name).SetValue(target, value);
     internal static MethodInfo Method(Type type, string name) => type.GetMethod(name, Flags) ?? throw new MissingMethodException(type.FullName, name);
