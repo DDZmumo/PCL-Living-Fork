@@ -67,7 +67,55 @@ internal static class NativeModDownloadChecks {
             bool rejected=false;try{failed.Start("");failed.WaitForExit();}catch(Exception){rejected=true;}
             Native.Check(rejected&&File.Exists(failedOld)&&!File.Exists(Path.Combine(taskRoot,"missing-target.jar")),"A failed post-download task removed an existing mod or published a partial file.");
         } finally {LocalResourceLoaders.LocalResourceLoader.Output=before;PageInstanceLeft.Instance=previousInstance;}
+        SelectedDeletion(environment);
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS native mod downloads: actual Main JAR parser and explicit version replacement, duplicate native rows/selection/filter and current-byte project proof; no live HTTP/game/account.");
+    }
+    private static void SelectedDeletion(FixtureEnvironment environment) {
+        var previousOutput=LocalResourceLoaders.LocalResourceLoader.Output;var previousInstance=PageInstanceLeft.Instance;
+        try {
+            foreach(string[] selection in new[]{new[]{".disabled"},new[]{".old"},new[]{""},new[]{"",".disabled"}}) {
+                string fixture=Path.Combine(environment.Data,"selected-mod-delete-"+Guid.NewGuid().ToString("N"));
+                var owner=BackupResourceChecks.Instance(Path.Combine(fixture,"game","versions","fixture"));owner.Version=new McVersion("1.20.1",true);
+                PageInstanceLeft.Instance=owner;string folder=Path.Combine(owner.PathIndie,"mods");Directory.CreateDirectory(folder);
+                Native.Check(Path.GetFullPath(folder).StartsWith(Path.GetFullPath(environment.Data)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase),"Deletion fixture escaped its owned root.");
+                var entries=new List<LocalResourceFile>();var bytes=new Dictionary<string,byte[]>();
+                foreach(string suffix in new[]{"",".disabled",".old"}) {
+                    string path=Path.Combine(folder,"foo.jar"+suffix);
+                    using(var zip=ZipFile.Open(path,ZipArchiveMode.Create))using(var writer=new StreamWriter(zip.CreateEntry("fabric.mod.json").Open()))
+                        writer.Write(new JObject{["schemaVersion"]=1,["id"]="selected_delete_fixture",["version"]="1.0",["name"]="Fixture "+suffix}.ToString());
+                    var entry=new LocalResourceFile(path);entries.Add(entry);bytes[entry.StorageKey]=File.ReadAllBytes(path);
+                }
+                LocalResourceLoaders.LocalResourceLoader.Output=entries;
+                var snapshot=entries.ToArray();
+                var page=new PageInstanceMod();object controller=Native.Get(page,"Native")!,host=Native.Get(controller,"host")!;
+                Native.Set(host,"ShiftDown",new Func<bool>(()=>true));
+                Native.Set(host,"ConfirmMode",new Func<string,bool>(_=>true));
+                Native.Set(host,"LoaderRun",new Func<int,bool>(_=>false));
+                Native.Set(host,"Background",new Action<Action,string,ThreadPriority>((action,_,_)=>action()));
+                Native.Set(host,"Dispatch",new Action<Action>(action=>action()));
+                string[]? inspected=null;
+                var inspect=Native.Field(host.GetType(),"InspectImpacts");Type signature=inspect.FieldType;
+                var args=signature.GetMethod("Invoke")!.GetParameters().Select(p=>System.Linq.Expressions.Expression.Parameter(p.ParameterType,p.Name)).ToArray();
+                var capture=new Action<string[]>(paths=>inspected=paths.ToArray());
+                var invoke=System.Linq.Expressions.Expression.Invoke(System.Linq.Expressions.Expression.Constant(capture),args[1]);
+                var body=System.Linq.Expressions.Expression.Block(invoke,System.Linq.Expressions.Expression.New(signature.GetMethod("Invoke")!.ReturnType));
+                inspect.SetValue(host,System.Linq.Expressions.Expression.Lambda(signature,body,args).Compile());
+                Native.Call(controller.GetType(),"LoadUI",controller);
+                var selected=selection.Select(suffix=>entries.Single(entry=>entry.File.Name=="foo.jar"+suffix)).ToArray();
+                page.SelectedMods.AddRange(selected.Select(entry=>entry.StorageKey));
+                Native.Call(controller.GetType(),"DeleteSelected",controller);
+                // This invokes production FileUtils.Delete with Shift held: real permanent
+                // deletion of GUID-owned fixtures, with no stubbed filesystem or recycle bin.
+                foreach(var entry in snapshot) {
+                    if(selected.Contains(entry)) Native.Check(!File.Exists(entry.File.FullName),"Selected mod was not actually deleted.");
+                    else Native.Check(File.Exists(entry.File.FullName)&&File.ReadAllBytes(entry.File.FullName).SequenceEqual(bytes[entry.StorageKey]),
+                        "Deleting only selected duplicates removed or changed an unselected enabled/disabled JAR.");
+                }
+                Native.Check(inspected is not null&&inspected.Length==selected.Length&&selected.All(entry=>inspected.Any(path=>MeloongCore.PathUtils.IsSame(path,entry.File.FullName))),
+                    "Dependency inspection expanded beyond the exact selected deletion paths.");
+            }
+        } finally {LocalResourceLoaders.LocalResourceLoader.Output=previousOutput;PageInstanceLeft.Instance=previousInstance;}
+        Console.WriteLine("PASS selected mod deletion: actual permanent delete of disabled-only, old-only, enabled-only and mixed selections; unselected bytes and exact inspection scope preserved.");
     }
 }
