@@ -47,6 +47,10 @@ namespace PCL
             };
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            if (FormMain.GlassShellPreferred) {
+                ((MyComboBoxItem)ComboBackgroundMode.Items[0]).Content = "自动（壁纸或桌面磨砂）";
+                ((MyComboBoxItem)ComboBackgroundMode.Items[1]).Content = "桌面磨砂";
+            }
             CheckHiddenPageFavorites.Change += (_, user) => {
                 if (user) ModBase.RunInUi(() => HiddenRefresh(), true);
             };

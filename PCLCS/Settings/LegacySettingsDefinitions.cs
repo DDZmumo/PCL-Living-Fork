@@ -163,6 +163,8 @@ public static class LegacySettingsDefinitions {
         Add("UiLauncherLogo", false);
         Add("UiLauncherEmail", false);
         Add("UiBackgroundMode", 0);
+        Add("UiShellStyle", 1);
+        Add("UiGlassWallpaperPath", "");
         Add("UiBackgroundColorful", true);
         Add("UiBackgroundOpacity", hostDefault("UiBackgroundOpacity"));
         Add("UiBackgroundBlur", 0);

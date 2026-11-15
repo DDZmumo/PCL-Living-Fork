@@ -72,6 +72,7 @@ internal static class Program {
             Console.WriteLine("PASS shared keybinding controller acceptance: capture, confirmation, owner switch, actual options transactions and failure callbacks.");
             CheckImageDecoding(Path.Combine(fixture, "images"));
             AnimationTests.Run();
+            FluidMotionChecks.Run();
             AnimationTests.RunThreadDriverProcess(repositoryRoot);
             var failures = new System.Collections.Generic.List<Exception>();
             try { BitmapFoundationAcceptance.Run(repositoryRoot, Path.Combine(fixture, "bitmap-foundation")); }

@@ -16,14 +16,25 @@ internal static class AccountUiChecks
     internal static T Part<T>(FrameworkElement owner, string name) where T : class =>
         owner.FindName(name) as T ?? throw new MissingMemberException(owner.GetType().FullName, name);
 
-    internal static void Run(FixtureEnvironment environment)
+    internal static void Run(FixtureEnvironment environment, bool glassPortal = false)
     {
         VisualAssetChecks.VerifyChild(environment);
         Native.Check(OperatingSystem.IsWindows() && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA && System.Windows.Application.Current.Dispatcher.CheckAccess(), "Account UI requires the real isolated Windows STA child.");
+        if (glassPortal) Native.Cache("UiShellStyle", 1);
         using AccountUiChecksScope scope = new(environment);
         try {
         scope.At(AccountUiChecksScope.Checkpoint.Navigation);
         PageLaunchLeft launch = scope.Launch;
+        FrameworkElement? portal = null;
+        if (glassPortal) {
+            portal = (FrameworkElement)Native.Call(Native.Type("PCL.GlassShellIntegration"), "CreateAccountPortal", null, launch)!;
+            Panel providerPanel = Part<Panel>(launch, "PanType");
+            Native.Check(portal is StackPanel container && container.Children.Contains(providerPanel) &&
+                container.Children.Contains(Part<FrameworkElement>(launch, "PanTypeOne")) && container.Children.Contains(Part<FrameworkElement>(launch, "PanLogin")) &&
+                ReferenceEquals(Part<MyRadioButton>(launch, "RadioLoginType5").Parent, providerPanel) &&
+                ReferenceEquals(Part<MyRadioButton>(launch, "RadioLoginType0").Parent, providerPanel),
+                "Glass account portal lost the actual provider selector or login content.");
+        }
         scope.SetCache("LoginPageType", 1);
         launch.RefreshPage(false, false);
         PageLoginMs page = scope.Current<PageLoginMs>();

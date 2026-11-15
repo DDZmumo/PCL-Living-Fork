@@ -59,6 +59,8 @@ namespace PCL
             }
         }
         public new Action<MyListItem, EventArgs> ContentHandler;
+        /// <summary>Activates the original navigation action without generating pointer input.</summary>
+        public void PerformClick() => ActivateItem();
         protected override bool HasContentHandler
         {
             get

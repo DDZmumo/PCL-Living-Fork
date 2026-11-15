@@ -199,6 +199,9 @@ internal sealed class FixtureEnvironment : IDisposable
         }
 
         Native.Cache("Identify", "native-facade-synthetic-seed");
+        // Frozen original-page families retain their classic geometry oracle. Glass has an independent real-window family.
+        Native.Cache("UiShellStyle", 0);
+        Native.Cache("UiGlassWallpaperPath", "");
         Native.Cache("SystemSystemCache", Path.Combine(Root, "cache") + Path.DirectorySeparatorChar);
         Native.Cache("LaunchFolderSelect", Path.Combine(Root, "minecraft") + Path.DirectorySeparatorChar);
     }

@@ -125,8 +125,13 @@ public partial class MyRadioButtonView : Border {
     private void Radiobox_MouseUp() {
         if (Checked) return;
         if (!IsMouseDown) return;
-        ControlServices.Current.Info($"按下单选按钮：{Text}");
         IsMouseDown = false;
+        ActivateRadioButton();
+    }
+    /// <summary>Uses the same preview/check pipeline for keyboard or proxy navigation.</summary>
+    protected void ActivateRadioButton() {
+        if (!IsEnabled || Checked) return;
+        ControlServices.Current.Info($"按下单选按钮：{Text}");
         if (RaisePreviewClick(true)) return;
         SetChecked(true, true, true);
     }

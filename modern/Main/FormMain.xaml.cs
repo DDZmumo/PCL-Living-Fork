@@ -45,6 +45,7 @@ namespace PCL
             MouseMove += FormMain_MouseMove;
             Controller.ConstructBeforeXaml();
             InitializeComponent();
+            PrepareGlassShell();
             BtnTitleSelect5.Logo = ModBase.Logo.IconButtonLikeLine;
             ConfigureThemeToggle(BtnTitleTheme);
             ConfigureDeferredUpdateButton(BtnTitleUpdate, ModLauncherUpdate.ReopenDeferredUpdate);
@@ -54,6 +55,7 @@ namespace PCL
             PanTitle.Children.Insert(1, titleStars);
             RegisterName("TitleStars", titleStars);
             Controller.ConstructAfterXaml();
+            AttachGlassShell();
         }
         private static void ConfigureThemeToggle(MyIconButton button)
         {
@@ -243,6 +245,7 @@ namespace PCL
         private LegacyMainWindowView CreateWindowView() => new LegacyMainWindowView
         {
             Window = this,
+            UsesGlassShell = () => GlassShellActive,
             PanBack = () => PanBack, PanForm = () => PanForm, PanMain = () => PanMain,
             PanTitle = () => PanTitle, PanTitleMain = () => PanTitleMain, PanTitleInner = () => PanTitleInner, PanMsg = () => PanMsg,
             BorderForm = () => BorderForm, PanMainLeft = () => PanMainLeft, PanMainRight = () => PanMainRight,

@@ -44,7 +44,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         Window.AddHandler(DragDrop.DragEnterEvent, host.DragHandler, true); Window.AddHandler(DragDrop.DragOverEvent, host.DragHandler, true);
     }
     public void ConstructAfterXaml() {
-        host.ApplyPackVisibility(Window); if (host.PackEnabled()) UpdateTitleBar(); Window.Opacity = 0;
+        host.ApplyPackVisibility(Window); if (host.PackEnabled()) UpdateTitleBar(); Window.Opacity = view.UsesGlassShell?.Invoke() == true ? 1 : 0;
         if (host.IsAdmin()) {
             LegacyMainDragHelperPort helper = host.CreateDragHelper();
             Window.SourceInitialized += (_, _) => { WindowInteropHelper window = new(Window); helper.SetSource(HwndSource.FromHwnd(window.Handle)); helper.AddHook(); };
@@ -77,7 +77,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         HwndSource source = (HwndSource)PresentationSource.FromVisual(Window); source.AddHook(host.WindowHook);
         AniStart([
             AaCode(() => AniControlEnabled = checked(AniControlEnabled - 1), 50),
-            AaOpacity(Window, host.ReadInteger("UiLauncherTransparent") / 1000d + 0.4, 250, 100),
+            AaOpacity(view.UsesGlassShell?.Invoke() == true ? view.PanBack() : (UIElement)Window, host.ReadInteger("UiLauncherTransparent") / 1000d + 0.4, 250, 100),
             AaDouble(i => view.TransformPos().Y += i, -view.TransformPos().Y, 600, 100, Back(AnimationEasePower.Weak)),
             AaDouble(i => view.TransformRotate().Angle += i, -view.TransformRotate().Angle, 500, 100, Back(AnimationEasePower.Weak)),
             AaCode(() => { view.PanBack().RenderTransform = null; host.WriteLoaded(true); Logger.Info($"DPI：{host.Dpi()}，系统版本：{Environment.OSVersion.VersionString}，PCL 位置：{host.ExecutablePath()}"); }, after: true)

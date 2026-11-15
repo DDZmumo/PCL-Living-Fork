@@ -34,6 +34,7 @@ internal sealed class Probe
     private bool themeChanged;
     private bool identityProved;
     private bool cursorSafe = true;
+    private ObservedShell shell = ObservedShell.Unverified;
     private AutomationElement Root => AutomationElement.FromHandle(hwnd);
 
     private Probe(Dictionary<string, string> arguments)
@@ -63,6 +64,12 @@ internal sealed class Probe
             if (values.Length == 1 && values[0] == "--self-test-notice-policy")
             {
                 ReviewedInformationNotice.VerifyPolicy();
+                ShellUiPolicy.VerifyPolicy();
+                return 0;
+            }
+            if (values.Length == 1 && values[0] == "--self-test-shell-policy")
+            {
+                ShellUiPolicy.VerifyPolicy();
                 return 0;
             }
             if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess || Environment.GetEnvironmentVariable("CI") != "true" || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted") throw new InvalidOperationException("PENDING: isolated GitHub-hosted x64 Windows only.");
@@ -173,12 +180,58 @@ internal sealed class Probe
         return current.ProcessId == pid && !current.IsOffscreen && !r.IsEmpty && r.Width > 0 && r.Height > 0 && Native.Client(hwnd).IntersectsWith(r);
     }
     private AutomationElement Unique(Func<AutomationElement, bool> test, string description)
+        => Unique(Nodes(), test, description);
+    private AutomationElement Unique(IEnumerable<AutomationElement> nodes, Func<AutomationElement, bool> test, string description)
     {
-        var found = Nodes().Where(n => Visible(n) && test(n)).ToList();
+        var found = nodes.Where(n => Visible(n) && test(n)).ToList();
         if (found.Count != 1) throw new InvalidOperationException("PENDING: expected one owned visible " + description + "; found " + found.Count + ".");
         AssertAncestor(found[0]); return found[0];
     }
     private AutomationElement Text(string text, string id, bool top = false, bool left = false) => Unique(n => n.Current.ControlType == ControlType.Text && n.Current.Name == text && n.Current.AutomationId == id && (!top || n.Current.BoundingRectangle.Bottom <= Native.Client(hwnd).Top + 57) && (!left || n.Current.BoundingRectangle.Right < Native.Client(hwnd).Left + 220), "Text(" + id + "," + text + ")");
+    private static ShellNode ShellMetadata(AutomationElement node)
+    {
+        var current = node.Current;
+        return new(current.AutomationId, current.Name, current.ClassName, current.ControlType, current.BoundingRectangle);
+    }
+    private (List<AutomationElement> Nodes, ObservedShell Mode, System.Windows.Rect Client, double Scale) ObserveShell()
+    {
+        var nodes = Nodes().Where(Visible).ToList();
+        var metadata = nodes.Select(ShellMetadata).ToArray();
+        var client = Native.Client(hwnd);
+        double scale = metadata.Any(ShellUiPolicy.IsGlassMarker) ? Native.DpiScale(hwnd) : 1;
+        return (nodes, ShellUiPolicy.Detect(metadata, client, scale), client, scale);
+    }
+    private void DetectShell()
+    {
+        var observed = ObserveShell();
+        if (shell != ObservedShell.Unverified) throw new InvalidOperationException("Shell identity was already admitted.");
+        foreach (var node in observed.Nodes.Where(node => ShellUiPolicy.IsGlassMarker(ShellMetadata(node)))) AssertAncestor(node);
+        shell = observed.Mode;
+        evidence["Shell"] = new { Mode = shell.ToString(), DpiScale = observed.Scale,
+            Proof = shell == ObservedShell.Glass ? "Five exact ordered native header Button IDs/names plus AccountButton on one centreline; complete owned header geometry within 104 DIPs" : "Original unique LabText launch/settings peers within the unchanged 57-pixel classic title strip" };
+    }
+    private AutomationElement HeaderNavigation(string text)
+    {
+        var observed = ObserveShell();
+        if (shell == ObservedShell.Unverified || observed.Mode != shell) throw new InvalidOperationException("PENDING: admitted Main shell identity changed.");
+        if (shell == ObservedShell.Classic) return Text(text, "LabText", top: true);
+        var target = ShellUiPolicy.HeaderTarget(text);
+        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassHeaderTarget(ShellMetadata(node), target.Id, target.Name, observed.Client, observed.Scale),
+            "glass header Button(" + target.Id + "," + target.Name + ")");
+    }
+    private AutomationElement ContextNavigation(string text)
+    {
+        var observed = ObserveShell();
+        if (shell == ObservedShell.Unverified || observed.Mode != shell) throw new InvalidOperationException("PENDING: admitted Main shell identity changed.");
+        if (shell == ObservedShell.Classic) return Text(text, "LabTitle", left: true);
+        var account = Unique(observed.Nodes, node => node.Current.AutomationId == "AccountButton", "admitted glass account capsule");
+        ShellNode accountBounds = ShellMetadata(account);
+        var rail = Unique(observed.Nodes, node => ShellUiPolicy.IsGlassRailAnchor(ShellMetadata(node), accountBounds, observed.Client, observed.Scale),
+            "glass rail NavigationMenuButton footer");
+        ShellNode railBounds = ShellMetadata(rail);
+        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextTarget(ShellMetadata(node), text, railBounds, accountBounds, observed.Client, observed.Scale),
+            "glass contextual rail Button(" + text + ")");
+    }
     private AutomationElement Combo() => Unique(n => n.Current.ControlType == ControlType.ComboBox && n.Current.AutomationId == "ComboLauncherColorMode", "ComboLauncherColorMode");
     private void AssertAncestor(AutomationElement? node)
     {
@@ -406,9 +459,9 @@ internal sealed class Probe
         Stable("known-notice"); VerifyInformationNotice(); Capture("notice");
         var button = VerifyInformationNotice(); Click(button, "dismiss-exact-information-notice");
         Wait(() => !Nodes().Any(n => Visible(n) && n.Current.Name == Notice), "only reviewed notice dismissed");
-        Stable("launch"); Capture("launch");
-        Click(Text("设置", "LabText", top: true), "main-settings"); Stable("settings");
-        Click(Text("个性化", "LabTitle", left: true), "personalization"); Stable("personalization");
+        Stable("launch"); DetectShell(); Capture("launch");
+        Click(HeaderNavigation("设置"), "main-settings"); Stable("settings");
+        Click(ContextNavigation("个性化"), "personalization"); Stable("personalization");
         Text("外观主题", "");
         if (Selection(Combo()) != "浅色") throw new InvalidOperationException("PENDING: initial synthetic theme differs from default light.");
         double light = Capture("light");
@@ -446,10 +499,161 @@ internal sealed class Probe
         Wait(() => pattern.Current.VerticalScrollPercent < after - .1, "real reverse wheel changed ScrollPattern offset"); Stable("wheel-up"); Capture("wheel-up");
         steps.Add(new { Action = "wheel", BeforePercent = before, AfterPercent = after, ReturnedPercent = pattern.Current.VerticalScrollPercent, Input = "owned WM_MOUSEWHEEL +/-360" });
         // Return to the safe launch page; no download/login/update/link/UAC/clear action exists here.
-        Click(Text("启动", "LabText", top: true), "return-launch"); Stable("launch-returned"); Capture("launch-returned");
+        Click(HeaderNavigation("启动"), "return-launch"); Stable("launch-returned"); Capture("launch-returned");
         Guard(true); if (ReadThemeSetting() != "0") throw new InvalidOperationException("Owned theme setting changed after real UI rollback."); evidence["ThemeRestored"] = true;
         evidence["ObservedScope"] = "Exact local notice, Main settings/personalization/launch, real theme and INI restore, focus, same-HWND minimize/restore, measured wheel offsets and stable owned-window captures.";
     }
+}
+
+internal enum ObservedShell { Unverified, Classic, Glass }
+internal readonly record struct ShellNode(string AutomationId, string Name, string ClassName, ControlType Type, System.Windows.Rect Bounds);
+
+/// <summary>Exact observed shell identities and geometry, independent of any product assembly or UIA injection.</summary>
+internal static class ShellUiPolicy
+{
+    // Actual native x:Name and AutomationProperties.Name pairs in GlassLauncherView.xaml.
+    private static readonly (string Id, string Name)[] Header = [
+        ("NavLaunch", "启动"), ("NavDownload", "下载"), ("NavFavorites", "收藏"), ("NavSettings", "设置"), ("NavOther", "更多")
+    ];
+
+    internal static (string Id, string Name) HeaderTarget(string name) => Header.Single(target => target.Name == name);
+    internal static bool IsGlassMarker(ShellNode node) => node.ClassName == "GlassLauncherView" ||
+        node.AutomationId is "AccountButton" or "NavigationMenuButton" || Header.Any(target => target.Id == node.AutomationId);
+    internal static ObservedShell Detect(IReadOnlyList<ShellNode> nodes, System.Windows.Rect client, double scale)
+    {
+        bool classicLaunch = nodes.Any(node => IsClassicHeader(node, "启动", client));
+        bool classicSettings = nodes.Any(node => IsClassicHeader(node, "设置", client));
+        if (nodes.Any(IsGlassMarker))
+        {
+            // A partial/new shell must not fall through to an old hidden or stale TextBlock peer.
+            if (classicLaunch || classicSettings) throw Pending("mixed classic/glass navigation peers are visible");
+            ShellNode[] header = Header.Select(target => ExactlyOne(nodes, node => node.AutomationId == target.Id, target.Id)).ToArray();
+            for (int index = 0; index < header.Length; index++)
+            {
+                var target = Header[index];
+                if (!IsGlassHeaderTarget(header[index], target.Id, target.Name, client, scale)) throw Pending("glass header Button identity/geometry differs: " + target.Id);
+                if (index > 0 && (Math.Abs(header[index - 1].Bounds.Right - header[index].Bounds.Left) > scale ||
+                    Math.Abs(header[index - 1].Bounds.Top - header[index].Bounds.Top) > scale ||
+                    Math.Abs(header[index - 1].Bounds.Bottom - header[index].Bounds.Bottom) > scale ||
+                    Math.Abs(header[index - 1].Bounds.Width - header[index].Bounds.Width) > scale))
+                    throw Pending("glass navigation buttons are not one ordered non-overlapping capsule");
+            }
+            ShellNode account = ExactlyOne(nodes, node => node.AutomationId == "AccountButton", "AccountButton");
+            if (account.Type != ControlType.Button || account.ClassName != "Button" ||
+                !account.Name.StartsWith("当前账户：", StringComparison.Ordinal) || account.Name.Length == "当前账户：".Length ||
+                !IsGlassHeaderBounds(account.Bounds, client, scale) || account.Bounds.Right > header[0].Bounds.Left + scale ||
+                Math.Abs(account.Bounds.Top + account.Bounds.Height / 2 - header[0].Bounds.Top - header[0].Bounds.Height / 2) > scale)
+                throw Pending("glass account capsule identity/geometry differs");
+            return ObservedShell.Glass;
+        }
+        // Preserve the original classic matching rules, including its physical-pixel geometry.
+        ExactlyOne(nodes, node => IsClassicHeader(node, "启动", client), "classic launch LabText");
+        ExactlyOne(nodes, node => IsClassicHeader(node, "设置", client), "classic settings LabText");
+        return ObservedShell.Classic;
+    }
+
+    internal static bool IsGlassHeaderTarget(ShellNode node, string id, string name, System.Windows.Rect client, double scale) =>
+        node.Type == ControlType.Button && node.ClassName == "Button" && node.AutomationId == id && node.Name == name &&
+        IsGlassHeaderBounds(node.Bounds, client, scale);
+    internal static bool IsGlassRailAnchor(ShellNode node, ShellNode account, System.Windows.Rect client, double scale)
+    {
+        var bounds = node.Bounds;
+        return ValidScale(scale) && ValidBounds(bounds, client) && node.Type == ControlType.Button && node.ClassName == "Button" &&
+            node.AutomationId == "NavigationMenuButton" && node.Name == "展开全部页面选项" &&
+            bounds.Top >= account.Bounds.Bottom + 4 * scale && bounds.Right <= account.Bounds.Left - 8 * scale &&
+            bounds.Width >= 40 * scale && bounds.Width <= 46 * scale && bounds.Height >= 40 * scale && bounds.Height <= 46 * scale;
+    }
+    internal static bool IsGlassContextTarget(ShellNode node, string name, ShellNode rail, ShellNode account, System.Windows.Rect client, double scale)
+    {
+        var bounds = node.Bounds;
+        if (!IsGlassRailAnchor(rail, account, client, scale) || !ValidBounds(bounds, client)) return false;
+        // The real named footer supplies the rail's current X and width, including responsive placement.
+        return node.Type == ControlType.Button && node.ClassName == "Button" && node.AutomationId.Length == 0 && node.Name == name &&
+            Math.Abs(bounds.Left - rail.Bounds.Left) <= scale && Math.Abs(bounds.Right - rail.Bounds.Right) <= scale &&
+            bounds.Top >= account.Bounds.Bottom + 4 * scale && bounds.Bottom <= rail.Bounds.Top + scale &&
+            bounds.Width >= 40 * scale && bounds.Width <= 46 * scale &&
+            bounds.Height >= 40 * scale && bounds.Height <= 46 * scale;
+    }
+    private static bool IsClassicHeader(ShellNode node, string name, System.Windows.Rect client) =>
+        node.Type == ControlType.Text && node.AutomationId == "LabText" && node.Name == name && node.Bounds.Bottom <= client.Top + 57;
+    private static bool IsGlassHeaderBounds(System.Windows.Rect bounds, System.Windows.Rect client, double scale)
+    {
+        if (!ValidScale(scale) || !ValidBounds(bounds, client)) return false;
+        // Exact button identities and their observed row establish the capsules; do not guess responsive insets.
+        return bounds.Top >= client.Top + 8 * scale && bounds.Bottom <= client.Top + 104 * scale &&
+            bounds.Width >= 36 * scale && bounds.Height >= 36 * scale && bounds.Height <= 56 * scale;
+    }
+    private static bool ValidScale(double scale) => double.IsFinite(scale) && scale > 0;
+    private static bool ValidBounds(System.Windows.Rect bounds, System.Windows.Rect client) =>
+        !bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0 && client.Contains(bounds);
+    private static ShellNode ExactlyOne(IReadOnlyList<ShellNode> nodes, Func<ShellNode, bool> predicate, string target)
+    {
+        ShellNode[] matches = nodes.Where(predicate).ToArray();
+        if (matches.Length != 1) throw Pending("expected one visible " + target + "; found " + matches.Length);
+        return matches[0];
+    }
+    private static InvalidOperationException Pending(string reason) => new("PENDING: " + reason + ".");
+
+    internal static void VerifyPolicy()
+    {
+        var client = new System.Windows.Rect(100, 200, 850, 500);
+        ShellNode Classic(string name, double bottom = 45) => new("LabText", name, "TextBlock", ControlType.Text,
+            new System.Windows.Rect(client.Left + 320, client.Top + bottom - 20, 30, 20));
+        ShellNode[] classic = [Classic("启动"), Classic("设置")];
+        Require(Detect(classic, client, 1) == ObservedShell.Classic, "Original classic title identities were rejected.");
+        Require(Detect([Classic("启动", 57), Classic("设置", 57)], client, 1) == ObservedShell.Classic, "Classic 57-pixel boundary changed.");
+        Reject(() => Detect([Classic("启动", 58), Classic("设置")], client, 1));
+        Reject(() => Detect([classic[0]], client, 1));
+        Reject(() => Detect([classic[0], classic[1], classic[1]], client, 1));
+
+        foreach (double scale in new[] { 1.0, 1.5 })
+        foreach (double logicalWidth in new[] { 850.0, 930.0, 1120.0 })
+        {
+            var scaledClient = new System.Windows.Rect(client.Left, client.Top, logicalWidth * scale, 500 * scale);
+            bool compact = logicalWidth < 930;
+            double headerTop = compact ? 18 : 24, headerLeft = compact ? 76 : 82, accountWidth = compact ? 148 : 168;
+            System.Windows.Rect Bounds(double x, double y, double width, double height) =>
+                new(scaledClient.Left + x * scale, scaledClient.Top + y * scale, width * scale, height * scale);
+            ShellNode[] glass = Header.Select((target, index) => new ShellNode(target.Id, target.Name, "Button", ControlType.Button,
+                Bounds(headerLeft + accountWidth + 18 + 90 * index, headerTop + 6, 90, 42)))
+                .Append(new ShellNode("AccountButton", "当前账户：CI", "Button", ControlType.Button, Bounds(headerLeft, headerTop, accountWidth, 54))).ToArray();
+            Require(Detect(glass, scaledClient, scale) == ObservedShell.Glass, "Exact native glass header was rejected.");
+            Require(IsGlassHeaderTarget(glass[3], "NavSettings", "设置", scaledClient, scale), "Exact glass settings target was rejected.");
+            Reject(() => Detect(glass.Concat(classic).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Where(node => node.AutomationId != "NavSettings").Concat(classic).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Where(node => node.AutomationId != "NavSettings").ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Append(glass[3]).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "NavSettings" ? node with { Name = "启动" } : node).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "NavSettings" ? node with { Type = ControlType.Text } : node).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "NavSettings" ? node with { Bounds = Bounds(518, 70, 90, 42) } : node).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "NavSettings" ? node with { Bounds = Bounds(518, 30, 1, 42) } : node).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "NavSettings" ? node with { Bounds = glass[0].Bounds } : node).ToArray(), scaledClient, scale));
+            Reject(() => Detect(glass.Select(node => node.AutomationId == "AccountButton" ? node with { Name = "账户" } : node).ToArray(), scaledClient, scale));
+            var inset = glass.Select(node => node with { Bounds = new System.Windows.Rect(node.Bounds.X + 30 * scale, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height) }).ToArray();
+            Require(Detect(inset, scaledClient, scale) == ObservedShell.Glass, "A detached narrower header was rejected because of a guessed inset.");
+            ShellNode account = glass[^1];
+            var footer = new ShellNode("NavigationMenuButton", "展开全部页面选项", "Button", ControlType.Button, Bounds(22, 400, 44, 44));
+            var rail = new ShellNode("", "个性化", "Button", ControlType.Button, Bounds(22, 210, 44, 44));
+            Reject(() => Detect(classic.Append(footer).ToArray(), scaledClient, scale));
+            Require(IsGlassRailAnchor(footer, account, scaledClient, scale), "Exact native rail footer was rejected.");
+            Require(IsGlassContextTarget(rail, "个性化", footer, account, scaledClient, scale), "Exact contextual icon button was rejected.");
+            Require(!IsGlassContextTarget(rail with { Name = "初始化本页设置" }, "个性化", footer, account, scaledClient, scale), "A reset action matched contextual navigation.");
+            Require(!IsGlassContextTarget(rail with { Type = ControlType.Text }, "个性化", footer, account, scaledClient, scale), "A text peer matched a glass native Button.");
+            Require(!IsGlassContextTarget(rail with { Bounds = Bounds(120, 210, 44, 44) }, "个性化", footer, account, scaledClient, scale), "A portal/page peer outside the observed rail matched contextual navigation.");
+            Require(!IsGlassContextTarget(rail with { Bounds = Bounds(22, 30, 44, 44) }, "个性化", footer, account, scaledClient, scale), "A header control matched contextual navigation.");
+            Require(!IsGlassContextTarget(rail with { Bounds = Bounds(22, 470, 44, 44) }, "个性化", footer, account, scaledClient, scale), "A clipped contextual control was accepted.");
+            Require(!IsGlassContextTarget(rail, "个性化", footer with { Name = "收起全部页面选项" }, account, scaledClient, scale), "An unreviewed open navigation portal was accepted.");
+            Require(!IsGlassContextTarget(rail, "个性化", footer with { AutomationId = "OtherButton" }, account, scaledClient, scale), "A missing real rail footer was accepted.");
+        }
+        Console.WriteLine("PASS shell UI policy: unchanged classic selectors; exact native glass header/rail identities and DPI geometry; partial, mixed, duplicate, renamed, misplaced and clipped peers remain pending.");
+    }
+    private static void Reject(Action action)
+    {
+        try { action(); }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("PENDING:", StringComparison.Ordinal)) { return; }
+        throw new InvalidOperationException("A missing, ambiguous or different shell identity was accepted.");
+    }
+    private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }
 
 internal static class Native
@@ -461,6 +665,7 @@ internal static class Native
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] internal static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern IntPtr WindowFromPoint(Point point);
@@ -477,6 +682,7 @@ internal static class Native
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr first, IntPtr second, uint flags, uint timeout, out IntPtr result);
     [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder path, ref uint size);
     internal static int Owner(IntPtr hwnd) { GetWindowThreadProcessId(hwnd, out uint pid); return (int)pid; }
+    internal static double DpiScale(IntPtr hwnd) { uint dpi = GetDpiForWindow(hwnd); if (dpi == 0) throw new InvalidOperationException("PENDING: owned glass Main DPI is unavailable."); return dpi / 96d; }
     internal static string Title(IntPtr hwnd) { StringBuilder text = new(1024); GetWindowText(hwnd, text, text.Capacity); return text.ToString().Trim(); }
     internal static string Class(IntPtr hwnd) { StringBuilder text = new(256); GetClassName(hwnd, text, text.Capacity); return text.ToString(); }
     internal static System.Windows.Rect Window(IntPtr hwnd) { if (!GetWindowRect(hwnd, out Rect r)) throw new InvalidOperationException("Window bounds unavailable."); return new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top); }

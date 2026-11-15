@@ -15,6 +15,8 @@ namespace PCL
         }
 
         public static new readonly DependencyProperty TextProperty = MyRadioButtonView.TextProperty;
+        /// <summary>Activates the original preview/check navigation pipeline without pointer input.</summary>
+        public void PerformClick() => ActivateRadioButton();
 
         public new enum ColorState
         {

@@ -49,6 +49,7 @@ public sealed class LegacyMainDragHelperPort {
 }
 /// <summary>Lazy getters retain the real BAML field identities before and after InitializeComponent.</summary>
 public sealed class LegacyMainWindowView {
+    public Func<bool>? UsesGlassShell;
     public Window Window = null!;
     public Func<Grid> PanBack = null!, PanForm = null!, PanMain = null!, PanTitle = null!, PanTitleMain = null!, PanTitleInner = null!, PanMsg = null!;
     public Func<Border> BorderForm = null!, PanMainLeft = null!, PanMainRight = null!;

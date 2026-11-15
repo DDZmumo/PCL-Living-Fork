@@ -6,6 +6,8 @@
 
 业务 Core 与 Windows/WPF 适配层已分为独立程序集，依赖方向、现存宿主约束和新 UI 接入要求见 [架构边界](ARCHITECTURE.md)。
 
+当前默认玻璃外观与经典对照的运行、材质兼容和定向验证见 [WPF 玻璃界面](GLASS_UI.md)。
+
 ## Windows 工具链与依赖
 
 使用 Windows x64、.NET 10 SDK，以及支持 .NET 10/WPF 的 IDE。初始化固定 Shared 子模块：

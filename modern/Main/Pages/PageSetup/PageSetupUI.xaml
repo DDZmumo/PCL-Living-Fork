@@ -10,6 +10,14 @@
                 <Grid Margin="25,40,25,17">
                     <StackPanel>
                         <Grid Height="28" Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Name1"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="界面样式" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                            <local:MyComboBox Grid.Column="1" local:SettingService.Key="UiShellStyle" ToolTip="更改界面样式后，下次启动生效。">
+                                <local:MyComboBoxItem Content="磨砂玻璃" local:SettingService.Value="1"/>
+                                <local:MyComboBoxItem Content="经典界面" local:SettingService.Value="0"/>
+                            </local:MyComboBox>
+                        </Grid>
+                        <Grid Height="28" Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" SharedSizeGroup="Name1" />
                                 <ColumnDefinition Width="*" />

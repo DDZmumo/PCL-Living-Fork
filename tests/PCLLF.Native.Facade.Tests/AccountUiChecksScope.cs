@@ -59,7 +59,8 @@ internal sealed class AccountUiChecksScope : IDisposable
         this.environment = environment;
         VisualAssetChecks.VerifyChild(environment);
         string[] args = Environment.GetCommandLineArgs(); int selected = Array.IndexOf(args, "--groups");
-        Native.Check(selected >= 0 && selected + 1 < args.Length && args[selected + 1].Split(',', StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).SequenceEqual(new[] { "account-ui" }), "Select account-ui alone in its fresh isolated child; captured Shared providers cannot be combined across groups.");
+        string[] family = selected >= 0 && selected + 1 < args.Length ? args[selected + 1].Split(',', StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray() : [];
+        Native.Check(family.Length == 1 && family[0] is "account-ui" or "glass-account-ui", "Select one account UI family alone in its fresh isolated child; captured Shared providers cannot be combined across groups.");
         Native.Check(!ModAnimation.AniRunning, "Account manual ticks cannot adopt a live animation driver.");
         // A rejected pre-existing producer is never ours to cancel in catch.
         Native.Check(Loader.State != ModBase.LoadState.Loading && Loader.LastRunningThread is not { IsAlive: true }, "Cannot adopt an existing Microsoft login producer.");

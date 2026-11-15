@@ -280,9 +280,20 @@ public partial class MyListItemView : Grid {
     protected virtual void ClearContentHandler() => ContentHandler = null;
     private bool isMouseDown;
     private void ButtonMouseUp(object sender, MouseButtonEventArgs args) {
-        if (!isMouseDown) return; OnClick(sender, args); if (args.Handled) return;
-        if (HasCustomEvent(sender)) { Services.RaiseCustomEvent(this); args.Handled = true; }
-        if (args.Handled) return;
+        if (!isMouseDown) return;
+        ActivateItem(args);
+    }
+    // A keyboard/proxy activation shares the real click pipeline without synthesizing mouse input.
+    // Its legacy navigation Click subscribers receive null because there is no pointer event.
+    protected void ActivateItem(MouseButtonEventArgs? args = null) {
+        if (!IsEnabled || Type == CheckType.None) return;
+        OnClick(this, args!);
+        if (args?.Handled == true) return;
+        if (HasCustomEvent(this)) {
+            Services.RaiseCustomEvent(this);
+            if (args is not null) args.Handled = true;
+            return;
+        }
         switch (Type) {
             case CheckType.Clickable: Services.Info("按下单击列表项：" + Title); break;
             case CheckType.RadioBox: Services.Info("按下单选列表项：" + Title); if (!Checked) SetChecked(true, true, true); break;
