@@ -57,6 +57,7 @@ internal static partial class MmcInstanceBackendTests {
         yield return ("MMC launch preparation rejects stale identity, new variants and damaged support without adopting bytes", LaunchRefusals);
         yield return ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption);
         yield return ("MMC final launch validation rechecks replaced ancestor junctions even after a clean validation pass", LaunchValidationRejectsReplacedAncestorJunction);
+        yield return ("MMC launch preparation accepts 128-segment host library targets and final validation allows deeper targets", DeepTargetLaunchValidation);
         yield return ("MMC preloaded launch sources, baseline disk tamper detection, and preserved target repair stay strict", PreloadedSourcesAndPreservedRepairInvariants);
         yield return ("MMC import reports console and PermGen requirements as inert differences instead of substituting", PreferenceDifferences);
         yield return ("MMC private payload placement binds measured files and preserves canceled or conflicting private roots", PrivatePayload);
@@ -416,6 +417,37 @@ internal static partial class MmcInstanceBackendTests {
         MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded);
     }
 
+    private static void DeepTargetLaunchValidation() => DeepTargetLaunchValidationAsync().GetAwaiter().GetResult();
+    private static async Task DeepTargetLaunchValidationAsync() {
+        using Fixture fixture = new(withDeepLibrary: true);
+        var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+        if (imported.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(imported.Failure);
+        Guid id = imported.Definition!.InstanceId;
+        var backend = fixture.Backend(offline: true);
+        var ready = await backend.PrepareLaunchAsync(new(fixture.VersionRoot, new("windows", "x86_64", 8), id, 1));
+        if (ready.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(ready.Failure);
+        Equal(false, ready.Repaired);
+        var deepFile = ready.Snapshot!.Files.Single(file => file.RelativePath.Split('/', '\\').Length == 128);
+        string extraRelative = "minecraft/mods/" + string.Join('/', Enumerable.Repeat("a", 128)) + "/deep.bin";
+        string extraResolved = ready.Snapshot.Paths.ResolveRelative(MmcPathRole.Instance, extraRelative);
+        Directory.CreateDirectory(Path.GetDirectoryName(extraResolved)!);
+        byte[] extraPayload = Encoding.UTF8.GetBytes("deep launch input beyond 128 segments");
+        File.WriteAllBytes(extraResolved, extraPayload);
+        var expanded = new MmcPreparedInstanceLaunch(
+            ready.Snapshot.Definition, ready.Snapshot.PrimarySha256, ready.Snapshot.BoundPlan, ready.Snapshot.Paths,
+            ready.Snapshot.PackageConfiguration, ready.Snapshot.Targets, ready.Snapshot.Directories,
+            ready.Snapshot.Files.Add(new(extraRelative, Convert.ToHexStringLower(SHA256.HashData(extraPayload)), extraPayload.LongLength)));
+        using var lease = MmcAdmissionGate.Acquire(fixture.VersionRoot, id, TimeSpan.Zero);
+        MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded);
+
+        string resolved = ready.Snapshot.Paths.ResolveRelative(MmcPathRole.Instance, deepFile.RelativePath);
+        File.WriteAllBytes(resolved, Encoding.UTF8.GetBytes("tampered deep bytes"));
+        bool caughtIo = false;
+        try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded); }
+        catch (IOException error) when (error.GetType() == typeof(IOException)) { caughtIo = true; }
+        Equal(true, caughtIo);
+    }
+
     private static void PreloadedSourcesAndPreservedRepairInvariants() => PreloadedSourcesAndPreservedRepairInvariantsAsync().GetAwaiter().GetResult();
     private static async Task PreloadedSourcesAndPreservedRepairInvariantsAsync() {
         using Fixture fixture = new(withAssetObject: true);
@@ -668,9 +700,13 @@ internal static partial class MmcInstanceBackendTests {
         public int Downloads;
         private readonly List<HttpClient> clients = [];
         private static readonly byte[] AssetObject = Encoding.UTF8.GetBytes("owned original asset");
+        private static readonly byte[] DeepLibraryBytes = Encoding.UTF8.GetBytes("owned deep library");
         private readonly byte[] AssetIndex;
-        public Fixture(int tinyFiles = 0, bool multiJava = false, bool withAssetObject = false, string extraCfg = "") {
+        public Fixture(int tinyFiles = 0, bool multiJava = false, bool withAssetObject = false, string extraCfg = "", bool withDeepLibrary = false) {
             string assetSha1 = Convert.ToHexStringLower(SHA1.HashData(AssetObject));
+            string extraLib = withDeepLibrary
+                ? ",\"libraries\":[{\"name\":\"" + string.Join('.', Enumerable.Repeat("a", 121)) + ":d:1\",\"downloads\":{\"artifact\":{\"url\":\"https://fixture.invalid/deep.jar\",\"sha1\":\"" + Convert.ToHexStringLower(SHA1.HashData(DeepLibraryBytes)) + "\",\"size\":" + DeepLibraryBytes.Length + "}}}]"
+                : "";
             AssetIndex = Encoding.UTF8.GetBytes(withAssetObject ? "{\"objects\":{\"fixture/asset.txt\":{\"hash\":\"" + assetSha1 + "\",\"size\":" + AssetObject.Length + "}}}" : "{\"objects\":{}}");
             Directory.CreateDirectory(Scope);
             using var zip = ZipFile.Open(Archive, ZipArchiveMode.Create);
@@ -680,7 +716,7 @@ internal static partial class MmcInstanceBackendTests {
             Add(zip, "pack/instance.cfg", "name=Fixture\nOverrideJavaArgs=true\nJvmArgs=-Dfixture=yes\n" + extraCfg);
             Add(zip, "pack/patches/net.minecraft.json", """{"formatVersion":1,"uid":"net.minecraft","version":"1.7.10","mainClass":"fixture.Game","mainJar":{"name":"fixture:game:1","MMC-hint":"local","MMC-filename":"fixture.jar"},"assetIndex":{"id":"fixture","url":"https://fixture.invalid/assets.json","sha1":"0000000000000000000000000000000000000000","size":1},"compatibleJavaMajors":[8]}"""
                 .Replace(new string('0', 40), Convert.ToHexStringLower(SHA1.HashData(AssetIndex))).Replace("\"size\":1", "\"size\":" + AssetIndex.Length)
-                .Replace("\"compatibleJavaMajors\":[8]", multiJava ? "\"compatibleJavaMajors\":[8,21]" : "\"compatibleJavaMajors\":[8]"));
+                .Replace("\"compatibleJavaMajors\":[8]", (multiJava ? "\"compatibleJavaMajors\":[8,21]" : "\"compatibleJavaMajors\":[8]") + extraLib));
             Add(zip, "pack/libraries/fixture.jar", "launcher library"); Add(zip, "pack/libraries/unreferenced.jar", "unreferenced original");
             Add(zip, "pack/minecraft/libraries/fixture.jar", "different game library"); Add(zip, "pack/minecraft/config/example.cfg", "player config");
             Add(zip, "pack/PCL/config.json", "{\"foreign-player-pref\":\"must-not-import\"}");
@@ -697,6 +733,7 @@ internal static partial class MmcInstanceBackendTests {
                     foreach (var item in batch) {
                         string assetHash = Convert.ToHexStringLower(SHA1.HashData(AssetObject));
                         byte[] content = item.Urls.Contains("https://fixture.invalid/assets.json") ? AssetIndex :
+                            item.Urls.Contains("https://fixture.invalid/deep.jar") ? DeepLibraryBytes :
                             item.Urls.Contains("https://resources.download.minecraft.net/" + assetHash[..2] + "/" + assetHash) ? AssetObject :
                             throw new Exception("Unexpected controlled download source.");
                         await File.WriteAllBytesAsync(item.DownloadPath, content, token); Downloads++;

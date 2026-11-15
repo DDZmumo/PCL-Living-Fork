@@ -16,6 +16,7 @@ internal static partial class MmcInstanceBackendTests {
                 (string Name, Action Run)[] focused = [
                     ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption),
                     ("MMC final launch validation rechecks replaced ancestor junctions even after a clean validation pass", LaunchValidationRejectsReplacedAncestorJunction),
+                    ("MMC launch preparation accepts 128-segment host library targets and final validation allows deeper targets", DeepTargetLaunchValidation),
                     ("MMC preloaded launch sources, baseline disk tamper detection, and preserved target repair stay strict", PreloadedSourcesAndPreservedRepairInvariants)
                 ];
                 foreach (var test in focused) { test.Run(); Console.WriteLine("PASS " + test.Name); }

@@ -76,7 +76,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                         var bound = MmcPlanBinder.Bind(definition, compiled, observed.Facts, options, definition.ArtifactLocks,
                             observed.DerivedOutputs, observed.AssetIndexes, publishedBaseline: definition, packageBaseline: saved.BaselineInput);
                         RequireBinding(bound);
-                        var files = LaunchFiles(paths, definition, prepared, artifactRequest.AdditionalPreservedArtifacts);
+                        var files = LaunchFiles(definition, prepared, artifactRequest.AdditionalPreservedArtifacts);
                         string view = paths.ResolveRelative(MmcPathRole.Runtime, prepared.ViewKey);
                         snapshot = new(definition, primary.Sha256, bound.Plan!, paths, saved.PackageConfiguration,
                             prepared.OrderedBindings.Select(value => new MmcInstanceLaunchTarget(value.Artifact.Key, value.TargetRelativePath, value.TargetPath)).ToImmutableArray(),
@@ -155,7 +155,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         if (native.Length == 0 || native.Select(value => value.ViewKey).Distinct(StringComparer.Ordinal).Count() != 1 || native.Select(value => value.SourceSetFingerprint).Distinct(StringComparer.Ordinal).Count() != 1) return null;
         return new(native[0].ViewKey, native[0].SourceSetFingerprint, native.Select(value => new MmcNativeFileFact(value.ParentArtifactKey, value.RelativePath, value.Sha256, value.SizeBytes)).ToImmutableArray());
     }
-    private static ImmutableArray<MmcInstanceLaunchFile> LaunchFiles(MmcInstancePaths paths, MmcInstanceDefinition definition,
+    private static ImmutableArray<MmcInstanceLaunchFile> LaunchFiles(MmcInstanceDefinition definition,
         MmcPreparedArtifacts prepared, ImmutableArray<MmcArtifactReference> preserved) {
         Dictionary<string, MmcInstanceLaunchFile> files = new(StringComparer.OrdinalIgnoreCase);
         void Add(string relative, string sha256, long size) {
@@ -167,11 +167,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         var preservedKeys = preserved.Select(value => value.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var value in definition.PackageFileLocks.Where(value => preservedKeys.Contains(value.ArtifactKey))) Add(value.TargetRelativePath, value.AdoptedSha256, value.SizeBytes);
         foreach (var value in definition.DerivedOutputs.Where(value => value.ViewKey == prepared.ViewKey)) Add(value.TargetRelativePath, value.Sha256, value.SizeBytes);
-        var ordered = files.Values.OrderBy(value => value.RelativePath, StringComparer.Ordinal).ToImmutableArray();
-        if (!ordered.IsEmpty) {
-            MmcInstancePaths.ForEachBounded(ordered, (_, file, _) => paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath), CancellationToken.None);
-        }
-        return ordered;
+        return files.Values.OrderBy(value => value.RelativePath, StringComparer.Ordinal).ToImmutableArray();
     }
 
     private static bool PreloadedSourcesMatch(MmcSavedInstanceSources saved, MmcInstancePaths paths, MmcInstanceDefinition definition) {
