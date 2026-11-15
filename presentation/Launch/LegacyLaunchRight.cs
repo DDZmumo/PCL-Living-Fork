@@ -75,14 +75,16 @@ public sealed partial class LegacyLaunchRight<TInstance, TWorld, TAnimation>
     }
     public void ApplyDependencyOptionsState(bool GameActive, bool Animate, bool RecentVisible) {
         view.DependencyAnchor().Margin = new Thickness(20, 0, 0, 108);
-        bool visible = !GameActive; string name = "Dependency Options " + view.PageId();
-        if (dependencyVisible == visible && view.DependencyCard().Visibility == (visible ? Visibility.Visible : Visibility.Collapsed)) return;
-        dependencyVisible = visible; animation.Stop(name); view.DependencyCard().IsHitTestVisible = visible;
-        if (!Animate) { view.DependencyCard().Visibility = visible ? Visibility.Visible : Visibility.Collapsed; view.DependencyCard().Opacity = visible ? 1 : 0; view.DependencyTransform().X = visible ? 0 : -24; }
-        else if (visible) {
-            view.DependencyCard().Visibility = Visibility.Visible;
+        // More Settings owns this card's visibility. A running game only disables
+        // Quick Play; changing the next launch's dependency preferences remains valid.
+        string name = "Dependency Options " + view.PageId();
+        if (dependencyVisible == true && view.DependencyCard().Visibility == Visibility.Visible) return;
+        dependencyVisible = true; animation.Stop(name); view.DependencyCard().IsHitTestVisible = true;
+        view.DependencyCard().Visibility = Visibility.Visible;
+        if (!Animate) { view.DependencyCard().Opacity = 1; view.DependencyTransform().X = 0; }
+        else {
             animation.Start(new[] { animation.Opacity(view.DependencyCard(), 1 - view.DependencyCard().Opacity, 180, 0, LegacyLaunchEase.Linear, false), animation.TranslateX(view.DependencyCard(), -view.DependencyTransform().X, 280, 0, LegacyLaunchEase.OutBackWeak, false) }, name, false);
-        } else animation.Start(new[] { animation.Opacity(view.DependencyCard(), -view.DependencyCard().Opacity, 100, 0, LegacyLaunchEase.Linear, false), animation.TranslateX(view.DependencyCard(), -24 - view.DependencyTransform().X, 150, 0, LegacyLaunchEase.InFluentWeak, false), animation.Code(() => view.DependencyCard().Visibility = Visibility.Collapsed, 0, true) }, name, false);
+        }
     }
     public void Unloaded() {
         animation.Stop("Dependency Options " + view.PageId()); dependencyVisible = false; view.DependencyCard().Visibility = Visibility.Collapsed; view.DependencyCard().Opacity = 0; view.DependencyTransform().X = -24; recent().ReleaseRecentWorlds();

@@ -31,12 +31,16 @@ internal static class LaunchMoreSettingsChecks {
             Native.Check(choice.Text == "更多设置" && choice.Checked && choicePosition.X > 150 &&
                 choicePosition.Y + choice.ActualHeight <= launchPosition.Y - 8 && choicePosition.X + choice.ActualWidth <= 280.1,
                 "The native More Settings checkbox is not above the launch button on the right.");
+            AccountActionsFit(left);
             string? preview = Environment.GetEnvironmentVariable("PCLLF_PERSONAL_OPTIONS_PREVIEW_DIR");
             if (!string.IsNullOrWhiteSpace(preview)) SaveImage(left,300,620,preview,"launch-more-placement-light.png");
             var content = (Grid)right.FindName("PanMoreSettings");
             var transform = (TranslateTransform)right.FindName("TransMoreSettings");
             var recent = (MyCard)right.FindName("CardRecentWorlds");
             var dependencies = (MyCard)right.FindName("CardDependencyChecks");
+            Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,true,false);
+            Native.Check(dependencies.Visibility == Visibility.Visible,
+                "A fresh launch page hid dependency settings when discovering an already-running game.");
             object world = LocalFeatureChecks.New("PCL.RecentWorld");
             Native.Set(world,"Name","测试存档"); Native.Set(world,"Identifier","World"); Native.Set(world,"VersionPath",Path.Combine(scope.Root,"versions","Example"));
             Native.Set(world,"GameFolder",scope.Root); Native.Set(world,"PlayedUtc",DateTime.UtcNow);
@@ -60,6 +64,10 @@ internal static class LaunchMoreSettingsChecks {
             Native.Check(content.Visibility == Visibility.Collapsed && !recent.IsVisible && !dependencies.IsVisible && Math.Abs(transform.X+300)<0.05 && !Settings.Get<bool>(Preference),
                 "Both cards were not hidden together or the preference did not save.");
             Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,true,false);
+            choice.SetChecked(true,true); Step(35);
+            Native.Check(dependencies.IsVisible && !recent.IsVisible,
+                "More Settings was empty while a game was running, or Quick Play lost its running-game protection.");
+            choice.SetChecked(false,true); Step(35);
             Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,false,false);
             Native.Check(!content.IsVisible,"A game-state refresh reopened hidden cards.");
             ((System.Collections.IDictionary)Native.Get(Settings.Entries[Preference],"ValueCache")!).Remove("");
@@ -95,6 +103,29 @@ internal static class LaunchMoreSettingsChecks {
             app.MainWindow=previousWindow; ModMain.FrmLaunchRight=previousRight;
             ModAnimation.AniControlEnabled=previousAnimationControl; lastTick.SetValue(null,previousTick);
         }
+    }
+    private static void AccountActionsFit(PageLaunchLeft left) {
+        var panel = (Grid)left.FindName("PanLogin");
+        var account = new PageLoginMsSkin(); panel.Children.Add(account);
+        ((Border)account.FindName("PanButtons")).Opacity = 1;
+        ((TextBlock)account.FindName("TextName")).Text = "示例账号";
+        try {
+            foreach (double height in new[] { 360d, 400d, 470d, 620d }) {
+                left.Measure(new Size(300,height)); left.Arrange(new Rect(0,0,300,height)); left.UpdateLayout();
+                foreach (string name in new[] { "BtnSkin", "BtnEdit", "BtnExit" }) {
+                    var button = (FrameworkElement)account.FindName(name);
+                    foreach (double fraction in new[] { 0.25,0.5,0.75 }) {
+                        Point point = button.TranslatePoint(new Point(button.ActualWidth*fraction,button.ActualHeight*fraction),left);
+                        DependencyObject? hit = VisualTreeHelper.HitTest(left,point)?.VisualHit;
+                        while (hit is not null && !ReferenceEquals(hit,button)) hit = VisualTreeHelper.GetParent(hit);
+                        Native.Check(ReferenceEquals(hit,button), $"Account action {name} was clipped or covered at launch-page height {height} (point {point}).");
+                    }
+                }
+                string? preview = Environment.GetEnvironmentVariable("PCLLF_PERSONAL_OPTIONS_PREVIEW_DIR");
+                if (!string.IsNullOrWhiteSpace(preview)) SaveImage(left,300,(int)height,preview,$"account-actions-{height}.png");
+            }
+        } finally { panel.Children.Remove(account); }
+        left.Measure(new Size(300,620)); left.Arrange(new Rect(0,0,300,620)); left.UpdateLayout();
     }
     private static void SaveImage(FrameworkElement view,int width,int height,string directory,string name) {
         Directory.CreateDirectory(directory);
