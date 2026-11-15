@@ -83,7 +83,8 @@ public sealed class ModpackModeController<TPage, TFolder, TInstance>
     }
     public int NormalizeInstancePage(int page) {
         if (page == host.Routes.InstanceBackups) return host.Routes.InstanceSaves;
-        return Enabled && page == host.Routes.InstanceExport ? host.Routes.InstanceOverall : page;
+        bool isMmc = host.Instance().IsMmcContext?.Invoke() == true;
+        return !isMmc && Enabled && page == host.Routes.InstanceExport ? host.Routes.InstanceOverall : page;
     }
     public bool CanChangeMinecraft(string? current, string? requested) => !Enabled || (!string.IsNullOrWhiteSpace(current) && string.Equals(current, requested, StringComparison.Ordinal));
     public bool ConfirmModAction(string actionName, Func<string, bool>? confirm = null) {
@@ -96,7 +97,8 @@ public sealed class ModpackModeController<TPage, TFolder, TInstance>
     public void ApplyInstanceVisibility() {
         Visibility hidden = Enabled ? Visibility.Collapsed : Visibility.Visible;
         ModpackModeInstanceView view = host.Instance();
-        if (view.Export is not null) view.Export.Visibility = hidden;
+        bool isMmc = view.IsMmcContext?.Invoke() == true;
+        if (view.Export is not null) view.Export.Visibility = isMmc ? Visibility.Visible : hidden;
         view.RefreshOverview(); view.RefreshModify();
         if (view.ModDownload is not null) {
             view.ModDownload.Visibility = hidden; view.ModHintDownload!.Visibility = hidden;
@@ -110,6 +112,7 @@ public sealed class ModpackModeController<TPage, TFolder, TInstance>
                 "你需要先安装 Forge、Fabric 等 Mod 加载器才能使用 Mod，请在下载页面安装这些版本。\n如果你已经安装过了 Mod 加载器，那么你很可能选择了错误的版本，请点击版本选择按钮切换版本。");
             view.RefreshDisabledDownload();
         }
+        view.RefreshInstanceSidebar?.Invoke();
     }
     public void HideButtonColumn(FrameworkElement button) {
         if (button.Parent is not Grid parent) return;

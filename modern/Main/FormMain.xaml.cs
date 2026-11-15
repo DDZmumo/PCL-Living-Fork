@@ -167,7 +167,8 @@ namespace PCL
             InstanceSetup = 1, InstanceModify = 2, InstanceMod = 3, InstanceModDisabled = 4,
             InstanceExport = 5, InstanceSaves = 6, InstanceScreenshots = 7,
             InstanceResourcePacks = 8, InstanceShaderPacks = 9, InstanceSchematics = 10,
-            InstanceKeybindings = 11, InstanceRestorePoints = 12, InstanceBackups = 13, InstanceClone = 14, InstancePackUpdate = 15
+            InstanceKeybindings = 11, InstanceRestorePoints = 12, InstanceBackups = 13, InstanceClone = 14, InstancePackUpdate = 15,
+            InstanceMmcMove = 16, InstanceMmcPlatformOrigin = 17
         }
         private string PageNameGet(PageStackData Stack) => Controller.PageNameGet(Stack);
         public void PageNameRefresh(PageStackData Type) => Controller.PageNameRefresh(Type);
@@ -322,7 +323,9 @@ namespace PCL
                 AprilEnabled = () => ModMain.IsAprilEnabled, AprilGivenUp = () => ModMain.IsAprilGiveup, WriteAprilGivenUp = value => ModMain.IsAprilGiveup = value,
                 AprilScale = () => ModMain.FrmLaunchLeft.AprilScaleTrans,
                 SettingsInstance = () => PageInstanceLeft.Instance, SelectedInstance = () => ModMinecraft.McInstanceSelected,
-                InstanceName = value => value.Name, InstanceLocked = value => ModMinecraft.McInstanceLock.IsLocked(value),
+                InstanceName = value => value.Name,
+                InstanceSettingsTitlePrefix = value => PageInstanceLeft.ObserveInstanceContext(value).SettingsTitlePrefix,
+                InstanceLocked = value => ModMinecraft.McInstanceLock.IsLocked(value),
                 InstanceBlocksNavigation = value => ModMinecraft.McInstanceLock.BlocksNavigation(value),
                 WriteInstanceSetting = (key, value, target) => Settings.Set(key, value, Instance: target),
                 ValidateHttp = value => new ValidateHttp().Validate(value), ReloadInstanceSetup = () => ModMain.FrmInstanceSetup.Reload(),
@@ -448,7 +451,10 @@ namespace PCL
                 case PageType.Other: if (ModMain.FrmOtherLeft == null) ModMain.FrmOtherLeft = new PageOtherLeft(); break;
                 case PageType.InstanceSelect: if (ModMain.FrmSelectLeft == null) ModMain.FrmSelectLeft = new PageSelectLeft(); break;
                 case PageType.TaskManager: if (ModMain.FrmSpeedLeft == null) ModMain.FrmSpeedLeft = new PageSpeedLeft(); break;
-                case PageType.InstanceSetup: if (ModMain.FrmInstanceLeft == null) ModMain.FrmInstanceLeft = new PageInstanceLeft(); break;
+                case PageType.InstanceSetup:
+                    if (ModMain.FrmInstanceLeft == null) ModMain.FrmInstanceLeft = new PageInstanceLeft();
+                    ModMain.FrmInstanceLeft.SyncInstanceContext();
+                    break;
             }
         }
         private static void EnsureRightPage(int Page)

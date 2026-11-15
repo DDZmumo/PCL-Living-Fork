@@ -166,6 +166,7 @@
 <Compile Include="Pages/PageOther/PageOtherHelpDetail.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceExport.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceLeft.xaml.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceMmcTool.xaml.cs" />
 <Compile Include="Pages/PageInstance/LocalModPageRuntime.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMod.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceResources.xaml.cs" />
@@ -277,6 +278,7 @@
 <Page Include="Pages/PageSpeedLeft.xaml" />
 <Page Include="Pages/PageSpeedRight.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceLeft.xaml" />
+<Page Include="Pages/PageInstance/PageInstanceMmcTool.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceMod.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceKeybindings.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceRestorePoints.xaml" />

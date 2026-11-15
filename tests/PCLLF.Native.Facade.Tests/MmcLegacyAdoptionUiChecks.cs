@@ -69,8 +69,11 @@ internal static class MmcLegacyAdoptionUiChecks {
                 PageInstanceLeft.Instance = instance; var page = new PageInstanceOverall();
                 Native.Call(page.GetType(), "RefreshMmcActions", page);
                 var create = (FrameworkElement)page.FindName("BtnMmcLegacyAdoption");
-                Native.Check(create.Visibility == Visibility.Visible && ((FrameworkElement)page.FindName("BtnMmcExport")).Visibility == Visibility.Collapsed,
-                    "An ordinary instance lost its explicit copy entry or gained managed-only actions.");
+                Native.Check(create.Visibility == Visibility.Visible &&
+                    page.FindName("BtnMmcExport") is null && page.FindName("BtnMmcHistory") is null &&
+                    page.FindName("BtnMmcMove") is null && page.FindName("BtnMmcPackageUpdate") is null &&
+                    page.FindName("BtnMmcComponents") is null && page.FindName("BtnMmcPlatformOrigin") is null,
+                    "An ordinary instance lost its explicit copy entry or retained duplicate overview buttons.");
                 Native.Call(page.GetType(), "BtnMmcLegacyAdoption_Click", page, create, null);
             } finally { PageInstanceLeft.Instance = previousPage; }
             var deadline = DateTime.UtcNow.AddSeconds(45);

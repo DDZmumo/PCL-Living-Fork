@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text;
+using System.Windows;
 using PCL;
 using PCLCS;
 using PCLCS.Loaders;
@@ -76,8 +77,12 @@ internal static class MmcMoveUiChecks {
             checkpoint = phase => { if (phase == MmcLifecycleCheckpoint.CommitDecided) Current.Cancel(); };
             var previousPage = PageInstanceLeft.Instance; count = tasks.Count;
             try {
-                PageInstanceLeft.Instance = instance; var page = new PageInstanceOverall();
-                Native.Call(page.GetType(), "BtnMmcMove_Click", page, page.FindName("BtnMmcMove"), null);
+                PageInstanceLeft.Instance = instance;
+                Native.Check(new PageInstanceOverall().FindName("BtnMmcMove") is null, "Duplicate BtnMmcMove remained in Overview.");
+                var left = new PageInstanceLeft();
+                Native.Check(((FrameworkElement)left.FindName("ItemMmcMove")).Visibility == Visibility.Visible, "Managed move sidebar entry stayed collapsed.");
+                var toolPage = (PageInstanceMmcTool)left.PageGet(FormMain.PageSubType.InstanceMmcMove);
+                Native.Call(toolPage.GetType(), "BtnPrimaryAction_Click", toolPage, toolPage.FindName("BtnPrimaryAction"), null);
             } finally { PageInstanceLeft.Instance = previousPage; }
             Wait(count);
             var result = results.Single(); var moved = MmcInstanceInspector.Read(target);

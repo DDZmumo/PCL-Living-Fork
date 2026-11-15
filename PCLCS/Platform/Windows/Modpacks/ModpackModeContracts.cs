@@ -27,6 +27,8 @@ public sealed class ModpackModeInstanceView {
     public FrameworkElement? Export, ModDownload, ModHintDownload, DisabledVersion;
     public Action<string>? ModEmptyHint, DisabledHint;
     public Action RefreshOverview = null!, RefreshModify = null!, RefreshDisabledDownload = null!;
+    public Func<bool>? IsMmcContext;
+    public Action? RefreshInstanceSidebar;
 }
 /// <summary>The real pages, controls, settings and folder loaders. Visibility/state decisions stay in C#.</summary>
 public sealed class ModpackModeHost<TPage, TFolder, TInstance>

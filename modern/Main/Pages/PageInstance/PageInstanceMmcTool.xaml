@@ -1,0 +1,45 @@
+<local:MyPageRight x:Class="PCL.PageInstanceMmcTool"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:PCL"
+    PanScroll="PanBack">
+    <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="PanMain" Margin="25,10">
+            <local:MyHint x:Name="HintStatus" Margin="0,15,0,15" Theme="Blue" Visibility="Collapsed" />
+            <local:MyCard x:Name="CardAction" Title="MMC 实例工具" Margin="0,0,0,15">
+                <StackPanel Margin="25,40,25,20">
+                    <TextBlock x:Name="LabInstanceInfo" TextWrapping="Wrap" FontSize="13.5" Margin="0,0,0,8" />
+                    <TextBlock x:Name="LabToolDescription" TextWrapping="Wrap" Opacity="0.78" Margin="0,0,0,15" />
+                    <StackPanel x:Name="PanCloneOptions" Visibility="Collapsed" Margin="0,0,0,15">
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="新实例名称" VerticalAlignment="Center" Margin="0,0,20,0" />
+                            <local:MyTextBox x:Name="TextCloneName" Grid.Column="1" MaxLength="100" HintText="输入新的实例名称" />
+                        </Grid>
+                        <TextBlock Text="游戏本体、加载器、模组、组件配置与环境变量会复制到独立目录。" TextWrapping="Wrap" Opacity="0.65" Margin="0,0,0,10" />
+                        <local:MyCheckBox x:Name="CheckCopySaves" Text="复制存档" Height="27" ToolTip="复制当前世界存档到新实例。" />
+                        <local:MyCheckBox x:Name="CheckCopyScreenshots" Text="复制截图" Height="27" Margin="0,5,0,0" />
+                        <local:MyCheckBox x:Name="CheckCopyServers" Text="复制服务器列表" Height="27" Margin="0,5,0,0" ToolTip="仅复制服务器列表文件，账号登录信息不会复制。" />
+                        <TextBlock x:Name="LabCloneValidation" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushRedLight}" Margin="0,10,0,0" Visibility="Collapsed" />
+                    </StackPanel>
+                    <WrapPanel>
+                        <local:MyButton x:Name="BtnPrimaryAction" ColorType="Highlight" MinWidth="150" Height="35" Padding="15,0" Margin="0,0,15,6" Click="BtnPrimaryAction_Click" />
+                        <local:MyButton x:Name="BtnRefreshTool" Text="刷新状态" MinWidth="110" Height="35" Padding="13,0" Margin="0,0,15,6" Click="BtnRefreshTool_Click" />
+                    </WrapPanel>
+                </StackPanel>
+            </local:MyCard>
+            <local:MyCard x:Name="CardRecovery" Title="状态与恢复" Margin="0,0,0,15" Visibility="Collapsed">
+                <StackPanel Margin="25,40,25,20">
+                    <TextBlock x:Name="LabRecoveryMessage" TextWrapping="Wrap" Margin="0,0,0,14" />
+                    <WrapPanel>
+                        <local:MyButton x:Name="BtnRepairInstance" Text="修复 MMC 实例" ColorType="Highlight" MinWidth="140" Height="35" Padding="14,0" Margin="0,0,15,6" Visibility="Collapsed" Click="BtnRepairInstance_Click" />
+                        <local:MyButton x:Name="BtnRecoveryRefresh" Text="重新检查状态" MinWidth="120" Height="35" Padding="13,0" Margin="0,0,15,6" Click="BtnRefreshTool_Click" />
+                    </WrapPanel>
+                </StackPanel>
+            </local:MyCard>
+        </StackPanel>
+    </local:MyScrollViewer>
+</local:MyPageRight>

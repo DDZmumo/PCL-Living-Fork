@@ -86,18 +86,6 @@
                     <WrapPanel>
                         <local:MyButton x:Name="BtnMmcLegacyAdoption" Text="从原 MMC 包创建副本" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
                                         Visibility="Collapsed" ToolTip="主动选择对应的原始 MMC ZIP，核对差异后创建管理副本。当前普通实例及其存档、设置会保留。" Click="BtnMmcLegacyAdoption_Click" />
-                        <local:MyButton x:Name="BtnMmcExport" Text="导出 MMC 整合包" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcExport_Click" />
-                        <local:MyButton x:Name="BtnMmcHistory" Text="MMC 环境记录" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcHistory_Click" />
-                        <local:MyButton x:Name="BtnMmcMove" Text="移动 MMC 实例" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcMove_Click" />
-                        <local:MyButton x:Name="BtnMmcPackageUpdate" Text="从 MMC ZIP 更新" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcPackageUpdate_Click" />
-                        <local:MyButton x:Name="BtnMmcComponents" Text="MMC 组件与补丁" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcComponents_Click" />
-                        <local:MyButton x:Name="BtnMmcPlatformOrigin" Text="MMC 平台来源与更新" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" Click="BtnMmcPlatformOrigin_Click" />
                     </WrapPanel>
                 </StackPanel>
             </local:MyCard>
