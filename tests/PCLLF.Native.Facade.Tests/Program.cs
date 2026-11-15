@@ -104,7 +104,11 @@ internal static class Program
         ["account-ui"] = AccountUiChecks.Run,
         ["mod-favorites"] = ModFavoriteChecks.Run,
         ["update-log-prompt"] = UpdateLogPromptChecks.Run,
-        ["instance-sidebar"] = InstanceSidebarChecks.Run
+        ["instance-sidebar"] = InstanceSidebarChecks.Run,
+        ["mmc-sidebar"] = MmcSidebarChecks.Run,
+        ["mmc-sidebar-states"] = MmcSidebarChecks.RunStates,
+        ["mmc-sidebar-visuals"] = MmcSidebarChecks.RunVisuals,
+        ["mmc-sidebar-admission"] = MmcSidebarChecks.RunAdmission
     };
     // Requires explicit locally installed JDKs; keep these out of the normal CI/default registry.
     private static readonly Dictionary<string, Action<FixtureEnvironment>> ExplicitCases = new(StringComparer.Ordinal) {
