@@ -46,7 +46,9 @@ public static class LauncherApplicationServices {
     private static InstanceSelectionApplicationService<ModMinecraft.McInstance> CreateSelectionService() => new(new() {
         VerifyAccess = VerifyUiAccess,
         CanSelect = instance => !IsLaunchActive() && !ModMinecraft.McInstanceLock.BlocksNavigation(SelectionOwner.Runtime.Instance!) &&
-            !ModMinecraft.McInstanceLock.BlocksNavigation(instance!),
+            !ModMinecraft.McInstanceLock.BlocksNavigation(instance!) &&
+            (instance is null || !ModModpackMode.Enabled || ModModpackMode.AllowsInstance(instance.PathVersion)),
+        CanChangeFolder = () => !ModModpackMode.Enabled,
         ReadFolder = () => ModMinecraft.McFolderSelected,
         SetFolder = folder => ModMinecraft.McFolderSelected = folder,
         ApplySelection = instance => ModMinecraft.ApplySelectionFromApplication(instance)
@@ -70,7 +72,7 @@ public static class LauncherApplicationServices {
     }
     private static bool IsTaskActive(ModLoader.LoaderBase? task) => task is not null &&
         (task.State == ModBase.LoadState.Loading || task.HasActiveWorkload == true);
-    internal static bool IsLaunchActive() => IsTaskActive(LaunchOwner.Runtime.Task);
+    internal static bool IsLaunchActive() => IsTaskActive(LaunchOwner.Runtime.Task) || IsTaskActive(LaunchOwner.Runtime.Operation);
     internal static ModMinecraft.McInstance ReadLaunchInstance() =>
         IsLaunchActive() && LaunchOwner.Runtime.Target is not null ? LaunchOwner.Runtime.Target : ModMinecraft.McInstanceSelected;
 

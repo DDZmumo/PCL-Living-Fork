@@ -97,7 +97,9 @@ internal static class ApplicationServiceTests {
         };
         var service = new InstanceSelectionApplicationService<object>(ports); service.Changed += () => events++;
         Require(!service.Select(new()) && !service.SelectFolder("other") && writes == 0 && events == 0, "Refused selection still wrote state.");
-        ports.CanSelect = _ => true; ports.ApplySelection = _ => throw new IOException("synthetic persistence failure");
+        ports.CanSelect = _ => true; ports.CanChangeFolder = () => false;
+        Require(!service.SelectFolder("locked-pack-folder") && writes == 0, "Pack mode accepted a folder change.");
+        ports.ApplySelection = _ => throw new IOException("synthetic persistence failure");
         Throws<IOException>(() => service.Select(new()));
         Require(events == 0, "A failed selection published success.");
     }

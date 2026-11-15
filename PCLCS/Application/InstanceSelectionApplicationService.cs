@@ -22,6 +22,7 @@ public sealed class InstanceSelectionRuntimeState<TInstance> where TInstance : c
 public sealed class InstanceSelectionApplicationCommands<TInstance> where TInstance : class {
     public Action VerifyAccess = null!;
     public Func<TInstance?, bool> CanSelect = null!;
+    public Func<bool>? CanChangeFolder;
     public Func<string> ReadFolder = null!;
     public Action<string> SetFolder = null!;
     public Action<TInstance?> ApplySelection = null!;
@@ -41,7 +42,7 @@ public sealed class InstanceSelectionApplicationService<TInstance> : IInstanceSe
     }
     public bool SelectFolder(string folder) {
         commands.VerifyAccess();
-        if (!commands.CanSelect(Runtime.Instance)) return false;
+        if (!commands.CanSelect(Runtime.Instance) || commands.CanChangeFolder?.Invoke() == false) return false;
         string previous = commands.ReadFolder();
         commands.SetFolder(folder);
         if (!string.Equals(previous, commands.ReadFolder(), StringComparison.Ordinal)) Changed?.Invoke();
