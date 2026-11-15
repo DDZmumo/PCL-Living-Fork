@@ -1,5 +1,7 @@
 // Independently authored fixtures. Host test suite retains its existing license.
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Text.Json;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 using PCLLF.MMCC.Core;
@@ -37,6 +39,7 @@ internal static class MmcProfileTests {
         yield return ("MMC archive sizes components edges and JSON depth are bounded", StructureBudgets);
         yield return ("MMC cumulative raw and logical prefix path budgets reject product-size allocation", PathBudgets);
         yield return ("MMC results survive source mutation and detached JSON document disposal", Immutability);
+        yield return ("MMC Core PE metadata enforces pure boundary without host, side-effect, or PInvoke dependencies", CoreArchitecturePurity);
     }
 
     private const string Manifest = "{\"formatVersion\":1,\"components\":[{\"uid\":\"net.minecraft\",\"version\":\"1.7.10\",\"important\":true}]}";
@@ -406,5 +409,702 @@ internal static class MmcProfileTests {
         var replay = Good(Input());
         Require(replay.ManifestSha256 == Good(Input()).ManifestSha256, "Same source produced different digest.");
         Require(typeof(MmcPackageReader).Assembly.GetReferencedAssemblies().All(a => a.Name is not "PCLCS" and not "Main" && !a.Name!.StartsWith("Presentation", StringComparison.Ordinal)), "Core acquired a host reference.");
+    }
+
+    private static void CoreArchitecturePurity() {
+        string corePath = typeof(MmcPackageReader).Assembly.Location;
+        Require(!string.IsNullOrEmpty(corePath) && File.Exists(corePath), "Compiled PCLLF.MMCC.Core assembly was not found on disk.");
+        var coreViolations = MmcCorePurityAnalyzer.InspectAssembly(corePath);
+        Require(coreViolations.Count == 0, "Actual PCLLF.MMCC.Core violated purity constraints: " + string.Join("; ", coreViolations));
+
+        string testAssemblyPath = typeof(MmcProfileTests).Assembly.Location;
+        Require(!string.IsNullOrEmpty(testAssemblyPath) && File.Exists(testAssemblyPath), "Compiled PCLLF.Migration.Tests assembly was not found on disk.");
+
+        // Negative fixtures prove unexecuted compiled methods cannot hide host/WPF/FS/process/network/time/PInvoke operations.
+        var fileReadViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeFileReadFixture));
+        Require(fileReadViolations.Any(v => v.Contains("System.IO.File", StringComparison.Ordinal)), "Negative file-read fixture was not rejected: " + string.Join("; ", fileReadViolations));
+
+        var processViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeProcessStartFixture));
+        Require(processViolations.Any(v => v.Contains("System.Diagnostics.Process", StringComparison.Ordinal)), "Negative process-start fixture was not rejected: " + string.Join("; ", processViolations));
+
+        var pinvokeViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativePInvokeFixture));
+        Require(pinvokeViolations.Any(v => v.Contains("PInvoke", StringComparison.Ordinal) && v.Contains("kernel32.dll", StringComparison.OrdinalIgnoreCase)),
+            "Negative PInvoke fixture was not rejected: " + string.Join("; ", pinvokeViolations));
+
+        var hostViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeHostReferenceFixture));
+        Require(hostViolations.Any(v => v.Contains("PCLCS", StringComparison.Ordinal)), "Negative host-reference fixture was not rejected: " + string.Join("; ", hostViolations));
+
+        var networkLambdaViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeNetworkAndClockFixture));
+        Require(networkLambdaViolations.Any(v => v.Contains("System.Net.Http.HttpClient", StringComparison.Ordinal)) &&
+                networkLambdaViolations.Any(v => v.Contains("System.DateTime::get_UtcNow", StringComparison.Ordinal)),
+            "Negative lambda HTTP/clock fixture was not rejected: " + string.Join("; ", networkLambdaViolations));
+
+        var ambientIoViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeAmbientIoFixture));
+        Require(ambientIoViolations.Any(v => v.Contains("System.Diagnostics.Stopwatch", StringComparison.Ordinal)) &&
+                ambientIoViolations.Any(v => v.Contains("System.Console", StringComparison.Ordinal)),
+            "Negative instance-clock/console fixture was not rejected: " + string.Join("; ", ambientIoViolations));
+
+        var appContextViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(NegativeAppContextFixture));
+        Require(appContextViolations.Any(v => v.Contains("System.AppContext::GetData", StringComparison.Ordinal)) &&
+                appContextViolations.Any(v => v.Contains("System.AppContext::get_BaseDirectory", StringComparison.Ordinal)) &&
+                appContextViolations.Any(v => v.Contains("System.AppContext::SetSwitch", StringComparison.Ordinal)) &&
+                appContextViolations.Any(v => v.Contains("ForbiddenType:System.AppContext", StringComparison.Ordinal)),
+            "Negative manual AppContext fixture was not rejected: " + string.Join("; ", appContextViolations));
+
+        Require(MmcCorePurityAnalyzer.IsForbiddenAssembly("PresentationFramework") &&
+                MmcCorePurityAnalyzer.IsForbiddenAssembly("PresentationCore") &&
+                MmcCorePurityAnalyzer.IsForbiddenAssembly("WindowsBase") &&
+                MmcCorePurityAnalyzer.IsForbiddenAssembly("PCLCS") &&
+                MmcCorePurityAnalyzer.IsForbiddenAssembly("Main"),
+            "Host and WPF assembly policy predicate must remain active.");
+
+        // Positive fixture proves legitimate pure helpers (MemoryStream, SHA256, JSON, immutable collections, UTF8, pure Path string ops) pass.
+        var pureViolations = MmcCorePurityAnalyzer.InspectTypeTree(testAssemblyPath, typeof(PositivePureHelpersFixture));
+        Require(pureViolations.Count == 0, "Positive pure Core helper fixture was unexpectedly rejected: " + string.Join("; ", pureViolations));
+        string pureDigest = PositivePureHelpersFixture.ComputeDeterministicSummary("{\"uid\":\"net.minecraft\"}", "mods/example.jar");
+        Require(pureDigest.Length == 64, "Positive pure fixture did not compute a SHA256 summary.");
+    }
+
+    private static class NegativeFileReadFixture {
+        internal static string ReadAll(string path) => File.ReadAllText(path);
+        internal static Func<string, bool> CheckTemp => path => File.Exists(Path.Combine(Path.GetTempPath(), path));
+    }
+
+    private static class NegativeProcessStartFixture {
+        internal static void LaunchHidden() {
+            using var _ = System.Diagnostics.Process.Start("cmd.exe");
+        }
+    }
+
+    private static class NegativePInvokeFixture {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", ExactSpelling = true)]
+        private static extern uint GetTickCount();
+
+        internal static uint CallNative() => GetTickCount();
+    }
+
+    private static class NegativeHostReferenceFixture {
+        internal static string ReadRoot(PCLCS.MmcInstancePaths paths) => paths.VersionRoot;
+    }
+
+    private static class NegativeNetworkAndClockFixture {
+        internal static string Describe() {
+            Func<System.Net.Http.HttpClient> buildClient = () => new System.Net.Http.HttpClient();
+            Func<DateTime> readClock = () => DateTime.UtcNow;
+            _ = buildClient;
+            return readClock().Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    private static class NegativeAmbientIoFixture {
+        internal static long ReadClock() {
+            var watch = new System.Diagnostics.Stopwatch();
+            watch.Start();
+            return watch.ElapsedTicks;
+        }
+
+        internal static string? ReadInput() => Console.ReadLine();
+    }
+
+    private static class NegativeAppContextFixture {
+        internal static object? ReadData() => AppContext.GetData("PCL_MMC_TEST");
+        internal static string ReadBaseDirectory() => AppContext.BaseDirectory;
+        internal static void SetSwitch() => AppContext.SetSwitch("Switch.PCLLF.Test", false);
+        internal static Type ReadTypeToken() => typeof(AppContext);
+    }
+
+    private static class PositivePureHelpersFixture {
+        internal static string ComputeDeterministicSummary(string jsonText, string relativePath) {
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(jsonText);
+            using var memory = new MemoryStream(utf8, writable: false);
+            using var doc = System.Text.Json.JsonDocument.Parse(memory);
+            string file = Path.GetFileName(relativePath);
+            string ext = Path.GetExtension(relativePath);
+            string dir = Path.GetDirectoryName(relativePath) ?? string.Empty;
+            string combined = Path.Combine(dir, Path.ChangeExtension(file, ext));
+            var items = System.Collections.Immutable.ImmutableArray.Create(
+                doc.RootElement.GetProperty("uid").GetString() ?? string.Empty,
+                combined,
+                Guid.TryParseExact("11111111-1111-1111-1111-111111111111", "D", out _) ? "ok" : "bad");
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes(string.Join('|', items));
+            return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(payload));
+        }
+    }
+
+    /// <summary>Inspects real compiled PE metadata and IL tokens to enforce Core purity without Roslyn or runtime execution.</summary>
+    private static class MmcCorePurityAnalyzer {
+        private sealed class DecodeContext(HashSet<System.Reflection.Metadata.TypeSpecificationHandle> visitedSpecs) {
+            internal HashSet<System.Reflection.Metadata.TypeSpecificationHandle> VisitedSpecs { get; } = visitedSpecs;
+        }
+
+        private static readonly Dictionary<short, System.Reflection.Emit.OpCode> OpCodesByValue = BuildOpCodeMap();
+
+        private static readonly HashSet<string> ForbiddenAssembliesExact = new(StringComparer.OrdinalIgnoreCase) {
+            "PCLCS", "Main", "LivingPCL", "Plain Craft Launcher 2", "MeloongCore",
+            "WindowsBase", "ReachFramework", "PresentationFramework", "PresentationCore",
+            "System.Windows.Forms", "Microsoft.Win32.Registry",
+            "System.Net.Http", "System.Net.Sockets", "System.Net.HttpListener", "System.Net.WebClient",
+            "System.Net.Requests", "System.Net.NameResolution", "System.Net.NetworkInformation",
+            "System.Diagnostics.Process", "System.Diagnostics.EventLog",
+            "System.IO.FileSystem", "System.IO.FileSystem.Watcher", "System.IO.FileSystem.DriveInfo",
+            "System.IO.Pipes", "System.IO.MemoryMappedFiles", "System.Runtime.Loader"
+        };
+
+        private static readonly string[] ForbiddenAssemblyPrefixes = [
+            "Presentation", "System.Windows.", "UIAutomation", "Microsoft.Win32.Registry"
+        ];
+
+        private static readonly HashSet<string> ForbiddenTypesExact = new(StringComparer.Ordinal) {
+            "System.IO.File", "System.IO.Directory", "System.IO.FileInfo", "System.IO.DirectoryInfo",
+            "System.IO.FileStream", "System.IO.FileSystemInfo", "System.IO.FileSystemEntry",
+            "System.IO.DriveInfo", "System.IO.FileSystemWatcher", "System.IO.RandomAccess",
+            "Microsoft.Win32.SafeHandles.SafeFileHandle", "Microsoft.Win32.SafeHandles.SafeProcessHandle",
+            "Microsoft.Win32.SafeHandles.SafePipeHandle",
+            "System.Diagnostics.Process", "System.Diagnostics.ProcessStartInfo", "System.Diagnostics.ProcessModule",
+            "System.Diagnostics.ProcessThread", "System.Diagnostics.EventLog", "System.Diagnostics.PerformanceCounter",
+            "System.Diagnostics.StackTrace", "System.Diagnostics.Stopwatch", "System.Console",
+            "System.Environment", "System.AppDomain",
+            "System.Net.WebClient", "System.Net.WebRequest", "System.Net.HttpWebRequest", "System.Net.HttpWebResponse",
+            "System.Net.FtpWebRequest", "System.Net.FileWebRequest", "System.Net.HttpListener", "System.Net.Dns",
+            "System.Random", "System.Security.Cryptography.RandomNumberGenerator",
+            "System.Runtime.InteropServices.NativeLibrary",
+            "System.Runtime.InteropServices.DllImportAttribute",
+            "System.Runtime.InteropServices.LibraryImportAttribute",
+            "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute"
+        };
+
+        private static readonly string[] ForbiddenTypePrefixes = [
+            "PCLCS.", "PCL.", "Main.", "LivingPCL.", "MeloongCore.",
+            "System.Windows.", "Presentation",
+            "System.Net.Http.", "System.Net.Sockets.", "System.Net.NetworkInformation.", "System.Net.Mail.",
+            "System.IO.Pipes.", "System.IO.MemoryMappedFiles.", "System.IO.Enumeration.",
+            "Microsoft.Win32.Registry", "System.Runtime.Loader."
+        ];
+
+        private static readonly HashSet<string> AllowedPurePathMembers = new(StringComparer.Ordinal) {
+            "Combine", "Join", "GetFileName", "GetFileNameWithoutExtension", "GetExtension",
+            "GetDirectoryName", "HasExtension", "ChangeExtension",
+            "TrimEndingDirectorySeparator", "EndsInDirectorySeparator",
+            "IsPathRooted", "IsPathFullyQualified",
+            "GetInvalidFileNameChars", "GetInvalidPathChars",
+            "DirectorySeparatorChar", "AltDirectorySeparatorChar", "PathSeparator", "VolumeSeparatorChar"
+        };
+
+        private static readonly Dictionary<string, HashSet<string>> ForbiddenMembersByType = new(StringComparer.Ordinal) {
+            ["System.DateTime"] = new(StringComparer.Ordinal) { "get_Now", "get_UtcNow", "get_Today" },
+            ["System.DateTimeOffset"] = new(StringComparer.Ordinal) { "get_Now", "get_UtcNow" },
+            ["System.TimeProvider"] = new(StringComparer.Ordinal) { "get_System" },
+            ["System.Guid"] = new(StringComparer.Ordinal) { "NewGuid", "CreateVersion7" },
+            ["System.Reflection.Assembly"] = new(StringComparer.Ordinal) {
+                "Load", "LoadFrom", "LoadFile", "LoadWithPartialName", "UnsafeLoadFrom",
+                "GetExecutingAssembly", "GetCallingAssembly", "GetEntryAssembly", "get_Location"
+            },
+            ["System.Runtime.InteropServices.Marshal"] = new(StringComparer.Ordinal) {
+                "GetDelegateForFunctionPointer", "GetFunctionPointerForDelegate",
+                "AllocHGlobal", "FreeHGlobal", "AllocCoTaskMem", "FreeCoTaskMem", "ReAllocHGlobal", "ReAllocCoTaskMem",
+                "StringToHGlobalAnsi", "StringToHGlobalUni", "StringToHGlobalAuto",
+                "StringToCoTaskMemUTF8", "StringToCoTaskMemUni", "PtrToStringAnsi", "PtrToStringUni",
+                "PtrToStringUTF8", "PtrToStringBSTR", "PtrToStructure", "StructureToPtr",
+                "ReadByte", "ReadInt16", "ReadInt32", "ReadInt64", "ReadIntPtr",
+                "WriteByte", "WriteInt16", "WriteInt32", "WriteInt64", "WriteIntPtr",
+                "Copy", "GetLastWin32Error", "GetLastPInvokeError", "GetHRForLastWin32Error", "Prelink", "PrelinkAll"
+            }
+        };
+
+        private sealed class AppContextAudit {
+            internal HashSet<TypeReferenceHandle> DeferredTypeRefs { get; } = [];
+            internal HashSet<MemberReferenceHandle> DeferredMemberRefs { get; } = [];
+            internal HashSet<TypeReferenceHandle> ApprovedTypeRefs { get; } = [];
+            internal HashSet<MemberReferenceHandle> ApprovedMemberRefs { get; } = [];
+
+            internal void VerifyAllDeferredAccountedFor(MetadataReader reader, HashSet<string> violations) {
+                foreach (var memHandle in DeferredMemberRefs) {
+                    if (ApprovedMemberRefs.Contains(memHandle)) continue;
+                    var mem = reader.GetMemberReference(memHandle);
+                    violations.Add($"MemberReference:UnaccountedAppContextCall:System.AppContext::{reader.GetString(mem.Name)}");
+                }
+                foreach (var typeHandle in DeferredTypeRefs) {
+                    if (!ApprovedTypeRefs.Contains(typeHandle))
+                        violations.Add("TypeReference:ForbiddenType:System.AppContext");
+                }
+            }
+        }
+
+        private static bool IsAllowedRegexGeneratorAppContextCaller(string? callerTypeFullName, string? rawMethodName) {
+            if (rawMethodName != ".cctor" || string.IsNullOrEmpty(callerTypeFullName)) return false;
+            const string prefix = "System.Text.RegularExpressions.Generated.<RegexGenerator_g>";
+            const string suffix = "__Utilities";
+            if (!callerTypeFullName.StartsWith(prefix, StringComparison.Ordinal) ||
+                !callerTypeFullName.EndsWith(suffix, StringComparison.Ordinal)) return false;
+            int hashLength = callerTypeFullName.Length - prefix.Length - suffix.Length;
+            if (hashLength <= 0) return false;
+            foreach (char c in callerTypeFullName.AsSpan(prefix.Length, hashLength)) {
+                if (!Uri.IsHexDigit(c)) return false;
+            }
+            return true;
+        }
+
+        internal static bool IsForbiddenAssembly(string assemblyName) =>
+            ForbiddenAssembliesExact.Contains(assemblyName) ||
+            ForbiddenAssemblyPrefixes.Any(prefix => assemblyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+        internal static List<string> InspectAssembly(string assemblyPath) {
+            using var stream = new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var violations = new HashSet<string>(StringComparer.Ordinal);
+            var appContextAudit = new AppContextAudit();
+
+            foreach (var asmRefHandle in reader.AssemblyReferences) {
+                string asmName = reader.GetString(reader.GetAssemblyReference(asmRefHandle).Name);
+                if (IsForbiddenAssembly(asmName))
+                    violations.Add($"AssemblyReference:{asmName}");
+            }
+
+            foreach (var typeRefHandle in reader.TypeReferences)
+                InspectTypeReferenceHandle(reader, typeRefHandle, "TypeReference", violations, appContextAudit, deferAppContext: true);
+
+            var visitedSpecs = new HashSet<TypeSpecificationHandle>();
+            for (int row = 1; row <= reader.GetTableRowCount(TableIndex.TypeSpec); row++) {
+                var specHandle = MetadataTokens.TypeSpecificationHandle(row);
+                InspectTypeSpecificationHandle(reader, specHandle, visitedSpecs, "TypeSpecification", violations);
+            }
+
+            foreach (var memberRefHandle in reader.MemberReferences)
+                InspectMemberReferenceHandle(reader, memberRefHandle, visitedSpecs, "MemberReference", violations, appContextAudit, deferTableScan: true, callerType: null, callerMethod: null);
+
+            for (int row = 1; row <= reader.GetTableRowCount(TableIndex.MethodSpec); row++) {
+                var specHandle = MetadataTokens.MethodSpecificationHandle(row);
+                InspectMethodSpecificationHandle(reader, specHandle, visitedSpecs, violations, appContextAudit);
+            }
+
+            foreach (var typeDefHandle in reader.TypeDefinitions)
+                InspectTypeDefinition(reader, peReader, typeDefHandle, visitedSpecs, violations, appContextAudit);
+
+            foreach (var caHandle in reader.CustomAttributes)
+                InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+
+            appContextAudit.VerifyAllDeferredAccountedFor(reader, violations);
+            return violations.Order(StringComparer.Ordinal).ToList();
+        }
+
+        internal static List<string> InspectTypeTree(string assemblyPath, Type rootType) {
+            using var stream = new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var rootHandle = FindTypeDefinition(reader, rootType);
+            if (rootHandle.IsNil)
+                throw new InvalidOperationException($"Type {rootType.FullName} was not found in {assemblyPath}.");
+
+            var closure = new Queue<TypeDefinitionHandle>();
+            var visitedTypes = new HashSet<TypeDefinitionHandle>();
+            var visitedSpecs = new HashSet<TypeSpecificationHandle>();
+            var violations = new HashSet<string>(StringComparer.Ordinal);
+            closure.Enqueue(rootHandle);
+
+            while (closure.Count > 0) {
+                var handle = closure.Dequeue();
+                if (!visitedTypes.Add(handle)) continue;
+                var typeDef = reader.GetTypeDefinition(handle);
+                foreach (var nested in typeDef.GetNestedTypes()) closure.Enqueue(nested);
+                InspectTypeDefinition(reader, peReader, handle, visitedSpecs, violations, appContextAudit: null);
+            }
+
+            return violations.Order(StringComparer.Ordinal).ToList();
+        }
+
+        private static void InspectTypeDefinition(
+            MetadataReader reader,
+            System.Reflection.PortableExecutable.PEReader peReader,
+            TypeDefinitionHandle typeHandle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit) {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            string ownerName = ResolveTypeDefinitionFullName(reader, typeHandle);
+
+            if (!typeDef.BaseType.IsNil)
+                InspectEntityHandle(reader, typeDef.BaseType, visitedSpecs, ownerName, violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+
+            foreach (var ifaceHandle in typeDef.GetInterfaceImplementations()) {
+                var iface = reader.GetInterfaceImplementation(ifaceHandle);
+                InspectEntityHandle(reader, iface.Interface, visitedSpecs, ownerName, violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+            }
+
+            foreach (var caHandle in typeDef.GetCustomAttributes())
+                InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+
+            var collectContext = new DecodeContext(visitedSpecs);
+            foreach (var fieldHandle in typeDef.GetFields()) {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                foreach (var caHandle in field.GetCustomAttributes())
+                    InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+                string fieldType = field.DecodeSignature(new DeepTypeRefCheckingProvider(ownerName, violations, visitedSpecs), collectContext);
+                CheckTypeFullName(fieldType, $"Field:{ownerName}.{reader.GetString(field.Name)}", violations);
+            }
+
+            foreach (var propHandle in typeDef.GetProperties()) {
+                var prop = reader.GetPropertyDefinition(propHandle);
+                foreach (var caHandle in prop.GetCustomAttributes())
+                    InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+                prop.DecodeSignature(new DeepTypeRefCheckingProvider(ownerName, violations, visitedSpecs), collectContext);
+            }
+
+            foreach (var methodHandle in typeDef.GetMethods()) {
+                var method = reader.GetMethodDefinition(methodHandle);
+                string rawMethodName = reader.GetString(method.Name);
+                string methodName = ownerName + "::" + rawMethodName;
+
+                if ((method.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) != 0) {
+                    var import = method.GetImport();
+                    string module = import.Module.IsNil ? "<unknown>" : reader.GetString(reader.GetModuleReference(import.Module).Name);
+                    string entry = import.Name.IsNil ? rawMethodName : reader.GetString(import.Name);
+                    violations.Add($"PInvoke:{methodName}->{module}!{entry}");
+                }
+
+                if ((method.ImplAttributes & (System.Reflection.MethodImplAttributes.InternalCall | System.Reflection.MethodImplAttributes.Unmanaged)) != 0)
+                    violations.Add($"UnmanagedMethodImpl:{methodName}");
+
+                foreach (var caHandle in method.GetCustomAttributes())
+                    InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+
+                foreach (var paramHandle in method.GetParameters()) {
+                    var param = reader.GetParameter(paramHandle);
+                    foreach (var caHandle in param.GetCustomAttributes())
+                        InspectCustomAttribute(reader, caHandle, visitedSpecs, violations, appContextAudit);
+                }
+
+                var methodSig = method.DecodeSignature(new DeepTypeRefCheckingProvider(methodName, violations, visitedSpecs), collectContext);
+                CheckTypeFullName(methodSig.ReturnType, methodName, violations);
+                foreach (string pType in methodSig.ParameterTypes) CheckTypeFullName(pType, methodName, violations);
+
+                if (method.RelativeVirtualAddress == 0) continue;
+                var body = peReader.GetMethodBody(method.RelativeVirtualAddress);
+                if (!body.LocalSignature.IsNil)
+                    InspectEntityHandle(reader, body.LocalSignature, visitedSpecs, methodName, violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+
+                foreach (var region in body.ExceptionRegions) {
+                    if (!region.CatchType.IsNil)
+                        InspectEntityHandle(reader, region.CatchType, visitedSpecs, methodName, violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+                }
+
+                byte[]? ilBytes = body.GetILBytes();
+                if (ilBytes is { Length: > 0 }) {
+                    foreach (var token in ExtractILTokens(ilBytes))
+                        InspectEntityHandle(reader, token, visitedSpecs, methodName, violations, appContextAudit, deferTableScan: false, callerType: ownerName, callerMethod: rawMethodName);
+                }
+            }
+        }
+
+        private sealed class DeepTypeRefCheckingProvider(
+            string context,
+            HashSet<string> violations,
+            HashSet<TypeSpecificationHandle> visitedSpecs) : ISignatureTypeProvider<string, DecodeContext> {
+            public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch {
+                PrimitiveTypeCode.String => "System.String",
+                _ => typeCode.ToString()
+            };
+
+            public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind) =>
+                ResolveTypeDefinitionFullName(r, handle);
+
+            public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind) {
+                InspectTypeReferenceHandle(r, handle, context, violations);
+                return ResolveTypeReference(r, handle).FullName;
+            }
+
+            public string GetTypeFromSpecification(MetadataReader r, DecodeContext genericContext, TypeSpecificationHandle handle, byte rawTypeKind) {
+                if (!visitedSpecs.Add(handle)) return "<recursive>";
+                return r.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+            }
+
+            public string GetSZArrayType(string elementType) => elementType + "[]";
+            public string GetArrayType(string elementType, ArrayShape shape) => elementType + "[]";
+            public string GetByReferenceType(string elementType) => elementType + "&";
+            public string GetPointerType(string elementType) => elementType + "*";
+            public string GetPinnedType(string elementType) => elementType;
+            public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+            public string GetGenericMethodParameter(DecodeContext genericContext, int index) => "!!" + index;
+            public string GetGenericTypeParameter(DecodeContext genericContext, int index) => "!" + index;
+            public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) => genericType;
+
+            public string GetFunctionPointerType(MethodSignature<string> signature) => "fnptr";
+        }
+
+        private static void InspectEntityHandle(
+            MetadataReader reader,
+            EntityHandle handle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            string context,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit = null,
+            bool deferTableScan = false,
+            string? callerType = null,
+            string? callerMethod = null) {
+            switch (handle.Kind) {
+                case HandleKind.TypeReference:
+                    InspectTypeReferenceHandle(reader, (TypeReferenceHandle)handle, context, violations);
+                    break;
+                case HandleKind.TypeSpecification:
+                    InspectTypeSpecificationHandle(reader, (TypeSpecificationHandle)handle, visitedSpecs, context, violations);
+                    break;
+                case HandleKind.MemberReference:
+                    InspectMemberReferenceHandle(reader, (MemberReferenceHandle)handle, visitedSpecs, context, violations, appContextAudit, deferTableScan, callerType, callerMethod);
+                    break;
+                case HandleKind.MethodSpecification:
+                    InspectMethodSpecificationHandle(reader, (MethodSpecificationHandle)handle, visitedSpecs, violations, appContextAudit);
+                    break;
+                case HandleKind.StandaloneSignature:
+                    var ss = reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
+                    var ctx = new DecodeContext(visitedSpecs);
+                    var provider = new DeepTypeRefCheckingProvider(context, violations, visitedSpecs);
+                    if (ss.GetKind() == StandaloneSignatureKind.LocalVariables)
+                        ss.DecodeLocalSignature(provider, ctx);
+                    else
+                        ss.DecodeMethodSignature(provider, ctx);
+                    break;
+            }
+        }
+
+        private static void InspectCustomAttribute(
+            MetadataReader reader,
+            CustomAttributeHandle handle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit) {
+            var attr = reader.GetCustomAttribute(handle);
+            InspectEntityHandle(reader, attr.Constructor, visitedSpecs, "CustomAttribute", violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+        }
+
+        private static void InspectTypeSpecificationHandle(
+            MetadataReader reader,
+            TypeSpecificationHandle handle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            string context,
+            HashSet<string> violations) {
+            if (!visitedSpecs.Add(handle)) return;
+            var ctx = new DecodeContext(visitedSpecs);
+            reader.GetTypeSpecification(handle).DecodeSignature(new DeepTypeRefCheckingProvider(context, violations, visitedSpecs), ctx);
+        }
+
+        private static void InspectMethodSpecificationHandle(
+            MetadataReader reader,
+            MethodSpecificationHandle handle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit) {
+            var spec = reader.GetMethodSpecification(handle);
+            InspectEntityHandle(reader, spec.Method, visitedSpecs, "MethodSpecification", violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+            var ctx = new DecodeContext(visitedSpecs);
+            spec.DecodeSignature(new DeepTypeRefCheckingProvider("MethodSpecification", violations, visitedSpecs), ctx);
+        }
+
+        private static void InspectTypeReferenceHandle(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            string context,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit = null,
+            bool deferAppContext = false) {
+            var (assemblyName, fullName) = ResolveTypeReference(reader, handle);
+            if (!string.IsNullOrEmpty(assemblyName) && IsForbiddenAssembly(assemblyName))
+                violations.Add($"{context}:ForbiddenAssembly:{assemblyName}({fullName})");
+            if (fullName == "System.AppContext") {
+                if (deferAppContext && appContextAudit is not null)
+                    appContextAudit.DeferredTypeRefs.Add(handle);
+                else
+                    violations.Add($"{context}:ForbiddenType:System.AppContext");
+                return;
+            }
+            CheckTypeFullName(fullName, context, violations);
+        }
+
+        private static void InspectMemberReferenceHandle(
+            MetadataReader reader,
+            MemberReferenceHandle handle,
+            HashSet<TypeSpecificationHandle> visitedSpecs,
+            string context,
+            HashSet<string> violations,
+            AppContextAudit? appContextAudit,
+            bool deferTableScan,
+            string? callerType,
+            string? callerMethod) {
+            var mem = reader.GetMemberReference(handle);
+            string memberName = reader.GetString(mem.Name);
+            if (mem.Parent.Kind != HandleKind.TypeReference)
+                InspectEntityHandle(reader, mem.Parent, visitedSpecs, context, violations, appContextAudit, deferTableScan: false, callerType: null, callerMethod: null);
+
+            var ctx = new DecodeContext(visitedSpecs);
+            var provider = new DeepTypeRefCheckingProvider(context, violations, visitedSpecs);
+            MethodSignature<string> methodSig = default;
+            if (mem.GetKind() == MemberReferenceKind.Method)
+                methodSig = mem.DecodeMethodSignature(provider, ctx);
+            else
+                mem.DecodeFieldSignature(provider, ctx);
+
+            if (mem.Parent.Kind == HandleKind.TypeReference) {
+                var parentRefHandle = (TypeReferenceHandle)mem.Parent;
+                var (asmName, parentType) = ResolveTypeReference(reader, parentRefHandle);
+                if (!string.IsNullOrEmpty(asmName) && IsForbiddenAssembly(asmName))
+                    violations.Add($"{context}:ForbiddenAssembly:{asmName}({parentType}::{memberName})");
+                if (parentType == "System.AppContext") {
+                    if (memberName is "GetData" or "TryGetSwitch") {
+                        if (deferTableScan && appContextAudit is not null) {
+                            appContextAudit.DeferredMemberRefs.Add(handle);
+                            appContextAudit.DeferredTypeRefs.Add(parentRefHandle);
+                            return;
+                        }
+                        if (IsAllowedRegexGeneratorAppContextCaller(callerType, callerMethod)) {
+                            appContextAudit?.ApprovedMemberRefs.Add(handle);
+                            appContextAudit?.ApprovedTypeRefs.Add(parentRefHandle);
+                            return;
+                        }
+                    }
+                    violations.Add($"{context}:ForbiddenMember:System.AppContext::{memberName}");
+                    return;
+                }
+                CheckMemberAccess(parentType, memberName, methodSig, context, violations);
+            } else if (mem.Parent.Kind == HandleKind.TypeSpecification) {
+                var specProvider = new DeepTypeRefCheckingProvider(context, violations, visitedSpecs);
+                string specType = reader.GetTypeSpecification((TypeSpecificationHandle)mem.Parent).DecodeSignature(specProvider, ctx);
+                CheckTypeFullName(specType, context, violations);
+            } else if (mem.Parent.Kind == HandleKind.ModuleReference) {
+                string mod = reader.GetString(reader.GetModuleReference((ModuleReferenceHandle)mem.Parent).Name);
+                violations.Add($"{context}:ModuleReference:{mod}::{memberName}");
+            }
+        }
+
+        private static void CheckTypeFullName(string fullName, string context, HashSet<string> violations) {
+            if (string.IsNullOrEmpty(fullName)) return;
+            if (ForbiddenTypesExact.Contains(fullName) ||
+                ForbiddenTypePrefixes.Any(prefix => fullName.StartsWith(prefix, StringComparison.Ordinal)))
+                violations.Add($"{context}:ForbiddenType:{fullName}");
+        }
+
+        private static void CheckMemberAccess(
+            string parentType,
+            string memberName,
+            System.Reflection.Metadata.MethodSignature<string> methodSig,
+            string context,
+            HashSet<string> violations) {
+            CheckTypeFullName(parentType, context, violations);
+
+            if (parentType == "System.IO.Path" && !AllowedPurePathMembers.Contains(memberName))
+                violations.Add($"{context}:ForbiddenPathMember:{parentType}::{memberName}");
+
+            if (parentType is "System.IO.StreamReader" or "System.IO.StreamWriter" &&
+                memberName == ".ctor" &&
+                methodSig.ParameterTypes.Length > 0 &&
+                methodSig.ParameterTypes[0] == "System.String")
+                violations.Add($"{context}:ForbiddenFilePathConstructor:{parentType}::.ctor(string)");
+
+            if (ForbiddenMembersByType.TryGetValue(parentType, out var forbidden) && forbidden.Contains(memberName))
+                violations.Add($"{context}:ForbiddenMember:{parentType}::{memberName}");
+        }
+
+        private static (string AssemblyName, string FullName) ResolveTypeReference(
+            System.Reflection.Metadata.MetadataReader reader,
+            System.Reflection.Metadata.TypeReferenceHandle handle) {
+            var typeRef = reader.GetTypeReference(handle);
+            string ns = typeRef.Namespace.IsNil ? string.Empty : reader.GetString(typeRef.Namespace);
+            string name = reader.GetString(typeRef.Name);
+            var scope = typeRef.ResolutionScope;
+
+            if (scope.Kind == System.Reflection.Metadata.HandleKind.TypeReference) {
+                var (asm, outer) = ResolveTypeReference(reader, (System.Reflection.Metadata.TypeReferenceHandle)scope);
+                return (asm, outer + "+" + name);
+            }
+
+            string asmName = scope.Kind == System.Reflection.Metadata.HandleKind.AssemblyReference
+                ? reader.GetString(reader.GetAssemblyReference((System.Reflection.Metadata.AssemblyReferenceHandle)scope).Name)
+                : string.Empty;
+            string fullName = string.IsNullOrEmpty(ns) ? name : ns + "." + name;
+            return (asmName, fullName);
+        }
+
+        private static string ResolveTypeDefinitionFullName(
+            System.Reflection.Metadata.MetadataReader reader,
+            System.Reflection.Metadata.TypeDefinitionHandle handle) {
+            var typeDef = reader.GetTypeDefinition(handle);
+            string name = reader.GetString(typeDef.Name);
+            var declaring = typeDef.GetDeclaringType();
+            if (!declaring.IsNil)
+                return ResolveTypeDefinitionFullName(reader, declaring) + "+" + name;
+            string ns = typeDef.Namespace.IsNil ? string.Empty : reader.GetString(typeDef.Namespace);
+            return string.IsNullOrEmpty(ns) ? name : ns + "." + name;
+        }
+
+        private static System.Reflection.Metadata.TypeDefinitionHandle FindTypeDefinition(
+            System.Reflection.Metadata.MetadataReader reader, Type target) {
+            string targetFull = target.FullName ?? target.Name;
+            foreach (var handle in reader.TypeDefinitions) {
+                if (ResolveTypeDefinitionFullName(reader, handle) == targetFull)
+                    return handle;
+            }
+            return default;
+        }
+
+        private static List<System.Reflection.Metadata.EntityHandle> ExtractILTokens(byte[] il) {
+            var tokens = new List<System.Reflection.Metadata.EntityHandle>();
+            int offset = 0;
+            while (offset < il.Length) {
+                byte b = il[offset++];
+                short code = b == 0xFE
+                    ? (offset < il.Length ? unchecked((short)(0xFE00 | il[offset++])) : throw new InvalidOperationException("Truncated IL prefix opcode."))
+                    : b;
+                if (!OpCodesByValue.TryGetValue(code, out var opCode))
+                    throw new InvalidOperationException($"Unsupported IL opcode 0x{(ushort)code:X4}.");
+                switch (opCode.OperandType) {
+                    case System.Reflection.Emit.OperandType.InlineNone:
+                        break;
+                    case System.Reflection.Emit.OperandType.ShortInlineBrTarget:
+                    case System.Reflection.Emit.OperandType.ShortInlineI:
+                    case System.Reflection.Emit.OperandType.ShortInlineVar:
+                        offset += 1;
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineVar:
+                        offset += 2;
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineI:
+                    case System.Reflection.Emit.OperandType.ShortInlineR:
+                    case System.Reflection.Emit.OperandType.InlineBrTarget:
+                        offset += 4;
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineI8:
+                    case System.Reflection.Emit.OperandType.InlineR:
+                        offset += 8;
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineSwitch:
+                        int count = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(offset, 4));
+                        offset = checked(offset + 4 + count * 4);
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineString:
+                        offset += 4;
+                        break;
+                    case System.Reflection.Emit.OperandType.InlineField:
+                    case System.Reflection.Emit.OperandType.InlineMethod:
+                    case System.Reflection.Emit.OperandType.InlineSig:
+                    case System.Reflection.Emit.OperandType.InlineTok:
+                    case System.Reflection.Emit.OperandType.InlineType:
+                        int token = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(offset, 4));
+                        offset += 4;
+                        tokens.Add(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(token));
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unhandled IL operand type {opCode.OperandType}.");
+                }
+            }
+            return tokens;
+        }
+
+        private static Dictionary<short, System.Reflection.Emit.OpCode> BuildOpCodeMap() {
+            var map = new Dictionary<short, System.Reflection.Emit.OpCode>();
+            foreach (var field in typeof(System.Reflection.Emit.OpCodes).GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)) {
+                if (field.GetValue(null) is System.Reflection.Emit.OpCode op)
+                    map[op.Value] = op;
+            }
+            return map;
+        }
     }
 }

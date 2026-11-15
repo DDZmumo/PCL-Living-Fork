@@ -129,11 +129,12 @@ Java26 后续已有主菜单与退出证据，但尚无该 Java 的完整世界�
 
 以上改动已通过 `PCLLF.Mmc.Runtime.Tests`、`PCLLF.Mmc.Export.Tests`、`PCLLF.Migration.Tests` 与 `PCLLF.Native.Facade.Tests` 的自动化闭环回归验证（具体通过项及权限边界见提交后最新一次全套运行记录）；外部真实整合包游玩、真实认证账号与外部平台在线接口仍保留在[二期待办](mmc-phase2-todo.md)继续跟踪。
 
-## 2026-11-15 代码审查修复与 Package A 补充验收收口
+## 2026-11-15 代码审查修复与 Package A/B 收口
 
 - 在 `codex/mmc-compatibility` 合入本地提交 `bf4176c2`（移除 `MmcInstancePaths` 祖先目录校验缓存并在 `File.Move` 边界恢复物理重检）与 `e0b87974`（持久化布局同步至三阶段 `commandContext`、活动 `PostExit` 跨进程所有权文件锁、持久 `CreatorWindowsSessionId` + Windows Job 四态 fail-closed 命令组退出证明与租约后移结算），并已由 Root 打包至 `artifacts/mmc-dev-build/20261115-e0b87974`（未改动且仅作构建证据保留）。
 - 基于 `e0b87974` 执行 Package A 补充实测与证据核对（日志见 `artifacts/mmc-postphase-20261115/`）：
   - `PCLLF.Mmc.Export.Tests.exe` 14/14、`PCLLF.Migration.Tests.exe` 隔离/恢复 3 组 12/12、`PCLLF.Native.Facade.Tests.exe` 11 组（含导出 UI、包更新/组件编辑中断与拒绝、生命周期/修复/删除准入及选择分组，保留 60 秒分组上限）11/11 全部通过。
-  - 通过生产入口 `PCL.ModNet.CreateMmcPlatformOriginCatalog()` 完成 `Modrinth` `/v2/` 只读元数据及更新列表在线预览实测（12 条候选通过编码器核验）；`CurseForge` `/v1/` 因缺乏可用 API 凭据被阻塞。
+  - 通过生产入口 `PCL.ModNet.CreateMmcPlatformOriginCatalog()` 完成 `Modrinth` `/v2/` 只读元数据及基于合成 `MmcPlatformOriginEvidence` 持有人的列表枚举在线预览实测（12 条候选通过编码器核验，**不**构成任意包作者身份绑定或在线更新提交证据）；`CurseForge` `/v1/` 实测请求在当前环境失败并抛出 `IOException: The official platform metadata endpoint is unavailable or redirected.`（根因尚待具备有效 API 凭据及网络条件的环境核查）。
   - 核实 `user-launch-67112.json` 保留的 `SDL3.dll 3.4.14.0`（`2,983,936` B，SHA256 `292406de...`）与 `lwjgl-sdl-natives-windows-3.4.3.jar`（`1,241,055` B）本地字节及 `jdk-26.0.2+10-55` 一致；崩溃根因未闭环。
-- 详细五类（已实现／受控通过／公网只读已验／真实待验／设计不支持）台账见[二期待办与缺陷台账](mmc-phase2-todo.md)。
+- Package B 已在 `tests/PCLLF.Migration.Tests/MmcProfileTests.cs`（`mmc-profile`）接入对实际 `PCLLF.MMCC.Core.dll` 的 PE 元数据与 IL 纯度约束检查（阻断宿主/WPF 引用、磁盘/控制台/网络/进程/环境/注册表、`PinvokeImpl`/`DllImport`/`LibraryImport` 及非确定性时钟/`Stopwatch`/随机数；对 `System.AppContext` 仅放行源生成 `[GeneratedRegex]` `<RegexGenerator_g>...__Utilities::.cctor` 只读 `GetData`/`TryGetSwitch` 并全表核销，手工 `AppContext` 仍拒绝，附 7 组非执行负例与正例夹具）。修复初测中 `System.AppContext` 误报及 `CS9113` 后，私有 `.NET 10` SDK 构建 `PCLLF.Migration.Tests.csproj` **0 警告 / 0 错误**，执行 `PCLLF.Migration.Tests.exe --group mmc-profile` **90/90 通过**（`b-final-build-migration.log`、`b-final-mmc-profile.log`；保留原失败现场 `architecture-profile.log`）；`Check-Documentation.py` 通过；同步完成存储／缓存演化、禁共享库硬链接／禁祖先目录信任缓存及跨卷移动四阶段安全协议评估（均保持当前明确边界，未新增缓存 store 或跨卷移动实现）。
+- 详细五类（已实现／受控通过／公网只读已验／真实待验／设计不支持）台账与 Package B 架构／存储评估见[二期待办与缺陷台账](mmc-phase2-todo.md)。
