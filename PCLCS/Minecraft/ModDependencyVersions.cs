@@ -178,6 +178,9 @@ public static class ModDependencyVersions {
                 return (global::System.String.Equals(Actual, Expected, global::System.StringComparison.Ordinal)) ? (ModDependencyMatchState.Satisfied) : (ModDependencyMatchState.Unsatisfied);
             }
             global::System.Int32 Comparison = CompareVersions(Current, Target);
+            // Quilt's unprefixed semantic version means compatibility to the
+            // next major; Fabric's unprefixed version remains exact equality.
+            if (Syntax == "quilt" && string.IsNullOrEmpty(OperatorText)) OperatorText = "^";
             switch ((OperatorText ?? ""))
             {
                 case var @case when @case == "":
@@ -204,9 +207,9 @@ public static class ModDependencyVersions {
                 case "~":
                 case "^":
                     {
-                        if ((Syntax == "fabric"))
+                        if ((Syntax == "fabric" || Syntax == "quilt"))
                         {
-                            // Fabric compares equal major (~ also minor), including major zero and omitted minor components.
+                            // Both loaders compare equal major (~ also minor), including major zero and omitted minor components.
                             for (global::System.Int32 Index = 0, loopTo1 = (OperatorText == "~") ? (1) : (0); Index <= loopTo1; Index++)
                             {
                                 if ((((((Index) < (Current.Parts.Length)) ? (Current.Parts[Index]) : (0L))) != ((((Index) < (Target.Parts.Length)) ? (Target.Parts[Index]) : (0L)))))
@@ -241,6 +244,20 @@ public static class ModDependencyVersions {
                     }
             }
         }
+        private static bool TryCompareOrderedMaven(string left, string right, out int comparison) {
+            comparison = 0;
+            const string supported = @"^\d+(?:\.\d+)*(?:-(?:alpha|beta|milestone|rc|cr|snapshot)(?:[.-]?\d+)?)?$";
+            if (!Regex.IsMatch(left, supported, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ||
+                !Regex.IsMatch(right, supported, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) return false;
+            var first = ParseVersion(left); var second = ParseVersion(right);
+            if (first is null || second is null) return false;
+            comparison = CompareVersions(new NumericVersion { Parts = first.Parts }, new NumericVersion { Parts = second.Parts });
+            if (comparison != 0) return true;
+            if (first.Prerelease is null) comparison = second.Prerelease is null ? 0 : 1;
+            else if (second.Prerelease is null) comparison = -1;
+            else if (!string.Equals(first.Prerelease, second.Prerelease, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
         private static ModDependencyMatchState MatchMaven(global::System.String Actual, global::System.String Range)
         {
             // Maven's bare version is a soft preference, not an exact constraint.
@@ -250,7 +267,6 @@ public static class ModDependencyVersions {
             if ((((Intervals.Count) == (0)) || !string.IsNullOrEmpty(global::System.Text.RegularExpressions.Regex.Replace(Range, @"[\[\(][^\[\]\(\)]*[\]\)]", "").Trim(' ', ','))))
                 return ModDependencyMatchState.Unknown;
             var Values = new global::System.Collections.Generic.List<ModDependencyMatchState>();
-            var Current = ParseVersion(Actual);
             foreach (global::System.Text.RegularExpressions.Match Interval in Intervals)
             {
                 global::System.String Raw = Interval.Value;
@@ -264,20 +280,20 @@ public static class ModDependencyVersions {
                     }
                     else
                     {
-                        var Target = ParseVersion(Parts[0].Trim());
-                        if ((((Current is null || Target is null) || (!(global::System.Text.RegularExpressions.Regex.IsMatch(Actual, @"^\d+(?:\.\d+)*$")))) || (!(global::System.Text.RegularExpressions.Regex.IsMatch(Parts[0].Trim(), @"^\d+(?:\.\d+)*$")))))
+                        if (!TryCompareOrderedMaven(Actual, Parts[0].Trim(), out int equalComparison))
                         {
                             Values.Add((global::System.String.Equals(Actual, Parts[0].Trim(), global::System.StringComparison.Ordinal)) ? (ModDependencyMatchState.Satisfied) : (ModDependencyMatchState.Unknown));
                         }
                         else
                         {
-                            Values.Add(((CompareVersions(Current, Target)) == (0)) ? (ModDependencyMatchState.Satisfied) : (ModDependencyMatchState.Unsatisfied));
+                            Values.Add(equalComparison == 0 ? ModDependencyMatchState.Satisfied : ModDependencyMatchState.Unsatisfied);
                         }
                     }
                     continue;
                 }
-                // Maven qualifier ordering differs from SemVer; ordered ranges use purely numeric versions only.
-                if (((((Parts.Length) != (2)) || Current is null) || (!(global::System.Text.RegularExpressions.Regex.IsMatch(Actual, @"^\d+(?:\.\d+)*$")))))
+                // Known prereleases have a proven relation to numeric releases.
+                // Distinct qualifier spellings/orders stay deliberately unknown.
+                if (Parts.Length != 2)
                 {
                     Values.Add(ModDependencyMatchState.Unknown);
                     continue;
@@ -291,13 +307,11 @@ public static class ModDependencyVersions {
                         Bounds.Add(ModDependencyMatchState.Satisfied);
                         continue;
                     }
-                    var Target = ParseVersion(Bound);
-                    if ((Target is null || (!(global::System.Text.RegularExpressions.Regex.IsMatch(Bound, @"^\d+(?:\.\d+)*$")))))
+                    if (!TryCompareOrderedMaven(Actual, Bound, out int Compare))
                     {
                         Bounds.Add(ModDependencyMatchState.Unknown);
                         continue;
                     }
-                    global::System.Int32 Compare = CompareVersions(Current, Target);
                     global::System.Boolean Fits = ((Index) == (0)) ? (((Compare) > (0)) || (((((Compare) == (0)) && ((Raw[0]) == ('[')))))) : (((Compare) < (0)) || (((((Compare) == (0)) && ((Raw.Last()) == (']'))))));
                     Bounds.Add((Fits) ? (ModDependencyMatchState.Satisfied) : (ModDependencyMatchState.Unsatisfied));
                 }
