@@ -39,8 +39,9 @@ internal sealed class GlassCompositionHost : IDisposable {
     internal GlassCompositionHost(nint owner) {
         _owner = owner;
         RegisterWindowClass();
-        // TOOLWINDOW | TRANSPARENT | NOACTIVATE | NOREDIRECTIONBITMAP. No taskbar item or activation.
-        Handle = CreateWindowEx(0x082000A0, ClassName, "PCL Living Fork desktop glass", 0x80000000,
+        // TOOLWINDOW | TRANSPARENT | NOACTIVATE | NOREDIRECTIONBITMAP. This is decoration,
+        // not a second application window: leave its accessible/title text empty as well.
+        Handle = CreateWindowEx(0x082000A0, ClassName, string.Empty, 0x80000000,
             0, 0, 1, 1, 0, 0, GetModuleHandle(null), 0);
         if (Handle == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
         try {

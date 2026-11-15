@@ -31,6 +31,10 @@ internal static class GlassWindowIntegrationChecks {
         bool interactive = Environment.GetEnvironmentVariable("PCLLF_GLASS_INTERACTIVE") == "1";
         object? previousMain = Native.State(typeof(ModMain), "FrmMain").GetValue(null);
         FormMain? window = null;
+        MainHost? windowPorts = null;
+        WindowResizer? previewResizer = null;
+        var resizeWorkers = new List<Thread>();
+        var resizeFailures = new List<Exception>();
         nint materialHandle = 0;
         var unexpectedPorts = new List<string>();
         Native.Cache("UiShellStyle", 1);
@@ -47,6 +51,7 @@ internal static class GlassWindowIntegrationChecks {
                 Child = new TextBlock { Text = "原生页面容器预览\n\n此测试保留真正的 FormMain 页面、任务与提示容器。\n预览数据不连接账号、游戏或下载服务。", Margin = new Thickness(28), TextWrapping = TextWrapping.Wrap }
             };
             Action<MainHost> configure = host => {
+                windowPorts = host;
                 void Unexpected(string port) { unexpectedPorts.Add(port); throw new InvalidOperationException("Glass fixture attempted a forbidden startup/platform port: " + port); }
                 long tick = 0;
                 host.Clock = () => Environment.TickCount64;
@@ -70,6 +75,15 @@ internal static class GlassWindowIntegrationChecks {
                 host.CheckUpdates = () => Unexpected("CheckUpdates");
                 host.ClearTaskTemp = () => Unexpected("ClearTaskTemp");
                 host.Ui = work => work(); host.UiWait = work => work(); host.UiPosted = (work, _) => work();
+                host.CreateResizer = target => new WindowResizer(target,
+                    value => value * ((PresentationSource.FromVisual(target) as HwndSource)?.CompositionTarget?.TransformFromDevice.M11 ?? 1),
+                    (work, name) => {
+                        var thread = new Thread(() => {
+                            try { work(); }
+                            catch (Exception error) { lock (resizeFailures) resizeFailures.Add(error); }
+                        }) { IsBackground = true, Name = "Native facade " + name };
+                        resizeWorkers.Add(thread); thread.Start();
+                    });
                 host.LaunchButton = () => { }; host.CancelLaunch = () => { };
                 host.IsLaunching = () => false; host.IsInstallSelection = () => false;
                 host.CanRefresh = _ => false; host.RefreshHidden = () => { };
@@ -117,7 +131,12 @@ internal static class GlassWindowIntegrationChecks {
             window.Top = interactive ? Math.Max(20, (SystemParameters.WorkArea.Height - window.Height) / 2) : -30000;
             Native.Check(window.GetType().Assembly == Native.Main && Native.Get(window, "Controller") is not null,
                 "Glass integration fixture replaced the genuine FormMain or its original controller.");
-            window.Show(); window.UpdateLayout(); VisualAssetChecks.Observe(550); Refresh(window); VisualAssetChecks.Drain();
+            window.Show();
+            // Original Loaded is intentionally detached. Invoke only its real resizer factory
+            // and registration APIs at the same post-HWND point, without startup services.
+            previewResizer = windowPorts!.CreateResizer(window);
+            RegisterResizeGrips(window, previewResizer);
+            window.UpdateLayout(); VisualAssetChecks.Observe(550); Refresh(window); VisualAssetChecks.Drain();
             environment.AssertNoForbiddenIo();
             Native.Check(window.IsLoaded && window.AllowsTransparency && window.Opacity == 1,
                 "Actual glass FormMain lost its alpha-enabled HWND or opaque foreground content.");
@@ -131,6 +150,7 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(((UIElement)Native.Get(integration, "_legacyRoot")!).Visibility == Visibility.Hidden,
                 "Original BAML root must remain loaded and hidden beneath the shell.");
             CheckSurfaces(view);
+            CheckResizeGrips(window, view);
             previewPage = 1; window.PageCurrent = FormMain.PageType.Download; Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
             CheckSurfaces(view, 5);
             Native.Check(ReferenceEquals(Part<ContentControl>(view, "NavigationContent").Content, Part<Border>(window, "PanMainLeft")),
@@ -140,6 +160,10 @@ internal static class GlassWindowIntegrationChecks {
             if (backdrop.HasDesktopBackdrop) {
                 Native.Check(backdrop.SupportsSeparatedRegions && backdrop.Backend == GlassBackdropBackend.HostBackdropComposition && materialHandle != 0 && IsWindow(materialHandle),
                     "Actual glass shell reports desktop material without its clipped native companion.");
+                Native.Check(GetWindowTextLength(materialHandle) == 0,
+                    "Purely decorative native backdrop must not expose an accessible window title.");
+                Native.Check((GetExtendedStyle(materialHandle) & 0x082000A0L) == 0x082000A0L,
+                    "Decorative backdrop lost mandatory NOACTIVATE/NOREDIRECTIONBITMAP/TOOLWINDOW/TRANSPARENT styles.");
             } else {
                 Native.Check(backdrop.Status is GlassBackdropStatus.UnsupportedPlatform or GlassBackdropStatus.HighContrast or GlassBackdropStatus.TransparencyDisabled or GlassBackdropStatus.Failed,
                     "Unexpected actual FormMain material fallback: " + backdrop.Status + "; " + backdrop.DiagnosticMessage);
@@ -173,16 +197,52 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(unexpectedPorts.Count == 0, "Actual FormMain entered guarded original startup/termination: " + string.Join(",", unexpectedPorts));
             environment.AssertNoForbiddenIo();
         } finally {
+            if (previewResizer is not null) {
+                foreach (string flag in new[] { "resizeRight", "resizeLeft", "resizeUp", "resizeDown" })
+                    Native.Field(typeof(WindowResizer), flag).SetValue(previewResizer, false);
+                VisualAssetChecks.Pump(() => resizeWorkers.All(worker => !worker.IsAlive), "owned native resize workers", 3000);
+                lock (resizeFailures) Native.Check(resizeFailures.Count == 0, "Owned native resize worker failed: " + string.Join("; ", resizeFailures));
+            }
             if (window is not null && Application.Current.Windows.Cast<Window>().Contains(window)) window.Close();
             VisualAssetChecks.Drain();
             Native.Check(materialHandle == 0 || !IsWindow(materialHandle), "Closing actual FormMain leaked its native backdrop companion.");
             Native.State(typeof(ModMain), "FrmMain").SetValue(null, previousMain);
             environment.AssertNoForbiddenIo();
         }
-        Console.WriteLine("PASS actual glass FormMain: original constructor/BAML/controller, live page/overlay/task portals, rounded floating regions, native material or explicit OS fallback, shared wallpaper frosting, minimize/restore and native handle cleanup; startup/account/game/profile access guarded.");
+        Console.WriteLine("PASS actual glass FormMain: original constructor/BAML/controller, live page/overlay/task portals, original resize handler registration and inner-edge hit testing, rounded floating regions, untitled decorative native material or explicit OS fallback, shared wallpaper frosting, minimize/restore and native handle cleanup; startup/account/game/profile access guarded.");
     }
 
     private static void Refresh(FormMain window) => Native.Call(typeof(FormMain), "RefreshGlassShell", window);
+    private static void RegisterResizeGrips(FormMain window, WindowResizer resizer) {
+        resizer.addResizerDown(Part<FrameworkElement>(window, "ResizerB"));
+        resizer.addResizerLeft(Part<FrameworkElement>(window, "ResizerL"));
+        resizer.addResizerLeftDown(Part<FrameworkElement>(window, "ResizerLB"));
+        resizer.addResizerLeftUp(Part<FrameworkElement>(window, "ResizerLT"));
+        resizer.addResizerRight(Part<FrameworkElement>(window, "ResizerR"));
+        resizer.addResizerRightDown(Part<FrameworkElement>(window, "ResizerRB"));
+        resizer.addResizerRightUp(Part<FrameworkElement>(window, "ResizerRT"));
+        resizer.addResizerUp(Part<FrameworkElement>(window, "ResizerT"));
+    }
+    private static void CheckResizeGrips(FormMain window, GlassLauncherView view) {
+        PropertyInfo storeProperty = typeof(UIElement).GetProperty("EventHandlersStore", Native.Flags)
+            ?? throw new MissingMemberException("UIElement.EventHandlersStore");
+        foreach (string name in new[] { "ResizerB", "ResizerL", "ResizerLB", "ResizerLT", "ResizerR", "ResizerRB", "ResizerRT", "ResizerT" }) {
+            FrameworkElement grip = Part<FrameworkElement>(window, name);
+            object store = storeProperty.GetValue(grip) ?? throw new InvalidOperationException("Resize grip has no actual routed handlers: " + name);
+            var handlers = (Array?)Native.Call(store.GetType(), "GetRoutedEventHandlers", store, UIElement.MouseLeftButtonDownEvent);
+            bool actual = handlers?.Cast<object>().Any(info => Native.Property(info.GetType(), "Handler").GetValue(info) is Delegate handler &&
+                handler.Method.DeclaringType == typeof(WindowResizer) && handler.Method.Name == "MouseDown") == true;
+            Native.Check(actual, "Actual native resize handler was not registered on " + name);
+        }
+        Rect area = view.GetSurfaceRegions()[0].Bounds;
+        Point right = view.TranslatePoint(new Point(area.Right - 2, area.Top + area.Height / 2), window);
+        Point left = view.TranslatePoint(new Point(area.Left + 2, area.Top + area.Height / 2), window);
+        Point top = view.TranslatePoint(new Point(area.Left + area.Width / 2, area.Top + 2), window);
+        Point bottom = view.TranslatePoint(new Point(area.Left + area.Width / 2, area.Bottom - 2), window);
+        foreach (var (point, name) in new[] { (right, "ResizerR"), (left, "ResizerL"), (top, "ResizerT"), (bottom, "ResizerB") })
+            Native.Check(ReferenceEquals(window.InputHitTest(point), Part<FrameworkElement>(window, name)),
+                "Actual glass inner edge is not hit-testable by its original resize grip: " + name);
+    }
     private static void CheckSurfaces(GlassLauncherView view, int expectedRegions = 4) {
         Native.Check(Part<GlassSurface>(view, "MainSurface").CornerRadius.TopLeft == 36 && Part<GlassSurface>(view, "PrimaryCard").CornerRadius.TopLeft == 16,
             "Actual FormMain main/card rounding changed.");
@@ -230,4 +290,8 @@ internal static class GlassWindowIntegrationChecks {
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowVisible(nint hwnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsIconic(nint hwnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsWindowEnabled(nint hwnd);
+    private static long GetExtendedStyle(nint hwnd) => nint.Size == 8 ? GetWindowLongPtr(hwnd, -20).ToInt64() : GetWindowLong(hwnd, -20);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint hwnd, int index);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(nint hwnd, int index);
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextLengthW")] private static extern int GetWindowTextLength(nint hwnd);
 }

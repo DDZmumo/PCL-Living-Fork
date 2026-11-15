@@ -32,7 +32,11 @@ internal static class GlassShellChecks
         try
         {
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            var view = new GlassLauncherView();
+            // Window measures content against Win32's monitor/DPI max-track size. The component's
+            // intended viewport must remain exact even on a smaller hosted service desktop.
+            var view = new GlassLauncherView { Width = 1120, Height = 720 };
+            var viewport = new Canvas { ClipToBounds = false };
+            viewport.Children.Add(view);
             DrawingImage icon = Image();
             view.SetState(State(icon));
             view.SetWallpaper(Image());
@@ -40,7 +44,7 @@ internal static class GlassShellChecks
             {
                 Width = 1120,
                 Height = 720,
-                Content = view,
+                Content = viewport,
                 WindowStyle = WindowStyle.None,
                 ResizeMode = ResizeMode.NoResize,
                 AllowsTransparency = true,
@@ -51,8 +55,11 @@ internal static class GlassShellChecks
                 Top = -30000,
             };
             window.Show();
-            VisualAssetChecks.Pump(() => view.IsLoaded && view.ActualWidth > 1100, "Actual glass shell did not load.");
+            VisualAssetChecks.Pump(() => view.IsLoaded && Math.Abs(view.ActualWidth - 1120) < 1 && Math.Abs(view.ActualHeight - 720) < 1,
+                "Actual glass shell did not load at its exact component viewport.");
             Flush(window);
+            Console.WriteLine($"Glass shell component viewport: {view.ActualWidth}x{view.ActualHeight} DIP; native host: {window.ActualWidth}x{window.ActualHeight} DIP.");
+            ConstrainedHost(window, view);
 
             CapsuleRegions(view);
             Layout(window, view, 1120, 720);
@@ -144,6 +151,7 @@ internal static class GlassShellChecks
 
     private static void Layout(Window window, GlassLauncherView view, int width, int height)
     {
+        view.Width = width; view.Height = height;
         window.Width = width; window.Height = height;
         VisualAssetChecks.Pump(() => Math.Abs(view.ActualWidth - width) < 1 && Math.Abs(view.ActualHeight - height) < 1,
             "Glass shell did not reach the requested viewport.");
@@ -184,6 +192,21 @@ internal static class GlassShellChecks
         VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "AuxiliaryCards").Visibility == Visibility.Hidden,
             "Auxiliary cards did not close after layout verification.");
         DetachedGaps(window, view, width);
+    }
+
+    private static void ConstrainedHost(Window window, GlassLauncherView view)
+    {
+        // Exercise the same Window.GetWindowMinMax measure/arrange clamp locally on large displays.
+        // The actual FormMain/monitor sizing contract remains in glass-window integration checks.
+        window.MaxWidth = 960;
+        window.MaxHeight = 600;
+        Flush(window);
+        Native.Check(window.ActualWidth <= 961 && window.ActualHeight <= 601 && view.IsLoaded &&
+            Math.Abs(view.ActualWidth - 1120) < 1 && Math.Abs(view.ActualHeight - 720) < 1,
+            "A constrained native host changed the exact loaded component viewport.");
+        window.MaxWidth = double.PositiveInfinity;
+        window.MaxHeight = double.PositiveInfinity;
+        Flush(window);
     }
 
     private static void DetachedGaps(Window window, GlassLauncherView view, int width)
