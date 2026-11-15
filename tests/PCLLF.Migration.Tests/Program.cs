@@ -14,6 +14,7 @@ internal static class Program {
         if (LegacyJavaTests.TryRunChild(args, out int javaExitCode)) return javaExitCode;
         if (MmcTransactionTests.TryRunChild(args, out int mmcTransactionExitCode)) return mmcTransactionExitCode;
         if (MmcSessionTests.TryRunChild(args, out int mmcSessionExitCode)) return mmcSessionExitCode;
+        if (MmcCommandExecutionTests.TryRunChild(args, out int mmcCommandExitCode)) return mmcCommandExitCode;
         if (MmcConfigurationTests.TryRunChild(args, out int mmcConfigurationExitCode)) return mmcConfigurationExitCode;
         if (MmcInstanceLifecycleTests.TryRunChild(args, out int mmcLifecycleExitCode)) return mmcLifecycleExitCode;
         if (MmcInstancePurgeTests.TryRunChild(args, out int mmcPurgeExitCode)) return mmcPurgeExitCode;

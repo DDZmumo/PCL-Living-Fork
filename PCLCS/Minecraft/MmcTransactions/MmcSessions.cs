@@ -74,6 +74,7 @@ public static class MmcSessions {
         throw new FileNotFoundException("找不到指定的包装入口程序：" + trimmed, trimmed);
     }
 
+    private const string OwnerLockFileName = "owner.lock";
     public static MmcRunningSession Launch(MmcAdmissionLease lease, MmcSessionLaunchRequest request, Action finalValidation,
         Func<Guid, MmcExecutableIdentity, IMmcJavaSessionPin> acquireJavaPin, Action<MmcSessionCheckpoint>? checkpoint = null) {
         lease.AssertHeld(); ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(finalValidation); ArgumentNullException.ThrowIfNull(acquireJavaPin);
@@ -108,7 +109,7 @@ public static class MmcSessions {
         if (request.RuntimeBinding is { } runtimeBinding) MmcSessionRuntimeDirectories.ValidateLaunch(paths,request.InstanceId,sessionId,runtimeBinding,request.RuntimeAuthority);
         string nonce = Guid.NewGuid().ToString("N");
         IMmcJavaSessionPin pin = acquireJavaPin(sessionId, request.JavaIdentity) ?? throw new IOException("Java 服务未返回保护租约。");
-        bool durableIntent = false; Process? process = null; MmcSessionProcessTree? processTree = null;
+        bool durableIntent = false; Process? process = null; MmcSessionProcessTree? processTree = null; FileStream? ownerLock = null;
         MmcSessionReceipt? launchingReceipt = null; string? launchingHash = null;
         try {
             if (!SameExecutable(pin.Identity, request.JavaIdentity)) throw new IOException("Java pin 身份不一致。");
@@ -124,6 +125,7 @@ public static class MmcSessions {
             finalValidation();
             if (request.RuntimeBinding is { } finalBinding) MmcSessionRuntimeDirectories.ValidateLaunch(paths,request.InstanceId,sessionId,finalBinding,request.RuntimeAuthority);
             string directory = sessionDirectory; Directory.CreateDirectory(directory);
+            ownerLock = AcquireOwnerLock(directory);
             MmcSessionReceipt receipt = new(1, sessionId, request.InstanceId, paths.VersionRoot, request.DefinitionGeneration,
                 request.RuntimeFingerprint, nonce, request.JavaIdentity, request.LauncherIdentity) {
                 RuntimeBinding = request.RuntimeBinding,
@@ -161,11 +163,13 @@ public static class MmcSessions {
             }
             MmcDurableFiles.WriteRecord(Path.Combine(directory, "Running.record"), running);
             checkpoint?.Invoke(MmcSessionCheckpoint.RunningPersisted);
-            return new(receipt, running, hash, process, pin, request.RuntimeAuthority, processTree);
+            return new(receipt, running, hash, process, pin, request.RuntimeAuthority, processTree, ownerLock);
         } catch {
             bool provenTreeExited = processTree is not null &&
                 processTree.TerminateAndWait(MmcProcessTreeTermination.GraceMilliseconds) &&
                 (process is null || process.HasExited);
+            ownerLock?.Dispose();
+            ownerLock = null;
             if (durableIntent) {
                 // When the owned wrapper Job object proved every child exited (for instance, the
                 // wrapper exited cleanly without ever starting Java), persist an explicit exit proof so
@@ -175,7 +179,16 @@ public static class MmcSessions {
                     catch { }
                 }
                 pin.KeepForRecovery();
-            } else pin.CompleteVerifiedExit();
+            } else {
+                try {
+                    if (MmcInstancePaths.Attributes(Path.Combine(sessionDirectory, "Launching.record")) is null &&
+                        Directory.Exists(sessionDirectory)) {
+                        DeleteOwnerLockIfPresent(sessionDirectory);
+                        if (!Directory.EnumerateFileSystemEntries(sessionDirectory).Any()) Directory.Delete(sessionDirectory, false);
+                    }
+                } catch { }
+                pin.CompleteVerifiedExit();
+            }
             process?.Dispose(); processTree?.Dispose(); pin.Dispose(); throw;
         }
     }
@@ -223,6 +236,7 @@ public static class MmcSessions {
 
     public static void AssertNoActive(MmcAdmissionLease lease) {
         MmcOperationPendingGuard.AssertNoForeignPending(lease);
+        MmcCommandOperations.AssertNoPending(lease);
         lease.AssertHeld(); string root = MmcInstancePaths.Resolve(lease.VersionRoot).ResolveRelative(MmcPathRole.Instance, "PCL/MmcSessions");
         if (MmcInstancePaths.Attributes(root) is not null && (!Directory.Exists(root) || Directory.EnumerateFileSystemEntries(root).Any()))
             throw new IOException("存在活动或待确认 MMC 会话。");
@@ -238,16 +252,33 @@ public static class MmcSessions {
             (MmcSessionReceipt receipt, string hash) = ReadLaunching(lease, paths, sessionId, directory);
             MmcSessionProcessRegistration? running = ReadRunning(receipt, hash, directory);
             if (MmcInstancePaths.Attributes(Path.Combine(directory, "Exited.record")) is not null) {
+                using FileStream? ownerLock = TryAcquireOwnerLock(directory);
+                if (ownerLock is null)
+                    return new(sessionId, MmcSessionObservation.Unknown, "会话收尾阶段（监控回调或 PostExit）仍由活动宿主持有，保留临时目录、Java 保护与会话记录。");
                 ValidateExit(directory, receipt, hash);
+                var cmdResult = MmcCommandOperations.ReconcileForSession(lease, sessionId, runtimeAuthority);
+                if (!cmdResult.Clear)
+                    return new(sessionId, MmcSessionObservation.Unknown, "会话关联包内命令仍在运行或尚未确认退出：" + cmdResult.Diagnostic);
                 MmcSessionRuntimeDirectories.CompleteVerifiedExit(paths, receipt,runtimeAuthority);
-                releaseVerifiedJavaPin(receipt); Archive(paths, directory, sessionId);
+                releaseVerifiedJavaPin(receipt);
+                ownerLock.Dispose(); DeleteOwnerLockIfPresent(directory);
+                Archive(paths, directory, sessionId);
                 return new(sessionId, MmcSessionObservation.ProvenExited);
             }
             MmcSessionObservation observation = inspector.Inspect(receipt, running);
             if (observation != MmcSessionObservation.ProvenExited) return new(sessionId, observation, observation == MmcSessionObservation.Unknown ? "会话仍待确认，保持只读。" : null);
-            WriteExit(directory, receipt, hash, running?.WrapperProcess is null ? MmcSessionExitProof.TrustedHostProcessObservation : MmcSessionExitProof.WrapperManagedExit);
+            using (FileStream? ownerLock = TryAcquireOwnerLock(directory)) {
+                if (ownerLock is null)
+                    return new(sessionId, MmcSessionObservation.Unknown, "会话仍由活动宿主持有，等待其完成退出登记与收尾。");
+                var cmdResult = MmcCommandOperations.ReconcileForSession(lease, sessionId, runtimeAuthority);
+                if (!cmdResult.Clear)
+                    return new(sessionId, MmcSessionObservation.Unknown, "会话关联包内命令仍在运行或尚未确认退出：" + cmdResult.Diagnostic);
+                WriteExit(directory, receipt, hash, running?.WrapperProcess is null ? MmcSessionExitProof.TrustedHostProcessObservation : MmcSessionExitProof.WrapperManagedExit);
                 MmcSessionRuntimeDirectories.CompleteVerifiedExit(paths, receipt,runtimeAuthority);
-            releaseVerifiedJavaPin(receipt); Archive(paths, directory, sessionId);
+                releaseVerifiedJavaPin(receipt);
+                ownerLock.Dispose(); DeleteOwnerLockIfPresent(directory);
+                Archive(paths, directory, sessionId);
+            }
             return new(sessionId, MmcSessionObservation.ProvenExited);
         } catch (Exception ex) when (IsFailure(ex)) { return new(sessionId, MmcSessionObservation.Unknown, ex.Message); }
     }
@@ -266,7 +297,8 @@ public static class MmcSessions {
         string hash, Process process, IMmcJavaSessionPin pin, Action<MmcSessionCheckpoint>? checkpoint,
         MmcMutableRuntimeAuthority? runtimeAuthority = null, MmcSessionProcessTree? processTree = null) {
         RecordOwnedExit(lease, receipt, registration, hash, process, processTree, checkpoint);
-        FinalizeOwnedExit(lease, receipt, registration, hash, pin, runtimeAuthority);
+        FileStream? none = null;
+        FinalizeOwnedExit(lease, receipt, registration, hash, pin, runtimeAuthority, ref none);
     }
 
     internal static void RecordOwnedExit(MmcAdmissionLease lease, MmcSessionReceipt receipt, MmcSessionProcessRegistration registration,
@@ -286,7 +318,7 @@ public static class MmcSessions {
     }
 
     internal static void FinalizeOwnedExit(MmcAdmissionLease lease, MmcSessionReceipt receipt, MmcSessionProcessRegistration registration,
-        string hash, IMmcJavaSessionPin pin, MmcMutableRuntimeAuthority? runtimeAuthority = null) {
+        string hash, IMmcJavaSessionPin pin, MmcMutableRuntimeAuthority? runtimeAuthority, ref FileStream? ownerLock) {
         lease.AssertHeld();
         if (lease.InstanceId != receipt.InstanceId || !string.Equals(lease.VersionRoot, receipt.CanonicalRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("会话退出与准入身份不一致。");
@@ -296,8 +328,38 @@ public static class MmcSessions {
         if (MmcInstancePaths.Attributes(Path.Combine(directory, "Exited.record")) is null)
             throw new IOException("尚未写入退出收据，不能执行会话收尾。");
         ValidateExit(directory, receipt, hash);
+        var cmdStatus = MmcCommandOperations.ReconcileForSession(lease, receipt.SessionId, runtimeAuthority);
+        if (!cmdStatus.Clear) throw new IOException("关联包内命令尚未退出或未确认：" + cmdStatus.Diagnostic);
         MmcSessionRuntimeDirectories.CompleteVerifiedExit(paths, receipt, runtimeAuthority);
-        pin.CompleteVerifiedExit(); Archive(paths, directory, receipt.SessionId);
+        pin.CompleteVerifiedExit();
+        ownerLock?.Dispose();
+        ownerLock = null;
+        DeleteOwnerLockIfPresent(directory);
+        Archive(paths, directory, receipt.SessionId);
+    }
+
+    private static FileStream AcquireOwnerLock(string directory) {
+        string lockPath = Path.Combine(directory, OwnerLockFileName);
+        MmcInstancePaths.EnsureNoLinks(lockPath);
+        return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.None);
+    }
+
+    private static FileStream? TryAcquireOwnerLock(string directory) {
+        string lockPath = Path.Combine(directory, OwnerLockFileName);
+        MmcInstancePaths.EnsureNoLinks(lockPath);
+        try {
+            return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.None);
+        } catch (IOException) {
+            return null;
+        } catch (UnauthorizedAccessException) {
+            return null;
+        }
+    }
+
+    private static void DeleteOwnerLockIfPresent(string directory) {
+        string lockPath = Path.Combine(directory, OwnerLockFileName);
+        MmcInstancePaths.EnsureNoLinks(lockPath);
+        if (MmcInstancePaths.Attributes(lockPath) is not null) File.Delete(lockPath);
     }
 
     private static ProcessStartInfo CopyStartInfo(ProcessStartInfo source, MmcInstancePaths paths) {
@@ -399,11 +461,12 @@ public sealed class MmcRunningSession : IDisposable {
     private readonly IMmcJavaSessionPin pin;
     private readonly MmcMutableRuntimeAuthority? runtimeAuthority;
     private readonly MmcSessionProcessTree? processTree;
+    private FileStream? ownerLock;
     private bool exitedRecorded, complete, resourcesReleased, disposed;
     internal MmcRunningSession(MmcSessionReceipt receipt, MmcSessionProcessRegistration registration, string hash, Process process,
-        IMmcJavaSessionPin pin, MmcMutableRuntimeAuthority? runtimeAuthority = null, MmcSessionProcessTree? processTree = null) {
+        IMmcJavaSessionPin pin, MmcMutableRuntimeAuthority? runtimeAuthority = null, MmcSessionProcessTree? processTree = null, FileStream? ownerLock = null) {
         Receipt = receipt; Registration = registration; this.hash = hash; Process = process; this.pin = pin;
-        this.runtimeAuthority = runtimeAuthority; this.processTree = processTree;
+        this.runtimeAuthority = runtimeAuthority; this.processTree = processTree; this.ownerLock = ownerLock;
     }
     /// <summary>Starts asynchronous pipe readers for the owned process group (wrapper mode).</summary>
     public void BeginReadPipes(Action<string?> onOutputLine, Action<string?> onErrorLine) {
@@ -435,7 +498,7 @@ public sealed class MmcRunningSession : IDisposable {
     public void FinalizeVerifiedExit(MmcAdmissionLease lease) {
         if (disposed) throw new ObjectDisposedException(nameof(MmcRunningSession));
         if (complete) return;
-        MmcSessions.FinalizeOwnedExit(lease, Receipt, Registration, hash, pin, runtimeAuthority);
+        MmcSessions.FinalizeOwnedExit(lease, Receipt, Registration, hash, pin, runtimeAuthority, ref ownerLock);
         exitedRecorded = true;
         complete = true;
     }
@@ -458,6 +521,8 @@ public sealed class MmcRunningSession : IDisposable {
     public void Dispose() {
         if (disposed) return;
         if (!complete) pin.KeepForRecovery();
+        ownerLock?.Dispose();
+        ownerLock = null;
         if (!resourcesReleased) {
             resourcesReleased = true;
             pin.Dispose();

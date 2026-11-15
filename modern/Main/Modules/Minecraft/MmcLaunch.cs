@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -137,6 +138,7 @@ public static class MmcLaunch {
         private int cancelSignaled;
         private readonly TaskCompletionSource monitoringFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private MmcRuntimeCommandContext commandContext;
+        private Guid instanceId;
         private bool preLaunchCommandRan;
 
         public void Prepare(LegacyLaunchTask<int, int> task) => PrepareAsync(task.CreateCancellationToken(), task.CreateSyncProgressProvider()).GetAwaiter().GetResult();
@@ -151,15 +153,6 @@ public static class MmcLaunch {
             var paths = MmcInstancePaths.Resolve(instance.PathVersion);
             pins = JavaPins() ?? throw new IOException("MMC Java 保护服务不可用。");
             runtimeAuthority=MutableRuntimeAuthorityFactory()??throw new IOException("MMC 会话临时目录授权不可用。");
-            // The package command stages run through the launcher's own process entry, so an
-            // operator-visible failure mode is preserved. The injectable boundary itself is left untouched:
-            // it stays the single place controlled verification replaces process creation.
-            MmcRuntimeCommandExecution.StartProcess = start => ModBase.StartProcess(start);
-            // The PreLoad stage runs before this launch loads any instance input, so it sees only the paths
-            // the host can already resolve. Its variable surface is therefore the root-only subset; a variable
-            // that only the runtime plan can supply is refused at the stage boundary rather than guessed.
-            commandContext = new(instance.PathVersion, paths.GameRoot, sessionId, "PCL Living Fork", ModBase.VersionDisplay,
-                0, 0);
             var progressSlices = progress?.SplitBy(0.15, 0.70, 0.15);
             var initProgress = progressSlices?[0];
             var prepareProgress = progressSlices?[1];
@@ -173,19 +166,18 @@ public static class MmcLaunch {
             var prepWorkProgress = prepSlices?[2];
             ProgressProvider activeDownloadProgress = null;
             var primary = MmcSavedSourceStore.ReadPrimary(paths);
+            instanceId = primary.Definition.InstanceId;
             paths = MmcInstancePaths.Resolve(instance.PathVersion, primary.Definition.Layout.GameRootLeaf);
-            ReconcilePrevious(paths, primary.Definition.InstanceId, pins, token,runtimeAuthority);
+            ReconcilePrevious(paths, instanceId, pins, token,runtimeAuthority);
             saved = await MmcSavedSourceStore.LoadAsync(paths, primary.Definition, token).ConfigureAwait(false);
             initLoadProgress?.Set(0.75);
             preferences = MmcLaunchPreferences.Capture(instance, saved.PackageConfiguration, sessionId);
-            // The active package configuration is the stage source; the runtime plan does not exist yet, so
-            // the stage still reads its command text from here and expands only the frozen root variables.
-            commandContext = commandContext with {
-                PackageConfiguration = saved.PackageConfiguration,
-                LauncherName = preferences.RuntimeSettings.LauncherName,
-                LauncherVersion = preferences.RuntimeSettings.LauncherVersion,
-                ResolutionWidth = preferences.RuntimeSettings.ResolutionWidth,
-                ResolutionHeight = preferences.RuntimeSettings.ResolutionHeight
+            // Build commandContext only after resolving the persisted GameRootLeaf layout so all package stages
+            // (PreLoad, PreLaunch, PostExit) receive the active GameRoot instead of pre-definition default paths.
+            commandContext = new(paths.InstanceRoot, paths.GameRoot, sessionId,
+                preferences.RuntimeSettings.LauncherName, preferences.RuntimeSettings.LauncherVersion,
+                preferences.RuntimeSettings.ResolutionWidth, preferences.RuntimeSettings.ResolutionHeight) {
+                PackageConfiguration = saved.PackageConfiguration
             };
             initLoadProgress?.Set(1);
             // The existing login step is non-blocking. Bind only its completed
@@ -218,6 +210,12 @@ public static class MmcLaunch {
                 if (adopted.Status != MmcInstanceBackendStatus.Succeeded || adopted.Definition is null)
                     throw new IOException("Java 环境未完成配置：" + adopted.Failure);
                 primary = MmcSavedSourceStore.ReadPrimary(paths);
+                instanceId = primary.Definition.InstanceId;
+                paths = MmcInstancePaths.Resolve(instance.PathVersion, primary.Definition.Layout.GameRootLeaf);
+                commandContext = commandContext with {
+                    InstanceRoot = paths.InstanceRoot,
+                    GameRoot = paths.GameRoot
+                };
             }
             initJavaProgress?.Set(1);
             initProgress?.Set(1);
@@ -357,6 +355,9 @@ public static class MmcLaunch {
                 if (runtime is not null && session is null) {
                     try {
                         using var cleanup = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, CancellationToken.None);
+                        var cmdStatus = MmcCommandOperations.ReconcileForSession(cleanup.Lease, sessionId, runtimeAuthority);
+                        if (!cmdStatus.Clear)
+                            throw new IOException("MMC 包内命令进程组尚待恢复确认：" + cmdStatus.Diagnostic);
                         string sessionDir = prepared.Paths.ResolveRelative(MmcPathRole.Instance, "PCL/MmcSessions/" + sessionId.ToString("N"));
                         if (Directory.Exists(sessionDir) || File.Exists(sessionDir)) {
                             var reconciled = MmcSessions.Reconcile(cleanup.Lease, sessionId,
@@ -452,7 +453,13 @@ public static class MmcLaunch {
                 TemporaryDirectory = plan.MutableDirectories.TemporaryDirectory
             };
             var variables = plan is null ? null : MmcRuntimeLaunchBuilder.CommandVariables(plan);
-            MmcRuntimeCommandExecution.Execute(stage, context, variables, command, text => ModLaunch.McLaunchLog(text), token);
+            Guid? boundSessionId = plan is null ? null : sessionId;
+            MmcSessionRuntimeBinding boundRuntime = plan?.RuntimeBinding;
+            RunTrackedStageCommand(stage, instanceId, boundSessionId, boundRuntime,
+                context, variables, command, ct => {
+                    var q = AcquireQuiescedAdmission(commandContext.InstanceRoot, instanceId, ct);
+                    return (q, q.Lease);
+                }, text => ModLaunch.McLaunchLog(text), token);
             if (stage == MmcRuntimeCommandStage.PreLaunch) preLaunchCommandRan = true;
         }
 
@@ -531,20 +538,67 @@ public static class MmcLaunch {
 
     private static void ReconcilePrevious(MmcInstancePaths paths, Guid instanceId, MmcJavaPinStore pins, CancellationToken token, MmcMutableRuntimeAuthority runtimeAuthority) {
         using var admission = AcquireQuiescedAdmission(paths.InstanceRoot, instanceId, token);
-        MmcFileTransactions.AssertNoPending(admission.Lease);
+        MmcOperationPendingGuard.AssertNoForeignPending(admission.Lease);
+        MmcFileTransactions.AssertNoTransactionsOnly(admission.Lease);
+        MmcCommandOperations.ReconcileAll(admission.Lease, runtimeAuthority);
         string directory = paths.ResolveRelative(MmcPathRole.Instance, "PCL/MmcSessions");
-        if (!Directory.Exists(directory)) return;
-        var entries = Directory.EnumerateFileSystemEntries(directory).Take(1025).ToArray();
-        if (entries.Length > 1024) throw new IOException("MMC 会话记录超过恢复预算。");
-        foreach (string entry in entries) {
-            if (!Guid.TryParseExact(Path.GetFileName(entry), "N", out Guid id)) throw new IOException("MMC 存在无法识别的会话记录，需要恢复确认。");
-            var result = MmcSessions.Reconcile(admission.Lease, id,
-                new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce),
-                pins.ReleaseVerified, runtimeAuthority);
-            if (result.Observation != MmcSessionObservation.ProvenExited)
-                throw new IOException("此 MMC 实例仍在运行或会话尚待确认：" + result.Diagnostic);
+        if (Directory.Exists(directory)) {
+            var entries = Directory.EnumerateFileSystemEntries(directory).Take(1025).ToArray();
+            if (entries.Length > 1024) throw new IOException("MMC 会话记录超过恢复预算。");
+            foreach (string entry in entries) {
+                if (!Guid.TryParseExact(Path.GetFileName(entry), "N", out Guid id)) throw new IOException("MMC 存在无法识别的会话记录，需要恢复确认。");
+                var result = MmcSessions.Reconcile(admission.Lease, id,
+                    new MmcSessionProcessInspector(MmcSessionProcessInspector.TryProcessCommandLineNonce),
+                    pins.ReleaseVerified, runtimeAuthority);
+                if (result.Observation != MmcSessionObservation.ProvenExited)
+                    throw new IOException("此 MMC 实例仍在运行或会话尚待确认：" + result.Diagnostic);
+            }
+        }
+        MmcFileTransactions.AssertNoPending(admission.Lease);
+        MmcSessions.AssertNoActive(admission.Lease);
+    }
+    private static void RunTrackedStageCommand(
+        MmcRuntimeCommandStage stage,
+        Guid instanceId,
+        Guid? boundSessionId,
+        MmcSessionRuntimeBinding boundRuntime,
+        MmcRuntimeCommandContext context,
+        IReadOnlyDictionary<string, string> variables,
+        string command,
+        Func<CancellationToken, (IDisposable Guard, MmcAdmissionLease Lease)> acquireAdmission,
+        Action<string> log,
+        CancellationToken token) {
+        MmcCommandLease cmdLease;
+        var begin = acquireAdmission(token);
+        using (begin.Guard) {
+            cmdLease = MmcCommandOperations.Begin(begin.Lease, stage, boundSessionId, boundRuntime);
+        }
+        MmcRuntimeCommandExecution.MmcRuntimeCommandOutcome outcome = new(TreeProvenExited: false, "包内命令进程组退出尚未确认。", []);
+        try {
+            ExceptionDispatchInfo executionFailure = null;
+            try {
+                MmcRuntimeCommandExecution.ExecuteTracked(stage, context, variables, command, cmdLease, out outcome, log, token);
+            } catch (Exception ex) {
+                executionFailure = ExceptionDispatchInfo.Capture(ex);
+            }
+            try {
+                var finish = acquireAdmission(CancellationToken.None);
+                using (finish.Guard) {
+                    if (outcome.TreeProvenExited) cmdLease.CompleteProvenExited(finish.Lease);
+                    else cmdLease.RecordUnconfirmed(finish.Lease, outcome.Diagnostic ?? "包内命令进程组退出尚未确认。", outcome.SurvivingProcesses);
+                }
+            } catch (Exception settleError) {
+                Logger.Warn(settleError, $"MMC 包内命令（{MmcRuntimeCommandExecution.StageName(stage)}）收尾确认失败，保留命令待确认记录");
+                if (executionFailure is null) {
+                    throw new IOException($"MMC 包内命令（{MmcRuntimeCommandExecution.StageName(stage)}）收尾确认失败，已保留待恢复记录：" + settleError.Message, settleError);
+                }
+            }
+            executionFailure?.Throw();
+        } finally {
+            cmdLease.Dispose();
         }
     }
+
     private static async Task MonitorExitAsync(MmcRunningSession session, ModMinecraft.McInstance instance, string root, Guid instanceId,
         Task monitoringFinished, MmcRuntimeLaunchPlan runtime, MmcRuntimeCommandContext commandContext, ImmutableArray<string> commandSecrets) {
         if (session.IsWrapperManaged && session.WrapperProcess is Process wrapperProcess) {
@@ -574,7 +628,12 @@ public static class MmcLaunch {
                             throw new OperationCanceledException("PostExitCommand 缺少有效的命令集确认签名。");
                         // A PostExit failure is a diagnostic only. It neither rolls back the finished session
                         // nor rewrites its exit receipt, so it can never turn a clean exit into a failed one.
-                        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PostExit, commandContext, MmcRuntimeLaunchBuilder.CommandVariables(runtime), command, text => ModLaunch.McLaunchLog(text));
+                        RunTrackedStageCommand(MmcRuntimeCommandStage.PostExit, instanceId,
+                            session.Receipt.SessionId, runtime.RuntimeBinding, commandContext,
+                            MmcRuntimeLaunchBuilder.CommandVariables(runtime), command, _ => {
+                                var a = MmcAdmissionGate.Acquire(root, instanceId, TimeSpan.FromSeconds(10));
+                                return (a, a);
+                            }, text => ModLaunch.McLaunchLog(text), CancellationToken.None);
                     } catch (Exception error) {
                         Logger.Warn(error, "MMC 包内命令（PostExitCommand）失败，已结束的会话保持不变");
                     }

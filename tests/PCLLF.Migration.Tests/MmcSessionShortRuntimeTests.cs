@@ -31,12 +31,14 @@ internal static partial class MmcSessionTests {
             var authority=ShortAuthority(scope);using Fixture fixture=new(DeepSessionScope(),Guid.NewGuid(),true);using var lease=fixture.Lease();FixturePin? pin=null;Guid sid=Guid.NewGuid();
             var mutable=MmcSessionRuntimeDirectories.Prepare(MmcInstancePaths.Resolve(fixture.Root),fixture.Id,sid,new string('c',64),authority);
             File.WriteAllText(Path.Combine(mutable.ExtractDirectory,"native.dll"),"owned");
-            using var session=MmcSessions.Launch(lease,fixture.Request()with{SessionId=sid,RuntimeBinding=mutable.RuntimeBinding,RuntimeAuthority=authority},()=>{},(_,image)=>pin=new(image,fixture.PinFile));
-            fixture.WaitChild();Equal(mutable.RuntimeBinding,session.Receipt.RuntimeBinding);
-            Equal(MmcSessionObservation.Unknown,MmcSessions.Reconcile(lease,sid,new UnknownProcess(),_=>throw new Exception("Unknown must retain its pin."),authority).Observation);Equal(true,Directory.Exists(mutable.SessionRoot));
-            fixture.Stop();if(!session.Process.WaitForExit(10000))throw new IOException("Owned short-runtime child did not exit.");
-            string marker=Path.Combine(mutable.SessionRoot,"owner.txt");string expected=File.ReadAllText(marker);File.WriteAllText(marker,"changed owner");
-            Throws<IOException>(()=>session.CompleteVerifiedExit(lease));Equal(true,File.Exists(fixture.PinFile));
+            string marker=Path.Combine(mutable.SessionRoot,"owner.txt");string expected=File.ReadAllText(marker);
+            using (var session=MmcSessions.Launch(lease,fixture.Request()with{SessionId=sid,RuntimeBinding=mutable.RuntimeBinding,RuntimeAuthority=authority},()=>{},(_,image)=>pin=new(image,fixture.PinFile))) {
+                fixture.WaitChild();Equal(mutable.RuntimeBinding,session.Receipt.RuntimeBinding);
+                Equal(MmcSessionObservation.Unknown,MmcSessions.Reconcile(lease,sid,new UnknownProcess(),_=>throw new Exception("Unknown must retain its pin."),authority).Observation);Equal(true,Directory.Exists(mutable.SessionRoot));
+                fixture.Stop();if(!session.Process.WaitForExit(10000))throw new IOException("Owned short-runtime child did not exit.");
+                File.WriteAllText(marker,"changed owner");
+                Throws<IOException>(()=>session.CompleteVerifiedExit(lease));Equal(true,File.Exists(fixture.PinFile));
+            }
             Equal(MmcSessionObservation.Unknown,MmcSessions.Reconcile(lease,sid,new MmcSessionProcessInspector(),_=>pin!.CompleteVerifiedExit()).Observation);Equal(true,File.Exists(fixture.PinFile));
             File.WriteAllText(marker,expected);
             Equal(MmcSessionObservation.ProvenExited,MmcSessions.Reconcile(lease,sid,new MmcSessionProcessInspector(),_=>pin!.CompleteVerifiedExit(),authority).Observation);

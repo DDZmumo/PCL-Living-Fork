@@ -1,5 +1,8 @@
 // Independently authored fixtures. Host test suite retains its existing license.
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using PCLCS;
@@ -25,6 +28,50 @@ internal static class MmcCommandExecutionTests {
         yield return ("MMC package command stage changes the recomputed input fingerprint when an artifact changes", PostCommandRevalidation);
         yield return ("MMC package command stage applies package Env and session TEMP only for PreLaunch and PostExit", StageEnvironmentOverlay);
         yield return ("MMC package command stage refuses PreLaunch or PostExit Env without a valid session temporary directory", StageEnvironmentRefusals);
+        if (OperatingSystem.IsWindows()) {
+            yield return ("MMC package command production start waits for surviving start /b child and cancels the whole job tree", ProductionDefaultStartRootExitsSurvivingChildWaitsAndCancels);
+            yield return ("MMC package command cancellation failure or grace timeout retains pending ledger and blocks cleanup until child exits", CancellationFailureAndGraceTimeoutRetainLedgerAndBlockWrites);
+            yield return ("MMC package command host kill preserves surviving start /b orphan and blocks cleanup until exit", KilledHostWithSurvivingStartBOrphanRetainsTempAndRecovers);
+            yield return ("MMC package command injected Unknown job and cross-session intent never downgrade to process scan", InjectedKernelJobUnknownAndCrossSessionNeverDowngradeToScan);
+        }
+    }
+
+    internal static bool TryRunChild(string[] args, out int exitCode) {
+        exitCode = 0;
+        if (args.Length == 0) return false;
+        if (args[0] == "--mmc-cmd-child") {
+            if (args.Length < 3) throw new Exception("Missing --mmc-cmd-child arguments.");
+            string readyPath = args[1], stopPath = args[2];
+            Directory.CreateDirectory(Path.GetDirectoryName(readyPath)!);
+            string tmp = readyPath + ".tmp." + Guid.NewGuid().ToString("N");
+            File.WriteAllText(tmp, Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            File.Move(tmp, readyPath, overwrite: true);
+            var timer = Stopwatch.StartNew();
+            while (!File.Exists(stopPath) && timer.ElapsedMilliseconds < 30000) Thread.Sleep(20);
+            return true;
+        }
+        if (args[0] == "--mmc-cmd-host-child") {
+            if (args.Length < 7 || !Guid.TryParse(args[2], out Guid instanceId) || !Guid.TryParse(args[3], out Guid sessionId))
+                throw new Exception("Invalid --mmc-cmd-host-child arguments.");
+            string instanceRoot = args[1], bindingHash = args[4], command = args[5], leaseReadyPath = args[6];
+            var paths = MmcInstancePaths.Resolve(instanceRoot);
+            var authority = MmcMutableRuntimeAuthority.ForOwnedFixture(Path.GetDirectoryName(Path.GetDirectoryName(instanceRoot)!)!);
+            var prepared = MmcSessionRuntimeDirectories.Prepare(paths, instanceId, sessionId, bindingHash, authority);
+            MmcCommandLease cmdLease;
+            using (var admission = MmcAdmissionGate.Acquire(instanceRoot, instanceId, TimeSpan.FromSeconds(5))) {
+                cmdLease = MmcCommandOperations.Begin(admission, MmcRuntimeCommandStage.PreLaunch, sessionId, prepared.RuntimeBinding);
+            }
+            File.WriteAllText(leaseReadyPath, cmdLease.Intent.CommandId.ToString("N"));
+            var context = new MmcRuntimeCommandContext(instanceRoot, paths.GameRoot, sessionId, "PCL Living Fork", "1.0.0", 854, 480) {
+                PackageConfiguration = Configuration("OverrideCommands=true\nOverrideEnv=false\nPreLaunchCommand=echo host"),
+                TemporaryDirectory = prepared.TemporaryDirectory
+            };
+            using (cmdLease) {
+                MmcRuntimeCommandExecution.ExecuteTracked(MmcRuntimeCommandStage.PreLaunch, context, null, command, cmdLease, out _, null, CancellationToken.None);
+            }
+            return true;
+        }
+        return false;
     }
 
     private static void Require(bool value, string message) { if (!value) throw new Exception(message); }
@@ -45,37 +92,54 @@ internal static class MmcCommandExecutionTests {
     // ---- instance fixture -----------------------------------------------------------------------------
 
     private sealed class Instance : IDisposable {
-        private readonly Func<ProcessStartInfo, Process?> previous;
+        private readonly Func<ProcessStartInfo, Process?>? previous;
         internal string Root { get; }
+        internal string ScopeRoot => Path.GetDirectoryName(Path.GetDirectoryName(Root)!)!;
         internal string GameRoot => Path.Combine(Root, "minecraft");
+        internal Guid InstanceId { get; } = Guid.Parse("11111111-2222-3333-4444-555555555555");
         internal ProcessStartInfo? Observed { get; private set; }
         internal void ResetObserved() => Observed = null;
         /// <summary>Replaces the started child; the recorded start info is always captured first.</summary>
         internal Func<ProcessStartInfo, Process?>? Handler { get; set; }
 
-        internal Instance() {
-            Root = Path.Combine(Path.GetTempPath(), "mmc-cmd-" + Guid.NewGuid().ToString("N"), "versions", "fixture");
+        internal Instance() : this(useDefaultStart: false, initializeInstanceDefinition: false) { }
+
+        internal Instance(bool useDefaultStart, bool initializeInstanceDefinition) {
+            string folder = useDefaultStart ? Guid.NewGuid().ToString("N") : "mmc-cmd-" + Guid.NewGuid().ToString("N");
+            Root = Path.Combine(Path.GetTempPath(), folder, "versions", "fixture");
             Directory.CreateDirectory(GameRoot);
             Directory.CreateDirectory(Path.Combine(Root, "libraries"));
             Directory.CreateDirectory(Path.Combine(Root, "PCL", "MmcRuntime"));
-            previous = MmcRuntimeCommandExecution.StartProcess;
-            MmcRuntimeCommandExecution.StartProcess = start => {
-                Observed = start;
-                if (Handler is not null) return Handler(start);
-                // An independent harmless child: the recorded info is never reused, so the assertion sees
-                // exactly what production would have handed to the process entry.
-                var copy = new ProcessStartInfo(start.FileName) {
-                    UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = start.WorkingDirectory,
-                    Arguments = start.Arguments
+            if (initializeInstanceDefinition) {
+                File.WriteAllText(Path.Combine(Root, "PCL", "InstanceDefinition.json"),
+                    $$$"""{"schemaVersion":1,"managementKind":"Mmc","formatProfile":"prism-v1","instanceId":"{{{InstanceId:D}}}","generation":1,"layout":{"gameRootLeaf":"minecraft"}}""");
+            }
+            if (!useDefaultStart) {
+                previous = MmcRuntimeCommandExecution.StartProcess;
+                MmcRuntimeCommandExecution.StartProcess = start => {
+                    Observed = start;
+                    if (Handler is not null) return Handler(start);
+                    // An independent harmless child: the recorded info is never reused, so the assertion sees
+                    // exactly what production would have handed to the process entry.
+                    var copy = new ProcessStartInfo(start.FileName) {
+                        UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = start.WorkingDirectory,
+                        Arguments = start.Arguments
+                    };
+                    foreach (string argument in start.ArgumentList) copy.ArgumentList.Add(argument);
+                    return Process.Start(copy);
                 };
-                foreach (string argument in start.ArgumentList) copy.ArgumentList.Add(argument);
-                return Process.Start(copy);
-            };
+            }
         }
         public void Dispose() {
-            MmcRuntimeCommandExecution.StartProcess = previous;
+            if (previous is not null) MmcRuntimeCommandExecution.StartProcess = previous;
             string? owner = Path.GetDirectoryName(Path.GetDirectoryName(Root));
-            try { if (owner is not null) Directory.Delete(owner, true); } catch (Exception) { }
+            if (owner is null || !Directory.Exists(owner)) return;
+            var timer = Stopwatch.StartNew();
+            while (Directory.Exists(owner)) {
+                try { Directory.Delete(owner, true); break; }
+                catch (IOException error) when ((error.HResult & 0xffff) == 32 && timer.ElapsedMilliseconds < 2000) { Thread.Sleep(20); }
+                catch (Exception) { break; }
+            }
         }
     }
 
@@ -430,5 +494,305 @@ internal static class MmcCommandExecutionTests {
             hash.AppendData(length); hash.AppendData(bytes);
         }
         return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
+    // ---- 11. whole-tree tracking, Job authority, cancellation failure & host death ----
+
+    private static void ProductionDefaultStartRootExitsSurvivingChildWaitsAndCancels() {
+        using var instance = new Instance(useDefaultStart: true, initializeInstanceDefinition: true);
+        string childExe = AppHost();
+        Guid sessionId = Guid.NewGuid();
+        var binding = new MmcSessionRuntimeBinding(new string('c', 64));
+        var authority = MmcMutableRuntimeAuthority.ForOwnedFixture(instance.ScopeRoot);
+        var mutable = MmcSessionRuntimeDirectories.Prepare(MmcInstancePaths.Resolve(instance.Root), instance.InstanceId, sessionId, binding.BoundPlanFingerprint, authority);
+
+        // Phase A: cmd.exe root exits immediately via `start "" /b`, yet ExecuteTracked stays blocked until descendant exits.
+        string readyA = Path.Combine(instance.ScopeRoot, "a-ready.txt"), stopA = Path.Combine(instance.ScopeRoot, "a-stop.txt");
+        string cmdA = $"start \"\" /b \"{childExe}\" --mmc-cmd-child \"{readyA}\" \"{stopA}\"";
+        MmcCommandLease leaseA;
+        using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+            leaseA = MmcCommandOperations.Begin(admission, MmcRuntimeCommandStage.PreLaunch, sessionId, mutable.RuntimeBinding);
+        }
+        using (leaseA) {
+            var ctx = Context(instance, "OverrideCommands=true\nOverrideEnv=false\nPreLaunchCommand=echo ok") with {
+                SessionId = sessionId, TemporaryDirectory = mutable.TemporaryDirectory
+            };
+            MmcRuntimeCommandExecution.MmcRuntimeCommandOutcome? outcomeA = null;
+            var taskA = Task.Run(() => MmcRuntimeCommandExecution.ExecuteTracked(
+                MmcRuntimeCommandStage.PreLaunch, ctx, null, cmdA, leaseA, out outcomeA));
+            int childPidA = WaitChildPid(readyA, 10000);
+            Thread.Sleep(250); // Root cmd.exe has already exited after `start /b`; descendant stays alive.
+            Require(!taskA.IsCompleted, "ExecuteTracked returned early when cmd.exe exited before start /b child.");
+            using (Process procA = Process.GetProcessById(childPidA)) Require(!procA.HasExited, "Descendant child unexpectedly exited before stop.");
+
+            File.WriteAllText(stopA, "stop");
+            taskA.GetAwaiter().GetResult();
+            Require(outcomeA is { TreeProvenExited: true }, "ExecuteTracked did not confirm tree exit after descendant stopped.");
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                leaseA.CompleteProvenExited(admission);
+                MmcSessionRuntimeDirectories.AbandonUnlaunched(admission, sessionId, mutable.RuntimeBinding, authority);
+                MmcCommandOperations.AssertNoPending(admission);
+                MmcSessions.AssertNoActive(admission);
+            }
+        }
+
+        // Phase B: Cancel while root cmd.exe exited and only start /b child runs -> Job cancellation kills descendant.
+        Guid sessionB = Guid.NewGuid();
+        var mutableB = MmcSessionRuntimeDirectories.Prepare(MmcInstancePaths.Resolve(instance.Root), instance.InstanceId, sessionB, new string('d', 64), authority);
+        string readyB = Path.Combine(instance.ScopeRoot, "b-ready.txt"), stopB = Path.Combine(instance.ScopeRoot, "b-stop.txt");
+        string cmdB = $"start \"\" /b \"{childExe}\" --mmc-cmd-child \"{readyB}\" \"{stopB}\"";
+        MmcCommandLease leaseB;
+        using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+            leaseB = MmcCommandOperations.Begin(admission, MmcRuntimeCommandStage.PreLaunch, sessionB, mutableB.RuntimeBinding);
+        }
+        using (leaseB) {
+            var ctx = Context(instance, "OverrideCommands=true\nOverrideEnv=false\nPreLaunchCommand=echo ok") with {
+                SessionId = sessionB, TemporaryDirectory = mutableB.TemporaryDirectory
+            };
+            using var cts = new CancellationTokenSource();
+            MmcRuntimeCommandExecution.MmcRuntimeCommandOutcome outcomeB = new(false, null, []);
+            var taskB = Task.Run(() => {
+                try {
+                    MmcRuntimeCommandExecution.ExecuteTracked(MmcRuntimeCommandStage.PreLaunch, ctx, null, cmdB, leaseB, out outcomeB, null, cts.Token);
+                } catch (OperationCanceledException) {
+                    return true;
+                }
+                return false;
+            });
+            int childPidB = WaitChildPid(readyB, 10000);
+            Thread.Sleep(250);
+            cts.Cancel();
+            Require(taskB.GetAwaiter().GetResult(), "Expected OperationCanceledException once Job teardown killed start /b descendant.");
+            Require(outcomeB.TreeProvenExited, "Expected TreeProvenExited after real Job termination.");
+            bool gone = IsProcessGone(childPidB, 3000);
+            Require(gone, "Real Job cancellation did not terminate surviving start /b child.");
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                leaseB.CompleteProvenExited(admission);
+                MmcSessionRuntimeDirectories.AbandonUnlaunched(admission, sessionB, mutableB.RuntimeBinding, authority);
+            }
+        }
+    }
+
+    private static void CancellationFailureAndGraceTimeoutRetainLedgerAndBlockWrites() {
+        using var instance = new Instance(useDefaultStart: true, initializeInstanceDefinition: true);
+        string childExe = AppHost();
+        var authority = MmcMutableRuntimeAuthority.ForOwnedFixture(instance.ScopeRoot);
+
+        // Subcase 1: TerminateTreeOverride throws Win32Exception(5) -> unconfirmed, blocks cleanup until child stops.
+        RunUnconfirmedScenario(instance, authority, failByException: true, childExe, "11");
+        // Subcase 2: TerminateTreeOverride returns true without killing, grace timeout expires with surviving start /b child -> still unconfirmed!
+        RunUnconfirmedScenario(instance, authority, failByException: false, childExe, "22");
+    }
+
+    private static void RunUnconfirmedScenario(
+        Instance instance,
+        MmcMutableRuntimeAuthority authority,
+        bool failByException,
+        string childExe,
+        string tag) {
+        Guid sessionId = Guid.NewGuid();
+        var mutable = MmcSessionRuntimeDirectories.Prepare(MmcInstancePaths.Resolve(instance.Root), instance.InstanceId, sessionId, new string(tag[0], 64), authority);
+        string ready = Path.Combine(instance.ScopeRoot, tag + "-ready.txt"), stop = Path.Combine(instance.ScopeRoot, tag + "-stop.txt");
+        string cmd = $"start \"\" /b \"{childExe}\" --mmc-cmd-child \"{ready}\" \"{stop}\"";
+        MmcCommandLease cmdLease;
+        using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+            cmdLease = MmcCommandOperations.Begin(admission, MmcRuntimeCommandStage.PreLaunch, sessionId, mutable.RuntimeBinding);
+        }
+
+        var prevTerminate = MmcRuntimeCommandExecution.TerminateTreeOverride;
+        var prevGrace = MmcRuntimeCommandExecution.CancellationGraceMillisecondsOverride;
+        MmcRuntimeCommandExecution.TerminateTreeOverride = failByException
+            ? (_, _) => throw new Win32Exception(5, "Simulated TerminateJobObject access denied")
+            : (_, _) => true; // Simulates unresponsive tree outliving the grace period.
+        MmcRuntimeCommandExecution.CancellationGraceMillisecondsOverride = 80;
+        int childPid = 0;
+        try {
+            var ctx = Context(instance, "OverrideCommands=true\nOverrideEnv=false\nPreLaunchCommand=echo ok") with {
+                SessionId = sessionId, TemporaryDirectory = mutable.TemporaryDirectory
+            };
+            using var cts = new CancellationTokenSource();
+            MmcRuntimeCommandExecution.MmcRuntimeCommandOutcome outcome = new(true, null, []);
+            var task = Task.Run(() => {
+                try {
+                    MmcRuntimeCommandExecution.ExecuteTracked(MmcRuntimeCommandStage.PreLaunch, ctx, null, cmd, cmdLease, out outcome, null, cts.Token);
+                    return (string?)null;
+                } catch (MmcRuntimeLaunchException ex) {
+                    return ex.Code;
+                }
+            });
+            childPid = WaitChildPid(ready, 10000);
+            Thread.Sleep(250);
+            cts.Cancel();
+            Equal("MMC_RUNTIME_COMMAND_UNCONFIRMED", task.GetAwaiter().GetResult(), tag + " must throw UNCONFIRMED instead of canceling cleanly");
+            Require(!outcome.TreeProvenExited && outcome.SurvivingProcesses.Any(p => p.ProcessId == childPid),
+                tag + " outcome must record the surviving descendant PID.");
+
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                cmdLease.RecordUnconfirmed(admission, outcome.Diagnostic ?? "unconfirmed", outcome.SurvivingProcesses);
+            }
+            cmdLease.Dispose();
+
+            // While child is still running: pending ledger + TEMP remain, and structural writes/Abandon/Reconcile refuse.
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                Require(Directory.Exists(mutable.TemporaryDirectory), tag + " TEMP was prematurely deleted while descendant survived.");
+                Require(File.Exists(Path.Combine(instance.Root, "PCL", "MmcCommands", cmdLease.Intent.CommandId.ToString("N"), "tail.record")),
+                    tag + " tail.record was not persisted.");
+                bool blocked = false;
+                try { MmcFileTransactions.AssertNoPending(admission); } catch (IOException) { blocked = true; }
+                Require(blocked, tag + " AssertNoPending failed to block during unconfirmed command tail.");
+                blocked = false;
+                try { MmcSessions.AssertNoActive(admission); } catch (IOException) { blocked = true; }
+                Require(blocked, tag + " AssertNoActive failed to block during unconfirmed command tail.");
+                blocked = false;
+                try { MmcSessionRuntimeDirectories.AbandonUnlaunched(admission, sessionId, mutable.RuntimeBinding, authority); } catch (IOException) { blocked = true; }
+                Require(blocked, tag + " AbandonUnlaunched deleted TEMP despite unconfirmed command tail.");
+                blocked = false;
+                try { MmcCommandOperations.ReconcileAll(admission, authority); } catch (IOException) { blocked = true; }
+                Require(blocked, tag + " ReconcileAll falsely cleared while descendant still ran.");
+            }
+
+            File.WriteAllText(stop, "stop");
+            Require(IsProcessGone(childPid, 8000), tag + " descendant did not exit after stop.");
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                MmcCommandOperations.ReconcileAll(admission, authority);
+                MmcFileTransactions.AssertNoPending(admission);
+                MmcSessions.AssertNoActive(admission);
+                Require(!Directory.Exists(mutable.SessionRoot), tag + " ReconcileAll did not retire unlaunched TEMP after descendant exited.");
+            }
+        } finally {
+            MmcRuntimeCommandExecution.TerminateTreeOverride = prevTerminate;
+            MmcRuntimeCommandExecution.CancellationGraceMillisecondsOverride = prevGrace;
+            cmdLease.Dispose();
+            File.WriteAllText(stop, "stop");
+            if (childPid > 0) IsProcessGone(childPid, 3000);
+        }
+    }
+
+    private static void KilledHostWithSurvivingStartBOrphanRetainsTempAndRecovers() {
+        using var instance = new Instance(useDefaultStart: true, initializeInstanceDefinition: true);
+        string appHost = AppHost();
+        Guid sessionId = Guid.NewGuid();
+        string bindingHash = new('e', 64);
+        string leaseReady = Path.Combine(instance.ScopeRoot, "host-lease-ready.txt");
+        string childReady = Path.Combine(instance.ScopeRoot, "orphan-ready.txt");
+        string childStop = Path.Combine(instance.ScopeRoot, "orphan-stop.txt");
+        string cmd = $"start \"\" /b \"{appHost}\" --mmc-cmd-child \"{childReady}\" \"{childStop}\"";
+
+        var psi = new ProcessStartInfo(appHost) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (string arg in new[] { "--mmc-cmd-host-child", instance.Root, instance.InstanceId.ToString("D"), sessionId.ToString("D"), bindingHash, cmd, leaseReady })
+            psi.ArgumentList.Add(arg);
+
+        int childPid = 0;
+        try {
+            using Process host = Process.Start(psi) ?? throw new Exception("Failed to spawn host child.");
+            WaitFileReady(leaseReady, 12000);
+            childPid = WaitChildPid(childReady, 12000);
+            Thread.Sleep(250); // Ensure cmd.exe root already exited leaving only start /b child alive.
+            if (!host.HasExited) host.Kill(entireProcessTree: false); // Kill ONLY the host!
+            Require(host.WaitForExit(5000), "Host process did not exit after Kill.");
+
+            var authority = MmcMutableRuntimeAuthority.ForOwnedFixture(instance.ScopeRoot);
+            var binding = new MmcSessionRuntimeBinding(bindingHash);
+            var mutable = MmcSessionRuntimeDirectories.Paths(MmcInstancePaths.Resolve(instance.Root), instance.InstanceId, sessionId, binding, authority);
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                Require(Directory.Exists(mutable.TemporaryDirectory), "TEMP disappeared before recovery.");
+                bool refused = false;
+                try { MmcCommandOperations.ReconcileAll(admission, authority); } catch (IOException) { refused = true; }
+                Require(refused, "ReconcileAll must refuse when killed host left surviving start /b orphan.");
+                refused = false;
+                try { MmcFileTransactions.AssertNoPending(admission); } catch (IOException) { refused = true; }
+                Require(refused, "AssertNoPending must refuse during orphaned command recovery.");
+            }
+
+            File.WriteAllText(childStop, "stop");
+            Require(IsProcessGone(childPid, 8000), "Orphaned start /b child did not exit after stop.");
+
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                MmcCommandOperations.ReconcileAll(admission, authority);
+                MmcFileTransactions.AssertNoPending(admission);
+                MmcSessions.AssertNoActive(admission);
+                Require(!Directory.Exists(mutable.SessionRoot), "ReconcileAll did not retire PreLaunch TEMP after orphan exited.");
+            }
+        } finally {
+            File.WriteAllText(childStop, "stop");
+            if (childPid > 0) IsProcessGone(childPid, 3000);
+        }
+    }
+
+    private static void InjectedKernelJobUnknownAndCrossSessionNeverDowngradeToScan() {
+        // Explicit fault-injection boundary test: separates injected OS observation failures (no live child)
+        // from real OS process-tree evidence covered in the tests above.
+        using var instance = new Instance(useDefaultStart: true, initializeInstanceDefinition: true);
+        var paths = MmcInstancePaths.Resolve(instance.Root);
+        Guid commandId = Guid.NewGuid();
+        var prevJobObserver = MmcCommandOperations.ObserveNamedJobOverride;
+        try {
+            MmcCommandLease lease;
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                lease = MmcCommandOperations.Begin(admission, MmcRuntimeCommandStage.PreLoad, null, null, commandId);
+            }
+            string cmdDir = Path.Combine(instance.Root, "PCL", "MmcCommands", commandId.ToString("N"));
+            string intentPath = Path.Combine(cmdDir, "intent.record");
+            (var intent, string hash) = MmcDurableFiles.ReadRecord<MmcCommandIntentRecord>(intentPath);
+            Require(intent.CreatorWindowsSessionId is not null, "CreatorWindowsSessionId was not persisted.");
+            lease.RecordProcessStarted(999999999, DateTime.UtcNow.Ticks, null, jobBacked: true);
+            lease.Dispose();
+
+            // 1. AccessDenied (5) from OpenJobObject stays Unknown even when 0 matching processes exist.
+            MmcCommandOperations.ObserveNamedJobOverride = _ => new MmcNamedJobObservation(MmcNamedJobState.Unknown, [], 5, "Injected ERROR_ACCESS_DENIED");
+            Require(!MmcCommandOperations.IsCommandTreeProvenExited(cmdDir, intent, hash, out _), "AccessDenied job state must stay Unknown.");
+
+            // 2. QueryInformationJobObject failure stays Unknown.
+            MmcCommandOperations.ObserveNamedJobOverride = _ => new MmcNamedJobObservation(MmcNamedJobState.Unknown, [], 31, "Injected query failure");
+            Require(!MmcCommandOperations.IsCommandTreeProvenExited(cmdDir, intent, hash, out _), "Query failure job state must stay Unknown.");
+
+            // 3. Cross-session CreatorWindowsSessionId stays Unknown even if same-session Job reports Missing.
+            MmcCommandOperations.ObserveNamedJobOverride = _ => new MmcNamedJobObservation(MmcNamedJobState.Missing, [], 2, null);
+            var otherSessionIntent = intent with { CreatorWindowsSessionId = intent.CreatorWindowsSessionId + 1 };
+            Require(!MmcCommandOperations.IsCommandTreeProvenExited(cmdDir, otherSessionIntent, hash, out _), "Cross-session command must never downgrade to exit.");
+            var nullSessionIntent = intent with { CreatorWindowsSessionId = null };
+            Require(!MmcCommandOperations.IsCommandTreeProvenExited(cmdDir, nullSessionIntent, hash, out _), "Missing session ID must never be assumed exited.");
+
+            // 4. Empty named Job with JobBacked=true confirms exited; ReconcileAll clears once real JobMissing & no orphan.
+            MmcCommandOperations.ObserveNamedJobOverride = _ => new MmcNamedJobObservation(MmcNamedJobState.Empty, [], 0, null);
+            Require(MmcCommandOperations.IsCommandTreeProvenExited(cmdDir, intent, hash, out _), "Empty JobBacked=true state must confirm exited.");
+
+            using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
+                MmcCommandOperations.ReconcileAll(admission);
+                MmcCommandOperations.AssertNoPending(admission);
+            }
+        } finally {
+            MmcCommandOperations.ObserveNamedJobOverride = prevJobObserver;
+        }
+    }
+
+    private static string AppHost() {
+        string candidate = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, OperatingSystem.IsWindows() ? ".exe" : null);
+        return File.Exists(candidate) ? candidate : throw new Exception("Command fixture requires generated apphost.");
+    }
+
+    private static void WaitFileReady(string path, int timeoutMs) {
+        var timer = Stopwatch.StartNew();
+        while (!File.Exists(path) && timer.ElapsedMilliseconds < timeoutMs) Thread.Sleep(20);
+        if (!File.Exists(path)) throw new Exception("Timed out waiting for fixture file: " + path);
+    }
+
+    private static int WaitChildPid(string readyPath, int timeoutMs) {
+        WaitFileReady(readyPath, timeoutMs);
+        return int.Parse(File.ReadAllText(readyPath).Trim(), CultureInfo.InvariantCulture);
+    }
+
+    private static bool IsProcessGone(int pid, int timeoutMs) {
+        var timer = Stopwatch.StartNew();
+        while (timer.ElapsedMilliseconds < timeoutMs) {
+            try {
+                using Process p = Process.GetProcessById(pid);
+                if (p.HasExited) return true;
+            } catch (ArgumentException) {
+                return true;
+            }
+            Thread.Sleep(25);
+        }
+        return false;
     }
 }

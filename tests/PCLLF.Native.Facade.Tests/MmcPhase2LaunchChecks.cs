@@ -20,35 +20,42 @@ namespace PCLLF.Native.Facade.Tests;
 // using self-authored Java 17 probes in an isolated child process.
 internal static class MmcPhase2LaunchChecks {
     internal const string Group = "mmc-phase2-launch";
-    private const string ChildSwitch = "--mmc-phase2-launch-child", Receipt = "mmc-phase2-launch.done";
+    internal const string DotMcActiveRootGroup = "mmc-phase2-dotmc-active-root";
+    internal const string PostExitLeaseGroup = "mmc-phase2-postexit-lease";
+    private const string ChildSwitch = "--mmc-phase2-launch-child";
     private static Scope? retained;
 
-    internal static void Run(FixtureEnvironment environment) {
+    internal static void Run(FixtureEnvironment environment) => RunGroup(environment, Group, s => s.RunPrimary());
+    internal static void RunDotMcActiveRoot(FixtureEnvironment environment) => RunGroup(environment, DotMcActiveRootGroup, s => s.RunDotMcActiveRoot());
+    internal static void RunPostExitLease(FixtureEnvironment environment) => RunGroup(environment, PostExitLeaseGroup, s => s.RunPostExitLease());
+
+    private static void RunGroup(FixtureEnvironment environment, string group, Action<Scope> runScenario) {
+        string receipt = group + ".done";
         string[] args = Environment.GetCommandLineArgs().Skip(1).ToArray();
-        if (!args.Contains(ChildSwitch, StringComparer.Ordinal)) { RunOwnedChild(); return; }
+        if (!args.Contains(ChildSwitch, StringComparer.Ordinal)) { RunOwnedChild(group, receipt); return; }
         try {
-            Native.Check(args.Length == 7 && args[0] == "--groups" && args[1] == Group && args[2] == ChildSwitch &&
+            Native.Check(args.Length == 7 && args[0] == "--groups" && args[1] == group && args[2] == ChildSwitch &&
                 Guid.TryParseExact(args[3], "N", out _) && args[4] == "--isolated" && args[5] == "--fixture" &&
                 Native.Full(args[6]) == Native.Full(environment.Root), "Phase 2 launch child is not bound to its owned fixture.");
             ModpackUpdateCleanup.VerifyIsolatedChild();
             retained = new(environment);
-            retained.RunAll();
+            runScenario(retained);
             retained.Finish();
             environment.AssertNoForbiddenIo();
             Native.Check(System.Windows.Application.Current.Windows.Count == 0, "Phase 2 launch checks unexpectedly opened a window.");
-            string value = string.Join('\n', args[3], Environment.ProcessId, Native.Full(environment.Root), MainHash(), "phase2-launch-verified");
-            string pending = Path.Combine(environment.Root, Receipt + ".pending");
+            string value = string.Join('\n', args[3], Environment.ProcessId, Native.Full(environment.Root), MainHash(), group + "-verified");
+            string pending = Path.Combine(environment.Root, receipt + ".pending");
             using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
                 output.Write(Encoding.UTF8.GetBytes(value));
                 output.Flush(true);
             }
-            Console.WriteLine("PASS mmc-phase2-launch: real Main import JVM UI hint, D13 command confirmation deny/accept/reuse/invalidate, D15 stage Env & TEMP/TMP overlay, D9 PostExit ordering before cleanup, early/persistent WrapperCommand owned Job/pipes & secret redaction.");
+            Console.WriteLine("PASS " + group + ": verified against real Main MmcLaunch/ModWatcher and controlled Java 17 fixtures.");
             Console.Out.Flush(); Console.Error.Flush();
-            File.Move(pending, Path.Combine(environment.Root, Receipt));
+            File.Move(pending, Path.Combine(environment.Root, receipt));
             using ManualResetEventSlim keepGuards = new(); keepGuards.Wait();
         } catch (Exception error) {
             try { retained?.StopOwnedSessions(); } catch { }
-            File.WriteAllText(Path.Combine(environment.Root, Receipt + ".failed"), error.ToString());
+            File.WriteAllText(Path.Combine(environment.Root, receipt + ".failed"), error.ToString());
             ModpackUpdateCleanup.TerminateChild("Phase 2 launch child failed with guards retained: " + error);
         }
     }
@@ -127,15 +134,30 @@ internal static class MmcPhase2LaunchChecks {
             watcherHost.FeedbackInfo = () => { };
 
             Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
+            InstallIsolatedLogin("phase2-default-secret-" + Guid.NewGuid().ToString("N"));
             metadata = new MmcMetadataStore(metadataRoot, new Uri("https://metadata.invalid/"), new HttpClient(new NoNetwork()));
             cacheRoots = new(Path.Combine(game, "libraries"), Path.Combine(game, "assets"), Path.Combine(cache, "sources"), Path.Combine(game, "versions"));
         }
 
-        internal void RunAll() {
+        private static void InstallIsolatedLogin(string accessToken) {
+            ModLaunch.McLoginLoader = new("Phase2 isolated account", _ => throw new IOException("No account IO expected.")) {
+                Output = new() {
+                    Name = "Phase2User", Uuid = Guid.NewGuid().ToString("N"),
+                    AccessToken = accessToken, ClientToken = "phase2-client-" + Guid.NewGuid().ToString("N"),
+                    Type = "Legacy", ProfileJson = "{}"
+                },
+                State = ModBase.LoadState.Finished
+            };
+        }
+
+        internal void RunPrimary() {
             string primaryRoot = ImportPrimaryWithHint();
             ExerciseConfirmationEnvPostExitAndEarlyWrapper(primaryRoot);
             ExercisePersistentWrapperCancel();
         }
+
+        internal void RunDotMcActiveRoot() => ExerciseCoexistingDotMinecraftActiveRoot();
+        internal void RunPostExitLease() => ExerciseBlockedPostExitSecondHostRecoveryAndSuccessfulStageClearing();
 
         internal void Finish() {
             Until(() => !MmcLaunch.HasActiveSessions, "MMC active sessions empty");
@@ -198,14 +220,7 @@ internal static class MmcPhase2LaunchChecks {
             var instance = new ModMinecraft.McInstance(versionRoot);
             Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             string secret = "phase2-secret-" + Guid.NewGuid().ToString("N");
-            ModLaunch.McLoginLoader = new("Phase2 isolated account", _ => throw new IOException("No account IO expected.")) {
-                Output = new() {
-                    Name = "Phase2User", Uuid = Guid.NewGuid().ToString("N"),
-                    AccessToken = secret, ClientToken = "phase2-client-" + Guid.NewGuid().ToString("N"),
-                    Type = "Legacy", ProfileJson = "{}"
-                },
-                State = ModBase.LoadState.Finished
-            };
+            InstallIsolatedLogin(secret);
 
             string preloadTxt = Path.Combine(traceDir, "preload.txt");
             string prelaunchTxt = Path.Combine(traceDir, "prelaunch.txt");
@@ -414,6 +429,212 @@ internal static class MmcPhase2LaunchChecks {
             }
         }
 
+        private void ExerciseCoexistingDotMinecraftActiveRoot() {
+            string archive = Path.Combine(root, "phase2-dotmc.zip");
+            string javaForward = Forward(java17), probeForward = Forward(probeDir), traceForward = Forward(traceDir);
+            string cfg = string.Join('\n',
+                "ConfigVersion=1.3",
+                "name=phase2-dotmc",
+                "OverrideCommands=true",
+                $"PreLoadCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe preload \\\"{traceForward}/dotmc-preload.txt\\\" \\\"${{INST_DIR}}\\\" \\\"\\\" \\\"${{INST_MC_DIR}}\\\" \\\"${{game_directory}}\\\" \\\"rel-preload.txt\\\"",
+                $"PreLaunchCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe prelaunch \\\"{traceForward}/dotmc-prelaunch.txt\\\" \\\"${{INST_DIR}}\\\" \\\"\\\" \\\"${{INST_MC_DIR}}\\\" \\\"${{game_directory}}\\\" \\\"rel-prelaunch.txt\\\"",
+                $"PostExitCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe postexit \\\"{traceForward}/dotmc-postexit.txt\\\" \\\"${{INST_DIR}}\\\" \\\"\\\" \\\"${{INST_MC_DIR}}\\\" \\\"${{game_directory}}\\\" \\\"rel-postexit.txt\\\"",
+                "");
+            WritePackArchive(archive, cfg, dotMinecraftRoot: true);
+
+            var importTask = ImportViaMain(archive, "phase2-dotmc");
+            Until(() => importTask.State is not (ModBase.LoadState.Waiting or ModBase.LoadState.Loading) &&
+                !IsThreadAlive(importTask.Loaders.Single()), "dotmc instance import");
+            Native.Check(importTask.State == ModBase.LoadState.Finished, "dotmc instance import failed: " + importTask.Error);
+            ModLoader.LoaderTaskbar.Remove(importTask);
+            Until(() => ModMinecraft.McInstanceListLoader.State != ModBase.LoadState.Loading, "dotmc instance refresh finish");
+            DrainUi(DateTime.UtcNow.AddSeconds(10));
+
+            string versionRoot = Path.Combine(game, "versions", "phase2-dotmc");
+            string activeGameRoot = Path.Combine(versionRoot, ".minecraft");
+            string inactiveGameRoot = Path.Combine(versionRoot, "minecraft");
+            Native.Check(Directory.Exists(activeGameRoot), "Imported active .minecraft directory missing.");
+            Native.Check(MmcSavedSourceStore.ReadPrimary(MmcInstancePaths.Resolve(versionRoot, ".minecraft")).Definition.Layout.GameRootLeaf == ".minecraft",
+                "Imported pack did not persist .minecraft layout.");
+
+            // Materialize a coexisting inactive minecraft tree; MmcLaunch must keep all package stages on active .minecraft.
+            Directory.CreateDirectory(inactiveGameRoot);
+            string inactiveSentinel = Path.Combine(inactiveGameRoot, "inactive-keep.txt");
+            File.WriteAllText(inactiveSentinel, "inactive-minecraft-preserved\n", new UTF8Encoding(false));
+
+            var instance = new ModMinecraft.McInstance(versionRoot);
+            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            var confirmProp = Native.Property(typeof(MmcLaunch), "ConfirmPackageCommands");
+            var oldConfirm = (Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>?)confirmProp.GetValue(null);
+            try {
+                bool confirmed = false;
+                confirmProp.SetValue(null, new Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>((target, summary) => {
+                    confirmed = true;
+                    Native.Check(ReferenceEquals(target, instance), "dotmc confirmation target mismatch.");
+                    Native.Check(summary.Entries.Select(e => e.Stage).SequenceEqual(new[] {
+                        "PreLoadCommand", "PreLaunchCommand", "PostExitCommand"
+                    }), "dotmc confirmation stages mismatch.");
+                    return true;
+                }));
+                string ready = Path.Combine(traceDir, "dotmc-ready.txt"), stop = Path.Combine(traceDir, "dotmc-stop.txt");
+                var (combo, session, plan) = RunActiveLaunch("phase2-dotmc-launch", instance, ["--ready", ready, "--stop", stop], ready);
+                Native.Check(confirmed, "dotmc launch did not prompt package command confirmation.");
+                Native.Check(combo.State == ModBase.LoadState.Finished, "dotmc launch failed: " + combo.Error);
+                Native.Check(SamePath(plan.Request.Paths.GameRoot, activeGameRoot), "Runtime plan GameRoot did not match active .minecraft.");
+
+                File.WriteAllText(stop, "stop");
+                string postexitOut = Path.Combine(traceDir, "dotmc-postexit.txt");
+                Until(() => session.Process.HasExited && !MmcLaunch.HasActiveSessions && File.Exists(postexitOut) &&
+                    !Directory.Exists(plan.MutableDirectories.SessionRoot), "dotmc launch PostExit & cleanup");
+
+                foreach (string stage in new[] { "preload", "prelaunch", "postexit" }) {
+                    var props = ParseProps(Path.Combine(traceDir, $"dotmc-{stage}.txt"));
+                    Native.Check(SamePath(props["cwd"], activeGameRoot),
+                        $"Stage {stage} cwd resolved to '{props["cwd"]}' instead of active '{activeGameRoot}'.");
+                    Native.Check(SamePath(props["instMcDir"], activeGameRoot),
+                        $"Stage {stage} INST_MC_DIR resolved to '{props["instMcDir"]}' instead of active '{activeGameRoot}'.");
+                    Native.Check(SamePath(props["gameDir"], activeGameRoot),
+                        $"Stage {stage} game_directory resolved to '{props["gameDir"]}' instead of active '{activeGameRoot}'.");
+                    string activeRel = Path.Combine(activeGameRoot, $"rel-{stage}.txt");
+                    Native.Check(File.Exists(activeRel), $"Stage {stage} relative write missing under active .minecraft.");
+                    string[] relLines = File.ReadAllLines(activeRel, Encoding.UTF8);
+                    Native.Check(relLines.Length >= 2 && relLines[0] == stage && SamePath(relLines[1], activeGameRoot),
+                        $"Stage {stage} relative write recorded wrong cwd.");
+                    Native.Check(!File.Exists(Path.Combine(inactiveGameRoot, $"rel-{stage}.txt")),
+                        $"Stage {stage} leaked relative write into inactive minecraft tree.");
+                }
+
+                Native.Check(File.ReadAllText(inactiveSentinel, Encoding.UTF8) == "inactive-minecraft-preserved\n",
+                    "Inactive minecraft sentinel was altered.");
+                string[] inactiveEntries = Directory.GetFileSystemEntries(inactiveGameRoot);
+                Native.Check(inactiveEntries.Length == 1 && SamePath(inactiveEntries[0], inactiveSentinel),
+                    "Unexpected entries written into inactive minecraft tree: " + string.Join(", ", inactiveEntries));
+                Native.Check(File.ReadAllText(Path.Combine(activeGameRoot, "pack-sentinel.txt"), Encoding.UTF8) == "active-dot-minecraft-layout\n",
+                    "Active .minecraft pack sentinel was altered.");
+
+                // Re-verify when active .minecraft is absent while inactive minecraft already exists:
+                // MmcLaunch must create active .minecraft and run all three stages into it without altering minecraft.
+                Directory.Delete(activeGameRoot, true);
+                foreach (string stage in new[] { "preload", "prelaunch", "postexit" }) {
+                    string p = Path.Combine(traceDir, $"dotmc-{stage}.txt");
+                    if (File.Exists(p)) File.Delete(p);
+                }
+                string readyRecreate = Path.Combine(traceDir, "dotmc-recreate-ready.txt"), stopRecreate = Path.Combine(traceDir, "dotmc-recreate-stop.txt");
+                var (comboRecreate, sessionRecreate, planRecreate) = RunActiveLaunch("phase2-dotmc-recreate", instance, ["--ready", readyRecreate, "--stop", stopRecreate], readyRecreate);
+                Native.Check(comboRecreate.State == ModBase.LoadState.Finished, "dotmc recreate launch failed: " + comboRecreate.Error);
+                Native.Check(Directory.Exists(activeGameRoot) && SamePath(planRecreate.Request.Paths.GameRoot, activeGameRoot),
+                    "Missing active .minecraft was not recreated as active GameRoot.");
+                File.WriteAllText(stopRecreate, "stop");
+                Until(() => sessionRecreate.Process.HasExited && !MmcLaunch.HasActiveSessions && File.Exists(Path.Combine(traceDir, "dotmc-postexit.txt")) &&
+                    !Directory.Exists(planRecreate.MutableDirectories.SessionRoot), "dotmc recreate PostExit & cleanup");
+                foreach (string stage in new[] { "preload", "prelaunch", "postexit" }) {
+                    var props = ParseProps(Path.Combine(traceDir, $"dotmc-{stage}.txt"));
+                    Native.Check(SamePath(props["cwd"], activeGameRoot) && SamePath(props["instMcDir"], activeGameRoot) && SamePath(props["gameDir"], activeGameRoot),
+                        $"Recreated dotmc stage {stage} missed active .minecraft.");
+                    Native.Check(File.Exists(Path.Combine(activeGameRoot, $"rel-{stage}.txt")) && !File.Exists(Path.Combine(inactiveGameRoot, $"rel-{stage}.txt")),
+                        $"Recreated dotmc stage {stage} wrote outside active .minecraft.");
+                }
+                Native.Check(Directory.GetFileSystemEntries(inactiveGameRoot).Length == 1 && SamePath(Directory.GetFileSystemEntries(inactiveGameRoot)[0], inactiveSentinel),
+                    "Inactive minecraft tree changed during missing-.minecraft creation launch.");
+            } finally {
+                confirmProp.SetValue(null, oldConfirm);
+            }
+        }
+
+        private void ExerciseBlockedPostExitSecondHostRecoveryAndSuccessfulStageClearing() {
+            string archive = Path.Combine(root, "phase2-postexit-lease.zip");
+            string javaForward = Forward(java17), probeForward = Forward(probeDir), traceForward = Forward(traceDir), pinForward = Forward(pinDir);
+            string enteredPath = Path.Combine(traceDir, "postexit-lease-entered.txt");
+            string gatePath = Path.Combine(traceDir, "postexit-lease-gate.txt");
+            string cfg = string.Join('\n',
+                "ConfigVersion=1.3",
+                "name=phase2-postexit-lease",
+                "OverrideCommands=true",
+                $"PreLoadCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe preload \\\"{traceForward}/lease-preload.txt\\\"",
+                $"PreLaunchCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe prelaunch \\\"{traceForward}/lease-prelaunch.txt\\\"",
+                $"PostExitCommand=\\\"{javaForward}\\\" -cp \\\"{probeForward}\\\" fixture.CmdProbe postexit \\\"{traceForward}/lease-postexit.txt\\\" \\\"${{INST_DIR}}\\\" \\\"{pinForward}\\\" \\\"\\\" \\\"\\\" \\\"\\\" \\\"{Forward(enteredPath)}\\\" \\\"{Forward(gatePath)}\\\"",
+                "OverrideEnv=true",
+                "Env=PKG_ENV_KEY=pkg-lease-val",
+                "");
+            WritePackArchive(archive, cfg);
+
+            var importTask = ImportViaMain(archive, "phase2-postexit-lease");
+            Until(() => importTask.State is not (ModBase.LoadState.Waiting or ModBase.LoadState.Loading) &&
+                !IsThreadAlive(importTask.Loaders.Single()), "postexit-lease import");
+            Native.Check(importTask.State == ModBase.LoadState.Finished, "postexit-lease import failed: " + importTask.Error);
+            ModLoader.LoaderTaskbar.Remove(importTask);
+            Until(() => ModMinecraft.McInstanceListLoader.State != ModBase.LoadState.Loading, "postexit-lease instance refresh finish");
+            DrainUi(DateTime.UtcNow.AddSeconds(10));
+
+            string versionRoot = Path.Combine(game, "versions", "phase2-postexit-lease");
+            string cmdStore = Path.Combine(versionRoot, "PCL", "MmcCommands");
+            var instance = new ModMinecraft.McInstance(versionRoot);
+            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            var confirmProp = Native.Property(typeof(MmcLaunch), "ConfirmPackageCommands");
+            var oldConfirm = (Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>?)confirmProp.GetValue(null);
+            try {
+                confirmProp.SetValue(null, new Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>((_, _) => true));
+                string ready1 = Path.Combine(traceDir, "lease-ready1.txt"), stop1 = Path.Combine(traceDir, "lease-stop1.txt");
+                var (combo1, session1, plan1) = RunActiveLaunch("phase2-lease-launch-1", instance, ["--ready", ready1, "--stop", stop1], ready1);
+                Native.Check(combo1.State == ModBase.LoadState.Finished, "First launch in PostExit lease test failed: " + combo1.Error);
+
+                // Bug #1 verification: successful PreLoad + PreLaunch must settle their MmcCommands lease cleanly with zero leftover files!
+                Native.Check(!Directory.Exists(cmdStore) || Directory.GetFileSystemEntries(cmdStore).Length == 0,
+                    "Successful PreLoad/PreLaunch left residual PCL/MmcCommands entries.");
+
+                Guid id = session1.Receipt.SessionId;
+                string exitedReceipt = Path.Combine(versionRoot, "PCL", "MmcSessions", id.ToString("N"), "Exited.record");
+                File.WriteAllText(stop1, "stop");
+                Until(() => session1.Process.HasExited && File.Exists(exitedReceipt) && File.Exists(enteredPath),
+                    "game exited with Exited.record while PostExit is actively blocked");
+
+                // While PostExit is running (outside admission), owner.lock must keep TEMP, pin, and session receipts intact against second-host Reconcile and second Launch.
+                Guid instanceId = MmcSavedSourceStore.ReadPrimary(MmcInstancePaths.Resolve(versionRoot)).Definition.InstanceId;
+                using (var lease = MmcAdmissionGate.Acquire(versionRoot, instanceId, TimeSpan.FromSeconds(5))) {
+                    var obs = MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => throw new Exception("Second host unpinned Java during active PostExit!")).Observation;
+                    Native.Check(obs == MmcSessionObservation.Unknown, "Second host Reconcile returned " + obs + " instead of Unknown during active PostExit.");
+                }
+
+                string blockedReady = Path.Combine(traceDir, "lease-blocked-ready.txt"), blockedStop = Path.Combine(traceDir, "lease-blocked-stop.txt");
+                var blockedSecond = StartLaunch("phase2-lease-second-blocked", instance, ["--ready", blockedReady, "--stop", blockedStop], out _);
+                WaitComboTerminal(blockedSecond);
+                Native.Check(blockedSecond.State == ModBase.LoadState.Failed,
+                    "Second launch did not fail closed while first launch's PostExit owner lease was active. State=" + blockedSecond.State);
+                Native.Check(!File.Exists(blockedReady), "Second launch started game despite active PostExit owner lease.");
+                Native.Check(Directory.Exists(plan1.MutableDirectories.TemporaryDirectory), "Second host attempt retired TEMP during active PostExit.");
+                Native.Check(Directory.GetFiles(pinDir, "*.json", SearchOption.AllDirectories).Length == 1, "Second host attempt removed Java pin during active PostExit.");
+                Native.Check(File.Exists(exitedReceipt), "Second host attempt removed/archived Exited.record during active PostExit.");
+
+                // Release PostExit gate -> single clean archival + cleanup + unpin, followed by clean subsequent launch.
+                File.WriteAllText(gatePath, "release");
+                string postexitOut = Path.Combine(traceDir, "lease-postexit.txt");
+                Until(() => !MmcLaunch.HasActiveSessions && File.Exists(postexitOut) &&
+                    !Directory.Exists(plan1.MutableDirectories.SessionRoot) &&
+                    Directory.GetFiles(pinDir, "*.json", SearchOption.AllDirectories).Length == 0,
+                    "PostExit release & single clean archival");
+                Native.Check(!Directory.Exists(cmdStore) || Directory.GetFileSystemEntries(cmdStore).Length == 0,
+                    "Successful PostExit left residual PCL/MmcCommands entries.");
+                Native.Check(Directory.Exists(Path.Combine(versionRoot, "PCL", "MmcSessionHistory", id.ToString("N"))),
+                    "Session was not archived once to MmcSessionHistory after PostExit finished.");
+                Native.Check(!Directory.Exists(Path.Combine(versionRoot, "PCL", "MmcSessions", id.ToString("N"))),
+                    "Active session directory survived finalization.");
+
+                // Launch #2 must now succeed cleanly with PreLoad/PreLaunch/PostExit all settling cleanly!
+                string ready2 = Path.Combine(traceDir, "lease-ready2.txt"), stop2 = Path.Combine(traceDir, "lease-stop2.txt");
+                var (combo2, session2, plan2) = RunActiveLaunch("phase2-lease-launch-2", instance, ["--ready", ready2, "--stop", stop2], ready2);
+                Native.Check(combo2.State == ModBase.LoadState.Finished, "Second launch after PostExit completion failed: " + combo2.Error);
+                File.WriteAllText(stop2, "stop");
+                Until(() => session2.Process.HasExited && !MmcLaunch.HasActiveSessions && !Directory.Exists(plan2.MutableDirectories.SessionRoot) &&
+                    Directory.GetFiles(pinDir, "*.json", SearchOption.AllDirectories).Length == 0,
+                    "Subsequent launch exit & settlement");
+                Native.Check(!Directory.Exists(cmdStore) || Directory.GetFileSystemEntries(cmdStore).Length == 0,
+                    "Subsequent launch left residual PCL/MmcCommands entries.");
+            } finally {
+                File.WriteAllText(gatePath, "release");
+                confirmProp.SetValue(null, oldConfirm);
+            }
+        }
+
         private ModLoader.LoaderCombo<string> ImportViaMain(string archive, string name) {
             var hook = Native.Property(typeof(MmcInstances), "ServicesFactory");
             object? old = hook.GetValue(null);
@@ -480,7 +701,7 @@ internal static class MmcPhase2LaunchChecks {
         private static bool IsThreadAlive(ModLoader.LoaderBase loader) =>
             Native.Get(loader, "LastRunningThread") is Thread { IsAlive: true };
 
-        private void WritePackArchive(string path, string cfg) {
+        private void WritePackArchive(string path, string cfg, bool dotMinecraftRoot = false) {
             if (File.Exists(path)) File.Delete(path);
             using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
             AddEntry(zip, "mmc-pack.json", Encoding.UTF8.GetBytes("""{"formatVersion":1,"components":[{"uid":"net.minecraft","version":"1.19.2"}]}"""));
@@ -488,6 +709,7 @@ internal static class MmcPhase2LaunchChecks {
                 $$"""{"formatVersion":1,"uid":"net.minecraft","version":"1.19.2","mainClass":"fixture.GameMain","minecraftArguments":"--username ${auth_player_name} --accessToken ${auth_access_token}","assetIndex":{"id":"fixture","url":"{{server.Url("/assets.json")}}","sha1":"{{assetIndexSha1}}","size":{{assetIndexBytes.Length}}},"mainJar":{"name":"fixture:game:1","MMC-hint":"local","MMC-filename":"fixture.jar"},"compatibleJavaMajors":[17]}"""));
             AddEntry(zip, "libraries/fixture.jar", fixtureJar);
             AddEntry(zip, "instance.cfg", Encoding.UTF8.GetBytes(cfg));
+            if (dotMinecraftRoot) AddEntry(zip, ".minecraft/pack-sentinel.txt", Encoding.UTF8.GetBytes("active-dot-minecraft-layout\n"));
         }
 
         private static void AddEntry(ZipArchive zip, string name, byte[] bytes) {
@@ -513,6 +735,25 @@ public final class CmdProbe {
         Path out = Paths.get(args[1]);
         String instDir = args.length >= 3 ? args[2] : "";
         String pinDir = args.length >= 4 ? args[3] : "";
+        String instMcDir = args.length >= 5 ? args[4] : "";
+        String gameDir = args.length >= 6 ? args[5] : "";
+        String relWrite = args.length >= 7 ? args[6] : "";
+        String enteredFile = args.length >= 8 ? args[7] : "";
+        String waitGateFile = args.length >= 9 ? args[8] : "";
+        if (!enteredFile.isEmpty()) {
+            Path entered = Paths.get(enteredFile);
+            if (entered.getParent() != null) Files.createDirectories(entered.getParent());
+            Files.writeString(entered, "entered\n", StandardCharsets.UTF_8);
+        }
+        if (!waitGateFile.isEmpty()) {
+            Path gate = Paths.get(waitGateFile);
+            long gateDeadline = System.currentTimeMillis() + 25_000L;
+            while (!Files.exists(gate) && System.currentTimeMillis() < gateDeadline) Thread.sleep(20);
+        }
+        String cwd = Paths.get("").toAbsolutePath().normalize().toString();
+        if (!relWrite.isEmpty()) {
+            Files.writeString(Paths.get(relWrite), stage + "\n" + cwd + "\n", StandardCharsets.UTF_8);
+        }
         String temp = System.getenv("TEMP");
         String tmp = System.getenv("TMP");
         String pkg = System.getenv("PKG_ENV_KEY");
@@ -533,6 +774,9 @@ public final class CmdProbe {
             }
         }
         String content = "stage=" + stage + "\n"
+            + "cwd=" + cwd + "\n"
+            + "instMcDir=" + instMcDir + "\n"
+            + "gameDir=" + gameDir + "\n"
             + "temp=" + (temp == null ? "" : temp) + "\n"
             + "tmp=" + (tmp == null ? "" : tmp) + "\n"
             + "pkg=" + (pkg == null ? "" : pkg) + "\n"
@@ -654,7 +898,7 @@ public final class GameMain {
 
     private static string MainHash() => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Native.Main.Location)));
 
-    private static void RunOwnedChild() {
+    private static void RunOwnedChild(string group, string receiptFileName) {
         string root = Path.Combine(Path.GetTempPath(), "PclNativeFacade-" + Guid.NewGuid().ToString("N"));
         string nonce = Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(root);
@@ -666,18 +910,18 @@ public final class GameMain {
             var start = new ProcessStartInfo(Path.Combine(output, Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location) + ".exe")) {
                 UseShellExecute = false, WorkingDirectory = root, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
             };
-            foreach (string arg in new[] { "--groups", Group, ChildSwitch, nonce, "--isolated", "--fixture", root }) start.ArgumentList.Add(arg);
+            foreach (string arg in new[] { "--groups", group, ChildSwitch, nonce, "--isolated", "--fixture", root }) start.ArgumentList.Add(arg);
             child = Process.Start(start) ?? throw new IOException("Owned Phase 2 launch child did not start.");
             stdout = child.StandardOutput.ReadToEndAsync();
             stderr = child.StandardError.ReadToEndAsync();
-            string receipt = Path.Combine(root, Receipt);
+            string receipt = Path.Combine(root, receiptFileName);
             var timer = Stopwatch.StartNew();
             while (!File.Exists(receipt)) {
                 if (File.Exists(receipt + ".failed")) throw new IOException("Owned Phase 2 launch child failed: " + File.ReadAllText(receipt + ".failed"));
-                if (timer.Elapsed > TimeSpan.FromSeconds(75)) throw new TimeoutException("Owned Phase 2 launch child did not prove completion.");
+                if (timer.Elapsed > TimeSpan.FromSeconds(50)) throw new TimeoutException("Owned Phase 2 launch child did not prove completion.");
                 if (child.WaitForExit(10)) throw new IOException("Phase 2 launch child exited before its drain receipt: " + child.ExitCode);
             }
-            Native.Check(File.ReadAllText(receipt) == string.Join('\n', nonce, child.Id, Native.Full(root), MainHash(), "phase2-launch-verified"),
+            Native.Check(File.ReadAllText(receipt) == string.Join('\n', nonce, child.Id, Native.Full(root), MainHash(), group + "-verified"),
                 "Phase 2 launch receipt does not bind nonce/PID/root/Main.");
             child.Kill(true);
             Native.Check(child.WaitForExit(5000), "Owned Phase 2 launch child did not terminate.");

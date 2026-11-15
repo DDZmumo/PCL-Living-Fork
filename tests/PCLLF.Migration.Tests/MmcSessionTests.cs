@@ -26,6 +26,7 @@ internal static partial class MmcSessionTests {
         yield return ("MMC deep mutable scopes use a trusted short authority and preserve unknown owners", ShortMutableIsolation);
         yield return ("MMC short mutable cleanup releases pins only after confirmed exit and successful owned cleanup", ShortMutableExit);
         yield return ("MMC short mutable host death retains runtime binding and blocks writes until reconciliation", ShortMutableHostDeath);
+        yield return ("MMC session active PostExit owner lease blocks second-host reconciliation until settled and recovers after host death", ActivePostExitOwnerLeaseBlocksSecondHostUntilSettled);
         if (OperatingSystem.IsWindows()) yield return ("MMC observes a suspended child image before its module list initializes", SuspendedImage);
     }
 
@@ -34,7 +35,7 @@ internal static partial class MmcSessionTests {
         if(TryRunShortHostChild(args,out exitCode))return true;
         string? nonce = args.FirstOrDefault(a => a.StartsWith(MmcSessions.NonceArgumentPrefix, StringComparison.Ordinal))?[MmcSessions.NonceArgumentPrefix.Length..];
         string[] data = args.Where(a => !a.StartsWith(MmcSessions.NonceArgumentPrefix, StringComparison.Ordinal)).ToArray();
-        if (data.Length == 0 || data[0] is not ("--mmc-session-child" or "--mmc-session-host-child" or "--mmc-session-banner-wrapper")) return false;
+        if (data.Length == 0 || data[0] is not ("--mmc-session-child" or "--mmc-session-host-child" or "--mmc-session-banner-wrapper" or "--mmc-session-host-postexit-child")) return false;
         try {
             if (data[0] == "--mmc-session-banner-wrapper") {
                 if (data.Length < 6 || nonce is null) throw new Exception("Banner wrapper missing managed child args.");
@@ -65,6 +66,56 @@ internal static partial class MmcSessionTests {
                 var timer = Stopwatch.StartNew();
                 while (!File.Exists(data[2]) && timer.ElapsedMilliseconds < 30000) Thread.Sleep(20);
                 if (data.Length >= 5 && data[4] == "--emit-stdout") Console.WriteLine("child-stdout-after-stop");
+                exitCode = 0; return true;
+            }
+            if (data[0] == "--mmc-session-host-postexit-child") {
+                if (data.Length < 7 || !Guid.TryParse(data[2], out Guid pid)) throw new Exception("Invalid PostExit host child.");
+                string startedFile = data[3], gateFile = data[4], childReadyFile = data[5];
+                bool startBMode = data[6] == "startb";
+                using Fixture postFixture = new(data[1], pid, initialize: false);
+                var binding = new MmcSessionRuntimeBinding(new string('b', 64));
+                CreateMutable(postFixture.Root, pid, binding);
+                MmcRunningSession postSession;
+                using (var postLease = postFixture.Lease()) {
+                    postSession = MmcSessions.Launch(postLease, postFixture.Request() with { SessionId = pid, RuntimeBinding = binding },
+                        () => { }, (_, image) => new FixturePin(image, postFixture.PinFile));
+                }
+                using (postSession) {
+                    postFixture.WaitChild();
+                    postFixture.Stop();
+                    if (!postSession.Process.WaitForExit(10000)) throw new Exception("Controlled game child did not exit.");
+                    using (var exitLease = postFixture.Lease()) postSession.RecordVerifiedExit(exitLease);
+
+                    MmcCommandLease cmdLease;
+                    using (var beginCmdLease = postFixture.Lease())
+                        cmdLease = MmcCommandOperations.Begin(beginCmdLease, MmcRuntimeCommandStage.PostExit, pid, binding);
+                    File.WriteAllText(startedFile, "started");
+
+                    string cmdText = startBMode
+                        ? $"start \"\" /b \"{AppHost()}\" --mmc-cmd-child \"{childReadyFile}\" \"{gateFile}\""
+                        : $"\"{AppHost()}\" --mmc-cmd-child \"{childReadyFile}\" \"{gateFile}\"";
+                    var cmdContext = new MmcRuntimeCommandContext(postFixture.Root, Path.Combine(postFixture.Root, "minecraft"),
+                        pid, "PCL Living Fork", "1.0.0", 854, 480) {
+                        PackageConfiguration = null
+                    };
+                    MmcRuntimeCommandExecution.MmcRuntimeCommandOutcome outcome = new(false, "unconfirmed", []);
+                    Exception? cmdErr = null;
+                    try {
+                        MmcRuntimeCommandExecution.ExecuteTracked(MmcRuntimeCommandStage.PostExit, cmdContext, null, cmdText, cmdLease, out outcome);
+                    } catch (Exception ex) {
+                        cmdErr = ex;
+                    }
+                    try {
+                        using (var finishCmdLease = postFixture.Lease()) {
+                            if (outcome.TreeProvenExited) cmdLease.CompleteProvenExited(finishCmdLease);
+                            else cmdLease.RecordUnconfirmed(finishCmdLease, outcome.Diagnostic ?? "unconfirmed", outcome.SurvivingProcesses);
+                        }
+                    } finally {
+                        cmdLease.Dispose();
+                    }
+                    if (cmdErr is not null) throw cmdErr;
+                    using (var finLease = postFixture.Lease()) postSession.FinalizeVerifiedExit(finLease);
+                }
                 exitCode = 0; return true;
             }
             if (data.Length != 3 || !Guid.TryParse(data[2], out Guid id)) throw new Exception("Invalid controlled host child.");
@@ -400,14 +451,17 @@ internal static partial class MmcSessionTests {
         Guid id = Guid.NewGuid(); var binding = new MmcSessionRuntimeBinding(new string('f', 64));
         string mutable = CreateMutable(fixture.Root, id, binding), marker = Path.Combine(mutable, "owner.txt");
         string expected = File.ReadAllText(marker);
-        using var session = MmcSessions.Launch(lease, fixture.Request() with { SessionId = id, RuntimeBinding = binding }, () => { }, (_, image) => pin = new(image, fixture.PinFile));
-        fixture.WaitChild(); fixture.Stop();
-        if (!session.Process.WaitForExit(10000)) throw new Exception("Mutable cleanup fixture did not exit.");
-        File.WriteAllText(marker, "foreign marker");
-        Throws<IOException>(() => session.CompleteVerifiedExit(lease));
-        Equal(true, File.Exists(fixture.PinFile));
-        Equal(true, File.Exists(Path.Combine(fixture.Sessions, id.ToString("N"), "Exited.record")));
-        Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
+        using (var session = MmcSessions.Launch(lease, fixture.Request() with { SessionId = id, RuntimeBinding = binding }, () => { }, (_, image) => pin = new(image, fixture.PinFile))) {
+            fixture.WaitChild(); fixture.Stop();
+            if (!session.Process.WaitForExit(10000)) throw new Exception("Mutable cleanup fixture did not exit.");
+            File.WriteAllText(marker, "foreign marker");
+            Throws<IOException>(() => session.CompleteVerifiedExit(lease));
+            Equal(true, File.Exists(fixture.PinFile));
+            Equal(true, File.Exists(Path.Combine(fixture.Sessions, id.ToString("N"), "Exited.record")));
+            Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
+            // Active owner holding teardown lease must block premature second-host settlement even after Exited.record exists.
+            Equal(MmcSessionObservation.Unknown, MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => throw new Exception("Live owner must retain pin during RetryMutableCleanup.")).Observation);
+        }
         File.WriteAllText(marker, expected);
         Equal(MmcSessionObservation.ProvenExited, MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => pin!.CompleteVerifiedExit()).Observation);
         Equal(false, File.Exists(fixture.PinFile)); Equal(false, Directory.Exists(mutable));
@@ -467,6 +521,116 @@ internal static partial class MmcSessionTests {
         Equal(MmcSessionObservation.MatchingRunning, result.Observation);
         fixture.StopAndWait();
         Equal(MmcSessionObservation.ProvenExited, MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => File.Delete(fixture.PinFile)).Observation);
+    }
+
+    private static void ActivePostExitOwnerLeaseBlocksSecondHostUntilSettled() {
+        // Phase 1: Second host observes Exited.record + live PostExit owner lease -> must remain Unknown and preserve TEMP/pin/receipts; releasing gate archives cleanly once.
+        using (Fixture fixture = new()) {
+            string postStarted = Path.Combine(fixture.Scope, "post-started");
+            string postGate = Path.Combine(fixture.Scope, "post-gate");
+            string childReady = Path.Combine(fixture.Scope, "post-child-ready");
+            var psi = new ProcessStartInfo(AppHost()) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (string arg in new[] { "--mmc-session-host-postexit-child", fixture.Scope, fixture.Id.ToString("D"), postStarted, postGate, childReady, "direct" })
+                psi.ArgumentList.Add(arg);
+
+            using Process host = Process.Start(psi) ?? throw new Exception("Could not start PostExit owner host.");
+            try {
+                WaitFile(postStarted, 12000);
+                WaitFile(childReady, 12000);
+
+                Guid id = Guid.ParseExact(Path.GetFileName(Directory.GetDirectories(fixture.Sessions).Single()), "N");
+                string mutable = Path.Combine(fixture.Root, "PCL", "MmcRuntime", "sessions", id.ToString("N"));
+                using (var lease = fixture.Lease()) {
+                    Equal(true, File.Exists(Path.Combine(fixture.Sessions, id.ToString("N"), "Exited.record")));
+                    Equal(true, File.Exists(fixture.PinFile));
+                    Equal(true, Directory.Exists(mutable));
+                    // Another host attempting recovery sees Exited.record yet MUST NOT finalize while owner.lock + PostExit hold ownership.
+                    Equal(MmcSessionObservation.Unknown,
+                        MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => throw new Exception("Second host released pin while PostExit owner still active!")).Observation);
+                    Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
+                    Throws<IOException>(() => MmcCommandOperations.AssertNoPending(lease));
+                    Throws<IOException>(() => MmcCommandOperations.ReconcileAll(lease));
+                    Equal(true, File.Exists(fixture.PinFile));
+                    Equal(true, Directory.Exists(mutable));
+                    Equal(true, File.Exists(Path.Combine(fixture.Sessions, id.ToString("N"), "Exited.record")));
+                }
+
+                File.WriteAllText(postGate, "release");
+                if (!host.WaitForExit(12000)) throw new Exception("PostExit owner host did not settle and exit.");
+                Equal(0, host.ExitCode);
+
+                using (var lease = fixture.Lease()) {
+                    Equal(false, File.Exists(fixture.PinFile));
+                    Equal(false, Directory.Exists(mutable));
+                    Equal(0, Directory.GetFileSystemEntries(fixture.Sessions).Length);
+                    Equal(true, File.Exists(Path.Combine(fixture.Root, "PCL", "MmcSessionHistory", id.ToString("N"), "Exited.record")));
+                    MmcSessions.AssertNoActive(lease);
+                    MmcCommandOperations.AssertNoPending(lease);
+                }
+            } finally {
+                try { File.WriteAllText(postGate, "release"); } catch { }
+                try { if (!host.HasExited && !host.WaitForExit(5000)) host.Kill(entireProcessTree: true); } catch { }
+            }
+        }
+
+        // Phase 2: Host dies mid-PostExit while a start /b PostExit descendant still survives -> second host blocks until child exits, then settles without permanent busy lock.
+        using (Fixture fixture = new()) {
+            string postStarted = Path.Combine(fixture.Scope, "post-started");
+            string postGate = Path.Combine(fixture.Scope, "post-gate");
+            string childReady = Path.Combine(fixture.Scope, "post-child-ready");
+            var psi = new ProcessStartInfo(AppHost()) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (string arg in new[] { "--mmc-session-host-postexit-child", fixture.Scope, fixture.Id.ToString("D"), postStarted, postGate, childReady, "startb" })
+                psi.ArgumentList.Add(arg);
+
+            int childPid = 0;
+            try {
+                using (Process host = Process.Start(psi) ?? throw new Exception("Could not start PostExit kill host.")) {
+                    WaitFile(postStarted, 12000);
+                    WaitFile(childReady, 12000);
+                    childPid = int.Parse(File.ReadAllText(childReady).Trim(), System.Globalization.CultureInfo.InvariantCulture);
+                    Thread.Sleep(250);
+                    if (!host.HasExited) host.Kill(entireProcessTree: false);
+                    if (!host.WaitForExit(5000)) throw new Exception("PostExit kill host did not exit.");
+                }
+
+                Guid id = Guid.ParseExact(Path.GetFileName(Directory.GetDirectories(fixture.Sessions).Single()), "N");
+                string mutable = Path.Combine(fixture.Root, "PCL", "MmcRuntime", "sessions", id.ToString("N"));
+                using (var lease = fixture.Lease()) {
+                    Equal(MmcSessionObservation.Unknown,
+                        MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => throw new Exception("Released pin while orphaned PostExit child still alive!")).Observation);
+                    Equal(true, File.Exists(fixture.PinFile));
+                    Equal(true, Directory.Exists(mutable));
+                }
+
+                File.WriteAllText(postGate, "release");
+                var timer = Stopwatch.StartNew();
+                while (timer.ElapsedMilliseconds < 8000) {
+                    try { using var p = Process.GetProcessById(childPid); if (p.HasExited) break; }
+                    catch (ArgumentException) { break; }
+                    Thread.Sleep(25);
+                }
+
+                using (var lease = fixture.Lease()) {
+                    MmcCommandOperations.ReconcileAll(lease);
+                    var reconciled = MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => File.Delete(fixture.PinFile));
+                    Equal(MmcSessionObservation.ProvenExited, reconciled.Observation);
+                    Equal(false, File.Exists(fixture.PinFile));
+                    Equal(false, Directory.Exists(mutable));
+                    MmcSessions.AssertNoActive(lease);
+                    MmcCommandOperations.AssertNoPending(lease);
+                }
+            } finally {
+                File.WriteAllText(postGate, "release");
+                if (childPid > 0) {
+                    var sw = Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < 3000) {
+                        try { using var p = Process.GetProcessById(childPid); if (p.HasExited) break; }
+                        catch (ArgumentException) { break; }
+                        Thread.Sleep(20);
+                    }
+                }
+            }
+        }
     }
 
     private static string AppHost() {
@@ -537,7 +701,7 @@ internal static partial class MmcSessionTests {
                 try { Directory.Delete(verified, true); break; }
                 // A confirmed-exited Windows child can briefly retain its cwd handle. Retry only
                 // sharing violations; permission errors and all other cleanup failures remain failures.
-                catch (IOException error) when ((error.HResult & 0xffff) == 32 && elapsed.ElapsedMilliseconds < 1000) { Thread.Sleep(20); }
+                catch (IOException error) when ((error.HResult & 0xffff) == 32 && elapsed.ElapsedMilliseconds < 4000) { Thread.Sleep(20); }
             }
         }
     }

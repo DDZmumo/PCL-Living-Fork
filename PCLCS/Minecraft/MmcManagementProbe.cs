@@ -15,7 +15,7 @@ namespace PCLCS;
 public static class MmcManagementProbe {
     // These are LF-owned stores, not loose MMC package metadata. Even derived
     // runtime leftovers remain ownership evidence when the definition is lost.
-    private static readonly string[] ReservedStores = ["MmcSource", "MmcOverrides", "MmcArtifacts", "MmcRuntime", "MmcTransactionHistory", "MmcSessions", "MmcSessionHistory", "MmcLifecycle", "MmcHistory", "MmcDefinitionChanges", "MmcPackageUpdateReceipts", "MmcProjectionBackups"];
+    private static readonly string[] ReservedStores = ["MmcSource", "MmcOverrides", "MmcArtifacts", "MmcRuntime", "MmcTransactionHistory", "MmcSessions", "MmcSessionHistory", "MmcCommands", "MmcLifecycle", "MmcHistory", "MmcDefinitionChanges", "MmcPackageUpdateReceipts", "MmcProjectionBackups"];
     private static readonly string[] PendingNames = ["MmcImportPending.json", "MmcLifecyclePending.json", "MmcLegacyAdoptionPending.json"];
     private static readonly string[] ReceiptNames = ["MmcImportPayload.json", "MmcClonePrepared.json"];
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);

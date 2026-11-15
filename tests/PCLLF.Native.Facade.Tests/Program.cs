@@ -131,6 +131,8 @@ internal static class Program
         ["mmc-launch-replay"] = MmcLaunchChecks.Run,
         ["mmc-variant-launch"] = MmcLaunchChecks.RunVariants,
         ["mmc-phase2-launch"] = MmcPhase2LaunchChecks.Run,
+        ["mmc-phase2-dotmc-active-root"] = MmcPhase2LaunchChecks.RunDotMcActiveRoot,
+        ["mmc-phase2-postexit-lease"] = MmcPhase2LaunchChecks.RunPostExitLease,
         ["mmc-launch-java"] = environment => {
             foreach (var check in MmcLaunchJavaChecks.Cases()) { check.Run(); Console.WriteLine("PASS " + check.Name); }
             environment.AssertNoForbiddenIo();

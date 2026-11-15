@@ -83,7 +83,7 @@ internal sealed class MmcPackageUpdateJob {
         try { if (!Directory.EnumerateFileSystemEntries(parent).Any()) Directory.Delete(parent, false); } catch (IOException) { }
         void Inspect(string directory, int depth) {
             MmcInstancePaths.EnsureNoLinks(directory); if (depth > 128 || ++nodes > 400000) throw new IOException("Candidate cleanup path budget exceeded.");
-            if (Path.GetFileName(directory) == "MmcSessions" && Directory.EnumerateFileSystemEntries(directory).Any()) throw new IOException("Candidate cleanup found an active or unconfirmed session.");
+            if (Path.GetFileName(directory) is "MmcSessions" or "MmcCommands" && Directory.EnumerateFileSystemEntries(directory).Any()) throw new IOException("Candidate cleanup found an active or unconfirmed session or package command.");
             foreach (string child in Directory.EnumerateFileSystemEntries(directory)) {
                 MmcInstancePaths.EnsureNoLinks(child); if (++nodes > 400000) throw new IOException("Candidate cleanup count budget exceeded.");
                 if ((File.GetAttributes(child) & FileAttributes.Directory) != 0) Inspect(child, depth + 1);

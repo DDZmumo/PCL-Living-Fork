@@ -113,6 +113,11 @@ public static class MmcFileTransactions {
 
     public static void AssertNoPending(MmcAdmissionLease lease) {
         MmcOperationPendingGuard.AssertNoForeignPending(lease);
+        AssertNoTransactionsOnly(lease);
+        MmcCommandOperations.AssertNoPending(lease);
+    }
+
+    public static void AssertNoTransactionsOnly(MmcAdmissionLease lease) {
         lease.AssertHeld(); string root = MmcInstancePaths.Resolve(lease.VersionRoot).ResolveRelative(MmcPathRole.Instance, "PCL/MmcTransactions");
         if (MmcInstancePaths.Attributes(root) is not null && (!Directory.Exists(root) || Directory.EnumerateFileSystemEntries(root).Any()))
             throw new IOException("存在待恢复 MMC 事务。");
@@ -306,8 +311,8 @@ public static class MmcFileTransactions {
         string first = normalized.Split('/').Take(2).Aggregate((a, b) => a + "/" + b);
         if (normalized.Equals("PCL/MmcRuntime/.staging", StringComparison.OrdinalIgnoreCase) || normalized.StartsWith("PCL/MmcRuntime/.staging/", StringComparison.OrdinalIgnoreCase))
             throw new IOException("暂存来源不能成为持久 live 目标。");
-        if (new[] { "PCL/MmcTransactions", "PCL/MmcTransactionHistory", "PCL/MmcSessions", "PCL/MmcSessionHistory" }.Any(p => string.Equals(first, p, StringComparison.OrdinalIgnoreCase)))
-            throw new IOException("事务不能修改自己的日志或会话控制目录。");
+        if (new[] { "PCL/MmcTransactions", "PCL/MmcTransactionHistory", "PCL/MmcSessions", "PCL/MmcSessionHistory", "PCL/MmcCommands" }.Any(p => string.Equals(first, p, StringComparison.OrdinalIgnoreCase)))
+            throw new IOException("事务不能修改自己的日志、命令或会话控制目录。");
         return normalized;
     }
     private static string TransactionDirectory(MmcInstancePaths paths, Guid id) => paths.ResolveRelative(MmcPathRole.Instance, "PCL/MmcTransactions/" + id.ToString("N"));

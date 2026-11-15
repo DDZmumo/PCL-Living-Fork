@@ -12,6 +12,10 @@ using Microsoft.Win32.SafeHandles;
 
 namespace PCLCS;
 
+internal enum MmcNamedJobState { Missing, Empty, Active, Unknown }
+
+internal sealed record MmcNamedJobObservation(MmcNamedJobState State, int[] ProcessIds, int Win32Error = 0, string? Diagnostic = null);
+
 // Original LF host implementation; repository LICENCE applies.
 /// <summary>
 /// Owned Windows process group backed by an explicit Job Object without <c>KILL_ON_JOB_CLOSE</c>.
@@ -20,6 +24,7 @@ namespace PCLCS;
 /// </summary>
 internal sealed class MmcSessionProcessTree : IDisposable {
     private const uint JobObjectLimitActiveProcess = 0x00000008;
+    private const uint JobObjectQuery = 0x0004;
     private const int JobObjectInfoClassBasicProcessIdList = 3;
     private const int JobObjectInfoClassExtendedLimitInformation = 9;
     private const uint HandleFlagInherit = 0x00000001;
@@ -38,6 +43,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
     private const int PipeBufferBytes = 65536;
 
     private readonly SafeWaitHandle jobHandle;
+    internal SafeWaitHandle JobHandle => jobHandle;
     private readonly PipeRelay? stdoutRelay;
     private readonly PipeRelay? stderrRelay;
     private readonly Task pipeDrainTask;
@@ -71,7 +77,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
     /// before a single user instruction executes, and resumes it.
     /// </summary>
     public static MmcSessionProcessTree Start(string executablePath, ProcessStartInfo startInfo, bool redirectPipes,
-        Action<Process>? validateSuspendedProcess = null) {
+        Action<Process>? validateSuspendedProcess = null, string? jobName = null, bool allowRawArguments = false) {
         ArgumentNullException.ThrowIfNull(executablePath);
         ArgumentNullException.ThrowIfNull(startInfo);
         if (!OperatingSystem.IsWindows())
@@ -85,7 +91,7 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         bool ownershipTransferred = false;
 
         try {
-            jobHandle = CreateConfiguredJob();
+            jobHandle = CreateConfiguredJobHandle(jobName);
             if (redirectPipes) {
                 CreateInheritablePipe(out outRead, out outWrite);
                 CreateInheritablePipe(out errRead, out errWrite);
@@ -113,7 +119,9 @@ internal sealed class MmcSessionProcessTree : IDisposable {
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "无法配置受管进程继承句柄列表。");
             }
 
-            string commandLine = BuildCommandLine(executablePath, startInfo.ArgumentList);
+            string commandLine = allowRawArguments && startInfo.ArgumentList.Count == 0 && !string.IsNullOrEmpty(startInfo.Arguments)
+                ? BuildVerbatimCommandLine(executablePath, startInfo.Arguments)
+                : BuildCommandLine(executablePath, startInfo.ArgumentList);
             envBuf = AllocateEnvironmentBlock(startInfo.Environment);
 
             var si = new STARTUPINFOEXW {
@@ -188,29 +196,105 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         }
     }
 
-    /// <summary>Returns the PIDs of processes currently active inside this owned Job Object.</summary>
+    /// <summary>Attempts to query PIDs of processes currently active inside this owned Job Object.</summary>
+    public bool TryObserveProcessIds(out int[] processIds, out int win32Error) {
+        if (Volatile.Read(ref disposed) != 0) {
+            processIds = [];
+            win32Error = 0;
+            return true;
+        }
+        return TryObserveJobProcessIds(jobHandle, out processIds, out win32Error);
+    }
+
+    /// <summary>Returns the PIDs of processes currently active inside this owned Job Object (empty if query fails).</summary>
     public int[] ObserveProcessIds() {
-        if (Volatile.Read(ref disposed) != 0 || jobHandle.IsInvalid || jobHandle.IsClosed) return [];
+        return TryObserveProcessIds(out int[] pids, out _) ? pids : [];
+    }
+
+    internal static bool TryObserveJobProcessIds(SafeWaitHandle job, out int[] processIds, out int win32Error) {
+        processIds = [];
+        win32Error = 0;
+        if (job.IsInvalid || job.IsClosed) {
+            win32Error = 6; // ERROR_INVALID_HANDLE
+            return false;
+        }
         for (int capacity = 64; capacity <= 4096; capacity *= 2) {
             int size = 8 + capacity * nint.Size;
             nint buffer = Marshal.AllocHGlobal(size);
             try {
-                if (QueryInformationJobObject(jobHandle, JobObjectInfoClassBasicProcessIdList, buffer, (uint)size, out _)) {
+                if (QueryInformationJobObject(job, JobObjectInfoClassBasicProcessIdList, buffer, (uint)size, out _)) {
                     int count = Marshal.ReadInt32(buffer, 4);
                     int[] result = new int[count];
                     for (int i = 0; i < count; i++) {
                         nint rawPid = Marshal.ReadIntPtr(buffer, 8 + i * nint.Size);
                         result[i] = unchecked((int)rawPid.ToInt64());
                     }
-                    return result;
+                    processIds = result;
+                    return true;
                 }
                 int error = Marshal.GetLastWin32Error();
-                if (error is not (122 or 234)) return [];
+                if (error is not (122 or 234)) {
+                    win32Error = error;
+                    return false;
+                }
+                win32Error = error;
             } finally {
                 Marshal.FreeHGlobal(buffer);
             }
         }
-        return [];
+        return false;
+    }
+
+    internal static int[] ObserveJobProcessIds(SafeWaitHandle job) =>
+        TryObserveJobProcessIds(job, out int[] pids, out _) ? pids : [];
+
+    internal static MmcNamedJobObservation ObserveNamedJob(string jobName) {
+        if (!OperatingSystem.IsWindows())
+            return new(MmcNamedJobState.Unknown, [], 50, "非 Windows 平台无法观测命令作业对象。");
+        if (string.IsNullOrWhiteSpace(jobName))
+            return new(MmcNamedJobState.Unknown, [], 87, "命令作业名称为空。");
+
+        using SafeWaitHandle job = OpenJobObjectW(JobObjectQuery, false, jobName);
+        if (job.IsInvalid) {
+            int err = Marshal.GetLastWin32Error();
+            // ERROR_FILE_NOT_FOUND (2) in the creator's own session means no user-mode handle keeps that name open.
+            if (err == 2) return new(MmcNamedJobState.Missing, [], err, null);
+            return new(MmcNamedJobState.Unknown, [], err, $"打开命令作业 {jobName} 失败 (Win32={err})，拒绝视为已退出。");
+        }
+
+        if (!TryObserveJobProcessIds(job, out int[] pids, out int queryErr))
+            return new(MmcNamedJobState.Unknown, [], queryErr, $"查询命令作业 {jobName} 进程列表失败 (Win32={queryErr})，保持未知状态。");
+
+        return pids.Length > 0
+            ? new(MmcNamedJobState.Active, pids, 0, $"包内命令作业 {jobName} 仍有活动进程 ({string.Join(",", pids)})。")
+            : new(MmcNamedJobState.Empty, [], 0, null);
+    }
+
+    internal static bool TryAssignProcessToJob(SafeWaitHandle job, Process process, out int win32Error) {
+        win32Error = 0;
+        if (!OperatingSystem.IsWindows()) {
+            win32Error = 50;
+            return false;
+        }
+        try {
+            if (AssignProcessToJobObject(job, process.Handle)) return true;
+            win32Error = Marshal.GetLastWin32Error();
+            return false;
+        } catch (InvalidOperationException) {
+            win32Error = 0;
+            return false;
+        } catch (Win32Exception ex) {
+            win32Error = ex.NativeErrorCode;
+            return false;
+        }
+    }
+
+    internal static bool TryTerminateJobHandle(SafeWaitHandle job, out int win32Error) {
+        win32Error = 0;
+        if (job.IsInvalid || job.IsClosed) return true;
+        if (TerminateJobObject(job, 1)) return true;
+        win32Error = Marshal.GetLastWin32Error();
+        return false;
     }
 
     /// <summary>Attaches live log callbacks to the eagerly drained pipe readers, replaying buffered startup output FIFO.</summary>
@@ -227,7 +311,10 @@ internal sealed class MmcSessionProcessTree : IDisposable {
     public async Task WaitForGroupEmptyAsync(CancellationToken cancellationToken = default) {
         while (true) {
             cancellationToken.ThrowIfCancellationRequested();
-            int[] pids = ObserveProcessIds();
+            if (!TryObserveProcessIds(out int[] pids, out _)) {
+                await Task.Delay(20, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
             if (pids.Length == 0) return;
             var waits = new List<Task>(pids.Length);
             foreach (int pid in pids) {
@@ -247,18 +334,26 @@ internal sealed class MmcSessionProcessTree : IDisposable {
     }
 
     /// <summary>Requests immediate termination of the entire Job Object.</summary>
-    public void Terminate() {
-        if (jobHandle.IsInvalid || jobHandle.IsClosed) return;
-        try { TerminateJobObject(jobHandle, 1); } catch (ObjectDisposedException) { }
+    public bool Terminate(out int win32Error) {
+        win32Error = 0;
+        if (Volatile.Read(ref disposed) != 0 || jobHandle.IsInvalid || jobHandle.IsClosed) return true;
+        try { return TryTerminateJobHandle(jobHandle, out win32Error); }
+        catch (ObjectDisposedException) { return true; }
     }
+
+    public void Terminate() => Terminate(out _);
 
     /// <summary>Terminates every process in the Job Object and proves the group empty within the grace window.</summary>
     public bool TerminateAndWait(int graceMilliseconds = MmcProcessTreeTermination.GraceMilliseconds) {
         if (Volatile.Read(ref disposed) != 0) return true;
-        Terminate();
+        bool terminated = Terminate(out _);
         long until = Environment.TickCount64 + Math.Max(0, graceMilliseconds);
-        while (ObserveProcessIds().Length > 0 && Environment.TickCount64 < until) Thread.Sleep(25);
-        return ObserveProcessIds().Length == 0 && EntryProcess.HasExited;
+        while (Environment.TickCount64 < until) {
+            if (TryObserveProcessIds(out int[] pids, out _) && pids.Length == 0 && EntryProcess.HasExited) return true;
+            Thread.Sleep(25);
+        }
+        bool empty = TryObserveProcessIds(out int[] finalPids, out _) && finalPids.Length == 0 && EntryProcess.HasExited;
+        return empty && (terminated || empty);
     }
 
     public void Dispose() {
@@ -380,8 +475,8 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         }
     }
 
-    private static SafeWaitHandle CreateConfiguredJob() {
-        SafeWaitHandle handle = CreateJobObjectW(0, null);
+    internal static SafeWaitHandle CreateConfiguredJobHandle(string? jobName = null) {
+        SafeWaitHandle handle = CreateJobObjectW(0, jobName);
         if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法创建受管进程作业对象。");
         int size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         nint infoPtr = Marshal.AllocHGlobal(size);
@@ -418,6 +513,9 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         if (nul.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法打开 NUL 标准输入句柄。");
         return nul;
     }
+
+    private static string BuildVerbatimCommandLine(string executablePath, string rawArguments) =>
+        '"' + executablePath.Trim().Trim('"') + "\" " + rawArguments;
 
     private static string BuildCommandLine(string executablePath, IList<string> arguments) {
         StringBuilder sb = new();
@@ -520,6 +618,13 @@ internal sealed class MmcSessionProcessTree : IDisposable {
 
     [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true, CharSet = CharSet.Unicode)]
     private static extern SafeWaitHandle CreateJobObjectW(nint lpJobAttributes, string? lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern SafeWaitHandle OpenJobObjectW(uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, string lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AssignProcessToJobObject(SafeWaitHandle hJob, nint hProcess);
 
     [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

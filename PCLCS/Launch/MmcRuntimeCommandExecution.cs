@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace PCLCS;
 
@@ -49,12 +52,22 @@ public sealed record MmcRuntimeCommandResult(string Stage, string RedactedComman
 /// then a plan-only variable is genuinely unavailable and is refused rather than guessed.
 /// </summary>
 public static class MmcRuntimeCommandExecution {
+    private static readonly Func<ProcessStartInfo, Process?> DefaultStartProcess = start => Process.Start(start);
+
     /// <summary>
-    /// Host-injected process entry. The managed launch adapter points this at the launcher's own
-    /// <c>StartProcess</c> so an operator-visible failure mode is preserved; the fallback is the ordinary
-    /// process entry used by controlled verification.
+    /// Host-injected process entry. Controlled verification may replace this hook; otherwise production spawns
+    /// <c>cmd.exe</c> suspended directly inside an owned Windows Job Object so no fast child escapes group tracking.
     /// </summary>
-    public static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = start => Process.Start(start);
+    public static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = DefaultStartProcess;
+
+    internal const string CommandTokenEnvironmentVariable = "PCLLF_MMC_CMD_TOKEN";
+    internal static Func<Process, SafeWaitHandle?, bool>? TerminateTreeOverride { get; set; }
+    internal static int? CancellationGraceMillisecondsOverride { get; set; }
+
+    public sealed record MmcRuntimeCommandOutcome(
+        bool TreeProvenExited,
+        string? Diagnostic,
+        MmcCommandObservedProcess[] SurvivingProcesses);
 
     /// <summary>Existing instance command budget (contract §3, <c>MmcLaunchPreferences.cs:92</c>).</summary>
     public const int MaximumCommandLength = 16384;
@@ -99,33 +112,102 @@ public static class MmcRuntimeCommandExecution {
     /// </summary>
     public static MmcRuntimeCommandResult Execute(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context,
         IReadOnlyDictionary<string, string>? planVariables, string command, Action<string>? log = null,
-        CancellationToken cancellationToken = default) {
+        CancellationToken cancellationToken = default) =>
+        ExecuteCore(stage, context, planVariables, command, commandLease: null, out _, log, cancellationToken);
+
+    public static MmcRuntimeCommandResult ExecuteTracked(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context,
+        IReadOnlyDictionary<string, string>? planVariables, string command, MmcCommandLease commandLease,
+        out MmcRuntimeCommandOutcome outcome, Action<string>? log = null, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(commandLease);
+        return ExecuteCore(stage, context, planVariables, command, commandLease, out outcome, log, cancellationToken);
+    }
+
+    private static MmcRuntimeCommandResult ExecuteCore(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context,
+        IReadOnlyDictionary<string, string>? planVariables, string command, MmcCommandLease? commandLease,
+        out MmcRuntimeCommandOutcome outcome, Action<string>? log, CancellationToken cancellationToken) {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(command);
+        outcome = new(TreeProvenExited: true, null, []);
         Validate(context.GameRoot, command);
         string redacted = Redact(command, context.RedactionSecrets);
-        // The log entry is built and published before anything else, and it is the redacted template only:
-        // an expanded command text is never written, not even at failure time.
-        log?.Invoke("执行 MMC 包内命令（" + StageName(stage) + "）：" + redacted);
         string expanded = Expand(command, Variables(context, planVariables), context.RedactionSecrets);
-        using var process = Start(stage, context, expanded);
-        if (process is null) throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND", "包内命令进程无法创建。");
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The log entry is built and published only after static checks and pre-start cancellation gates pass,
+        // and carries the redacted template only: an expanded command text never reaches the log.
+        log?.Invoke("执行 MMC 包内命令（" + StageName(stage) + "）：" + redacted);
+
+        string commandToken = commandLease?.Intent.CommandToken ?? Guid.NewGuid().ToString("N");
+        string? jobName = commandLease?.Intent.JobName;
+        long createdUtcTicks = commandLease?.Intent.CreatedUtcTicks ?? DateTime.UtcNow.Ticks;
+        ProcessStartInfo start = BuildStartInfo(stage, context, expanded, commandToken);
+
+        bool usingCustomStart = !ReferenceEquals(StartProcess, DefaultStartProcess);
+        MmcSessionProcessTree? tree = null;
+        SafeWaitHandle? manualJob = null;
+        Process? process = null;
+        bool jobAssigned = false;
+        bool outcomeDecided = false;
+
         try {
-            while (!process.WaitForExit(CancellationPollMilliseconds)) {
-                if (!cancellationToken.IsCancellationRequested) continue;
-                // Cancellation teardown: terminate the whole managed tree, then prove it is gone within a
-                // bounded window. "Kill was sent" is never accepted as the proof.
-                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException) { }
-                catch (System.ComponentModel.Win32Exception) { }
-                long until = Environment.TickCount64 + CancellationGraceMilliseconds;
-                while (!process.HasExited && Environment.TickCount64 < until) process.WaitForExit(CancellationPollMilliseconds);
-                cancellationToken.ThrowIfCancellationRequested();
+            if (!usingCustomStart && OperatingSystem.IsWindows()) {
+                string cmdExePath = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+                tree = MmcSessionProcessTree.Start(
+                    cmdExePath,
+                    start,
+                    redirectPipes: false,
+                    validateSuspendedProcess: proc => RecordStartedProcess(commandLease, proc, jobBacked: true, throwOnFailure: true),
+                    jobName: jobName,
+                    allowRawArguments: true);
+                process = tree.EntryProcess;
+                jobAssigned = true;
+            } else {
+                if (OperatingSystem.IsWindows()) manualJob = MmcSessionProcessTree.CreateConfiguredJobHandle(jobName);
+                process = StartProcess(start);
+                if (process is null) throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND", "包内命令进程无法创建。");
+                if (manualJob is not null) {
+                    jobAssigned = MmcSessionProcessTree.TryAssignProcessToJob(manualJob, process, out _);
+                }
+                RecordStartedProcess(commandLease, process, jobAssigned, throwOnFailure: false);
             }
+
+            while (true) {
+                if (cancellationToken.IsCancellationRequested) {
+                    var teardown = TeardownAndProveGone(process, tree, manualJob, jobAssigned, commandToken, createdUtcTicks);
+                    outcome = teardown;
+                    outcomeDecided = true;
+                    if (!teardown.TreeProvenExited) {
+                        throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND_UNCONFIRMED",
+                            "包内命令取消后仍无法确认整个命令进程组已退出：" + teardown.Diagnostic);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                bool rootExited = SafeHasExited(process);
+                bool jobQueryOk = TryGetActiveJobPids(tree, manualJob, out int[] remainingJobPids, out int jobQueryErr);
+                if (rootExited && (!jobAssigned || (jobQueryOk && remainingJobPids.Length == 0))) {
+                    if (jobAssigned) break;
+                    var fallbackScan = MmcCommandOperations.ProbeLiveProcessesForCommandToken(commandToken, createdUtcTicks, SafeProcessId(process), out int? unmatchedPid);
+                    if (fallbackScan == MmcCommandOperations.TokenScanResult.ProvenAbsent) break;
+                    if (fallbackScan == MmcCommandOperations.TokenScanResult.Unobservable) {
+                        outcome = new(false, "存在无法验证环境块的近期/高权限或跨会话进程，无法确认包内命令后代已清空。", []);
+                        outcomeDecided = true;
+                        throw new MmcRuntimeLaunchException("MMC_RUNTIME_COMMAND_UNCONFIRMED", outcome.Diagnostic!);
+                    }
+                    Thread.Sleep(CancellationPollMilliseconds);
+                    continue;
+                }
+
+                if (!rootExited) process.WaitForExit(CancellationPollMilliseconds);
+                else Thread.Sleep(CancellationPollMilliseconds);
+            }
+
             int exitCode = process.ExitCode;
             string text = exitCode.ToString(CultureInfo.InvariantCulture) + "（0x" + unchecked((uint)exitCode).ToString("X8", CultureInfo.InvariantCulture) + "）";
             var result = new MmcRuntimeCommandResult(StageName(stage), redacted, exitCode, text);
             log?.Invoke("MMC 包内命令（" + result.Stage + "）退出码 " + text);
+            outcome = new(TreeProvenExited: true, null, []);
+            outcomeDecided = true;
             // PreLoad and PreLaunch may change inputs and therefore refuse the launch; PostExit only records
             // a diagnostic and never rolls back the session that already ended.
             if (exitCode != 0 && stage is not MmcRuntimeCommandStage.PostExit)
@@ -133,14 +215,18 @@ public static class MmcRuntimeCommandExecution {
                     "包内命令（" + result.Stage + "）以非零退出码结束，拒绝继续启动：" + text);
             return result;
         } finally {
-            if (!process.HasExited) {
-                try { process.Kill(entireProcessTree: true); }
-                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            if (!outcomeDecided && process is not null) {
+                var teardown = TeardownAndProveGone(process, tree, manualJob, jobAssigned, commandToken, createdUtcTicks);
+                outcome = teardown;
+                outcomeDecided = true;
             }
+            manualJob?.Dispose();
+            tree?.Dispose();
+            process?.Dispose();
         }
     }
 
-    private static Process? Start(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context, string text) {
+    private static ProcessStartInfo BuildStartInfo(MmcRuntimeCommandStage stage, MmcRuntimeCommandContext context, string text, string commandToken) {
         // cmd.exe does not parse C-runtime backslash-quote escaping (`\"`), so passing quoted paths
         // through ProcessStartInfo.ArgumentList turns `"path"` into `\"path\"`. Using `/d /s /c "<command>"`
         // in Arguments makes cmd.exe disable AutoRun (/d) and strip only the outermost quotes (/s)
@@ -164,7 +250,160 @@ public static class MmcRuntimeCommandExecution {
                 throw new MmcRuntimeLaunchException("MMC_RUNTIME_ENV_SETTINGS", "包内环境覆盖要求活动会话的临时目录。");
             }
         }
-        return StartProcess(start);
+        start.Environment[CommandTokenEnvironmentVariable] = commandToken;
+        return start;
+    }
+
+    private static void RecordStartedProcess(MmcCommandLease? commandLease, Process process, bool jobBacked, bool throwOnFailure) {
+        if (commandLease is null) return;
+        try {
+            int pid = process.Id;
+            long startTicks = process.StartTime.ToUniversalTime().Ticks;
+            MmcExecutableIdentity? image = null;
+            try { image = MmcSessions.ObserveProcessExecutable(process); } catch { }
+            commandLease.RecordProcessStarted(pid, startTicks, image, jobBacked);
+        } catch when (!throwOnFailure) {
+            // Custom fixture boundary only: real suspended production processes fail closed before ResumeThread.
+        }
+    }
+
+    private static MmcRuntimeCommandOutcome TeardownAndProveGone(
+        Process process,
+        MmcSessionProcessTree? tree,
+        SafeWaitHandle? manualJob,
+        bool jobAssigned,
+        string commandToken,
+        long createdUtcTicks) {
+        SafeWaitHandle? activeJob = tree?.JobHandle ?? manualJob;
+        bool hasJobHandle = activeJob is not null && !activeJob.IsInvalid && !activeJob.IsClosed;
+        bool terminationSucceeded = true;
+        string? terminationError = null;
+
+        var customTerminate = TerminateTreeOverride;
+        if (customTerminate is not null) {
+            try {
+                if (!customTerminate(process, activeJob)) {
+                    terminationSucceeded = false;
+                    terminationError = "包内命令进程组终止回调返回失败。";
+                }
+            } catch (Exception ex) {
+                terminationSucceeded = false;
+                terminationError = ex.Message;
+            }
+        } else {
+            if (tree is not null) {
+                if (!tree.Terminate(out int jobErr) && (!TryGetActiveJobPids(tree, manualJob, out int[] afterErrPids, out _) || afterErrPids.Length > 0)) {
+                    terminationSucceeded = false;
+                    terminationError = $"TerminateJobObject 失败 (Win32={jobErr})。";
+                }
+            } else if (manualJob is not null && !manualJob.IsInvalid && !manualJob.IsClosed) {
+                if (!MmcSessionProcessTree.TryTerminateJobHandle(manualJob, out int jobErr) && (!TryGetActiveJobPids(tree, manualJob, out int[] afterErrPids, out _) || afterErrPids.Length > 0)) {
+                    terminationSucceeded = false;
+                    terminationError = $"TerminateJobObject 失败 (Win32={jobErr})。";
+                }
+            }
+
+            if (!SafeHasExited(process)) {
+                try {
+                    process.Kill(entireProcessTree: true);
+                } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) {
+                    if (!SafeHasExited(process) || !TryGetActiveJobPids(tree, manualJob, out int[] afterKillPids, out _) || afterKillPids.Length > 0) {
+                        terminationSucceeded = false;
+                        terminationError = terminationError is null ? ex.Message : terminationError + "；" + ex.Message;
+                    }
+                }
+            }
+        }
+
+        int graceMs = CancellationGraceMillisecondsOverride ?? CancellationGraceMilliseconds;
+        long until = Environment.TickCount64 + Math.Max(0, graceMs);
+        while (Environment.TickCount64 < until) {
+            bool exitedNow = SafeHasExited(process);
+            bool emptyNow = TryGetActiveJobPids(tree, manualJob, out int[] loopPids, out _) && loopPids.Length == 0;
+            if (exitedNow && emptyNow) break;
+            Thread.Sleep(CancellationPollMilliseconds);
+        }
+
+        bool rootExited = SafeHasExited(process);
+        bool jobQueryOk = TryGetActiveJobPids(tree, manualJob, out int[] remainingJobPids, out int jobQueryErr);
+        int? rootPid = SafeProcessId(process);
+        int? tokenMatchedPid = null;
+        var tokenState = MmcCommandOperations.TokenScanResult.ProvenAbsent;
+        if (!jobAssigned || !jobQueryOk || !rootExited || remainingJobPids.Length > 0 || !terminationSucceeded) {
+            tokenState = MmcCommandOperations.ProbeLiveProcessesForCommandToken(commandToken, createdUtcTicks, rootPid, out tokenMatchedPid);
+        }
+
+        var surviving = SnapshotSurvivingProcesses(process, rootExited, remainingJobPids, tokenMatchedPid);
+        bool provenGone = terminationSucceeded &&
+                          rootExited &&
+                          (!hasJobHandle || (jobQueryOk && remainingJobPids.Length == 0)) &&
+                          (jobAssigned || tokenState == MmcCommandOperations.TokenScanResult.ProvenAbsent) &&
+                          tokenMatchedPid is null &&
+                          surviving.Length == 0;
+        if (provenGone) return new(true, null, []);
+
+        var reasons = new List<string>();
+        if (!string.IsNullOrWhiteSpace(terminationError)) reasons.Add(terminationError);
+        if (!rootExited) reasons.Add("根进程仍在运行或无法确认退出");
+        if (!jobQueryOk && hasJobHandle) reasons.Add($"无法查询命令作业进程列表 (Win32={jobQueryErr})");
+        if (remainingJobPids.Length > 0) reasons.Add($"作业组尚有存活 PID ({string.Join(",", remainingJobPids)})");
+        if (tokenMatchedPid is int tpid) reasons.Add($"命令令牌探测到存活后代 PID={tpid}");
+        else if ((!jobAssigned || !jobQueryOk) && tokenState != MmcCommandOperations.TokenScanResult.ProvenAbsent) reasons.Add("无法排除包内命令后代进程存活");
+        if (reasons.Count == 0) reasons.Add("无法获得整个命令进程组退出证明");
+        return new(false, string.Join("；", reasons), surviving);
+    }
+
+    private static bool TryGetActiveJobPids(MmcSessionProcessTree? tree, SafeWaitHandle? manualJob, out int[] pids, out int win32Error) {
+        if (tree is not null) return tree.TryObserveProcessIds(out pids, out win32Error);
+        if (manualJob is not null && !manualJob.IsInvalid && !manualJob.IsClosed)
+            return MmcSessionProcessTree.TryObserveJobProcessIds(manualJob, out pids, out win32Error);
+        pids = [];
+        win32Error = 0;
+        return true;
+    }
+
+    private static bool SafeHasExited(Process process) {
+        try { return process.HasExited; }
+        catch { return false; }
+    }
+
+    private static int? SafeProcessId(Process process) {
+        try { return process.Id; }
+        catch { return null; }
+    }
+
+    private static MmcCommandObservedProcess[] SnapshotSurvivingProcesses(
+        Process rootProcess,
+        bool rootExited,
+        int[] remainingJobPids,
+        int? tokenMatchedPid) {
+        var list = new List<MmcCommandObservedProcess>();
+        var seen = new HashSet<int>();
+        if (!rootExited && SafeProcessId(rootProcess) is int rpid && seen.Add(rpid))
+            TryAddObserved(list, rootProcess, rpid);
+        foreach (int pid in remainingJobPids)
+            if (seen.Add(pid)) TryAddObservedById(list, pid);
+        if (tokenMatchedPid is int tpid && seen.Add(tpid))
+            TryAddObservedById(list, tpid);
+        return list.ToArray();
+    }
+
+    private static void TryAddObservedById(List<MmcCommandObservedProcess> target, int pid) {
+        try {
+            using Process proc = Process.GetProcessById(pid);
+            if (!proc.HasExited) TryAddObserved(target, proc, pid);
+        } catch { }
+    }
+
+    private static void TryAddObserved(List<MmcCommandObservedProcess> target, Process process, int pid) {
+        try {
+            long startTicks = process.StartTime.ToUniversalTime().Ticks;
+            MmcExecutableIdentity? image = null;
+            try { image = MmcSessions.ObserveProcessExecutable(process); } catch { }
+            target.Add(new(pid, startTicks, image));
+        } catch {
+            target.Add(new(pid, 0, null));
+        }
     }
 
     private static void Validate(string gameRoot, string command) {
