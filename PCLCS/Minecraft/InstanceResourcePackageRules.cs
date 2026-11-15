@@ -35,6 +35,11 @@ public static class InstanceResourcePackageRules {
         return ZipFile.OpenRead(fileName);
     }
 
+    /// <summary>Open an existing stream with LF's legacy ZIP entry-name decoding. Disposal owns
+    /// the stream unless leaveOpen is true; callers retain responsibility for entry validation.</summary>
+    public static ZipArchive OpenRead(Stream stream, bool leaveOpen = false) =>
+        new(stream, ZipArchiveMode.Read, leaveOpen, EntryNameEncoding());
+
     internal static Encoding EntryNameEncoding() {
         // Reference Source ec9fa9ae770d522a5b5f0607898044b7478574a3:
         // Encoding.CreateDefaultEncoding obtains the Windows ACP. The independent

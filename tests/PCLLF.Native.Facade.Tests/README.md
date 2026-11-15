@@ -2,6 +2,8 @@
 
 This is an STA .NET 10/WPF executable that references the genuine `modern/Main/PCL-Living-Fork.Modern.csproj`. It adapts LF's `Test-MapDetails.ps1`, `Test-ResourceEntryPoints.ps1`, and `Test-WorldDetails.ps1` to the actual C# Main models and original-name page adapters. It does not contain a second filter, world reader, settings engine, or Main substitute.
 
+Main now loads business code from `PCLCS.dll` (the `modern/Core` project) and Windows/WPF adapters from `PCLLF.WPF.Core.dll`. Both the normal project-reference route and the optional `LauncherMainAssembly` route include this adapter dependency. Keep the complete launcher output when staging checks; do not copy only the old three managed DLLs. See [architecture boundaries](../../docs/ARCHITECTURE.md).
+
 Build the real launcher first, then build this project with `-warnaserror -p:BuildProjectReferences=false` so its own warnings fail without rebuilding Main's separately recorded warning baseline. The normal project reference remains active. The local-only `LauncherMainAssembly` override can reference an already-produced complete genuine Main directory for isolated compile checks; CI uses the project reference.
 
 Run `PCLLF.Native.Facade.Tests.exe` on Windows to select all default groups listed below, or pass `--groups map-details,resource-entry,world-details,registry-names,theme,file-tasks,updater`. Empty or unknown groups fail. A group is printed as `PASS native facade <name>` only after its assertions complete; unselected groups are not counted. The parent process copies the complete genuine launcher/host runtime output into a unique temporary GUID directory, starts its Windows apphost there with a 60 second deadline, then removes that directory. Non-Windows execution fails.

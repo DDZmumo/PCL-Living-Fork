@@ -11,7 +11,8 @@
     <Configurations>Debug;Release;Snapshot</Configurations>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../modern/PCLCS/PCLCS.Modern.csproj" />
+    <ProjectReference Include="../../modern/Core/PCLLF.Core.csproj" />
+    <ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
     <ProjectReference Include="../../modern/Presentation/PCLLF.Presentation.Modern.csproj" />
     <!-- The net48 PowerShell acceptance scripts compile these exact C#5 sources too. -->
     <Compile Include="../PCLLF.Windows.Tests/ResourceThumbnailControllerChecks.cs" Link="Acceptance/ResourceThumbnailControllerChecks.cs" />

@@ -45,7 +45,7 @@ internal static class Program {
             ("mod-favorites", ResourceFavoriteTests.Cases),
             ("validation-loaders", LegacyValidationLoaderTests.Cases),
             ("legacy-java", LegacyJavaTests.Cases),
-            ("foundation", LegacyFoundationTests.Cases)
+            ("foundation", () => LegacyFoundationTests.Cases().Concat(CoreBoundaryTests.Cases()))
         ];
         if (args.Length == 1 && args[0] == "--list-groups") {
             foreach (var group in groups) Console.WriteLine(group.Key);

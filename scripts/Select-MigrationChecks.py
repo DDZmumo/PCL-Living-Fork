@@ -102,18 +102,18 @@ RESOURCE_CHECKS = {"Test-InstanceResources", "Test-MapInstallAndRecycle", "Test-
 # These UI files serve the resource page and its existing offscreen consumers.
 # Exact paths keep unrelated/future platform contracts on the full fallback.
 RESOURCE_PAGE_PATHS = {
-    "PCLCS/Platform/Windows/Resources/ResourcePageContracts.cs",
-    "PCLCS/Platform/Windows/Resources/ResourcePageController.cs",
-    "PCLCS/Platform/Windows/Resources/ResourcePageController.Recycle.cs",
-    "PCLCS/Platform/Windows/Resources/ResourcePageController.Backups.cs",
+    "PCLLF.WPF.Core/Resources/ResourcePageContracts.cs",
+    "PCLLF.WPF.Core/Resources/ResourcePageController.cs",
+    "PCLLF.WPF.Core/Resources/ResourcePageController.Recycle.cs",
+    "PCLLF.WPF.Core/Resources/ResourcePageController.Backups.cs",
     "Plain Craft Launcher 2/Pages/PageInstance/PageInstanceResources.xaml.vb",
     "Plain Craft Launcher 2/Pages/PageInstance/PageInstanceResources.Recycle.vb",
     "Plain Craft Launcher 2/Pages/PageInstance/PageInstanceResources.Backups.vb",
     "Plain Craft Launcher 2/Pages/PageInstance/PageInstanceResources.xaml",
 }
 RESOURCE_IMAGE_PATHS = {
-    "PCLCS/Platform/Windows/Resources/ResourceThumbnailController.cs",
-    "PCLCS/Platform/Windows/Resources/InstanceResourceImages.cs",
+    "PCLLF.WPF.Core/Resources/ResourceThumbnailController.cs",
+    "PCLLF.WPF.Core/Resources/InstanceResourceImages.cs",
     "Plain Craft Launcher 2/Pages/PageInstance/MyScreenshotItem.xaml.vb",
     "Plain Craft Launcher 2/Pages/PageInstance/MyScreenshotItem.xaml",
 }
@@ -163,8 +163,8 @@ INSTANCE_CLONE_PATHS = {
     "PCLCS/Minecraft/InstanceCloneGroupsEngine.cs",
     "PCLCS/Minecraft/InstanceCloneExportIsolation.cs",
     "PCLCS/Minecraft/InstanceCloneWorkflow.cs",
-    "PCLCS/Platform/Windows/Instances/InstanceClonePageController.cs",
-    "PCLCS/Platform/Windows/Instances/InstanceCloneSelectionPresenter.cs",
+    "PCLLF.WPF.Core/Instances/InstanceClonePageController.cs",
+    "PCLLF.WPF.Core/Instances/InstanceCloneSelectionPresenter.cs",
     "Plain Craft Launcher 2/Modules/Minecraft/InstanceCloner.vb",
     "Plain Craft Launcher 2/Modules/Minecraft/InstanceCloneGroups.vb",
     "Plain Craft Launcher 2/Modules/Minecraft/ExportedVersionIsolation.vb",
@@ -187,7 +187,7 @@ PACK_UPDATE_PATHS = {
     "PCLCS/Minecraft/PackUpdateFlowContracts.cs",
     "PCLCS/Minecraft/PackUpdateFlowEngine.cs",
     "PCLCS/Minecraft/PackUpdateFlowEngine.Execute.cs",
-    "PCLCS/Platform/Windows/Modpacks/ModpackUpdatePreviewController.cs",
+    "PCLLF.WPF.Core/Modpacks/ModpackUpdatePreviewController.cs",
 }
 PACK_UPDATE_METADATA_PATH = "PCLCS/Minecraft/PackUpdateModInspection.cs"
 PACK_UPDATE_CHECKS = {"Test-ModpackUpdate", "Test-ModpackUpdateUx"}
@@ -262,7 +262,7 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
         leaf = name.rsplit("/", 1)[-1]
         # Common source changes affect the modern product as well as whatever
         # precise legacy groups/scripts are already selected below.
-        if name.startswith(("PCLCS/", "presentation/", "MeloongCore/")) or name in {"MeloongCore", ".gitmodules"}:
+        if name.startswith(("PCLCS/", "PCLLF.WPF.Core/", "presentation/", "MeloongCore/")) or name in {"MeloongCore", ".gitmodules"}:
             native = True
         if name in SELECTION_CHECK_PATHS:
             # The native selection job always runs these real CLI regressions.
@@ -359,9 +359,9 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
             include(("pack-update", "mod-dependencies"), MOD_DEPENDENCY_CHECKS | PACK_UPDATE_CHECKS)
         elif name in MOD_DEPENDENCY_ONLINE_PATHS:
             include(("mod-dependency-online",), MOD_DEPENDENCY_ONLINE_CHECKS)
-        elif name == "PCLCS/Platform/Windows/Instances/KeybindingPageController.cs":
+        elif name == "PCLLF.WPF.Core/Instances/KeybindingPageController.cs":
             include(("keybindings",), {"Test-LocalGameFeatures", "Test-GameFeatureRegressions", "Test-KeybindingGroups"})
-        elif name in {"PCLCS/Platform/Windows/Instances/RecentWorldPageController.cs", "PCLCS/Platform/Windows/Instances/RecentWorldQuickPlay.cs"}:
+        elif name in {"PCLLF.WPF.Core/Instances/RecentWorldPageController.cs", "PCLLF.WPF.Core/Instances/RecentWorldQuickPlay.cs"}:
             # These exact controllers own only the recent-world card chain.
             # PageLaunchRight remains a shared account/launch VB page and keeps
             # the conservative full fallback for future edits outside that chain.
@@ -412,7 +412,7 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
             include(("quick-play",), {"Test-LocalGameFeatures", "Test-GameFeatureRegressions", "Test-RecentWorldCard"})
         elif name == "Plain Craft Launcher 2/Modules/Minecraft/InstanceResourceStore.vb":
             include((*RESOURCE_GROUPS, "quick-play", "local-data", "personal-options", "keybindings", "world-metadata"), STORE_CHECKS, io_oracle=True)
-        elif name.startswith(("PCLCS/", "Plain Craft Launcher 2/", "MeloongCore")) or name == ".gitmodules":
+        elif name.startswith(("PCLCS/", "PCLLF.WPF.Core/", "Plain Craft Launcher 2/", "MeloongCore")) or name == ".gitmodules":
             unknown.append(name)
         elif is_documentation_path(name) or name in {"LICENCE", "LICENSE", ".gitignore"}:
             pass

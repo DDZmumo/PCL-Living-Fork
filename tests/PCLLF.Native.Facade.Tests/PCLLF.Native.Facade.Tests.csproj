@@ -32,6 +32,10 @@
       <HintPath>$(LauncherMainOutputDirectory)/PCLLF.Presentation.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="PCLLF.WPF.Core">
+      <HintPath>$(LauncherMainOutputDirectory)/PCLLF.WPF.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="MeloongCore">
       <HintPath>$(LauncherMainOutputDirectory)/MeloongCore.dll</HintPath>
       <Private>true</Private>

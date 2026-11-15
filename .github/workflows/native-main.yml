@@ -169,7 +169,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           $builds = @(
-            @{ Name = 'core'; Project = 'modern/PCLCS/PCLCS.Modern.csproj'; Configuration = $env:NATIVE_CONFIGURATION },
+            @{ Name = 'core'; Project = 'modern/Core/PCLLF.Core.csproj'; Configuration = $env:NATIVE_CONFIGURATION },
+            @{ Name = 'wpf'; Project = 'PCLLF.WPF.Core/PCLLF.WPF.Core.csproj'; Configuration = $env:NATIVE_CONFIGURATION },
             @{ Name = 'presentation'; Project = 'modern/Presentation/PCLLF.Presentation.Modern.csproj'; Configuration = $env:NATIVE_CONFIGURATION },
             @{ Name = 'resources'; Project = 'modern/BuildResources/ResourceGenerator.csproj'; Configuration = $env:NATIVE_CONFIGURATION },
             @{ Name = 'events'; Project = 'modern/BuildEvents/filter-task/Lf.Build.Tasks.csproj'; Configuration = 'Release' }

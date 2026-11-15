@@ -15,6 +15,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<!-- Historical net48 consumers retain the combined source graph. The modern
+		     product builds these adapters separately as PCLLF.WPF.Core. -->
+		<Compile Include="../PCLLF.WPF.Core/**/*.cs" Exclude="../PCLLF.WPF.Core/**/bin/**;../PCLLF.WPF.Core/**/obj/**"
+		         Link="Platform/Windows/%(RecursiveDir)%(Filename)%(Extension)" />
 		<PackageReference Include="PolySharp" Version="1.15.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

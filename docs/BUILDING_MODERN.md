@@ -4,6 +4,8 @@
 
 来源与许可见 [NOTICE.md](../NOTICE.md) 和 [SOURCE_PROVENANCE.md](../modern/Main/SOURCE_PROVENANCE.md)。迁移期任务账本与审计报告保存在 Git 历史中，已不作为当前开发计划。
 
+业务 Core 与 Windows/WPF 适配层已分为独立程序集，依赖方向、现存宿主约束和新 UI 接入要求见 [架构边界](ARCHITECTURE.md)。
+
 ## Windows 工具链与依赖
 
 使用 Windows x64、.NET 10 SDK，以及支持 .NET 10/WPF 的 IDE。初始化固定 Shared 子模块：
@@ -40,6 +42,15 @@ dotnet run --project tests/PCLLF.Migration.Tests/PCLLF.Migration.Tests.csproj --
 ```
 
 真实 WPF 组件与 Native facade 验收在 Windows 执行，入口分别见 [组件测试工程](../tests/PCLLF.Modern.Wpf.Tests/PCLLF.Modern.Wpf.Tests.csproj)和 [Native facade 说明](../tests/PCLLF.Native.Facade.Tests/README.md)。源码、组件测试、冷启动、真实账号和 Minecraft 启动结果分别报告。
+
+只构建业务库时不需要 WPF 工具链：
+
+```powershell
+dotnet build modern/Core/PCLLF.Core.csproj --configuration Debug -nr:false
+dotnet run --project tests/PCLLF.Migration.Tests/PCLLF.Migration.Tests.csproj --configuration Debug -- --group foundation
+```
+
+纯业务测试通过 `ProjectReference` 引用产品使用的 Core DLL，不再链接生产源码另编一份。`foundation` 组同时核对程序集边界、资源归属和 ZIP 流读取契约。Core 的框架目标为 `net10.0`；其中仍有 Windows 注册表和路径兼容接口，无 WPF 依赖不表示所有 API 都可跨平台运行。
 
 ## Release 发布包
 
@@ -90,12 +101,14 @@ CI 规则本身的修改不享受纯文档快速路径。实际产品、旧版�
 | 路径 | 职责 |
 | --- | --- |
 | `modern/Main` | WPF 入口、页面、原生控件适配与模块调用面 |
-| `PCLCS` | 业务规则、文件事务与平台实现 |
-| `PCLCS/Platform/Windows` | 按业务域划分的 Windows 控制器、契约与服务 |
+| `modern/Core/PCLLF.Core.csproj` | 编译 `PCLCS` 中的业务源码，目标 `net10.0`，兼容程序集名 `PCLCS` |
+| `PCLLF.WPF.Core/PCLLF.WPF.Core.csproj` | 编译 `PCLLF.WPF.Core` 中的控制器、契约与服务，目标 `net10.0-windows`，程序集名 `PCLLF.WPF.Core` |
 | `presentation` | WPF 控件、页面、对话框与窗口表现层 |
 | `modern/BuildEvents` | 原 WithEvents 事件绑定的生成与校验 |
 | `modern/BuildResources` | 必要数据/原生资源及 WPF pack 资源清单 |
 
 托管依赖通过正常依赖图或单文件 bundle 提供，不在主程序集资源中重复嵌入。Native 资源保留 `Custom`、`ForgeInstaller`、`Help`、`libwebp64`、`Transformer` 五个必要数据/原生负载。框架依赖的单文件包保留完整资源和身份校验，不使用会破坏 WPF 的裁剪来缩小体积。
+
+Core 的四个原嵌入资源继续保存在 `PCLCS.dll`，大小写、反斜线资源名和读取行为保持一致。`PCLLF.WPF.Core.dll` 由项目引用自动进入构建及发布输出；维护按 DLL 加载的诊断工具时需要同时提供它。历史 `PCLCS/PCLCS.csproj` 是旧 net48 工程，不属于当前产品 solution。
 
 版本说明使用原生 WPF Markdown 视图。Markdig 和其他第三方组件的许可保留在关于页与仓库第三方目录。

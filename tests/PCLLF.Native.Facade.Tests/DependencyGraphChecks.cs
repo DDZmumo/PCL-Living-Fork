@@ -47,7 +47,7 @@ internal static partial class DependencyCases<TContext,TMod,TDependency,TEdge,TI
     private static void G(int id, bool condition) => DependencyGraphSourceChecks.Check(id, condition);
     private static Grid GView(TReport report, string file) {
         Grid graph = (Grid)Activator.CreateInstance(Native.Type("PCL.ModDependencyGraphView"), Native.Flags, null, [report, file], null)!;
-        Native.Check(!graph.IsLoaded && Native.Get(graph, "Controller")!.GetType().Assembly.GetName().Name == "PCLCS", "Graph did not use the actual offscreen Core controller.");
+        Native.Check(!graph.IsLoaded && Native.Get(graph, "Controller")!.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core", "Graph did not use the actual offscreen Core controller.");
         GraphViews.Add(graph); return graph;
     }
     private static Canvas GCanvas(Grid graph) => (Canvas)Native.Get(graph, "GraphCanvas")!;

@@ -4,10 +4,9 @@
        c774ae4c85fd94e0eaa171db21e78a65870df19b (../../MeloongCore/LICENSE.txt).
        No CE project or implementation is copied into this build. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
+    <!-- Preserve the existing resource/assembly identity while removing desktop dependencies. -->
     <AssemblyName>PCLCS</AssemblyName>
     <RootNamespace>PCLCS</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -31,20 +30,18 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <!-- System.Drawing.Common is supplied by the WindowsDesktop framework reference. -->
-    <Reference Include="Imazen.WebP">
-      <HintPath>../../Plain Craft Launcher 2/Resources/Imazen.WebP.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
     <PackageReference Include="PolySharp" Version="1.15.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="../../MeloongCore/Shared/MeloongCore.csproj" />
+    <!-- Existing white-box regression cases now exercise the product binary. UI assemblies
+         receive no friend access and must use the public Core contracts. -->
+    <InternalsVisibleTo Include="PCLLF.Migration.Tests" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Keep the plain SDK implicit imports removed by the WPF SDK. -->
+    <!-- Existing source imports; this project must remain independent of WindowsDesktop. -->
     <Using Include="System.IO" />
     <Using Include="System.Net.Http" />
     <Using Include="System.Diagnostics.CodeAnalysis" />

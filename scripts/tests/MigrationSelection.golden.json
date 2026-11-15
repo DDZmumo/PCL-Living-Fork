@@ -374,7 +374,7 @@
       "native": true
     },
     {
-      "path": "PCLCS/Platform/Windows/Resources/ResourcePageController.cs",
+      "path": "PCLLF.WPF.Core/Resources/ResourcePageController.cs",
       "scope": "resource-page",
       "native": true
     },
@@ -449,7 +449,12 @@
       "native": true
     },
     {
-      "path": "modern/PCLCS/PCLCS.Modern.csproj",
+      "path": "modern/Core/PCLLF.Core.csproj",
+      "scope": "complete",
+      "native": true
+    },
+    {
+      "path": "PCLLF.WPF.Core/PCLLF.WPF.Core.csproj",
       "scope": "complete",
       "native": true
     },
@@ -572,9 +577,9 @@
       "native": true
     },
     {
-      "label": "PCLCS/Platform/Windows/Modpacks/ModpackUpdatePreviewController.cs",
+      "label": "PCLLF.WPF.Core/Modpacks/ModpackUpdatePreviewController.cs",
       "paths": [
-        "PCLCS/Platform/Windows/Modpacks/ModpackUpdatePreviewController.cs"
+        "PCLLF.WPF.Core/Modpacks/ModpackUpdatePreviewController.cs"
       ],
       "scope": "pack-update",
       "native": true

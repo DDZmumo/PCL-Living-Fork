@@ -23,7 +23,7 @@ internal static class BackupResourcePageChecks
         FrameworkElement page = (FrameworkElement)New("PCL.PageInstanceResources", Kind("Saves"));
         Native.Property(page.GetType(), "Owner").SetValue(page, owner);
         object controller = Native.Get(page, "Controller")!;
-        Native.Check(controller.GetType().Assembly.GetName().Name == "PCLCS", "Resources are not controlled by the real migrated backend.");
+        Native.Check(controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core", "Resources are not controlled by the real migrated backend.");
         Native.Set(controller, "WorldBackupPoints", points);
         Native.Call(page.GetType(), "ShowResources", page, saves, saves, Scan(saves, "Saves"));
         IDictionary groups = (IDictionary)Native.Get(controller, "BackupGroups")!;

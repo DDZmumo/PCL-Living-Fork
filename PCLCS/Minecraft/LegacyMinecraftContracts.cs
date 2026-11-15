@@ -158,8 +158,9 @@ internal static class LegacyMinecraftCodes {
 }
 
 // Original ModBase.SortByComparison selection order, including input removal and first-equal behavior.
-// Kept local to this port until the remaining ModBase callers migrate; no new sorting or performance policy.
-internal static class LegacyMinecraftListOrder {
+// Shared by the instance engines and WPF catalog adapters. Callers retain the original
+// destructive list consumption and equal-item ordering; this is not a general LINQ sort.
+public static class LegacyMinecraftListOrder {
     public static List<T> SortByComparison<T>(IList<T> list, Func<T, T, bool> sortRule) {
         List<T> result = [];
         while (list.Count != 0) {

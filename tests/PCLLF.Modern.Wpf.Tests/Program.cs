@@ -95,21 +95,26 @@ internal static class Program {
     }
 
     private static void CheckAssemblyGraph() {
-        Assembly core = typeof(InstanceResourceImages).Assembly;
+        Assembly core = typeof(Java).Assembly;
         TargetFrameworkAttribute framework = core.GetCustomAttribute<TargetFrameworkAttribute>();
         Require(core.GetName().Name == "PCLCS", "The modern test did not load LF's PCLCS assembly identity.");
         Require(framework != null && framework.FrameworkName == ".NETCoreApp,Version=v10.0",
             "The loaded PCLCS target is not .NET 10; a legacy assembly may have leaked into the modern output.");
         Require(!core.GetReferencedAssemblies().Any(IsLegacyWpf), "Modern PCLCS still references the historical Meloong WPF assembly.");
+        Assembly wpf = typeof(InstanceResourceImages).Assembly;
+        Require(wpf != core && wpf.GetName().Name == "PCLLF.WPF.Core", "Windows controllers must live in the separate WPF adapter assembly.");
+        Require(wpf.GetReferencedAssemblies().Any(name => name.Name == core.GetName().Name), "WPF adapters must reference the real Core assembly.");
+        Require(!core.GetReferencedAssemblies().Any(name => new[] { "PCLLF.WPF.Core", "PCLLF.Presentation", "PresentationCore", "PresentationFramework", "WindowsBase", "System.Windows.Forms", "System.Drawing.Common" }.Contains(name.Name)),
+            "Core has acquired a desktop/UI dependency.");
         Assembly shared = typeof(FileUtils).Assembly;
         Require(shared.GetName().Name == "MeloongCore", "The LF Shared dependency could not be loaded with its original identity.");
         Require(core.GetReferencedAssemblies().Any(name => name.Name == shared.GetName().Name), "Modern PCLCS does not reference its actual LF Shared dependency.");
         Require(!shared.GetReferencedAssemblies().Any(IsLegacyWpf), "LF Shared unexpectedly references the historical WPF assembly.");
-        Console.WriteLine("PASS assembly graph: PCLCS targets " + framework.FrameworkName + "; LF Shared loaded; no Meloong WPF reference.");
+        Console.WriteLine("PASS assembly graph: WPF adapters -> PCLCS Core -> Shared; Core has no desktop/UI dependency.");
     }
 
     private static void CheckEmbeddedResources(string repositoryRoot) {
-        Assembly core = typeof(InstanceResourceImages).Assembly;
+        Assembly core = typeof(Java).Assembly;
         Dictionary<string, string> resources = new Dictionary<string, string>(StringComparer.Ordinal) {
             { @"Launch\JavaWrapper.jar", Path.Combine(repositoryRoot, "PCLCS", "Launch", "JavaWrapper.jar") },
             { @"Launch\LwjglUnsafeAgent.jar", Path.Combine(repositoryRoot, "PCLCS", "Launch", "LwjglUnsafeAgent.jar") },
@@ -129,7 +134,7 @@ internal static class Program {
                 }
             }
             // Execute the real LF Shared resource API against the actual modern Core assembly.
-            Require(FileUtils.ReadAsBytes(resource.Key, typeof(InstanceResourceImages)).SequenceEqual(expected),
+            Require(FileUtils.ReadAsBytes(resource.Key, typeof(Java)).SequenceEqual(expected),
                 "LF Shared could not read the modern Core resource bytes: " + resource.Key);
             Console.WriteLine("PASS embedded resource and LF Shared read: " + resource.Key + " (" + expected.Length + " bytes).");
         }

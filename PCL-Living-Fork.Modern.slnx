@@ -1,7 +1,8 @@
 <Solution>
   <Project Path="modern/Main/PCL-Living-Fork.Modern.csproj" />
   <Folder Name="/Product/">
-    <Project Path="modern/PCLCS/PCLCS.Modern.csproj" />
+    <Project Path="modern/Core/PCLLF.Core.csproj" />
+    <Project Path="PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
     <Project Path="modern/Presentation/PCLLF.Presentation.Modern.csproj" />
   </Folder>
   <Folder Name="/Dependencies/">

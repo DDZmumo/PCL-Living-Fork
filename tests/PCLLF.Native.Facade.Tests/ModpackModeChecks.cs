@@ -71,7 +71,7 @@ internal static partial class ModpackModeChecks {
             this.fixture = fixture; Root = Path.Combine(fixture.Data, "modpack-mode"); Launcher = Path.Combine(Root, "other-launcher") + Path.DirectorySeparatorChar; AppData = Path.Combine(Root, "appdata") + Path.DirectorySeparatorChar;
             Native.Check(!Directory.Exists(Root), "Refusing existing modpack-mode fixture."); Directory.CreateDirectory(Launcher); Directory.CreateDirectory(AppData);
             object service = Native.Field(Mode, "Service").GetValue(null)!; Host = (ModeHost)Native.Get(service, "host")!;
-            Native.Check(service.GetType().Assembly.GetName().Name == "PCLCS" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(MyPageRight), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
+            Native.Check(service.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(MyPageRight), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
             try {
                 CaptureValidationThreads(false);
                 DispatcherHookEventHandler posted = (_,args) => { Thread thread = Thread.CurrentThread; if (!IsValidation(thread.Name)) return; lock (producerGate) { producers.Add(thread); producerUi.Add(args.Operation); } };

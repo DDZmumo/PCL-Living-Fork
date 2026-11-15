@@ -42,7 +42,7 @@
 | **主体语言** | `VB.NET` 主程序 + 少量 C# 库 | 全量 `C#`（旧 VB 源码已退役归档） | 全量 `C#` |
 | **目标运行时** | `.NET Framework 4.8` | `.NET 10`（含 `net48 → .NET 10` 自动升级桥） | `.NET 10` |
 | **界面与交互** | WPF 自有控件与动效，逻辑集中于页面后台 | WPF，保留原生动效手感，内置深浅色实时切换、昼夜背景与独立透明度 | WPF，部分页面引入 MVVM（`ViewModel`）与界面服务抽象 |
-| **核心工程结构** | 主程序、`PCLCS`、`MeloongCore` | `Main`、`PCLCS`（业务引擎/控制器）、`Presentation`（控件/动效表现层）、`MeloongCore.Shared` | 主程序、`PCL.Launcher.Core`、`PCL.Core.Wpf`、`PCL.Core` |
+| **核心工程结构** | 主程序、`PCLCS`、`MeloongCore` | `Main`、`Core`（无 WPF 的业务库）、`WPF.Core`（Windows/WPF 适配）、`Presentation`（控件/动效表现层）、`MeloongCore.Shared` | 主程序、`PCL.Launcher.Core`、`PCL.Core.Wpf`、`PCL.Core` |
 | **配置与数据契约** | `Setup.ini` 与注册表存储 | 完整兼容原有 `Setup.ini` 与游戏目录；微软登录使用 `_LF` 独立注册表键隔离 | 自建 IoC 生命周期、`JSON / YAML` 配置服务与独立 Profile 模型 |
 | **演进方向与重心** | 官方主线基线与快照功能 | **严守数据/交互兼容 + 整合包更新、依赖图谱、还原点、备份与个人习惯闭环** | 通用基础设施抽离、核心与 UI 严格解耦及社区化扩展 |
 
@@ -112,6 +112,7 @@ dotnet restore .\PCL-Living-Fork.Modern.slnx
 - 源码不包含实际 Client ID 或 API Key，本地可通过环境变量 `PCL_MS_CLIENT_ID`、`PCL_CURSEFORGE_API_KEY` 提供配置，构建时会加密嵌入。
 - 相关工程文档：
   - [现代构建与测试说明](docs/BUILDING_MODERN.md)
+  - [Core 与 WPF 架构边界](docs/ARCHITECTURE.md)
   - [公开发布约定](docs/PUBLISHING.md)
   - [外观与启动器更新通道](docs/theme-and-update-channels.md)
 

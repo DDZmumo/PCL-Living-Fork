@@ -26,7 +26,7 @@ public static class ModDependencyIconFiles {
         try {
             if ((File.GetAttributes(fileName!) & FileAttributes.ReparsePoint) != 0) return null;
             using FileStream input = new(fileName!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using ZipArchive archive = new(input, ZipArchiveMode.Read, false, InstanceResourcePackageRules.EntryNameEncoding());
+            using ZipArchive archive = InstanceResourcePackageRules.OpenRead(input);
             ZipArchiveEntry? entry = archive.GetEntry(name);
             if (entry is null || entry.Length == 0 || entry.Length > 4 * 1024 * 1024) return null;
             using MemoryStream data = new();

@@ -54,7 +54,7 @@ internal sealed class FixtureEnvironment : IDisposable
             }
 
             Native.Check(manager.GetObject("MeloongCore.Wpf", System.Globalization.CultureInfo.InvariantCulture)is null, "Retired WPF assembly was rebound into modern resources.");
-            foreach (string key in new[] { "CacheCow.Client", "CacheCow.Client.FileStore", "CacheCow.Common", "ThrottleDebounce", "Imazen.WebP", "MeloongCore", "Microsoft.Win32.Registry", "NAudio", "Newtonsoft.Json", "Ookii.Dialogs.Wpf", "PCLCS", "PCLLF.Presentation", "System.Net.Http.Formatting" })
+            foreach (string key in new[] { "CacheCow.Client", "CacheCow.Client.FileStore", "CacheCow.Common", "ThrottleDebounce", "Imazen.WebP", "MeloongCore", "Microsoft.Win32.Registry", "NAudio", "Newtonsoft.Json", "Ookii.Dialogs.Wpf", "PCLCS", "PCLLF.WPF.Core", "PCLLF.Presentation", "System.Net.Http.Formatting" })
                 Native.Check(manager.GetObject(key, System.Globalization.CultureInfo.InvariantCulture) is null, "Duplicate managed payload is still embedded: " + key);
             AssertNoForbiddenIo();
         }
