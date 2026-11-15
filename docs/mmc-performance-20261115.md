@@ -118,7 +118,7 @@
 
 - **门禁核对与异常解释**：
   - 全 24 点均满足：`DownloadRequests = 0`、`MetadataNetworkAttempts = 0`、`ProviderPreferencesChanged = false`、`StructuralAuthorityUnchanged = true`、`ChangedRetainedTrees = []`、`StagingDrained = true`；保留树/staging 抽样逻辑峰值与逻辑读取同为 Java 8 `556.6` / `891.4 MiB`（`934,697,935` B）、Java 21 `676.7` / `1,042.4 MiB`（`1,093,000,777` B）；基线与候选产出完全一致的 `LaunchInputs`（Java 8：`1464` 项、`367,466,426` B、清单 `cc7b5f87fb740c7fb1e3cd7151225495d839a2ebcdad03f11e891f7bb0d0fe7e` / 绑定 `fd54194e8efea99f0ad7cfb8512f7319d932b6dfe7137f06d059476ffb09b284`；Java 21：`1550` 项、`433,440,216` B、清单 `a66cdda8186edc6fabb455133874395c3585a55755bb408c12de938dd0823fcf` / 绑定 `130ebb82f756813b7b49bd6f524b79cd48d7210434ed1d3ccd92489338686592`）。
-  - `Java 21` 同进程热状态受第 2 轮单点 `16,346.2 ms`（该点 OS 未清缓存/调度波动下整体 CPU 升至 `99,125 ms`，`launch-final-validation` 升至 `2,590.3 ms`）拉动中位数为 `+55.3 ms`（`+0.45%`），远未触发回退门槛（`> 10% 且 > 200 ms`），且第 1、3 轮同口径样本均为候选更快（`12,319.2` / `10,107.6 ms` 对比基线 `14,501.9` / `12,263.9 ms`），四组全场景 CPU 中位数全部稳定下降 `-6.02%` 至 `-17.45%`，`launch-bind` 墙钟中位数全面下降 `-33.78%` 至 `-48.68%`（CPU 下降 `-44.56%` 至 `-53.36%`）。依预注册规则判定 **ACCEPT**。
+  - `Java 21` 同进程热状态总准备中位数 `+55.3 ms`（`+0.45%`，基本持平，数据中存在第 2 轮单点较大波动 `16,346.2 ms`，该轮整体 CPU `99,125 ms`、`launch-final-validation` `2,590.3 ms`，未作固定根因归因，未超过预注册回归门槛 `> 10% 且 > 200 ms`）；第 1、3 轮样本分别为 `12,319.2` / `10,107.6 ms`（对应基线 `14,501.9` / `12,263.9 ms`），四组全场景 CPU 中位数全部下降 `-6.02%` 至 `-17.45%`，`launch-bind` 墙钟中位数全面下降 `-33.78%` 至 `-48.68%`（CPU 下降 `-44.56%` 至 `-53.36%`）。依预注册规则判定 **ACCEPT**。
 
 ### 5. 候选取消／排空与安全性实测收口
 
@@ -134,6 +134,6 @@
   - `PCLLF.Migration.Tests.exe --mmc-launch-validation-checks` **4/4 通过**（含 `DeepTargetLaunchValidation`）。
   - `PCLLF.Migration.Tests.exe --private-payload-path-checks` **9 通过 / 2 不可用 / 共 11 项**（`source-link` 与 `existing-source-link` 因当前 Windows 非管理员账户缺少创建文件符号链接特权抛出 `PayloadLinkFixtureUnavailableException`，如实计为不可用、未计作通过）。
   - 在隔离目录执行的冻结安全探针 `Probe.exe` 退出码 `0`（`artifacts/mmc-performance/candidate-d-launchfiles/directory-cache-probe.json`：`FreshCheckRejected=true`、`CachedCheckAccepted=false`、`HashReaderRejectedAncestorReplacement=true`、`PublicationRejectedAncestorReplacement=true`、`PublicationAppearedOutsideApprovedInstance=false`）。
-  - 隔离重跑 `PCLLF.Migration.Tests.exe --group mmc-configuration` **36/36 通过**；与外部并发进程重叠期间的宽泛探索跑录保持实情 `216/220`（2 项非特权 symlink 不可用 + 2 项 `MmcCommandExecutionTests` 在并发条件下于 `MmcCommandOperations.ReconcileAll` 保守 `TokenScan` 判定为 `Unknown`）。
+  - 隔离重跑 `PCLLF.Migration.Tests.exe --group mmc-configuration` **36/36 通过**；先前一次与外部观测进程同时段运行的宽泛扫描如实保留为 `216/220`（2 项非特权 symlink 不可用 + 2 项 `MmcCommandExecutionTests` 在 `MmcCommandOperations.ReconcileAll` 经保守 `TokenScan` 观测到 `Unknown`，未重测亦不作固定根因归因）。
   - `Test-MigrationSelection.py` **176/176 通过**。
   - `artifacts/mmc-dev-build/20261115-e0b87974/` 测试包仍绑定 `e0b87974` 未改动；是否基于提交 `32106473` 重新打包由 Root 统筹安排。
