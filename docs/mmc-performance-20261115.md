@@ -75,3 +75,65 @@
 本地原始矩阵：`artifacts/mmc-performance/20261115-065109-6df8e7ab0e5f41a9bb2830358ba9e286/`；六份 round JSON、`summary.json`、`formal-e0-receipt.json`、两份 `*-e0-cancellation.json`、三份 `private-import-round-{1,2,3}.log` 及 `catalog-benchmark-e0b87974.json` 保留。冻结程序集及源码摘要见 `baseline-e0b87974/frozen-inputs.json`，测试包身份见 `artifacts/mmc-dev-build/20261115-e0b87974/`。
 
 使用实际 host 工程重建探针、注册自己的独立已导入实例、运行三轮矩阵的通用命令见[探针说明](mmc-performance-probe.md)。本轮不代表 GTNH 大包完整导入、真实 Main 普通实例／版本列表扫描、真实账号登录、JavaWrapper／游戏启动时间，也不覆盖其他作者包、其他 OS 或全部 Java；这些范围继续分开跟踪。
+
+---
+
+## Package D 受控性能优化候选（迁移至 E: 后交错 A/B 实测，已采纳）
+
+> [!NOTE]
+> 以下实测基于 Root 将 C 盘 26 棵 MMC 工作树迁至 `E:` 并完成旧目录清零（`cleanup-observer-complete.flag` = `success`）后的同机环境重新冻结夹具完成；此前在 C 盘中断于 `4/12` 的运行记录于 `artifacts/mmc-worktree-relocation-20261115/performance-stopped.json`（不完整未采纳）。**严禁将上文 `e0b87974` 的 C 盘 12 点旧数直接当作基线对比 `E:` 盘候选数据**；本节所有提速与回退判定均只基于本次 `E:` 盘同夹具、同机交错 A/B 矩阵。
+
+### 1. 优化内容与安全不变量保持（提交 `32106473`）
+
+- **运行时改动**（仅 [MmcInstanceBackend.Launch.cs](../PCLCS/Minecraft/MmcInstances/MmcInstanceBackend.Launch.cs)）：移除 `MmcInstanceBackend.LaunchFiles` 中返回值被直接丢弃的并行路径预扫（`MmcInstancePaths.ForEachBounded` 调用 `paths.ResolveRelative` 约 `28.6k–30.4k` 次逐级祖先链接重检），保持 `Add(...)` 原有词法验证语义不变（未对全量宿主机 `TargetRelativePath` 强加额外的 `128` 级限制，防止合法 `128` 级远端工件在拼接 `PCL/MmcRuntime/<view>/libraries` 后被误拒）。
+- **物理与摘要安全门禁未削弱**：`LaunchFiles` 返回 6 行后，`PrepareLaunchCoreAsync` 立即在独占 `MmcAdmissionGate` 租约下进入 `ValidatePreparedLaunch`，继续对全部最终运行文件执行逐级物理 `ResolveRelative`（`EnsureNoLinks`）、只读 `FileStream` 打开与完整 `SHA256`/长度核验；清理逻辑亦保留物理重检。
+- **专项回归新增**：在 `tests/PCLLF.Migration.Tests/MmcInstanceBackendTests.cs` 与 `tests/PCLLF.Migration.Tests/MmcPrivatePayloadPathTests.cs` 增补 `DeepTargetLaunchValidation`（覆盖 121 段 `'a'` 组路径共 124 段原始相对路径、对应 128 段宿主机目标路径与展开后 131 段 Maven 库路径的验证与字节篡改拒绝），并接入 `--mmc-launch-validation-checks`。
+
+### 2. 迁移夹具绑定与双臂冻结输入
+
+- **迁移夹具清单**：`artifacts/mmc-performance/fixture-e0b87974-relocated.json`（SHA256 `e1be201d74d7eb2bbd8016f1285eb9bb3414e80da7222d2b705999c37f93bf21`），锁定原清单 `fixture-e0b87974.json`（`9d228b522d80b63b915ee38b6121a2d1cc30a2b5eaeab684c3b4b5e10a91abd0`）、清零最终回执 `final-receipt.json`（`6141ff4687afb86c31db4dcdb486bafa771557dd6274c09bd5b1855d213f69d0`）及迁移索引 `moved-worktrees.json`（`9db408b9b221444af4705d565de30f3fbf08ebf3eee490cf05e3da8f66f5d579`）；核对重定位后的 `java8`/`java21` 实例 `InstanceDefinition.json`、`Setup.ini`、`config.json` 中已无 `worktrees` / `C:\Users` 残留引用，原 `owner`/`import`/`source`/`primary` 摘要保持不变。
+- **双臂冻结目录**：`artifacts/mmc-performance/candidate-d-relocated/{baseline,candidate}/bin/` 使用同一份重定位探针（`RelocatedBaselineProbe.dll` SHA256 `886fa56e39e1f834bb3f73102a16b6deff3e09dc1a02d8a473e11d9b048d9845`）与逐文件字节一致的 `PCLLF.MMCC.Core.dll`（`a81583fc49512bf335d1d136f7c80874781816d65dd29e619eb13c81430713ba`）及全部其余依赖，唯一字节差异为 `PCLCS.dll`：
+  - 基线臂（`e0b87974`）：`e671a284e49a8a3868cd1d7045527888efaf0be1a8bce82754cbf2342c4cad64`
+  - 候选臂（`32106473`）：`016b01acae19953e413efb81835bf09a73756a439e9ee9030ad10394f416d167`
+
+### 3. 四组阶段诊断拆分（先于正式矩阵，不计入中位数）
+
+在 24 点矩阵前分别执行 `--repetitions 1 --diagnostic-split` 四次受控诊断（全部退出码 `0`、不变量完整通过）：
+
+| 场景 | 基线 Prepare ms（CPU / 分配 MiB） | 候选 Prepare ms（CPU / 分配 MiB） | 基线 `launch-bind` ms（CPU） | 候选 `launch-bind` ms（CPU） | 基线→候选 `launch-final-validation` ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Java 8 | 16,512.5 (`99,515.6` / `1,115.1`) | 15,711.1 (`92,484.4` / `1,099.6`) | 3,599.6 (`23,140.6`) | 2,066.2 (`12,375.0`) | 2,003.9 → 2,142.8 |
+| Java 21 | 15,284.2 (`91,500.0` / `1,141.9`) | 13,114.8 (`76,687.5` / `1,131.0`) | 3,253.4 (`20,843.8`) | 1,665.2 (`9,937.5`) | 1,832.2 → 1,953.2 |
+
+### 4. 24 点交错 A/B 三轮中位数（预注册门禁判定：**采纳 Accepted**）
+
+调用 `Run-InterleavedMatrix.ps1 -Rounds 3`（奇数轮基线→候选、偶数轮候选→基线，每个进程 `--repetitions 2`，共 24 点；证据位于 `artifacts/mmc-performance/candidate-d-relocated/matrix-20261115-094241-30d78b27385e41fe9614e1afeecdaa8c/summary.json`）。
+
+| 包／环境 | 状态 | 臂（每组 3 点） | 准备中位数 ms（最小—最大） | 总准备变化 | CPU 中位数 ms（变化） | `launch-bind` 中位数 ms（CPU 变化） | 分配 MiB / 最大峰值工作集 MiB |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Java 8 | 新进程冷 | 基线 / 候选 | 14,184.4 (`11,781.4—14,380.0`) → **12,643.3** (`10,493.3—12,804.2`) | **`-1,541.1 ms` (`-10.86%`)** | 81,359.4 → **70,859.4** (`-12.91%`) | 3,063.3 → **1,673.4** (`-45.37%` / CPU `-48.92%`) | 1,110.0→1,100.7 / 204.8→204.6 |
+| Java 8 | 同进程热 | 基线 / 候选 | 12,975.0 (`12,163.9—13,842.0`) → **11,973.4** (`9,580.7—12,100.8`) | **`-1,001.7 ms` (`-7.72%`)** | 77,265.6 → **71,234.4** (`-7.81%`) | 3,125.6 → **1,604.0** (`-48.68%` / CPU `-53.36%`) | 1,140.2→1,128.8 / 276.9→276.9 |
+| Java 21 | 新进程冷 | 基线 / 候选 | 15,068.1 (`11,847.5—15,245.1`) → **12,969.6** (`10,674.4—13,247.7`) | **`-2,098.4 ms` (`-13.93%`)** | 88,890.6 → **73,375.0** (`-17.45%`) | 2,920.5 → **1,684.7** (`-42.31%` / CPU `-48.26%`) | 1,138.2→1,125.2 / 203.6→207.4 |
+| Java 21 | 同进程热 | 基线 / 候选 | 12,263.9 (`11,477.7—14,501.9`) → 12,319.2 (`10,107.6—16,346.2`) | `+55.3 ms` (`+0.45%`) | 76,296.9 → **71,703.1** (`-6.02%`) | 2,549.8 → **1,688.4** (`-33.78%` / CPU `-44.56%`) | 1,168.9→1,157.8 / 299.3→289.3 |
+
+- **门禁核对与异常解释**：
+  - 全 24 点均满足：`DownloadRequests = 0`、`MetadataNetworkAttempts = 0`、`ProviderPreferencesChanged = false`、`StructuralAuthorityUnchanged = true`、`ChangedRetainedTrees = []`、`StagingDrained = true`；保留树/staging 抽样逻辑峰值与逻辑读取同为 Java 8 `556.6` / `891.4 MiB`（`934,697,935` B）、Java 21 `676.7` / `1,042.4 MiB`（`1,093,000,777` B）；基线与候选产出完全一致的 `LaunchInputs`（Java 8：`1464` 项、`367,466,426` B、清单 `cc7b5f87fb740c7fb1e3cd7151225495d839a2ebcdad03f11e891f7bb0d0fe7e` / 绑定 `fd54194e8efea99f0ad7cfb8512f7319d932b6dfe7137f06d059476ffb09b284`；Java 21：`1550` 项、`433,440,216` B、清单 `a66cdda8186edc6fabb455133874395c3585a55755bb408c12de938dd0823fcf` / 绑定 `130ebb82f756813b7b49bd6f524b79cd48d7210434ed1d3ccd92489338686592`）。
+  - `Java 21` 同进程热状态受第 2 轮单点 `16,346.2 ms`（该点 OS 未清缓存/调度波动下整体 CPU 升至 `99,125 ms`，`launch-final-validation` 升至 `2,590.3 ms`）拉动中位数为 `+55.3 ms`（`+0.45%`），远未触发回退门槛（`> 10% 且 > 200 ms`），且第 1、3 轮同口径样本均为候选更快（`12,319.2` / `10,107.6 ms` 对比基线 `14,501.9` / `12,263.9 ms`），四组全场景 CPU 中位数全部稳定下降 `-6.02%` 至 `-17.45%`，`launch-bind` 墙钟中位数全面下降 `-33.78%` 至 `-48.68%`（CPU 下降 `-44.56%` 至 `-53.36%`）。依预注册规则判定 **ACCEPT**。
+
+### 5. 候选取消／排空与安全性实测收口
+
+- **候选取消排空**（`--cancel-after-ms 1000`，`cancel-candidate-java8.json` / `cancel-candidate-java21.json`）：
+
+| 环境 | 实际请求时刻 ms | 请求后排空 ms | `PrepareLaunch` ms | 原定义／偏好／保留树 | staging / 网络 |
+| --- | ---: | ---: | ---: | --- | --- |
+| Java 8 | 1,002.4 | 119.0 | 1,085.6 | 保持（`StructuralAuthorityUnchanged=true`、`ProviderPreferencesChanged=false`、`[]`） | 已排空 / 0 |
+| Java 21 | 1,007.6 | 94.0 | 1,074.2 | 保持（`StructuralAuthorityUnchanged=true`、`ProviderPreferencesChanged=false`、`[]`） | 已排空 / 0 |
+
+- **功能、安全探针与 CI 选择器检查**：
+  - 私有 `.NET 10` SDK 编译 `modern\PCLCS\PCLCS.Modern.csproj` Release **0 警告 / 0 错误**。
+  - `PCLLF.Migration.Tests.exe --mmc-launch-validation-checks` **4/4 通过**（含 `DeepTargetLaunchValidation`）。
+  - `PCLLF.Migration.Tests.exe --private-payload-path-checks` **9 通过 / 2 不可用 / 共 11 项**（`source-link` 与 `existing-source-link` 因当前 Windows 非管理员账户缺少创建文件符号链接特权抛出 `PayloadLinkFixtureUnavailableException`，如实计为不可用、未计作通过）。
+  - 在隔离目录执行的冻结安全探针 `Probe.exe` 退出码 `0`（`artifacts/mmc-performance/candidate-d-launchfiles/directory-cache-probe.json`：`FreshCheckRejected=true`、`CachedCheckAccepted=false`、`HashReaderRejectedAncestorReplacement=true`、`PublicationRejectedAncestorReplacement=true`、`PublicationAppearedOutsideApprovedInstance=false`）。
+  - 隔离重跑 `PCLLF.Migration.Tests.exe --group mmc-configuration` **36/36 通过**；与外部并发进程重叠期间的宽泛探索跑录保持实情 `216/220`（2 项非特权 symlink 不可用 + 2 项 `MmcCommandExecutionTests` 在并发条件下于 `MmcCommandOperations.ReconcileAll` 保守 `TokenScan` 判定为 `Unknown`）。
+  - `Test-MigrationSelection.py` **176/176 通过**。
+  - `artifacts/mmc-dev-build/20261115-e0b87974/` 测试包仍绑定 `e0b87974` 未改动；是否基于提交 `32106473` 重新打包由 Root 统筹安排。
