@@ -149,6 +149,7 @@
         "mmc-archive",
         "mmc-definition",
         "mmc-java",
+        "mmc-runtime-environment",
         "mmc-backend",
         "mmc-variants",
         "mmc-clone",
@@ -259,7 +260,7 @@
     },
     "mmc-core-tests": {
       "full": false, "product_build": false, "migration_run": true,
-      "groups": ["mmc-profile", "mmc-definition", "mmc-platform-origin", "mmc-package-revision", "mmc-package-scope", "mmc-package-update"], "windows_scripts": [],
+      "groups": ["mmc-profile", "mmc-definition", "mmc-runtime-environment", "mmc-platform-origin", "mmc-package-revision", "mmc-package-scope", "mmc-package-update"], "windows_scripts": [],
       "world_checks": false, "engine_only": false, "oracle": false, "inventory": false
     },
     "mmc-artifact-tests": {
@@ -290,6 +291,11 @@
     "mmc-java-tests": {
       "full": false, "product_build": false, "migration_run": true,
       "groups": ["mmc-java"], "windows_scripts": [],
+      "world_checks": false, "engine_only": false, "oracle": false, "inventory": false
+    },
+    "mmc-runtime-environment-tests": {
+      "full": false, "product_build": false, "migration_run": true,
+      "groups": ["mmc-runtime-environment"], "windows_scripts": [],
       "world_checks": false, "engine_only": false, "oracle": false, "inventory": false
     },
     "mmc-backend-tests": {
@@ -411,6 +417,7 @@
         "mmc-archive",
         "mmc-definition",
         "mmc-java",
+        "mmc-runtime-environment",
         "mmc-backend",
         "mmc-variants",
         "mmc-clone",
