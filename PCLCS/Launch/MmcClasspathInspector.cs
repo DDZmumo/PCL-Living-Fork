@@ -45,10 +45,9 @@ public static partial class MmcClasspathInspector {
                 return (first.artifact, first.index, expected: inputs["artifact:" + first.artifact.Key], root: ManifestOwnerRoot(launch.Request, first.artifact.Scope));
             }).ToArray();
         var scanned = new ScannedJar[jobs.Length];
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         await Task.Run(() => MmcInstancePaths.ForEachBounded(jobs, (slot, job, token) => {
             scanned[slot] = ScanJar(job.artifact.Key, job.expected.ActualPath, job.expected.Sha256, job.expected.SizeBytes,
-                requiredEntries, policy, token, job.root, verifiedDirectories);
+                requiredEntries, policy, token, job.root);
         }, cancellationToken), cancellationToken).ConfigureAwait(false);
 
         var observations = ImmutableArray.CreateBuilder<MmcJarClassObservation>(jobs.Length);
@@ -74,14 +73,13 @@ public static partial class MmcClasspathInspector {
     internal static async Task VerifySupportDoesNotShadowAsync(MmcRuntimeLaunchRequest request, ImmutableArray<string> required, IReadOnlyList<string> effectiveJvmArguments, CancellationToken token) {
         ValidateNames(required);
         var policy = RuntimePolicy(request.Java.Major, effectiveJvmArguments);
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         var items = new[] { ("support:wrapper", request.Wrapper!, "oolloo.jlw.Wrapper"), ("support:bridge", request.Bridge!, MmcRuntimeBridgeTransport.EntryPoint) };
         string[] query = required.Append(items[0].Item3).Append(items[1].Item3).Distinct(StringComparer.Ordinal).ToArray();
         var requiredEntries = BuildRequiredEntryMap(query);
         var scanned = new ScannedJar[items.Length];
         await Task.Run(() => MmcInstancePaths.ForEachBounded(items, (slot, item, ct) => {
             scanned[slot] = ScanJar(item.Item1, item.Item2.ActualPath, item.Item2.Sha256, item.Item2.SizeBytes,
-                requiredEntries, policy, ct, manifestOwnerRoot: null, verifiedDirectories);
+                requiredEntries, policy, ct, manifestOwnerRoot: null);
         }, token), token).ConfigureAwait(false);
         for (int i = 0; i < items.Length; i++) {
             string ownClass = items[i].Item3;
@@ -93,7 +91,7 @@ public static partial class MmcClasspathInspector {
 
     private static Task<JarResult> ReadJarAsync(string key, string path, string expectedSha256, long expectedSize,
         string[] required, JarRuntimePolicy policy, HashSet<string> compatibilityRequired, CancellationToken token, string? manifestOwnerRoot = null) {
-        var scanned = ScanJar(key, path, expectedSha256, expectedSize, BuildRequiredEntryMap(required), policy, token, manifestOwnerRoot, verifiedDirectories: null);
+        var scanned = ScanJar(key, path, expectedSha256, expectedSize, BuildRequiredEntryMap(required), policy, token, manifestOwnerRoot);
         var (observation, found) = ResolveScannedJar(scanned, required, policy, compatibilityRequired.Contains);
         return Task.FromResult(new JarResult(observation, found, scanned.ManifestInputs));
     }
@@ -103,8 +101,8 @@ public static partial class MmcClasspathInspector {
 
     private static ScannedJar ScanJar(string key, string path, string expectedSha256, long expectedSize,
         Dictionary<string, string> requiredEntries, JarRuntimePolicy policy, CancellationToken token,
-        string? manifestOwnerRoot, ConcurrentDictionary<string, byte>? verifiedDirectories) {
-        MmcRuntimeFiles.Hash(expectedSha256); MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        string? manifestOwnerRoot) {
+        MmcRuntimeFiles.Hash(expectedSha256); MmcInstancePaths.EnsureNoLinks(path);
         using FileStream source = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         string digest = MmcRuntimeFiles.HashStream(source, token);
         if (!digest.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase) || source.Length != expectedSize)

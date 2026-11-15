@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -19,8 +18,8 @@ internal static class MmcDurableFiles {
     internal const long MaximumFileBytes = 4L * 1024 * 1024 * 1024;
     internal static string Hash(byte[] content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
     internal static bool IsHash(string? value) => value is not null && value.Length == 64 && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
-    internal static string? Observe(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+    internal static string? Observe(string path) {
+        MmcInstancePaths.EnsureNoLinks(path);
         var attributes = MmcInstancePaths.Attributes(path);
         if (attributes is null) return null;
         if ((attributes.Value & FileAttributes.Directory) != 0) throw new IOException("事务文件目标被目录占用。");

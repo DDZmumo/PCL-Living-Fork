@@ -6,11 +6,20 @@ internal static partial class MmcInstanceBackendTests {
         exitCode = 0;
         if (args.Length != 1) return false;
         bool probe = args[0] == "--private-payload-import-probe";
-        if (!probe && args[0] != "--private-payload-path-checks") return false;
+        bool launchChecks = args[0] == "--mmc-launch-validation-checks";
+        if (!probe && !launchChecks && args[0] != "--private-payload-path-checks") return false;
         try {
             if (probe) {
                 BulkPayloadImport();
                 Console.WriteLine("PASS explicit private payload import probe (one original 2003-file import case).");
+            } else if (launchChecks) {
+                (string Name, Action Run)[] focused = [
+                    ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption),
+                    ("MMC final launch validation rechecks replaced ancestor junctions even after a clean validation pass", LaunchValidationRejectsReplacedAncestorJunction),
+                    ("MMC preloaded launch sources, baseline disk tamper detection, and preserved target repair stay strict", PreloadedSourcesAndPreservedRepairInvariants)
+                ];
+                foreach (var test in focused) { test.Run(); Console.WriteLine("PASS " + test.Name); }
+                Console.WriteLine($"RESULT focused MMC launch/repair validation checks: {focused.Length}/{focused.Length} passed.");
             } else {
                 (string Name, Action Run)[] existing = [
                     ("original private payload complete/cancel/conflict", PrivatePayload),

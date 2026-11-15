@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -20,13 +19,12 @@ public sealed partial class MmcArtifactMaterializer {
     private async Task<ImmutableArray<MmcNativeFileBinding>> ExtractNativesAsync(IEnumerable<PreparedInput> sources,
         string viewKey, MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io,
         Dictionary<string, MmcArtifactStagedMutation> mutations, MmcRuntimeTargetClaims targetClaims,
-        ConcurrentDictionary<string, byte>? verifiedDirectories, CancellationToken token) {
-        verifiedDirectories ??= MmcInstancePaths.CreatePassDirectoryCache();
+        CancellationToken token) {
         var result = ImmutableArray.CreateBuilder<MmcNativeFileBinding>();
         long extracted = 0; int count = 0;
         foreach (PreparedInput source in sources) {
             token.ThrowIfCancellationRequested();
-            MmcInstancePaths.EnsureNoLinks(source.OriginalInput, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(source.OriginalInput);
             await using var file = new FileStream(source.OriginalInput, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true);
             string before = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, token).ConfigureAwait(false));
             if (before != source.Lock.AdoptedSha256) throw new IOException("Native input changed before extraction.");
@@ -38,7 +36,7 @@ public sealed partial class MmcArtifactMaterializer {
             string[] excludes = source.Artifact.ExtractExcludes.IsDefault ? [] : source.Artifact.ExtractExcludes.Select(x => {
                 string prefix = x.Replace('\\', '/');
                 MmcArtifactIo.Relative(prefix.TrimEnd('/'));
-                paths.ResolveRelative(MmcPathRole.Runtime, viewKey + "/natives/" + prefix.TrimEnd('/'), verifiedDirectories);
+                paths.ResolveRelative(MmcPathRole.Runtime, viewKey + "/natives/" + prefix.TrimEnd('/'));
                 return prefix;
             }).ToArray();
             foreach (ZipArchiveEntry entry in archive.Entries) {
@@ -46,7 +44,7 @@ public sealed partial class MmcArtifactMaterializer {
                 string relativeEntry = entry.FullName.Replace('\\', '/').TrimEnd('/');
                 bool directory = entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\');
                 string relative = "PCL/MmcRuntime/" + viewKey + "/natives/" + relativeEntry;
-                string target = paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
+                string target = paths.ResolveRelative(MmcPathRole.Instance, relative);
                 if (directory || excludes.Any(prefix => entry.FullName.Replace('\\', '/').StartsWith(prefix, StringComparison.Ordinal))) continue;
                 string staged = workspace.NewFile();
                 await using (Stream content = entry.Open()) {
@@ -57,7 +55,7 @@ public sealed partial class MmcArtifactMaterializer {
                         throw new IOException("Different native inputs collide at one runtime target.");
                     targetClaims[relative] = observed.Sha256;
                     string? previous = null;
-                    if (MmcInstancePaths.Attributes(target) is not null) previous = (await MmcArtifactIo.HashAsync(target, limits.MaxNativeBytes, token, verifiedDirectories: verifiedDirectories).ConfigureAwait(false)).Sha256;
+                    if (MmcInstancePaths.Attributes(target) is not null) previous = (await MmcArtifactIo.HashAsync(target, limits.MaxNativeBytes, token).ConfigureAwait(false)).Sha256;
                     if (previous != observed.Sha256 && !mutations.ContainsKey(relative))
                         AddMutation(paths, mutations, staged, relative, observed.Sha256, observed.Size, previous is null, previous);
                     result.Add(new(source.Artifact.Key, relativeEntry, target, observed.Sha256, observed.Size));

@@ -88,13 +88,13 @@ internal sealed class MmcArtifactIo {
     private long copied;
     internal MmcArtifactIo(MmcArtifactLimits limits, IProgress<MmcArtifactProgress>? progress) { this.limits = limits; this.progress = progress; }
 
-    internal static void Directory(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+    internal static void Directory(string path) {
+        MmcInstancePaths.EnsureNoLinks(path);
         System.IO.Directory.CreateDirectory(path);
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        MmcInstancePaths.EnsureNoLinks(path);
     }
 
-    internal static string AuthorizedSource(MmcArtifactSource source, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+    internal static string AuthorizedSource(MmcArtifactSource source) {
         if (!Path.IsPathFullyQualified(source.ApprovedRoot) || !Path.IsPathFullyQualified(source.FilePath))
             throw new IOException("Artifact source must have an absolute approved boundary.");
         if (source.ApprovedRoot.StartsWith("\\\\?\\", StringComparison.Ordinal) || source.ApprovedRoot.StartsWith("\\\\.\\", StringComparison.Ordinal) ||
@@ -104,7 +104,7 @@ internal sealed class MmcArtifactIo {
         string file = Path.GetFullPath(source.FilePath);
         if (!file.StartsWith(root + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new IOException("Artifact source escapes its approved boundary.");
-        MmcInstancePaths.EnsureNoLinks(root, verifiedDirectories); MmcInstancePaths.EnsureNoLinks(file, verifiedDirectories);
+        MmcInstancePaths.EnsureNoLinks(root); MmcInstancePaths.EnsureNoLinks(file);
         if ((File.GetAttributes(file) & FileAttributes.Directory) != 0) throw new IOException("Artifact source is a directory.");
         return file;
     }
@@ -128,8 +128,8 @@ internal sealed class MmcArtifactIo {
     internal static bool Digest(string? value, int length) => value is not null && value.Length == length && value.All(Uri.IsHexDigit);
 
     internal static (string Sha256, long Size, string Sha1) HashFile(string path, long maximum, CancellationToken token,
-        string? expectedSha1 = null, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        string? expectedSha1 = null) {
+        MmcInstancePaths.EnsureNoLinks(path);
         using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         long initialLength = input.CanSeek ? input.Length : -1;
         if (initialLength > maximum) throw new IOException("Artifact byte budget exceeded.");
@@ -184,9 +184,8 @@ internal sealed class MmcArtifactIo {
         }
     }
 
-    internal static (string Sha256, long Size) HashSha256(string path, long maximum, CancellationToken token,
-        ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+    internal static (string Sha256, long Size) HashSha256(string path, long maximum, CancellationToken token) {
+        MmcInstancePaths.EnsureNoLinks(path);
         using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         if (input.Length > maximum) throw new IOException("Artifact byte budget exceeded.");
         if (input.CanSeek && input.Length <= 16 * 1024 * 1024) {
@@ -220,8 +219,8 @@ internal sealed class MmcArtifactIo {
     }
 
     internal static async Task<(string Sha256, long Size, string Sha1)> HashAsync(string path, long maximum, CancellationToken token,
-        string? expectedSha1 = null, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        string? expectedSha1 = null) {
+        MmcInstancePaths.EnsureNoLinks(path);
         await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 131072, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (input.Length > maximum) throw new IOException("Artifact byte budget exceeded.");
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);

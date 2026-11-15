@@ -26,38 +26,37 @@ public static partial class MmcRuntimeLaunchBuilder {
         var locks = definition.ArtifactLocks.ToDictionary(l => l.ArtifactKey, StringComparer.Ordinal);
         var targets = request.Targets.ToDictionary(t => t.ArtifactKey, StringComparer.Ordinal);
         var activeArtifacts = compiled.Classpath.Concat(compiled.NativeArtifacts).Concat(compiled.DownloadOnlyArtifacts).Concat(compiled.AuxiliaryArtifacts).GroupBy(a => a.Key).Select(group => group.First()).ToArray();
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         List<(string Identity, string Path, string ExpectedHash, long? ExpectedSize, bool Owned)> specs = new(activeArtifacts.Length + 4);
         foreach (var artifact in activeArtifacts) {
             if (!locks.TryGetValue(artifact.Key, out var adopted) || !request.BoundPlan.ActiveArtifactLocks.Any(l => l == adopted))
                 Fail("MMC_RUNTIME_BINDING", "The runtime plan is missing an exact adopted active input binding.");
             if (!targets.TryGetValue(artifact.Key, out var target)) Fail("MMC_RUNTIME_BINDING", "The runtime plan is missing an actual target mapping.");
             if (target.TargetRelativePath != adopted.TargetRelativePath) Fail("MMC_RUNTIME_BINDING", "Actual target mapping differs from the bound definition.");
-            string path = currentPaths.ResolveRelative(MmcPathRole.Instance, adopted.TargetRelativePath, verifiedDirectories);
-            MmcRuntimeFiles.SamePath(target.ActualPath, path, verifiedDirectories);
-            if (artifact.Scope == MmcArtifactScope.Shared) MmcRuntimeFiles.Owned(path, currentPaths.ResolveRelative(MmcPathRole.Runtime, request.Directories.ViewKey, verifiedDirectories), verifiedDirectories);
+            string path = currentPaths.ResolveRelative(MmcPathRole.Instance, adopted.TargetRelativePath);
+            MmcRuntimeFiles.SamePath(target.ActualPath, path);
+            if (artifact.Scope == MmcArtifactScope.Shared) MmcRuntimeFiles.Owned(path, currentPaths.ResolveRelative(MmcPathRole.Runtime, request.Directories.ViewKey));
             specs.Add(("artifact:" + artifact.Key, path, adopted.AdoptedSha256, adopted.SizeBytes, true));
         }
-        string view = currentPaths.ResolveRelative(MmcPathRole.Runtime, request.Directories.ViewKey, verifiedDirectories);
-        MmcRuntimeFiles.SamePath(request.Directories.NativeDirectory, Path.Combine(view, "natives"), verifiedDirectories);
-        MmcRuntimeFiles.SamePath(request.Directories.AssetsRoot, Path.Combine(view, "assets"), verifiedDirectories);
+        string view = currentPaths.ResolveRelative(MmcPathRole.Runtime, request.Directories.ViewKey);
+        MmcRuntimeFiles.SamePath(request.Directories.NativeDirectory, Path.Combine(view, "natives"));
+        MmcRuntimeFiles.SamePath(request.Directories.AssetsRoot, Path.Combine(view, "assets"));
         ValidateGameAssets(request, view);
         foreach (var derived in definition.DerivedOutputs.Where(d => d.RuntimePlanFingerprint == compiled.RuntimePlanFingerprint && d.ViewKey == request.Directories.ViewKey)) {
-            string path = currentPaths.ResolveRelative(MmcPathRole.Instance, derived.TargetRelativePath, verifiedDirectories);
+            string path = currentPaths.ResolveRelative(MmcPathRole.Instance, derived.TargetRelativePath);
             specs.Add(("derived:" + derived.TargetRelativePath, path, derived.Sha256, derived.SizeBytes, true));
         }
         specs.Add(("java:" + request.Java.IdentitySha256, request.Java.ExecutablePath, request.Java.ExecutableSha256, null, false));
         if (settings.WrapperMode == MmcRuntimeWrapperMode.JavaWrapper) {
             if (request.Wrapper is null || request.Bridge is null) Fail("MMC_RUNTIME_WRAPPER", "Owned verified JavaWrapper and exact argv bridge inputs are required.");
             foreach (var support in new[] { ("wrapper", request.Wrapper), ("bridge", request.Bridge) }) {
-                MmcRuntimeFiles.Owned(support.Item2.ActualPath, Path.Combine(view, "support"), verifiedDirectories);
+                MmcRuntimeFiles.Owned(support.Item2.ActualPath, Path.Combine(view, "support"));
                 specs.Add(("support:" + support.Item1, support.Item2.ActualPath, support.Item2.Sha256, support.Item2.SizeBytes, true));
             }
             if (!request.Bridge.Sha256.Equals(MmcRuntimeBridgeTransport.JarSha256(), StringComparison.OrdinalIgnoreCase)) Fail("MMC_RUNTIME_BRIDGE", "Bridge support bytes do not match this host's reviewed transport.");
         }
         var observedInputs = new MmcRuntimeInputObservation[specs.Count];
         await Task.Run(() => MmcInstancePaths.ForEachBounded(specs, (index, spec, token) => {
-            observedInputs[index] = MmcRuntimeFiles.Observe(spec.Identity, spec.Path, spec.ExpectedHash, spec.ExpectedSize, token, spec.Owned, verifiedDirectories);
+            observedInputs[index] = MmcRuntimeFiles.Observe(spec.Identity, spec.Path, spec.ExpectedHash, spec.ExpectedSize, token, spec.Owned);
         }, cancellationToken), cancellationToken).ConfigureAwait(false);
         List<MmcRuntimeInputObservation> inputs = [.. observedInputs];
         var mutable = DescribeMutablePaths(currentPaths, request);
@@ -208,10 +207,9 @@ public static partial class MmcRuntimeLaunchBuilder {
                 continue;
             remaining.Add(input);
         }
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         MmcInstancePaths.ForEachBounded(remaining, (_, input, token) => {
             MmcRuntimeFiles.Observe(input.Identity, input.ActualPath, input.Sha256, input.SizeBytes, token,
-                owned: !input.Identity.StartsWith("java:", StringComparison.Ordinal), verifiedDirectories: verifiedDirectories);
+                owned: !input.Identity.StartsWith("java:", StringComparison.Ordinal));
         }, cancellationToken);
     }
 

@@ -36,6 +36,7 @@ internal static class MmcArtifactTests {
         yield return ("MMC prefetch reuses a matching original version main jar", () => Run(PrefetchMainJar));
         yield return ("MMC hashless prefetch isolates Maven paths and preserves actual source pins", () => Run(PrefetchHashless));
         yield return ("MMC prefetch cancellation drains the supplied runner and cleans fresh candidates", () => Run(PrefetchCancellation));
+        yield return ("MMC artifacts reject replaced ancestor junctions during materialization and prefetch", () => Run(AncestorJunctionRegression));
     }
 
     private static void Run(Func<Task> action) => action().GetAwaiter().GetResult();
@@ -493,6 +494,95 @@ internal static class MmcArtifactTests {
         Equal(true, drained);
         Equal(0, Directory.GetFiles(roots.SourceCacheRoot, "payload-*.bin", SearchOption.AllDirectories).Length);
         Equal(0, Directory.GetFiles(roots.SourceCacheRoot, "pin.json", SearchOption.AllDirectories).Length);
+    }
+
+    private static async Task AncestorJunctionRegression() {
+        using (var fixture = new Fixture()) {
+            byte[] bytesA = Encoding.UTF8.GetBytes("alpha-verified-artifact");
+            byte[] bytesB = Encoding.UTF8.GetBytes("beta-verified-artifact");
+            var a = Artifact("alpha", "example/a/1/a.jar", bytesA);
+            var b = Artifact("beta", "example/b/1/b.jar", bytesB);
+            fixture.Source(a.Key, bytesA);
+            fixture.Source(b.Key, bytesB);
+            string sha256Root = Path.Combine(fixture.Paths.InstanceRoot, "PCL", "MmcArtifacts", "sha256");
+            string parkedSha256 = Path.Combine(fixture.Scope, "parked-sha256");
+            string outside = Path.Combine(fixture.Scope, "outside-sha256");
+            string outsideA = Path.Combine(outside, Hash(bytesA));
+            string outsideB = Path.Combine(outside, Hash(bytesB));
+            string sentinel = Path.Combine(outside, "sentinel.txt");
+            Directory.CreateDirectory(outside);
+            File.WriteAllBytes(outsideA, bytesA);
+            File.WriteAllText(sentinel, "preserve-outside-sha256");
+            bool replaced = false;
+            var guardedAccess = new MmcArtifactSourceAccess((reference, token) => {
+                if (reference.Key == b.Key && !replaced) {
+                    replaced = true;
+                    Directory.Move(sha256Root, parkedSha256);
+                    MmcInstancePathsTests.CreateDirectoryLink(sha256Root, outside);
+                }
+                return ValueTask.FromResult<MmcArtifactSource?>(new(fixture.Cache, fixture.Sources[reference.Key]));
+            });
+            try {
+                IOException? rejected = null;
+                try {
+                    await new MmcArtifactMaterializer().PrepareAsync(fixture.Request([a, b]), guardedAccess);
+                } catch (IOException error) { rejected = error; }
+                Equal(true, replaced);
+                Equal("MMC 路径包含链接或重解析点。", rejected?.Message);
+                Equal(false, File.Exists(outsideB));
+                Equal("preserve-outside-sha256", File.ReadAllText(sentinel));
+                Equal(true, bytesA.SequenceEqual(File.ReadAllBytes(outsideA)));
+                Equal(0, fixture.ActiveStages());
+            } finally {
+                if (Directory.Exists(sha256Root)) Directory.Delete(sha256Root, false);
+                if (Directory.Exists(parkedSha256)) Directory.Move(parkedSha256, sha256Root);
+            }
+            using var clean = await new MmcArtifactMaterializer().PrepareAsync(fixture.Request([a, b]), fixture.Access());
+            Equal(2, clean.OrderedBindings.Length);
+        }
+
+        using (var binding = new BindingFixture(hashlessLibrary: true)) {
+            var roots = CacheRoots(binding.Files);
+            var library = binding.Plan.Classpath.First(x => x.Role == MmcArtifactRole.Classpath);
+            binding.Files.Write(Path.Combine(roots.LibrariesRoot, binding.Plan.MainJar.RelativePath), binding.Files.Payload(binding.Plan.MainJar));
+            byte[] remote = binding.Files.Payload(library);
+            string bySourceRoot = Path.Combine(roots.SourceCacheRoot, "by-source", library.SourceRevision);
+            string parkedBySource = Path.Combine(binding.Files.Scope, "parked-by-source");
+            string outsidePrefetch = Path.Combine(binding.Files.Scope, "outside-prefetch");
+            string outsideSentinel = Path.Combine(outsidePrefetch, "sentinel.txt");
+            Directory.CreateDirectory(outsidePrefetch);
+            File.WriteAllText(outsideSentinel, "preserve-outside-prefetch");
+            bool replaced = false;
+            var adapter = new MmcArtifactPrefetchAdapter<MmcArtifactDownloadSpec>(roots, x => x, (files, token) => {
+                foreach (var file in files) {
+                    binding.Files.Write(file.DownloadPath, remote);
+                    string uriDir = Path.GetFileName(Path.GetDirectoryName(file.DownloadPath)!)!;
+                    string matchingOutsidePayload = Path.Combine(outsidePrefetch, uriDir, Path.GetFileName(file.DownloadPath));
+                    binding.Files.Write(matchingOutsidePayload, remote);
+                }
+                if (!replaced) {
+                    replaced = true;
+                    Directory.Move(bySourceRoot, parkedBySource);
+                    MmcInstancePathsTests.CreateDirectoryLink(bySourceRoot, outsidePrefetch);
+                }
+                return Task.CompletedTask;
+            });
+            try {
+                await Throws<IOException>(() => adapter.PrefetchAsync(binding.Plan, binding.Request()));
+                Equal(true, replaced);
+                Equal("preserve-outside-prefetch", File.ReadAllText(outsideSentinel));
+                Equal(0, Directory.GetFiles(outsidePrefetch, "pin.json", SearchOption.AllDirectories).Length);
+                Equal(0, Directory.GetFiles(outsidePrefetch, ".pin-*.tmp", SearchOption.AllDirectories).Length);
+            } finally {
+                if (Directory.Exists(bySourceRoot)) Directory.Delete(bySourceRoot, false);
+                if (Directory.Exists(parkedBySource)) Directory.Move(parkedBySource, bySourceRoot);
+            }
+            var healthy = await new MmcArtifactPrefetchAdapter<MmcArtifactDownloadSpec>(roots, x => x, (files, token) => {
+                foreach (var file in files) binding.Files.Write(file.DownloadPath, remote);
+                return Task.CompletedTask;
+            }).PrefetchAsync(binding.Plan, binding.Request());
+            Equal(1, healthy.Sources.Count(pair => pair.Key == library.Key));
+        }
     }
 
     private sealed class BindingFixture : IDisposable {

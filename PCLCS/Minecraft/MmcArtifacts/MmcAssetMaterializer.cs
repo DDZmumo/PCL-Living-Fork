@@ -26,7 +26,7 @@ public sealed partial class MmcArtifactMaterializer {
         Dictionary<string, PreparedInput> inputs, Dictionary<string, MmcArtifactLock> locks, MmcArtifactIntent intent,
         MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io, MmcArtifactSourceAccess access,
         Dictionary<string, MmcArtifactStagedMutation> mutations, IProgress<MmcArtifactProgress>? progress,
-        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
+        CancellationToken token) {
         var indexes = artifacts.Where(x => x.Role == MmcArtifactRole.AssetIndex).ToArray();
         if (indexes.Length == 0) return null;
         if (indexes.Length != 1) throw new IOException("Exactly one effective asset index is required.");
@@ -35,7 +35,7 @@ public sealed partial class MmcArtifactMaterializer {
         if (index.Scope != MmcArtifactScope.Shared || !index.RelativePath.StartsWith("indexes/", StringComparison.Ordinal) ||
             !index.RelativePath.EndsWith(".json", StringComparison.Ordinal)) throw new IOException("Asset index location is not canonical.");
         string id = index.RelativePath[8..^5]; MmcArtifactIo.Relative(id);
-        paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/virtual/" + id, verifiedDirectories);
+        paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/virtual/" + id);
         if (requestedAssets is not null && (requestedAssets.Id != id || requestedAssets.Artifact?.Key != index.Key))
             throw new IOException("Asset index declaration and selected input disagree.");
         PreparedInput source = inputs[index.Key];
@@ -60,7 +60,7 @@ public sealed partial class MmcArtifactMaterializer {
             await Task.Run(() => MmcInstancePaths.ForEachBounded(parsed.Index.Objects, (_, entry, t) => {
                 t.ThrowIfCancellationRequested();
                 if (entry.Name.Contains('\\')) throw new IOException("Asset logical names must use forward separators.");
-                paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/" + entry.Name, verifiedDirectories);
+                paths.ResolveRelative(MmcPathRole.Runtime, "assets-validation/" + entry.Name);
             }, token), token).ConfigureAwait(false);
         }
         var entries = ImmutableArray.CreateBuilder<AssetEntry>(parsed.Index.Objects.Length);
@@ -96,12 +96,12 @@ public sealed partial class MmcArtifactMaterializer {
             if (artifact.Size > limits.MaxArtifactBytes) throw new IOException("Artifact or asset-index byte budget exceeded.");
             jobs.Add((artifact, adopted, limits.MaxArtifactBytes));
         }
-        var fastOriginals = await VerifyAdoptedOriginalsAsync(jobs, paths, verifiedDirectories, token).ConfigureAwait(false);
+        var fastOriginals = await VerifyAdoptedOriginalsAsync(jobs, paths, token).ConfigureAwait(false);
         for (int i = 0; i < jobs.Count; i++) {
             token.ThrowIfCancellationRequested();
             var job = jobs[i];
             if (job.Artifact.Size > limits.MaxCopiedBytes - adoptedBytes) throw new IOException("Aggregate asset object byte budget exceeded.");
-            var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, verifiedDirectories, token).ConfigureAwait(false);
+            var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, token).ConfigureAwait(false);
             adoptedBytes = checked(adoptedBytes + prepared.Lock.SizeBytes);
             if (adoptedBytes > limits.MaxCopiedBytes) throw new IOException("Aggregate asset object actual byte budget exceeded.");
             inputs.Add(job.Artifact.Key, prepared);
@@ -112,7 +112,7 @@ public sealed partial class MmcArtifactMaterializer {
     private async Task<ImmutableArray<MmcAssetFileBinding>> StageAssetsAsync(AssetPlan? plan, Dictionary<string, PreparedInput> inputs,
         string viewKey, MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io,
         Dictionary<string, MmcArtifactStagedMutation> mutations, MmcRuntimeTargetClaims targetClaims,
-        ConcurrentDictionary<string, byte> verifiedDirectories, CancellationToken token) {
+        CancellationToken token) {
         if (plan is null) return [];
         var objectSpecs = new List<(MmcArtifactReference Artifact, PreparedInput Input, string Relative)>(plan.Objects.Length);
         foreach (var artifact in plan.Objects) {
@@ -125,7 +125,7 @@ public sealed partial class MmcArtifactMaterializer {
         if (objectSpecs.Count > 0) {
             await Task.Run(() => MmcInstancePaths.ForEachBounded(objectSpecs, (index, item, t) => {
                 t.ThrowIfCancellationRequested();
-                objectTargets[index] = paths.ResolveRelative(MmcPathRole.Instance, item.Relative, verifiedDirectories);
+                objectTargets[index] = paths.ResolveRelative(MmcPathRole.Instance, item.Relative);
             }, token), token).ConfigureAwait(false);
         }
         var objectPlans = new List<(MmcArtifactReference Artifact, PreparedInput Input, string Relative, string Target)>(objectSpecs.Count);
@@ -149,8 +149,8 @@ public sealed partial class MmcArtifactMaterializer {
         if (entrySpecs.Count > 0) {
             await Task.Run(() => MmcInstancePaths.ForEachBounded(entrySpecs, (index, item, t) => {
                 t.ThrowIfCancellationRequested();
-                string objectPath = paths.ResolveRelative(MmcPathRole.Runtime, item.ObjectRelative, verifiedDirectories);
-                string? target = item.Relative is null ? null : paths.ResolveRelative(MmcPathRole.Instance, item.Relative, verifiedDirectories);
+                string objectPath = paths.ResolveRelative(MmcPathRole.Runtime, item.ObjectRelative);
+                string? target = item.Relative is null ? null : paths.ResolveRelative(MmcPathRole.Instance, item.Relative);
                 resolvedEntries[index] = (objectPath, target);
             }, token), token).ConfigureAwait(false);
         }
@@ -162,17 +162,17 @@ public sealed partial class MmcArtifactMaterializer {
         }
         var prechecked = await InspectExistingTargetsAsync(
             objectPlans.Select(x => (x.Relative, x.Target)).Concat(entryPlans.Where(x => x.Relative is not null).Select(x => (x.Relative!, x.Target!))),
-            limits.MaxArtifactBytes, verifiedDirectories, token).ConfigureAwait(false);
+            limits.MaxArtifactBytes, token).ConfigureAwait(false);
         foreach (var item in objectPlans) {
             await StageTargetAsync(item.Input.OriginalInput, item.Relative, item.Target, item.Input.Lock.AdoptedSha256, item.Input.Lock.SizeBytes,
-                item.Artifact.Key, paths, workspace, io, mutations, prechecked, verifiedDirectories, token).ConfigureAwait(false);
+                item.Artifact.Key, paths, workspace, io, mutations, prechecked, token).ConfigureAwait(false);
         }
         var result = ImmutableArray.CreateBuilder<MmcAssetFileBinding>(entryPlans.Count);
         foreach (var item in entryPlans) {
             string? virtualPath = null, mappedPath = null;
             if (item.Relative is not null) {
                 await StageTargetAsync(item.Input.OriginalInput, item.Relative, item.Target!, item.Input.Lock.AdoptedSha256, item.Input.Lock.SizeBytes,
-                    item.Entry.Object.Key, paths, workspace, io, mutations, prechecked, verifiedDirectories, token).ConfigureAwait(false);
+                    item.Entry.Object.Key, paths, workspace, io, mutations, prechecked, token).ConfigureAwait(false);
                 if (plan.Virtual) virtualPath = item.Target;
                 else mappedPath = item.Target;
             }

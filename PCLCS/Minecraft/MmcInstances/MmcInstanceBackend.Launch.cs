@@ -119,12 +119,11 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         ArgumentNullException.ThrowIfNull(snapshot);
         // Thread-affine gate/primary/source verification runs on the caller thread holding lease.
         AssertPrimary(lease, snapshot.Paths, new(snapshot.Definition, snapshot.PrimarySha256), allowIncomplete: false);
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
-        VerifySourceRecords(snapshot.Paths, snapshot.Definition, cancellationToken, verifiedDirectories);
+        VerifySourceRecords(snapshot.Paths, snapshot.Definition, cancellationToken);
         if (snapshot.Files.IsDefaultOrEmpty) return;
         MmcInstancePaths.ForEachBounded(snapshot.Files, (_, file, token) => {
             token.ThrowIfCancellationRequested();
-            string path = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath, verifiedDirectories);
+            string path = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath);
             using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
             if (input.Length != file.SizeBytes)
                 throw new IOException("A bound MMC launch input changed after preparation: " + file.RelativePath);
@@ -170,8 +169,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         foreach (var value in definition.DerivedOutputs.Where(value => value.ViewKey == prepared.ViewKey)) Add(value.TargetRelativePath, value.Sha256, value.SizeBytes);
         var ordered = files.Values.OrderBy(value => value.RelativePath, StringComparer.Ordinal).ToImmutableArray();
         if (!ordered.IsEmpty) {
-            var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
-            MmcInstancePaths.ForEachBounded(ordered, (_, file, _) => paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath, verifiedDirectories), CancellationToken.None);
+            MmcInstancePaths.ForEachBounded(ordered, (_, file, _) => paths.ResolveRelative(MmcPathRole.Instance, file.RelativePath), CancellationToken.None);
         }
         return ordered;
     }

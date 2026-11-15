@@ -31,11 +31,10 @@ public static class MmcSavedSourceStore {
     public static async Task<MmcSavedInstanceSources> LoadAsync(MmcInstancePaths paths, MmcInstanceDefinition definition,
         CancellationToken cancellationToken = default) {
         if (!MmcDefinitionCodec.Validate(definition).IsEmpty) throw new InvalidDataException("A published definition is required to read its sources.");
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         _ = MmcInstancePackageOwnership.Read(paths, definition);
         _ = MmcPlatformOriginFiles.ReadSaved(paths, definition);
         MmcExternalBundleReference baselineReference = definition.AuthorFileBaseline ?? throw new InvalidDataException("Measured author baseline is missing; source reconstruction needs recovery.");
-        byte[] baselineBytes = ReadBounded(paths, baselineReference.ObjectRelativePath, 64 * 1024 * 1024, cancellationToken, verifiedDirectories);
+        byte[] baselineBytes = ReadBounded(paths, baselineReference.ObjectRelativePath, 64 * 1024 * 1024, cancellationToken);
         var baselineInput = new MmcPackageBaselineInput(baselineBytes);
         var read = MmcPackageFileBaselineCodec.Read(baselineInput, baselineReference, definition.Origin.PackageSha256, definition.SourceBundle.RelativeRoot);
         if (read.HasErrors || read.Baseline is null) throw new InvalidDataException("Measured package baseline is damaged: " + string.Join("; ", read.Diagnostics.Select(d => d.Code)));
@@ -47,7 +46,7 @@ public static class MmcSavedSourceStore {
         var adopted = ImmutableArray.CreateBuilder<MmcMetadataSnapshot>(); long total = 0;
         foreach (var record in definition.SourceBundle.MetadataRecords) {
             cancellationToken.ThrowIfCancellationRequested();
-            byte[] bytes = ReadBounded(paths, record.ObjectRelativePath, 16 * 1024 * 1024, cancellationToken, verifiedDirectories);
+            byte[] bytes = ReadBounded(paths, record.ObjectRelativePath, 16 * 1024 * 1024, cancellationToken);
             total = checked(total + bytes.LongLength);
             if (total > 128L * 1024 * 1024 || Hash(bytes) != record.ContentSha256)
                 throw new InvalidDataException("Saved source metadata digest or cumulative budget is invalid.");
@@ -74,7 +73,7 @@ public static class MmcSavedSourceStore {
         foreach (var value in definition.ComponentOverrides) {
             cancellationToken.ThrowIfCancellationRequested(); string? patch = null;
             if (value.PatchReference is { } source) {
-                byte[] bytes = ReadBounded(paths, source.ObjectRelativePath, 16 * 1024 * 1024, cancellationToken, verifiedDirectories);
+                byte[] bytes = ReadBounded(paths, source.ObjectRelativePath, 16 * 1024 * 1024, cancellationToken);
                 total = checked(total + bytes.LongLength);
                 if (Hash(bytes) != source.Sha256 || total > 128L * 1024 * 1024) throw new InvalidDataException("Saved user override is damaged.");
                 patch = new UTF8Encoding(false, true).GetString(bytes);
@@ -93,8 +92,8 @@ public static class MmcSavedSourceStore {
         if (opaqueFiles.Length > 0) {
             string prefix = "PCL/MmcSource/" + definition.SourceBundle.BundleSha256 + "/package-files/";
             await Task.Run(() => MmcInstancePaths.ForEachBounded(opaqueFiles, (_, file, token) => {
-                string fullPath = paths.ResolveRelative(MmcPathRole.Instance, prefix + file.Sha256, verifiedDirectories);
-                var observed = MmcArtifactIo.HashFile(fullPath, 4L * 1024 * 1024 * 1024, token, file.Sha1, verifiedDirectories);
+                string fullPath = paths.ResolveRelative(MmcPathRole.Instance, prefix + file.Sha256);
+                var observed = MmcArtifactIo.HashFile(fullPath, 4L * 1024 * 1024 * 1024, token, file.Sha1);
                 if (observed.Sha256 != file.Sha256 || observed.Size != file.SizeBytes) throw new InvalidDataException("Opaque original source is damaged.");
             }, cancellationToken), cancellationToken).ConfigureAwait(false);
         }
@@ -102,9 +101,9 @@ public static class MmcSavedSourceStore {
     }
 
     internal static byte[] ReadBounded(MmcInstancePaths paths, string relative, int maximumBytes,
-        CancellationToken cancellationToken = default, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        CancellationToken cancellationToken = default) {
         cancellationToken.ThrowIfCancellationRequested();
-        string path = paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
+        string path = paths.ResolveRelative(MmcPathRole.Instance, relative);
         using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         if (input.Length > maximumBytes) throw new InvalidDataException("Preserved source exceeds its byte budget.");
         int initialCapacity = input.CanSeek ? (int)Math.Min(input.Length, maximumBytes) : 0;

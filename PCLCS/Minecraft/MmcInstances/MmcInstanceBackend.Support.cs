@@ -14,7 +14,6 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         IReadOnlyList<MmcInstanceLaunchSupportInput> inputs, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(snapshot); ArgumentNullException.ThrowIfNull(inputs);
         if (inputs.Count > 8) throw new IOException("Host support input count budget exceeded.");
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         List<(string Name, string? Staged, string Relative, string Hash, long Length)> prepared = new(inputs.Count);
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase); long total = 0;
         MmcArtifactWorkspace? workspace = null;
@@ -30,7 +29,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 byte[] bytes = input.Content.ToArray(); string digest = Hash(bytes);
                 if (!digest.Equals(input.ExpectedSha256, StringComparison.OrdinalIgnoreCase)) throw new IOException("Host support bytes differ from their reviewed digest.");
                 string relative = "PCL/MmcRuntime/" + snapshot.Directories.ViewKey + "/support/" + digest + "/" + input.FileName;
-                string target = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
+                string target = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, relative);
                 string? staged = null;
                 if (MmcInstancePaths.Attributes(target) is null) {
                     workspace ??= new MmcArtifactWorkspace(snapshot.Paths);
@@ -47,17 +46,19 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
             var result = ImmutableArray.CreateBuilder<MmcInstanceLaunchSupport>(prepared.Count);
             foreach (var file in prepared) {
                 cancellationToken.ThrowIfCancellationRequested();
-                string target = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.Relative, verifiedDirectories);
+                string target = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, file.Relative);
                 if (MmcInstancePaths.Attributes(target) is null) {
                     if (file.Staged is null)
                         throw new IOException("Content-addressed support bytes disappeared before publication.");
-                    AssertSupportFile(file.Staged, file.Hash, file.Length, verifiedDirectories);
+                    AssertSupportFile(file.Staged, file.Hash, file.Length);
                     MmcArtifactIo.Directory(Path.GetDirectoryName(target)!);
+                    MmcInstancePaths.EnsureNoLinks(file.Staged);
+                    MmcInstancePaths.EnsureNoLinks(target);
                     // CreateNew semantics: an existing third-party target is never silently replaced.
                     try { File.Move(file.Staged, target, false); }
                     catch (IOException) when (MmcInstancePaths.Attributes(target) is not null) { }
                 }
-                AssertSupportFile(target, file.Hash, file.Length, verifiedDirectories);
+                AssertSupportFile(target, file.Hash, file.Length);
                 result.Add(new(file.Name, target, file.Hash, file.Length));
             }
             return result.ToImmutable();
@@ -65,8 +66,8 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
             workspace?.Dispose();
         }
     }
-    private static void AssertSupportFile(string path, string hash, long size, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+    private static void AssertSupportFile(string path, string hash, long size) {
+        MmcInstancePaths.EnsureNoLinks(path);
         using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         if (input.Length != size)
             throw new IOException("Content-addressed support bytes are damaged; preserve them for explicit cache recovery.");

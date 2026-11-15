@@ -56,6 +56,7 @@ internal static partial class MmcInstanceBackendTests {
         yield return ("MMC launch preparation keeps complete generations and repairs only missing managed inputs offline", LaunchPreparation);
         yield return ("MMC launch preparation rejects stale identity, new variants and damaged support without adopting bytes", LaunchRefusals);
         yield return ("MMC parallel prepared launch validation reuses valid support and unwraps tail-file tamper as IOException", ParallelLaunchValidationDetectsTailCorruption);
+        yield return ("MMC final launch validation rechecks replaced ancestor junctions even after a clean validation pass", LaunchValidationRejectsReplacedAncestorJunction);
         yield return ("MMC preloaded launch sources, baseline disk tamper detection, and preserved target repair stay strict", PreloadedSourcesAndPreservedRepairInvariants);
         yield return ("MMC import reports console and PermGen requirements as inert differences instead of substituting", PreferenceDifferences);
         yield return ("MMC private payload placement binds measured files and preserves canceled or conflicting private roots", PrivatePayload);
@@ -366,6 +367,53 @@ internal static partial class MmcInstanceBackendTests {
         try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded, canceled.Token); }
         catch (OperationCanceledException) { caughtCancel = true; }
         Equal(true, caughtCancel);
+    }
+
+    private static void LaunchValidationRejectsReplacedAncestorJunction() => LaunchValidationRejectsReplacedAncestorJunctionAsync().GetAwaiter().GetResult();
+    private static async Task LaunchValidationRejectsReplacedAncestorJunctionAsync() {
+        using Fixture fixture = new();
+        var imported = await fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)));
+        if (imported.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(imported.Failure);
+        Guid id = imported.Definition!.InstanceId; var backend = fixture.Backend(offline: true);
+        var ready = await backend.PrepareLaunchAsync(new(fixture.VersionRoot, new("windows", "x86_64", 8), id, 1));
+        if (ready.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(ready.Failure);
+        var snapshot = ready.Snapshot!;
+        var files = ImmutableArray.CreateBuilder<MmcInstanceLaunchFile>(snapshot.Files.Length + 4);
+        files.AddRange(snapshot.Files);
+        string batchDir = Path.Combine(snapshot.Paths.GameRoot, "mods", "batch-0");
+        string outsideBatch = Path.Combine(fixture.Scope, "outside-batch");
+        string outsideSentinel = Path.Combine(outsideBatch, "sentinel.txt");
+        string parkedBatch = Path.Combine(fixture.Scope, "parked-batch");
+        Directory.CreateDirectory(batchDir);
+        Directory.CreateDirectory(outsideBatch);
+        File.WriteAllText(outsideSentinel, "preserve-outside-batch");
+        for (int i = 0; i < 4; i++) {
+            string relative = $"minecraft/mods/batch-0/mod-{i:D2}.bin";
+            string full = snapshot.Paths.ResolveRelative(MmcPathRole.Instance, relative);
+            byte[] payload = Encoding.UTF8.GetBytes($"ancestor-junction-launch-entry-{i:D2}");
+            File.WriteAllBytes(full, payload);
+            File.WriteAllBytes(Path.Combine(outsideBatch, $"mod-{i:D2}.bin"), payload);
+            files.Add(new(relative, Convert.ToHexStringLower(SHA256.HashData(payload)), payload.LongLength));
+        }
+        var expanded = new MmcPreparedInstanceLaunch(
+            snapshot.Definition, snapshot.PrimarySha256, snapshot.BoundPlan, snapshot.Paths,
+            snapshot.PackageConfiguration, snapshot.Targets, snapshot.Directories, files.ToImmutable());
+        using var lease = MmcAdmissionGate.Acquire(fixture.VersionRoot, id, TimeSpan.Zero);
+        MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded);
+
+        Directory.Move(batchDir, parkedBatch);
+        MmcInstancePathsTests.CreateDirectoryLink(batchDir, outsideBatch);
+        try {
+            IOException? rejected = null;
+            try { MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded); }
+            catch (IOException error) { rejected = error; }
+            Equal("MMC 路径包含链接或重解析点。", rejected?.Message);
+            Equal("preserve-outside-batch", File.ReadAllText(outsideSentinel));
+        } finally {
+            if (Directory.Exists(batchDir)) Directory.Delete(batchDir, false);
+            if (Directory.Exists(parkedBatch)) Directory.Move(parkedBatch, batchDir);
+        }
+        MmcInstanceBackend<MmcArtifactDownloadSpec>.ValidatePreparedLaunch(lease, expanded);
     }
 
     private static void PreloadedSourcesAndPreservedRepairInvariants() => PreloadedSourcesAndPreservedRepairInvariantsAsync().GetAwaiter().GetResult();

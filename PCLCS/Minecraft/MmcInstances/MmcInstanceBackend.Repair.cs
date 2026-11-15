@@ -107,9 +107,8 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
             if (MmcSavedSourceStore.ReadPrimary(paths).Sha256 != primary.Sha256 || MmcDurableFiles.Observe(projectionPath) != oldProjection)
                 throw new IOException("Definition or projection changed while repair was preparing; no prepared changes were published.");
             if (request.StrictSelection is { } selected) MmcInstanceRepairSelections.Revalidate(gate, selected);
-            var repairVerifiedDirs = MmcInstancePaths.CreatePassDirectoryCache();
-            VerifyPreparedInputs(paths, prepared, cancellationToken, repairVerifiedDirs);
-            VerifySourceRecords(paths, definition, cancellationToken, repairVerifiedDirs);
+            VerifyPreparedInputs(paths, prepared, cancellationToken);
+            VerifySourceRecords(paths, definition, cancellationToken);
             using var settings = quiet.OpenProjectionRepair(gate, definition.Generation, primary.Sha256);
             if (request.StrictSelection is not null) MmcInstanceRepairSelections.AssertConfiguration(definition, settings.ConfigSnapshot);
             SetManifest(settings, saved.Resolved.Resolution.Profile!, compiled, definition.InstanceId, generation);
@@ -146,11 +145,10 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 candidates.Add(value);
         }
         if (candidates.Count == 0) return [];
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
         var observedHashes = new string?[candidates.Count];
         await Task.Run(() => MmcInstancePaths.ForEachBounded(candidates, (index, value, ct) => {
-            string target = paths.ResolveRelative(MmcPathRole.Instance, value.TargetRelativePath, verifiedDirectories);
-            observedHashes[index] = MmcDurableFiles.Observe(target, verifiedDirectories);
+            string target = paths.ResolveRelative(MmcPathRole.Instance, value.TargetRelativePath);
+            observedHashes[index] = MmcDurableFiles.Observe(target);
         }, token), token).ConfigureAwait(false);
         var result = ImmutableArray.CreateBuilder<MmcFileMutation>(); var io = new MmcArtifactIo(new(), null);
         for (int i = 0; i < candidates.Count; i++) {
@@ -165,17 +163,14 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
         }
         return result.ToImmutable();
     }
-    private static string OriginalInput(MmcInstancePaths paths, MmcPreparedArtifacts prepared, string relative,
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte>? verifiedDirectories = null) =>
-        prepared.StagedMutations.FirstOrDefault(value => value.TargetRelativePath == relative)?.StagedPath ?? paths.ResolveRelative(MmcPathRole.Instance, relative, verifiedDirectories);
+    private static string OriginalInput(MmcInstancePaths paths, MmcPreparedArtifacts prepared, string relative) =>
+        prepared.StagedMutations.FirstOrDefault(value => value.TargetRelativePath == relative)?.StagedPath ?? paths.ResolveRelative(MmcPathRole.Instance, relative);
     private static void VerifyPreparedInputs(MmcInstancePaths paths, MmcPreparedArtifacts prepared,
-        CancellationToken cancellationToken = default,
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        verifiedDirectories ??= MmcInstancePaths.CreatePassDirectoryCache();
+        CancellationToken cancellationToken = default) {
         if (!prepared.OrderedBindings.IsDefaultOrEmpty) {
             MmcInstancePaths.ForEachBounded(prepared.OrderedBindings, (_, binding, ct) => {
                 ct.ThrowIfCancellationRequested();
-                if (MmcDurableFiles.Observe(binding.VerifiedInputPath, verifiedDirectories) != binding.Sha256)
+                if (MmcDurableFiles.Observe(binding.VerifiedInputPath) != binding.Sha256)
                     throw new IOException("Prepared execution input changed before publication.");
             }, cancellationToken);
         }
@@ -188,37 +183,35 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 string inputPath = stagedMap is not null && stagedMap.TryGetValue(value.RecoveryObjectRelativePath, out string? staged)
                     ? staged
                     : stagedMap is not null
-                        ? paths.ResolveRelative(MmcPathRole.Instance, value.RecoveryObjectRelativePath, verifiedDirectories)
-                        : OriginalInput(paths, prepared, value.RecoveryObjectRelativePath, verifiedDirectories);
-                if (MmcDurableFiles.Observe(inputPath, verifiedDirectories) != value.AdoptedSha256)
+                        ? paths.ResolveRelative(MmcPathRole.Instance, value.RecoveryObjectRelativePath)
+                        : OriginalInput(paths, prepared, value.RecoveryObjectRelativePath);
+                if (MmcDurableFiles.Observe(inputPath) != value.AdoptedSha256)
                     throw new IOException("Locked original input changed before publication.");
             }, cancellationToken);
         }
     }
     private static void VerifySourceRecords(MmcInstancePaths paths, MmcInstanceDefinition definition,
-        CancellationToken cancellationToken = default,
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        verifiedDirectories ??= MmcInstancePaths.CreatePassDirectoryCache();
+        CancellationToken cancellationToken = default) {
         _ = MmcPlatformOriginFiles.ReadSaved(paths, definition);
         _ = MmcInstancePackageOwnership.Read(paths, definition);
         var metadataRecords = definition.SourceBundle.MetadataRecords;
         if (!metadataRecords.IsDefaultOrEmpty) {
             MmcInstancePaths.ForEachBounded(metadataRecords, (_, value, ct) => {
-                string fullPath = paths.ResolveRelative(MmcPathRole.Instance, value.ObjectRelativePath, verifiedDirectories);
-                if (MmcArtifactIo.HashSha256(fullPath, 16L * 1024 * 1024, ct, verifiedDirectories).Sha256 != value.ContentSha256)
+                string fullPath = paths.ResolveRelative(MmcPathRole.Instance, value.ObjectRelativePath);
+                if (MmcArtifactIo.HashSha256(fullPath, 16L * 1024 * 1024, ct).Sha256 != value.ContentSha256)
                     throw new IOException("Saved source changed before publication.");
             }, cancellationToken);
         }
         foreach (var source in definition.ComponentOverrides.Select(value => value.PatchReference).OfType<MmcObjectReference>()) {
             cancellationToken.ThrowIfCancellationRequested();
-            string fullPath = paths.ResolveRelative(MmcPathRole.Instance, source.ObjectRelativePath, verifiedDirectories);
-            if (MmcArtifactIo.HashSha256(fullPath, 16L * 1024 * 1024, cancellationToken, verifiedDirectories).Sha256 != source.Sha256)
+            string fullPath = paths.ResolveRelative(MmcPathRole.Instance, source.ObjectRelativePath);
+            if (MmcArtifactIo.HashSha256(fullPath, 16L * 1024 * 1024, cancellationToken).Sha256 != source.Sha256)
                 throw new IOException("Saved component override changed before publication.");
         }
         if (definition.AuthorFileBaseline is not { } baseline)
             throw new IOException("Measured author baseline changed before publication.");
-        string baselinePath = paths.ResolveRelative(MmcPathRole.Instance, baseline.ObjectRelativePath, verifiedDirectories);
-        if (MmcArtifactIo.HashSha256(baselinePath, 64L * 1024 * 1024, cancellationToken, verifiedDirectories).Sha256 != baseline.ContentSha256)
+        string baselinePath = paths.ResolveRelative(MmcPathRole.Instance, baseline.ObjectRelativePath);
+        if (MmcArtifactIo.HashSha256(baselinePath, 64L * 1024 * 1024, cancellationToken).Sha256 != baseline.ContentSha256)
             throw new IOException("Measured author baseline changed before publication.");
     }
 }

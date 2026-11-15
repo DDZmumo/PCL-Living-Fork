@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -47,9 +46,6 @@ public sealed class MmcInstancePaths {
         return new(root, leaf, leaf == "minecraft" ? hasDotMinecraft : hasMinecraft);
     }
 
-    internal static ConcurrentDictionary<string, byte> CreatePassDirectoryCache() =>
-        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-
     internal static void ForEachBounded<T>(IReadOnlyList<T> items, Action<int, T, CancellationToken> body, CancellationToken cancellationToken) {
         cancellationToken.ThrowIfCancellationRequested();
         if (items.Count == 0) return;
@@ -85,11 +81,9 @@ public sealed class MmcInstancePaths {
     }
 
     /// <summary>Returns a checked, role-relative target without creating it or merging library scopes.</summary>
-    public string ResolveRelative(MmcPathRole role, string relative) => ResolveRelative(role, relative, null);
-
-    internal string ResolveRelative(MmcPathRole role, string relative, ConcurrentDictionary<string, byte>? verifiedDirectories) {
+    public string ResolveRelative(MmcPathRole role, string relative) {
         string target = ComputeRelativePath(role, relative);
-        EnsureNoLinks(target, verifiedDirectories);
+        EnsureNoLinks(target);
         return target;
     }
 
@@ -141,37 +135,15 @@ public sealed class MmcInstancePaths {
         return true;
     }
 
-    internal static void EnsureNoLinks(string path) => EnsureNoLinks(path, null);
-
-    internal static void EnsureNoLinks(string path, ConcurrentDictionary<string, byte>? verifiedDirectories) {
+    internal static void EnsureNoLinks(string path) {
         string full = Path.GetFullPath(path);
-        // Never cache the leaf path itself: callers always inspect leaf attributes fresh.
         FileAttributes? leafAttributes = Attributes(full);
         if (leafAttributes is not null && (leafAttributes.Value & FileAttributes.ReparsePoint) != 0)
             throw new IOException("MMC 路径包含链接或重解析点。");
         string? current = Path.GetDirectoryName(full);
-        if (verifiedDirectories is null) {
-            while (current is not null) {
-                CheckAncestorDirectory(Attributes(current));
-                current = Path.GetDirectoryName(current);
-            }
-            return;
-        }
-        List<string>? uncached = null;
         while (current is not null) {
-            if (verifiedDirectories.ContainsKey(current)) break;
-            FileAttributes? attributes = Attributes(current);
-            CheckAncestorDirectory(attributes);
-            if (attributes is not null) {
-                uncached ??= new List<string>(8);
-                uncached.Add(current);
-            }
+            CheckAncestorDirectory(Attributes(current));
             current = Path.GetDirectoryName(current);
-        }
-        if (uncached is not null) {
-            // Populate top-down so an ancestor is never marked verified before every parent above it.
-            for (int i = uncached.Count - 1; i >= 0; i--)
-                verifiedDirectories.TryAdd(uncached[i], 0);
         }
     }
 

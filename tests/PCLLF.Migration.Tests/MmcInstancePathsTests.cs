@@ -11,6 +11,7 @@ internal static class MmcInstancePathsTests {
         yield return ("MMC paths reject unsafe leaves relative roots and nonversion roots", InvalidRoots);
         yield return ("MMC paths role-relative targets reject traversal ADS and devices", RelativeBoundaries);
         yield return ("MMC paths reject linked roles and linked descendants", LinkedPaths);
+        yield return ("MMC paths recheck replaced ancestor junctions after repeated checks and before publication", ReplacedAncestorJunction);
     }
     private static void DefaultGameRoot() {
         using Fixture fixture = new();
@@ -82,6 +83,60 @@ internal static class MmcInstancePathsTests {
         try { Throws<IOException>(() => paths.ResolveRelative(MmcPathRole.Game, "mods/a.jar")); }
         finally { Directory.Delete(link); }
         Equal(true, Directory.Exists(outside));
+    }
+    private static void ReplacedAncestorJunction() {
+        using Fixture fixture = new();
+        MmcInstancePaths paths = MmcInstancePaths.Resolve(fixture.Root);
+        string parent = Path.Combine(paths.InstanceRoot, "parent");
+        string objects = Path.Combine(parent, "objects");
+        string original = Path.Combine(objects, "original.bin");
+        string newTarget = Path.Combine(objects, "new.bin");
+        string validSibling = Path.Combine(paths.InstanceRoot, "valid-parent", "objects", "valid.bin");
+        string outside = Path.Combine(fixture.Scope, "outside-approved-instance");
+        string outsideObjects = Path.Combine(outside, "objects");
+        string outsideOriginal = Path.Combine(outsideObjects, "original.bin");
+        string outsideNew = Path.Combine(outsideObjects, "new.bin");
+        string sentinel = Path.Combine(outsideObjects, "sentinel.txt");
+        string preserved = Path.Combine(fixture.Scope, "preserved-original");
+
+        Directory.CreateDirectory(objects);
+        Directory.CreateDirectory(Path.GetDirectoryName(validSibling)!);
+        Directory.CreateDirectory(outsideObjects);
+        File.WriteAllText(original, "matching-fixture-bytes");
+        File.WriteAllText(outsideOriginal, "matching-fixture-bytes");
+        File.WriteAllText(sentinel, "preserve-outside");
+        File.WriteAllText(validSibling, "valid-sibling-bytes");
+
+        MmcInstancePaths.EnsureNoLinks(original);
+        Equal(original, paths.ResolveRelative(MmcPathRole.Instance, "parent/objects/original.bin"));
+        _ = MmcArtifactIo.HashSha256(original, 1024, CancellationToken.None);
+        _ = MmcArtifactIo.HashSha256(validSibling, 1024, CancellationToken.None);
+
+        Directory.Move(parent, preserved);
+        CreateDirectoryLink(parent, outside);
+        try {
+            IOException ensureError = AssertThrowsIo(() => MmcInstancePaths.EnsureNoLinks(original));
+            Equal("MMC 路径包含链接或重解析点。", ensureError.Message);
+            Equal("MMC 路径包含链接或重解析点。", AssertThrowsIo(() => paths.ResolveRelative(MmcPathRole.Instance, "parent/objects/original.bin")).Message);
+            Equal("MMC 路径包含链接或重解析点。", AssertThrowsIo(() => MmcArtifactIo.HashSha256(original, 1024, CancellationToken.None)).Message);
+            Equal("MMC 路径包含链接或重解析点。", AssertThrowsIo(() => MmcArtifactIo.Directory(objects)).Message);
+            Equal("MMC 路径包含链接或重解析点。", AssertThrowsIo(() => MmcInstancePaths.EnsureNoLinks(newTarget)).Message);
+            Equal(false, File.Exists(outsideNew));
+            Equal("preserve-outside", File.ReadAllText(sentinel));
+            Equal("matching-fixture-bytes", File.ReadAllText(outsideOriginal));
+            Equal(validSibling, paths.ResolveRelative(MmcPathRole.Instance, "valid-parent/objects/valid.bin"));
+            _ = MmcArtifactIo.HashSha256(validSibling, 1024, CancellationToken.None);
+        } finally {
+            // Only remove the exact junction created by this fixture; never recurse through it.
+            if (Directory.Exists(parent)) Directory.Delete(parent, false);
+            if (Directory.Exists(preserved)) Directory.Move(preserved, parent);
+        }
+        Equal(original, paths.ResolveRelative(MmcPathRole.Instance, "parent/objects/original.bin"));
+        _ = MmcArtifactIo.HashSha256(original, 1024, CancellationToken.None);
+    }
+    private static IOException AssertThrowsIo(Action action) {
+        try { action(); } catch (IOException error) { return error; }
+        throw new Exception("Expected IOException.");
     }
     internal static void CreateDirectoryLink(string path, string target) {
         if (!OperatingSystem.IsWindows()) { Directory.CreateSymbolicLink(path, target); return; }

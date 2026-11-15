@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -36,24 +35,23 @@ public static class MmcManagementProbe {
     // retains strict layout validation; a logical alias supplies the version JSON leaf explicitly.
     internal static MmcManagementSnapshot CaptureAtPhysicalRoot(string root, string logicalVersionName) {
         string pcl = Path.Combine(root, "PCL");
-        var verifiedDirectories = MmcInstancePaths.CreatePassDirectoryCache();
-        MmcManagementDocument definition = ReadDocument(Path.Combine(pcl, "InstanceDefinition.json"), verifiedDirectories);
-        MmcManagementDocument configHint = ReadHint(Path.Combine(pcl, "config.json"), true, verifiedDirectories);
-        MmcManagementDocument versionHint = ReadHint(Path.Combine(root, logicalVersionName + ".json"), false, verifiedDirectories);
+        MmcManagementDocument definition = ReadDocument(Path.Combine(pcl, "InstanceDefinition.json"));
+        MmcManagementDocument configHint = ReadHint(Path.Combine(pcl, "config.json"), true);
+        MmcManagementDocument versionHint = ReadHint(Path.Combine(root, logicalVersionName + ".json"), false);
         bool sources = false, pending = false, complete = true;
         foreach (string pendingName in PendingNames) try {
             string import = Path.Combine(pcl, pendingName);
-            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(pcl);
             if (MmcInstancePaths.Attributes(import) is not null) { sources = true; pending = true; }
-            MmcInstancePaths.EnsureNoLinks(import, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(import);
         } catch (Exception error) when (IsObservationFailure(error)) { complete = false; }
         foreach (string store in ReservedStores) {
             try {
                 string storePath = Path.Combine(pcl, store);
-                MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
+                MmcInstancePaths.EnsureNoLinks(pcl);
                 FileAttributes? attributes = MmcInstancePaths.Attributes(storePath);
                 sources |= attributes is not null;
-                MmcInstancePaths.EnsureNoLinks(storePath, verifiedDirectories);
+                MmcInstancePaths.EnsureNoLinks(storePath);
                 if (attributes is not null && (attributes.Value & FileAttributes.Directory) == 0) complete = false;
             } catch (Exception ex) when (IsObservationFailure(ex)) {
                 complete = false;
@@ -61,18 +59,18 @@ public static class MmcManagementProbe {
         }
         foreach (string receiptName in ReceiptNames) try {
             string payload = Path.Combine(pcl, receiptName);
-            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(pcl);
             FileAttributes? attributes = MmcInstancePaths.Attributes(payload);
             sources |= attributes is not null;
-            MmcInstancePaths.EnsureNoLinks(payload, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(payload);
             if (attributes is not null && (attributes.Value & FileAttributes.Directory) != 0) complete = false;
         } catch (Exception error) when (IsObservationFailure(error)) { complete = false; }
         try {
             string transactions = Path.Combine(pcl, "MmcTransactions");
-            MmcInstancePaths.EnsureNoLinks(pcl, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(pcl);
             FileAttributes? attributes = MmcInstancePaths.Attributes(transactions);
             if (attributes is not null) sources = true;
-            MmcInstancePaths.EnsureNoLinks(transactions, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(transactions);
             if (attributes is not null) {
                 sources = true;
                 // A future recovery service may recognize finalized journals. Until then every retained
@@ -83,14 +81,14 @@ public static class MmcManagementProbe {
         return new(definition, configHint, versionHint, sources, pending, complete);
     }
 
-    private static MmcManagementDocument ReadDocument(string path, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+    private static MmcManagementDocument ReadDocument(string path) {
         bool exists = false;
         try {
-            MmcInstancePaths.EnsureNoLinks(Path.GetDirectoryName(path)!, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(Path.GetDirectoryName(path)!);
             FileAttributes? attributes = MmcInstancePaths.Attributes(path);
             if (attributes is null) return MmcManagementDocument.Missing;
             exists = true;
-            MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+            MmcInstancePaths.EnsureNoLinks(path);
             if ((attributes.Value & FileAttributes.Directory) != 0) throw new IOException("管理文件被目录占用。");
             using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (stream.Length > MmcManagementReader.MaximumDocumentBytes) throw new InvalidDataException("管理文件超过读取预算。");
@@ -109,8 +107,8 @@ public static class MmcManagementProbe {
         }
     }
 
-    private static MmcManagementDocument ReadHint(string path, bool config, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
-        MmcManagementDocument file = ReadDocument(path, verifiedDirectories);
+    private static MmcManagementDocument ReadHint(string path, bool config) {
+        MmcManagementDocument file = ReadDocument(path);
         if (file.Error is not null) return new(false, Error: file.Error);
         if (!file.Exists) return MmcManagementDocument.Missing;
         bool knownHint = false;

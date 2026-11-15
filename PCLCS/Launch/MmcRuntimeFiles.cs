@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -25,21 +24,21 @@ internal static class MmcRuntimeFiles {
     internal static void Hash(string? hash) {
         if (hash is null || hash.Length != 64 || !hash.All(Uri.IsHexDigit)) throw new MmcRuntimeLaunchException("MMC_RUNTIME_DIGEST", "A verified runtime identity is missing or malformed.");
     }
-    internal static void SamePath(string actual, string expected, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+    internal static void SamePath(string actual, string expected) {
         if (!Path.IsPathFullyQualified(actual) || !Path.GetFullPath(actual).Equals(Path.GetFullPath(expected), PathComparison))
             throw new MmcRuntimeLaunchException("MMC_RUNTIME_PATH", "A runtime path does not match its approved instance role.");
-        MmcInstancePaths.EnsureNoLinks(expected, verifiedDirectories);
+        MmcInstancePaths.EnsureNoLinks(expected);
     }
-    internal static void Owned(string actual, string parent, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+    internal static void Owned(string actual, string parent) {
         if (!Path.IsPathFullyQualified(actual) || !Path.GetFullPath(actual).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(parent)) + Path.DirectorySeparatorChar, PathComparison))
             throw new MmcRuntimeLaunchException("MMC_RUNTIME_PATH", "A runtime support path is outside the approved owned view.");
-        MmcInstancePaths.EnsureNoLinks(actual, verifiedDirectories);
+        MmcInstancePaths.EnsureNoLinks(actual);
     }
     internal static MmcRuntimeInputObservation Observe(string identity, string path, string expectedHash,
-        long? expectedSize, CancellationToken token, bool owned = true, ConcurrentDictionary<string, byte>? verifiedDirectories = null) {
+        long? expectedSize, CancellationToken token, bool owned = true) {
         Hash(expectedHash);
         if (!Path.IsPathFullyQualified(path)) throw new MmcRuntimeLaunchException("MMC_RUNTIME_PATH", "Runtime inputs require an approved absolute path.");
-        if (owned) MmcInstancePaths.EnsureNoLinks(path, verifiedDirectories);
+        if (owned) MmcInstancePaths.EnsureNoLinks(path);
         using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
         string observed = HashStream(stream, token);
         if (!observed.Equals(expectedHash, StringComparison.OrdinalIgnoreCase) || expectedSize is not null && stream.Length != expectedSize)
