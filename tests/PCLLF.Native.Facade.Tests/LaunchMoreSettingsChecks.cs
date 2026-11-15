@@ -57,6 +57,25 @@ internal static class LaunchMoreSettingsChecks {
             VisualAssetChecks.Pump(() => choice.IsLoaded && content.IsLoaded,"More Settings fixture did not load.");
             void Step(int count) { for (int index=0;index<count;index++) { lastTick.SetValue(null,long.MaxValue); Native.Call(tick.DeclaringType!,tick.Name,null,16d); } }
             Native.Check(recent.IsVisible && dependencies.IsVisible,"Default-on More Settings hid an existing card.");
+            bool launching = false;
+            Native.Set(right,"MoreSettingsLaunchLoading",new Func<bool>(()=>launching));
+            launching = true;
+            Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,true,true); Step(4);
+            Native.Check(transform.X < 0 && !content.IsHitTestVisible,"Starting a launch did not slide More Settings away or block hidden input.");
+            Step(35);
+            Native.Check(content.Visibility == Visibility.Collapsed && !dependencies.IsVisible && !recent.IsVisible && choice.Checked && Settings.Get<bool>(Preference),
+                "Starting a launch did not hide both cards without changing the user's More Settings preference.");
+            Native.Call(typeof(PageLaunchRight),"RefreshDependencyOptions",right); Step(35);
+            Native.Check(!content.IsVisible,"A dependency-options refresh reopened the cards during launch.");
+            launching = false;
+            Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,true,true); Step(35);
+            Native.Check(content.IsVisible && dependencies.IsVisible && !recent.IsVisible,"A completed launch did not restore dependency settings while protecting Quick Play.");
+            launching = true;
+            Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,true,true); Step(4);
+            launching = false;
+            Native.Call(typeof(PageLaunchRight),"ApplyRecentWorldState",right,false,true); Step(35);
+            Native.Check(content.IsVisible && dependencies.IsVisible && recent.IsVisible && Math.Abs(transform.X)<0.05,
+                "Canceling a launch left a stale hide callback or failed to restore both cards.");
             bool checkBefore = Settings.Get<bool>("LaunchModDependencyCheck"), fillBefore = Settings.Get<bool>("LaunchModDependencyAutoFill"), recentBefore = Settings.Get<bool>("LaunchRecentWorlds");
             choice.SetChecked(false,true); Step(4);
             Native.Check(transform.X < 0 && transform.X > -300 && !content.IsHitTestVisible,"Unchecking did not start a leftward slide or block hidden input.");

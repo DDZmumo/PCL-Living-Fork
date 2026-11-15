@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- PCLLF 原创独立代码采用 MPL-2.0，关于页可离线查看许可与来源\r\n- 个人基础设置同步独立侧栏，全局和版本设置均支持编辑后保存\r\n- 修复跨平台前置误报和模组更新漏报，保留本地依赖版本范围检查\r\n- 首页更多设置可统一收起面板，展开沿用 PCL 回弹动画\r\n- 修复深色主题提示框，完善原生开关、键位和拖动条对照\r\n- 预发布精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 下载模组时按真实身份替换同模组版本，新增重复筛选与简介翻译\r\n- 完善替代前置、NeoForge 与 Quilt 依赖匹配，清楚标注禁止共存版本\r\n- 优化依赖影响检查与增量索引，修复删除副本时连带删除同名文件的问题\r\n- 修复主页账号遮挡，启动时统一收起更多设置面板，结束或取消后恢复\r\n- 完善资源搜索项目身份核对与旧版启动器升级兼容\r\n- 正式精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());
