@@ -31,6 +31,8 @@ NeoForge 的规则依据[旧声明格式](https://docs.neoforged.net/docs/1.20.4
 
 ## 依赖树索引
 
+模组下载时的同模组替换、管理页重复筛选及简介翻译见[功能与匹配规则](MOD_DOWNLOAD_REPLACEMENT.md)。
+
 首次打开 Mod 管理或检查依赖时生成索引，保存在 `%LOCALAPPDATA%\PCLLivingFork\Cache\ModDependencyIndex`。索引包含本地依赖、反向依赖、内嵌归属和已有的平台映射，可在重启后恢复。
 
 未变化的模组只核对文件清单、大小和时间等状态，直接读取已有树，不重新解析 JAR。增加、删除、替换、重命名或启用/禁用文件后自动失效；加载器类型或 Minecraft 版本变化时重新选择声明。Java 或同类加载器版本变化时直接利用已有元数据重算检查结果。

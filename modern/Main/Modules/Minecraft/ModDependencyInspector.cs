@@ -211,6 +211,10 @@ namespace PCL
         {
             return InspectionCore.RebuildIndex(ModsFolder, Context, Token);
         }
+        internal static InspectionReport ReadSingleArchive(string FileName, InspectionContext Context, CancellationToken Token = default)
+        {
+            return InspectionCore.ReadSingleArchive(FileName, Context, Token);
+        }
         internal static InspectionReport ScanRaw(string ModsFolder, InspectionContext Context, CancellationToken Token, bool ForceFresh = false)
         {
             return InspectionCore.ScanRaw(ModsFolder, Context, Token, ForceFresh);

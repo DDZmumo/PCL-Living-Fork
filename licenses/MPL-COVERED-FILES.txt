@@ -183,3 +183,9 @@ scripts/Check-Licenses.py
 scripts/Resolve-VbCompiler.ps1
 scripts/tests/Test-VbCompilerDiscovery.ps1
 tests/PCLLF.Native.Facade.Tests/ModpackExportChecks.cs
+PCLCS/Minecraft/ModFileInstall.cs
+PCLCS/Resources/ResourceDescriptionTranslation.cs
+modern/Main/Modules/Minecraft/ModDownloadInstaller.cs
+tests/PCLLF.Migration.Tests/ModFileInstallTests.cs
+tests/PCLLF.Migration.Tests/ResourceDescriptionTranslationTests.cs
+tests/PCLLF.Native.Facade.Tests/NativeModDownloadChecks.cs

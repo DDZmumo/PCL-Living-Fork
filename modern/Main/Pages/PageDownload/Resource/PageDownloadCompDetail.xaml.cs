@@ -36,6 +36,26 @@ namespace PCL
 {
     public partial class PageDownloadResourceDetail
     {
+        private static readonly ResourceDescriptionTranslation DescriptionTranslations = new();
+        private CancellationTokenSource descriptionCancellation;
+        private async void TranslateDescriptionClick(object sender, MouseButtonEventArgs args)
+        {
+            var project = Service.Project;
+            if (project is null || string.IsNullOrWhiteSpace(project.Description)) { ModMain.Hint("此项目没有可翻译的简介。",ModMain.HintType.Blue);return; }
+            descriptionCancellation?.Cancel();
+            var cancellation = descriptionCancellation = new CancellationTokenSource();
+            BtnIntroTranslate.IsEnabled=false;
+            try {
+                var result=await Task.Run(()=>DescriptionTranslations.Get(project.Platform,project.Id,project.Description,cancellation.Token));
+                if(cancellation.IsCancellationRequested || !IsLoaded || !ReferenceEquals(project,Service.Project))return;
+                if(result is null){ModMain.Hint("此项目暂时没有可用的中文简介。",ModMain.HintType.Blue);return;}
+                string text="原文：\n"+project.Description+"\n\n中文译文（MCIM）：\n"+result.Translated;
+                if(!result.IsCurrent)text+="\n\n译文基于较早的简介，请以当前原文为准。\n对应原文：\n"+result.Original;
+                ModMain.MyMsgBox(text,"资源简介翻译");
+            } catch(OperationCanceledException) when(cancellation.IsCancellationRequested) { }
+            catch(Exception error){if(!cancellation.IsCancellationRequested&&IsLoaded&&ReferenceEquals(project,Service.Project)){Logger.Warn(error,"翻译资源简介失败");ModMain.Hint("简介翻译暂不可用，请稍后重试。",ModMain.HintType.Red);}}
+            finally{if(ReferenceEquals(descriptionCancellation,cancellation)){BtnIntroTranslate.IsEnabled=true;descriptionCancellation=null;}cancellation.Dispose();}
+        }
         public static global::System.Collections.Generic.Dictionary<global::PCLCS.ResourceTypes, global::System.String> CachedFolder = new global::System.Collections.Generic.Dictionary<global::PCLCS.ResourceTypes, global::System.String>();
         internal static string ChooseModDownloadFolder(ModMinecraft.McInstance Target, ModMinecraft.McInstance Selected, string Cached, Func<ModMinecraft.McInstance,bool> Suitable) => DetailCore.ChooseModDownloadFolder(Target,Selected,Cached,Suitable);
         private ModMinecraft.McInstance DownloadTargetInstance { get => Service.DownloadTargetInstance; set => Service.DownloadTargetInstance = value; }
@@ -57,6 +77,7 @@ namespace PCL
             __LfAttachOwnHandles();
             ResourceFileLoader = new global::PCL.ModLoader.LoaderTask<global::System.Int32, global::System.Collections.Generic.List<global::PCL.ResourceVersion>>("Resource File", Task => this.Service.LoadFiles(() => Task.IsCanceled, Value => Task.Output = Value));
             this.InitializeComponent();
+            Unloaded += (_,_) => descriptionCancellation?.Cancel();
         }
 
         private global::PCLCS.ResourceDetailPageHost<global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.MyCard, global::PCL.MyResourceItem> CreateHost()
@@ -124,6 +145,7 @@ namespace PCL
                 TranslateSetting = new Func<global::System.Int32>(() => global::PCL.Settings.Get<int>("ToolDownloadTranslateV2")),
                 NameValidator = global::PCL.PageDownloadResourceDetail.CreateNameValidator,
                 NetFile = new Func<global::PCL.ResourceVersion, global::System.String, global::PCLCS.ResourceDownloadReason, global::System.String, global::PCLCS.ModLoaders, global::PCL.ModNet.NetFile>((Version, Target, Reason, GameVersion, Loaders) => Version.ToNetFile(Target, (global::PCL.ResourceVersion.DownloadReason)(((global::System.Int32)Reason)), GameVersion, Loaders)),
+                InstallMod = ModDownloadInstaller.Start,
                 InstallPack = new Action<global::System.String, global::System.String, global::System.String, global::Newtonsoft.Json.Linq.JObject>((Target, Name, Logo, Source) => global::PCL.ModModpack.ModpackInstall(Target, Name, Logo, Source)),
                 MapDownloadFolder = global::PCL.MapDownloadInstaller.GetDownloadFolder,
                 InstallMap = global::PCL.MapDownloadInstaller.Install,

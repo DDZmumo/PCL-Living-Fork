@@ -29,6 +29,8 @@ public class LocalResourceFileData<TProject, TVersion>
     where TProject : ResourceProjectModelData where TVersion : ResourceVersionModelData {
     private readonly LocalResourceFileServices<TProject, TVersion> services;
     public readonly FileInfo File;
+    [Newtonsoft.Json.JsonIgnore] public string StorageKey => PathUtils.RemoveExtendedPrefix(File.FullName);
+    [Newtonsoft.Json.JsonIgnore] public IReadOnlyCollection<string> DeclaredModIds = Array.Empty<string>();
     public LocalResourceFileData(FileInfo file, LocalResourceFileServices<TProject, TVersion> services) { File = file; this.services = services; }
     public bool IsEnabled => new[] { ".jar", ".zip", ".litemod" }.Contains(File.Extension.Lower());
     public string EnabledName => File.Name.Replace(".disabled", "").Replace(".old", "");
