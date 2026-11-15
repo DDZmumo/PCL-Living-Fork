@@ -29,7 +29,7 @@
 | 可靠平台身份／在线更新 | 原包摘要与完整发布文件证据绑定、官方严格 TLS 元数据、来源修订及在线 ZIP 后端已接；根平台 10/10、选择器 171 项通过；Main 控件／早取消两组及绑定／在线任务七组通过，Sol max 定向审查无新增可证 P1/P2；已进入 `e059eee4` 开发包 | 外部平台接口与实际作者在线包更新未测 |
 | MMC ZIP 导出 | 真生产依赖图导入→导出→重导，审查 2 项 P2 修复后根工作树 12/12；新 Main 导出入口真实组通过，固定预览及个人文件默认排除 | 最终产品冷启动 |
 | 旧实例身份迁移／转换 | 主动原 ZIP 创建副本，旧实例保留；后端 4/4，根 Main 实际按钮／预览／工作任务与空列表恢复入口组通过 | 最终交付构建收口；未做转换后真实游戏验收 |
-| 性能（后期工程） | 只读 probe 与双包共 12 点基线已保留；按用户最新决定停止新增性能工作，未达到完整验收的候选已撤回 | 后期再做性能优化；不作为当前修 bug 和兼容功能交付的前置条件 |
+| 性能（后期工程） | 2026-11-08 12 点初版基线与已撤回比较见[探针说明](mmc-performance-probe.md)；2026-11-15 Package B/C 已基于冻结真实 `e0b87974` 运行时补齐 12 点 GTNH 正式基线、取消排空、三轮合成 2,003 文件私有导入与 1,024 条损坏目录分页基准，并完成 Core PE 纯度门禁与存储／缓存／跨卷协议评估，详见[性能与架构决策记录](mmc-performance-20261115.md) | 当前仅有新基线、无新优化候选 A/B，未宣称提速；GTNH 完整大包导入、真实 Main 列表扫描及后续优化实验仍留待后续立项 |
 | Prism 对照 | 固定 `899d2f3` 原生 C++ 解析／计划子集与 LF Core 六样例实际执行；两实包各 15/16 字段原值相同，差异及 native 10 个 DLL 字节复核完整记录于 `mmc-prism-differential.md` | 完整 Prism 应用／resolver／启动／提取器没有执行；日志注入层级、native 输入顺序及 LF 明确 null 扩展不伪装为全部等价 |
 | dev 构建交付 | `81796b2c` 已完成六模块／ZIP 条目／37 个 Core Git blob 核对；用户实际完成现代包导入、Java26 主菜单与正常退出；后续源码已补阶段细分、文件数、私有路径消重、MMC 独立分组与 Java 识别接线 | 本轮最终构建与代码检查收口后另行记录；非正式 Release，新包冷启动仍由用户反馈 |
 
@@ -129,7 +129,7 @@ Java26 后续已有主菜单与退出证据，但尚无该 Java 的完整世界�
 
 以上改动已通过 `PCLLF.Mmc.Runtime.Tests`、`PCLLF.Mmc.Export.Tests`、`PCLLF.Migration.Tests` 与 `PCLLF.Native.Facade.Tests` 的自动化闭环回归验证（具体通过项及权限边界见提交后最新一次全套运行记录）；外部真实整合包游玩、真实认证账号与外部平台在线接口仍保留在[二期待办](mmc-phase2-todo.md)继续跟踪。
 
-## 2026-11-15 代码审查修复与 Package A/B 收口
+## 2026-11-15 代码审查修复与 Package A/B/C 收口
 
 - 在 `codex/mmc-compatibility` 合入本地提交 `bf4176c2`（移除 `MmcInstancePaths` 祖先目录校验缓存并在 `File.Move` 边界恢复物理重检）与 `e0b87974`（持久化布局同步至三阶段 `commandContext`、活动 `PostExit` 跨进程所有权文件锁、持久 `CreatorWindowsSessionId` + Windows Job 四态 fail-closed 命令组退出证明与租约后移结算），并已由 Root 打包至 `artifacts/mmc-dev-build/20261115-e0b87974`（未改动且仅作构建证据保留）。
 - 基于 `e0b87974` 执行 Package A 补充实测与证据核对（日志见 `artifacts/mmc-postphase-20261115/`）：
@@ -137,4 +137,5 @@ Java26 后续已有主菜单与退出证据，但尚无该 Java 的完整世界�
   - 通过生产入口 `PCL.ModNet.CreateMmcPlatformOriginCatalog()` 完成 `Modrinth` `/v2/` 只读元数据及基于合成 `MmcPlatformOriginEvidence` 持有人的列表枚举在线预览实测（12 条候选通过编码器核验，**不**构成任意包作者身份绑定或在线更新提交证据）；`CurseForge` `/v1/` 实测请求在当前环境失败并抛出 `IOException: The official platform metadata endpoint is unavailable or redirected.`（根因尚待具备有效 API 凭据及网络条件的环境核查）。
   - 核实 `user-launch-67112.json` 保留的 `SDL3.dll 3.4.14.0`（`2,983,936` B，SHA256 `292406de...`）与 `lwjgl-sdl-natives-windows-3.4.3.jar`（`1,241,055` B）本地字节及 `jdk-26.0.2+10-55` 一致；崩溃根因未闭环。
 - Package B 已在 `tests/PCLLF.Migration.Tests/MmcProfileTests.cs`（`mmc-profile`）接入对实际 `PCLLF.MMCC.Core.dll` 的 PE 元数据与 IL 纯度约束检查（阻断宿主/WPF 引用、磁盘/控制台/网络/进程/环境/注册表、`PinvokeImpl`/`DllImport`/`LibraryImport` 及非确定性时钟/`Stopwatch`/随机数；对 `System.AppContext` 仅放行源生成 `[GeneratedRegex]` `<RegexGenerator_g>...__Utilities::.cctor` 只读 `GetData`/`TryGetSwitch` 并全表核销，手工 `AppContext` 仍拒绝，附 7 组非执行负例与正例夹具）。修复初测中 `System.AppContext` 误报及 `CS9113` 后，私有 `.NET 10` SDK 构建 `PCLLF.Migration.Tests.csproj` **0 警告 / 0 错误**，执行 `PCLLF.Migration.Tests.exe --group mmc-profile` **90/90 通过**（`b-final-build-migration.log`、`b-final-mmc-profile.log`；保留原失败现场 `architecture-profile.log`）；`Check-Documentation.py` 通过；同步完成存储／缓存演化、禁共享库硬链接／禁祖先目录信任缓存及跨卷移动四阶段安全协议评估（均保持当前明确边界，未新增缓存 store 或跨卷移动实现）。
+- Package C 完成收口：修复 `Select-MigrationChecks.py` / `MigrationSelection.golden.json` / `Test-MigrationSelection.py` 此前缺少第 45 个已注册分组 `mmc-runtime-environment` 的选择与全量清单不匹配问题，实测 `Test-MigrationSelection.py` **176/176 通过**（`selector-final-root.log`）且使用 `artifacts/mmc-goal/python-ci-deps` 运行 `Test-MainCiGates.py` **49/49 通过**；整合冻结真实 `e0b87974` 运行时的 12 点 GTNH 启动准备基线（Java 8 冷/热 `12,895.6` / `11,842.4 ms`、Java 21 冷/热 `15,583.7` / `15,069.0 ms`）、取消排空（`171.1` / `313.0 ms`）、三轮合成 2,003 文件私有载荷导入基准（总耗时中位数 `100,103 ms`、预检+放置中位数 `31,707 ms`，13 条日志变更 / 0 批量体复制）及冻结程序集 1,024 条损坏目录分页基准（首页中位数 `1,341.6 ms`、全量 32 页有序遍历中位数 `33,112.7 ms`），记录于[性能与架构决策记录](mmc-performance-20261115.md)。
 - 详细五类（已实现／受控通过／公网只读已验／真实待验／设计不支持）台账与 Package B 架构／存储评估见[二期待办与缺陷台账](mmc-phase2-todo.md)。

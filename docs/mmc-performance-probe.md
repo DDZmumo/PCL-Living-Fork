@@ -2,6 +2,8 @@
 
 This opt-in executable references `modern/PCLCS/PCLCS.Modern.csproj` and its actual Core/Shared dependency graph. It does not source-link a substitute host. It measures an existing successful publication and never starts Main, Java, Minecraft, import, repair, or a download. Core retains MPL-2.0; this host tooling retains the repository LICENCE.
 
+For the 2026-11-15 `e0b87974` packaged baseline, cancellation drain, synthetic private-payload import, and malformed-catalog paging records, see [MMC 启动准备性能与架构决策记录（2026-11-15）](mmc-performance-20261115.md). The 2026-11-08 baseline and withdrawn comparison sections below are kept intact as historical record.
+
 Register the exact retained acceptance root with `scripts/New-MmcPerformanceManifest.ps1 -AcceptanceRoot <owned acceptance run> -OutputPath <checkout>/artifacts/mmc-performance/fixture.json`. The manifest freezes both ownership-record hashes, import-record hash, source-record hash, package SHA256, current instance ID, generation, primary SHA256 and paths. The original ZIP and the Java executable are not opened. The executable revalidates ownership, direct `game/versions` containment, link boundaries, primary identity, complete original-object existence, and no pending transaction/active session before measuring.
 
 Build explicitly, outside a measurement and only when the shared heavy-test gate is available:
