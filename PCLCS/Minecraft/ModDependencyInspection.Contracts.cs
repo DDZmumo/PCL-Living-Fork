@@ -128,6 +128,7 @@ public sealed partial class ModDependencyInspection<TContext, TMod, TDependency,
     public class ReportData {
         // The original LF Friend index status is not part of the persisted JSON document.
         [JsonIgnore] public bool IndexHit, IndexReevaluated, IndexPersisted, IndexReadFailed;
+        [JsonIgnore] public int IndexArchivesRead, IndexArchivesReused;
         [JsonIgnore] public string? IndexFile, IndexFingerprint, IndexGeneration;
         public TContext Context = null!;
         public List<TMod> Mods = new(), Builtins = new();

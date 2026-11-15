@@ -148,7 +148,7 @@ namespace PCL
         }
         private static global::System.Collections.Generic.List<global::PCL.ModDependencyImpactView.Item> InspectImpacts(global::PCL.ModMinecraft.McInstance Target, global::System.String[] Candidates)
         {
-            var Report = global::PCL.ModDependencyOnline.InspectWithOnline(global::System.IO.Path.Combine(Target.PathIndie, "mods"), global::PCL.ModDependencyInspector.ContextForInstance(Target), Options: new global::PCL.ModDependencyOnline.LookupOptions() { ComparePlatformDependencies = true, MaxSearchFiles = 0 });
+            var Report = global::PCL.ModDependencyInspector.InspectForImpact(global::System.IO.Path.Combine(Target.PathIndie, "mods"), global::PCL.ModDependencyInspector.ContextForInstance(Target));
             return global::PCL.ModDependencyImpactView.Collect(Report, Candidates);
         }
         private static global::PCLLF.Presentation.Mods.LegacyModDependencyDetails InspectDetails(global::PCL.ModMinecraft.McInstance Target, global::PCL.LocalResourceFile Entry)

@@ -610,6 +610,7 @@ PCLCS/Minecraft/ModDependencyAutoFillInstall.cs
 PCLCS/Minecraft/ModDependencyInspection.Archives.cs
 PCLCS/Minecraft/ModDependencyInspection.Contracts.cs
 PCLCS/Minecraft/ModDependencyInspection.Index.cs
+PCLCS/Minecraft/ModDependencyInspection.Incremental.cs
 PCLCS/Minecraft/ModDependencyInspection.Resolution.cs
 PCLCS/Minecraft/ModDependencyOnlinePipeline.Files.cs
 PCLCS/Minecraft/ModDependencyOnlinePipeline.Matches.cs
