@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -78,9 +79,12 @@ internal static class GlassWindowIntegrationChecks {
                 host.CreateResizer = target => new WindowResizer(target,
                     value => value * ((PresentationSource.FromVisual(target) as HwndSource)?.CompositionTarget?.TransformFromDevice.M11 ?? 1),
                     (work, name) => {
+                        int gesture = resizeWorkers.Count + 1;
+                        if (interactive) Console.WriteLine("PREVIEW RESIZE worker-start #" + gesture + "; WPF-left=" + Mouse.LeftButton + "; native-left-down=" + ((GetAsyncKeyState(1) & 0x8000) != 0));
                         var thread = new Thread(() => {
                             try { work(); }
                             catch (Exception error) { lock (resizeFailures) resizeFailures.Add(error); }
+                            finally { if (interactive) Console.WriteLine("PREVIEW RESIZE worker-end #" + gesture); }
                         }) { IsBackground = true, Name = "Native facade " + name };
                         resizeWorkers.Add(thread); thread.Start();
                     });
@@ -182,16 +186,41 @@ internal static class GlassWindowIntegrationChecks {
             window.WindowState = WindowState.Minimized; VisualAssetChecks.Observe(100);
             Native.Check(materialHandle == 0 || !IsWindowVisible(materialHandle), "Actual FormMain minimize left its companion visible: state=" + window.WindowState +
                 "; iconic=" + IsIconic(new WindowInteropHelper(window).Handle) + "; backend=" + backdrop.Backend + "; status=" + backdrop.Status);
-            window.WindowState = WindowState.Normal; window.UpdateLayout(); VisualAssetChecks.Observe(120);
+            nint mainHandle = new WindowInteropHelper(window).Handle;
+            // Foreground taskbar animation can defer the actual minimize past the DP change.
+            // Restoring before it commits can be ignored, then the delayed minimize wins.
+            VisualAssetChecks.Pump(() => IsIconic(mainHandle) && window.WindowState == WindowState.Minimized,
+                "actual FormMain native minimize completion", 5000);
+            window.WindowState = WindowState.Normal; window.UpdateLayout();
+            long? restoredSince = null;
+            VisualAssetChecks.Pump(() => {
+                if (window.WindowState != WindowState.Normal || IsIconic(mainHandle) || !IsWindowVisible(mainHandle) || !IsWindowEnabled(mainHandle)) {
+                    restoredSince = null;
+                    return false;
+                }
+                restoredSince ??= Environment.TickCount64;
+                return Environment.TickCount64 - restoredSince.Value >= 150;
+            }, "stable actual FormMain native restore completion", 5000);
             if (backdrop.HasDesktopBackdrop) Native.Check(IsWindowVisible(backdrop.NativeBackdropHandle), "Actual FormMain restore lost the native material.");
             CheckSurfaces(view);
             if (interactive) {
                 bool closed = false; window.Closed += (_, _) => closed = true;
+                window.SizeChanged += (_, args) => Console.WriteLine(FormattableString.Invariant(
+                    $"PREVIEW SIZE actual-dip={args.NewSize.Width:0.###}x{args.NewSize.Height:0.###}; requested-dip={window.Width:0.###}x{window.Height:0.###}"));
+                window.PreviewKeyDown += (_, args) => {
+                    if (args.Key != Key.F6 || args.IsRepeat) return;
+                    bool minimum = Math.Abs(window.Width - 810) < 0.5 && Math.Abs(window.Height - 470) < 0.5;
+                    window.Width = minimum ? 1110 : 810;
+                    window.Height = minimum ? 740 : 470;
+                    window.UpdateLayout();
+                    Console.WriteLine(FormattableString.Invariant($"PREVIEW F6 requested-dip={window.Width:0}x{window.Height:0}"));
+                    args.Handled = true;
+                };
                 nint previewHandle = new WindowInteropHelper(window).Handle;
                 Native.Check(IsWindowVisible(previewHandle) && !IsIconic(previewHandle) && IsWindowEnabled(previewHandle),
                     "Interactive actual FormMain is logically loaded but its native HWND is hidden, minimized or disabled.");
                 window.Activate();
-                Console.WriteLine("INTERACTIVE actual FormMain preview ready; fixture-owned presentation data; native desktop material, wallpaper button toggles owned image; close the window to finish (10-minute limit).");
+                Console.WriteLine("INTERACTIVE actual FormMain preview ready; fixture-owned presentation data; native desktop material, wallpaper button toggles owned image; F6 toggles 810x470 / 1110x740; close the window to finish (10-minute limit).");
                 VisualAssetChecks.Pump(() => closed, "interactive actual FormMain preview", 600000);
             }
             Native.Check(unexpectedPorts.Count == 0, "Actual FormMain entered guarded original startup/termination: " + string.Join(",", unexpectedPorts));
@@ -294,4 +323,5 @@ internal static class GlassWindowIntegrationChecks {
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "GetWindowTextLengthW")] private static extern int GetWindowTextLength(nint hwnd);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
 }
