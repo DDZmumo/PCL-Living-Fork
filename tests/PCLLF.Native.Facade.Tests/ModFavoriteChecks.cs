@@ -43,8 +43,11 @@ internal static partial class ModFavoriteChecks {
         Native.Set(host, "Output", new Func<List<LocalResourceFile>>(() => new() { a, b, unknown }));
         Native.Set(host, "Instance", new Func<ModMinecraft.McInstance?>(() => null)); // Unrelated dependency inspection has its own family.
         Native.Call(controller.GetType(), "LoadUI", controller);
-        Native.Check(page.ModItems.Count == 3 && page.FindName("BtnFilterFavorite") is null && Part<Panel>(page, "PanFilter").Children.Count == 4, "Original four local filters/rows changed");
-        MyLocalModItem first = page.ModItems[a.EnabledName], second = page.ModItems[b.EnabledName], unmapped = page.ModItems[unknown.EnabledName];
+        Native.Check(page.ModItems.Count == 3 && page.FindName("BtnFilterFavorite") is null && Part<Panel>(page, "PanFilter").Children.Count == 5, "Original local filters or the new duplicate filter/rows changed");
+        Native.Call(controller.GetType(),"FilterChanged",controller,4);
+        Native.Check(Part<Panel>(page,"PanList").Children.Count==2,"Exact same-project duplicates were not grouped in the native page.");
+        Native.Call(controller.GetType(),"FilterChanged",controller,0);
+        MyLocalModItem first = page.ModItems[a.StorageKey], second = page.ModItems[b.StorageKey], unmapped = page.ModItems[unknown.StorageKey];
         foreach (MyLocalModItem row in page.ModItems.Values) { row.Refresh(); s.Observe(row); }
         s.LocalStar = Part<MyIconButton>(first, "BtnFavorite"); s.OtherStar = Part<MyIconButton>(second, "BtnFavorite");
         Native.Check(s.LocalStar.Visibility == Visibility.Visible && Part<MyIconButton>(unmapped, "BtnFavorite").Visibility == Visibility.Collapsed, "Unmatched local mod exposes favorites");
@@ -65,7 +68,7 @@ internal static partial class ModFavoriteChecks {
         var localMetadata = s.Store.Snapshot.Single(entry => entry.Identity.ProjectId == "Other123");
         Native.Check(localMetadata.KnownGameVersions.SequenceEqual(new[] { "1.20.1" }) && localMetadata.ModLoaders == ModLoaders.Fabric, "Trusted local platform version metadata was not retained as project compatibility");
         Click(Part<MyIconButton>(unmapped, "BtnFavorite"));
-        Native.Check(Serial() == serial && ReferenceEquals(page.ModItems[a.EnabledName], first), "Favorite/matcher rebuilt local rows");
+        Native.Check(Serial() == serial && ReferenceEquals(page.ModItems[a.StorageKey], first), "Favorite/matcher rebuilt local rows");
         s.Online = a.Project.ToResourceItem(true, true).Init(); s.Observe(s.Online);
         Native.Check(Part<MyIconButton>(s.Online, "BtnFavorite").Logo == s.LocalStar.Logo, "Cloud row missed local favorite");
         Click(Part<MyIconButton>(s.Online, "BtnFavorite"));

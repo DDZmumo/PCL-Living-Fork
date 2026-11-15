@@ -15,7 +15,7 @@ namespace PCLLF.Native.Facade.Tests;
 // All algorithms are invoked through the original Main facade; no substitute DTOs/engines.
 internal static class NativeDependencyChecks
 {
-    internal static void Local(FixtureEnvironment environment) => Invoke("Local", environment);
+    internal static void Local(FixtureEnvironment environment) { Invoke("Local", environment); NativeModDownloadChecks.Run(environment); }
     internal static void Online(FixtureEnvironment environment) => Invoke("Online", environment);
     internal static int IndexChild(FixtureEnvironment environment, string[] args) => (int)Invoke("IndexChild", environment, args)!;
     private static object? Invoke(string method, params object[] args)

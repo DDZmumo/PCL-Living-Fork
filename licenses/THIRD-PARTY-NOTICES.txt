@@ -610,6 +610,7 @@ PCLCS/Minecraft/ModDependencyAutoFillInstall.cs
 PCLCS/Minecraft/ModDependencyInspection.Archives.cs
 PCLCS/Minecraft/ModDependencyInspection.Contracts.cs
 PCLCS/Minecraft/ModDependencyInspection.Index.cs
+PCLCS/Minecraft/ModDependencyInspection.Incremental.cs
 PCLCS/Minecraft/ModDependencyInspection.Resolution.cs
 PCLCS/Minecraft/ModDependencyOnlinePipeline.Files.cs
 PCLCS/Minecraft/ModDependencyOnlinePipeline.Matches.cs
@@ -762,6 +763,16 @@ scripts/Check-Licenses.py
 scripts/Resolve-VbCompiler.ps1
 scripts/tests/Test-VbCompilerDiscovery.ps1
 tests/PCLLF.Native.Facade.Tests/ModpackExportChecks.cs
+tests/PCLLF.Migration.Tests/ModDependencyAlternativeTests.cs
+tests/PCLLF.Migration.Tests/ModDependencyRuleExpansionTests.cs
+PCLCS/Resources/ResourceWikiIdentity.cs
+tests/PCLLF.Modern.Wpf.Tests/ResourceWikiIdentityChecks.cs
+PCLCS/Minecraft/ModFileInstall.cs
+PCLCS/Resources/ResourceDescriptionTranslation.cs
+modern/Main/Modules/Minecraft/ModDownloadInstaller.cs
+tests/PCLLF.Migration.Tests/ModFileInstallTests.cs
+tests/PCLLF.Migration.Tests/ResourceDescriptionTranslationTests.cs
+tests/PCLLF.Native.Facade.Tests/NativeModDownloadChecks.cs
 
 
 ========================================================================

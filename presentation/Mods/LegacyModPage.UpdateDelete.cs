@@ -41,20 +41,23 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         }catch(Exception error){Logger.Warn(error,"初始化 Mod 更新失败");}
     }
     private void DeleteMods(IEnumerable<TMod> mods,bool ModeConfirmed=false){
-        bool permanent=host.ShiftDown();List<TMod> frozen=mods.ToList();if(!ModeConfirmed&&!host.ConfirmMode("删除 Mod"))return;
-        BeginDependencyMutation(frozen.SelectMany(item=>new[]{item.File.FullName,item.EnabledFullName}),"删除",()=>DeleteModsCore(frozen,permanent));
+        bool permanent=host.ShiftDown();
+        var frozen=mods.GroupBy(mod=>mod.StorageKey,StringComparer.OrdinalIgnoreCase).Select(group=>(Mod:group.First(),Path:group.First().File.FullName)).ToList();
+        if(!ModeConfirmed&&!host.ConfirmMode("删除 Mod"))return;
+        BeginDependencyMutation(frozen.Select(item=>item.Path),"删除",()=>DeleteModsCore(frozen,permanent));
     }
-    private void DeleteModsCore(IEnumerable<TMod> mods,bool permanent){
+    private void DeleteModsCore(IReadOnlyList<(TMod Mod,string Path)> selected,bool permanent){
         if(!AllowModWrite(host))return;
         try{
-            bool success=true;List<TMod> list=mods.SelectMany(target=>target.IsEnabled?new[]{target.File.FullName,target.File.FullName+(FileUtils.Exists(target.File.FullName+".old")?".old":".disabled")}:new[]{target.File.FullName,target.EnabledFullName}).Distinct().Where(FileUtils.Exists).Select(host.NewMod).ToList();
-            foreach(TMod mod in list){
-                try{FileUtils.Delete(mod.File.FullName,!permanent);}catch(OperationCanceledException error){Logger.Warn(error,"删除 Mod 被主动取消");ReloadModList(true);return;}catch(Exception error){Logger.Error(error,$"删除 Mod 失败（{mod.File.FullName}）",LogBehavior.Alert);success=false;}
-                host.Selected().Remove(mod.EnabledName);host.Output()!.Remove(mod);searchResult?.Remove(mod);host.Items().TryRemove(mod.EnabledName,out _);
+            bool success=true;var list=selected.Where(item=>FileUtils.Exists(item.Path)).ToList();
+            foreach(var item in list){
+                TMod mod=item.Mod;
+                try{FileUtils.Delete(item.Path,!permanent);}catch(OperationCanceledException error){Logger.Warn(error,"删除 Mod 被主动取消");ReloadModList(true);return;}catch(Exception error){Logger.Error(error,$"删除 Mod 失败（{item.Path}）",LogBehavior.Alert);success=false;continue;}
+                host.Selected().Remove(mod.StorageKey);host.Output()!.Remove(mod);searchResult?.Remove(mod);host.Items().TryRemove(mod.StorageKey,out _);
                 int index=view.List()!.Children.IndexOf(view.List()!.Children.OfType<TItem>().FirstOrDefault(item=>host.Entry(item).Equals(mod)));if(index>=0)view.List()!.Children.RemoveAt(index);
             }
             RefreshBars();if(!success){host.Hint("由于文件被占用，Mod 删除失败，请尝试关闭正在运行的游戏后再试！",1,true);ReloadModList(true);}else if(view.List()!.Children.Count==0)ReloadModList(true);else RefreshBars();
-            if(!success)return;if(list.IsSingle())host.Hint($"已删除 {list.Single().File.Name}！",2,true);else host.Hint($"已删除 {list.Count} 个文件！",2,true);
+            if(!success)return;if(list.IsSingle())host.Hint($"已删除 {Path.GetFileName(list.Single().Path)}！",2,true);else host.Hint($"已删除 {list.Count} 个文件！",2,true);
         }catch(OperationCanceledException error){Logger.Warn(error,"删除 Mod 被主动取消");ReloadModList(true);}catch(Exception error){Logger.Error(error,"删除 Mod 出现未知错误");ReloadModList(true);}host.LoaderRun(2);
     }
 }

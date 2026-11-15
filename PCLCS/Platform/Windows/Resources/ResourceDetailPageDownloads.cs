@@ -102,6 +102,11 @@ public sealed partial class ResourceDetailPageController<TProject, TVersion, TCa
                     string extension = file.ResourceType == ResourceTypes.Mod ? PathUtils.GetExtension(file.FileName!) == "litemod" ? "litemod" : "jar" : PathUtils.GetExtension(file.FileName!) == "mrpack" ? "mrpack" : "zip";
                     string? target = download.SaveFile(fileName, defaultFolder, extension, description + "文件");
                     if (target is null) return;
+                    if (file.ResourceType == ResourceTypes.Mod && download.InstallMod is not null) {
+                        download.CachedFolders[ResourceTypes.Mod] = PathUtils.RemoveLastPart(target);
+                        download.InstallMod(Project,file,target,TargetResourceType == ResourceTypes.Any ? ResourceDownloadReason.Dependency : ResourceDownloadReason.Standalone,DownloadTargetInstance);
+                        return;
+                    }
                     string name = description + "下载：" + PathUtils.GetFileNameWithoutExtension(target) + " ";
                     if (file.ResourceType != ResourceTypes.Map && !PathUtils.IsSame(PathUtils.RemoveLastPart(target), defaultFolder)) download.CachedFolders[file.ResourceType] = PathUtils.RemoveLastPart(target);
                     List<TLoader> loaders = new() { download.Loaders.Download("下载文件", new() { download.NetFile(file, target, TargetResourceType == ResourceTypes.Any ? ResourceDownloadReason.Dependency : ResourceDownloadReason.Standalone, null, ModLoaders.None) }, new MinecraftDownloadLoaderSettings { ProgressWeight = 6, Block = true }) };

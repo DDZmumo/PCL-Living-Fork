@@ -17,8 +17,18 @@ using Online = PCLCS.ModDependencyOnlinePipeline<ModDependencyInspectorPipelineT
 // PCL 5ef81e490ae46b1100d61e33d0183094c7a80ca8 has no corresponding supplement.
 // CE 1a7653127d578efdb2a9388999a3fdc67d9e49d5 was reviewed by the production port;
 // its project/version selection policies are not imported into these LF assertions.
-internal static class ModDependencyOnlinePipelineTests {
+internal static partial class ModDependencyOnlinePipelineTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
+        yield return ("Quilt bare caret tilde and explicit equality match loader semantics and invalidate old descriptor syntax", QuiltVersionDefaults);
+        yield return ("Java feature declarations use the current loader's feature key and selected JVM", JavaFeatureDeclarations);
+        yield return ("known Maven prereleases compare safely against numeric ranges with unsupported qualifiers left unknown", MavenKnownPrereleases);
+        yield return ("NeoForge 1.21.8 compatibility matrix includes its official beta alias without broad relaxation", NeoForge1218Matrix);
+        yield return ("NeoForge hotfix matrix is scoped to builtin Maven dependencies in a known matching runtime", NeoForgeHotfixCompatibility);
+        yield return ("verified replacement aliases satisfy required recommended and suggested platform dependencies", ReplacementPlatformDependencies);
+        yield return ("verified platform projects respect satisfied Quilt alternatives without concealing conjunction failures", AlternativePlatformDependencies);
+        yield return ("bounded metadata verification prioritizes replacements and still reads later cached identities", BoundedReplacementVerification);
+        if (Environment.GetEnvironmentVariable("PCLLF_ISSUE25_REAL_DIR") is string real25 && !string.IsNullOrWhiteSpace(real25))
+            yield return ("issue25 actual Insecticide and Do A Barrel Roll metadata replay",()=>RealReplacementDeclarations(real25));
         yield return ("platform review uses exact active files and keeps local errors authoritative", PlatformReview);
         yield return ("mixed-source GeckoLib satisfying loader ranges does not trigger a pinned platform warning", MixedSourceCompatiblePin);
         yield return ("CurseForge-only GeckoLib is verified through hashed reference metadata without name guessing", MixedSourceArchiveIdentity);

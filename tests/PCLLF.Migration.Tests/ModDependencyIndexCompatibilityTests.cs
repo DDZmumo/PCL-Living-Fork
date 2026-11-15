@@ -16,6 +16,11 @@ using Online = PCLCS.ModDependencyOnlinePipeline<ModDependencyInspectorPipelineT
 internal static class ModDependencyIndexCompatibilityTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() => LocalCases().Concat(OnlineCases());
     internal static IEnumerable<(string Name, Action Run)> LocalCases() {
+        yield return ("dependency index reuses unchanged archives after a disable rename", RenameReusesArchives);
+        yield return ("dependency index reads only added or modified archives and drops deleted providers", IncrementalChanges);
+        yield return ("dependency removal preview avoids index locks and preserves immutable cold and warm snapshots", ImpactWithoutIndexLocks);
+        yield return ("dependency inventory reuse preserves nested providers and rejects ambiguous renames", NestedRenames);
+        yield return ("dependency incremental snapshots recover old and malformed caches and honor forced rebuilds", SnapshotCompatibility);
         yield return ("dependency index persists graph identity and reuses locked archives while reevaluating Java", PersistAndReevaluate);
         yield return ("dependency index invalidates inventory and recovers corrupt or unavailable storage without publishing cancellation", InvalidationAndFailures);
         yield return ("dependency compatibility reads genuine legacy annotations and forces class-cache rebuilds without filename guesses", LegacyAndLoaderRules);
@@ -56,6 +61,135 @@ internal static class ModDependencyIndexCompatibilityTests {
             Report changed = Local.Inspect(folder, EnvironmentFor(java: "21.0.2")); Check(changed.IndexHit && changed.IndexReevaluated && !changed.HasErrors, "Java-only change reread archives or kept old errors.");
         }
         first.Mods[0].Name = "caller mutation"; Report fresh = Local.Inspect(folder, EnvironmentFor(java: "21.0.2")); Check(fresh.Mods.All(value => value.Name != "caller mutation"), "Mutable caller report leaked into cached JSON.");
+    }
+    private static void RenameReusesArchives() {
+        using Fixture fixture = new(); string folder = fixture.Folder("rename"); Context context = EnvironmentFor();
+        string core = Mod(folder, "core.jar", "core");
+        string user = Mod(folder, "user.jar", "user", new JObject { ["depends"] = new JObject { ["core"] = "*" } });
+        Local.Inspect(folder, context);
+        Local.Inspect(folder, context);
+        File.Move(core, core + ".disabled");
+        // An unchanged consumer must not be reopened merely because its provider was renamed.
+        using FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None);
+        Report disabled = Local.Inspect(folder, context);
+        Check(!disabled.IndexReadFailed && disabled.Mods.Count == 2,
+            "A disable rename reopened an unchanged archive instead of reusing its declarations.");
+        Check(disabled.IndexArchivesRead == 0 && disabled.IndexArchivesReused == 2, "A disable rename reread archive metadata.");
+        Check(disabled.HasErrors && disabled.Mods.Single(value => value.Id == "core").RootPath == core + ".disabled",
+            "Reused declarations did not update the disabled path and dependency graph.");
+        File.Move(core + ".disabled", core);
+        Report enabled = Local.Inspect(folder, context);
+        Check(!enabled.HasErrors && enabled.IndexArchivesRead == 0 && enabled.IndexArchivesReused == 2,
+            "Reenabling a cached provider failed to recompute dependencies without reopening archives.");
+        Local.Index.ClearMemory();
+        File.Move(core, core + ".old");
+        Report disk = Local.Inspect(folder, context);
+        Check(disk.HasErrors && disk.IndexArchivesRead == 0, "Disk snapshots lost the .old rename optimization.");
+    }
+    private static void IncrementalChanges() {
+        using Fixture fixture = new(); string folder = fixture.Folder("incremental"); Context context = EnvironmentFor();
+        string core = Mod(folder, "core.jar", "core");
+        string user = Mod(folder, "user.jar", "user", new JObject { ["depends"] = new JObject { ["core"] = ">=2" } });
+        Local.Inspect(folder, context);
+        using FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None);
+        File.Delete(core);
+        JObject updated = Fabric("core"); updated["version"] = "2.0";
+        Jar(folder, "core.jar", ("fabric.mod.json", Json(updated)));
+        File.SetLastWriteTimeUtc(core, DateTime.UtcNow.AddMinutes(1));
+        Report changed = Local.Inspect(folder, context);
+        Check(changed.IndexArchivesRead == 1 && changed.IndexArchivesReused == 1 && !changed.IndexReadFailed && !changed.HasErrors,
+            "Changing one provider reread an unchanged consumer or retained the old version.");
+        File.Delete(core);
+        Report deleted = Local.Inspect(folder, context);
+        Check(deleted.IndexArchivesRead == 0 && deleted.IndexArchivesReused == 1 && deleted.HasErrors && deleted.Mods.Count == 1,
+            "A deleted provider survived in the cached graph.");
+        Jar(folder, "added.jar", ("fabric.mod.json", Json(updated)));
+        Report added = Local.Inspect(folder, context);
+        Check(added.IndexArchivesRead == 1 && added.IndexArchivesReused == 1 && !added.HasErrors,
+            "Adding one provider rescanned the instance or lost its reverse dependency.");
+        File.Move(Path.Combine(folder, "added.jar"), Path.Combine(folder, "renamed.jar"));
+        Report renamed = Local.Inspect(folder, context);
+        Check(renamed.IndexArchivesRead == 1 && renamed.IndexArchivesReused == 1 && !renamed.HasErrors,
+            "An arbitrary rename must revalidate only the new archive, not guess its identity or rescan other files.");
+    }
+    private static void ImpactWithoutIndexLocks() {
+        using Fixture fixture = new(); string folder = fixture.Folder("impact"); Context context = EnvironmentFor();
+        string core = Mod(folder, "core.jar", "core");
+        string user = Mod(folder, "user.jar", "user", new JObject { ["depends"] = new JObject { ["core"] = "*" } });
+        Report cold = Local.InspectForImpact(folder, context);
+        Check(!cold.IndexPersisted && !File.Exists(Local.Index.IndexPath(folder, context)) && Local.GetImpacts(cold, new[] { core }).Count == 1,
+            "Cold removal preview wrote a disk index or skipped an ordinary instance's dependencies.");
+        cold.Mods.Clear();
+        using (FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None)) {
+            File.Move(core, core + ".disabled");
+            Report renamed = Local.InspectForImpact(folder, context);
+            Check(renamed.IndexArchivesRead == 0 && renamed.Mods.Count == 2 && renamed.HasErrors,
+                "Cold preview snapshots were mutable or lost when the provider was disabled.");
+        }
+        Report persisted = Local.Inspect(folder, context);
+        string index = persisted.IndexFile!; string bytes = File.ReadAllText(index);
+        var gates = (System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>)typeof(Local.Index)
+            .GetField("Gates", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        SemaphoreSlim gate = gates[index];
+        void PreviewWhileHeld() {
+            Task<Report> work = Task.Run(() => Local.InspectForImpact(folder, context));
+            Check(work.Wait(TimeSpan.FromSeconds(3)), "Removal preview queued behind an index writer.");
+            Check(work.Result.HasErrors && File.ReadAllText(index) == bytes, "Lock-free preview changed the shared index or used a stale enabled graph.");
+        }
+        gate.Wait();
+        try { PreviewWhileHeld(); } finally { gate.Release(); }
+        string digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(index.ToUpperInvariant()))).ToLowerInvariant();
+        using var mutex = new Mutex(false, @"Local\PCLLF.DependencyIndex." + digest);
+        mutex.WaitOne();
+        try { PreviewWhileHeld(); } finally { mutex.ReleaseMutex(); }
+        using var canceled = new CancellationTokenSource(); canceled.Cancel();
+        bool stopped = false;
+        try { Local.InspectForImpact(folder, context, canceled.Token); } catch (OperationCanceledException) { stopped = true; }
+        Check(stopped && File.ReadAllText(index) == bytes, "Canceled removal inspection published a snapshot or changed the disk index.");
+    }
+    private static void NestedRenames() {
+        using Fixture fixture = new(); string folder = fixture.Folder("nested"); Context context = EnvironmentFor();
+        string inner = Mod(fixture.Folder("payload"), "inner.jar", "library");
+        string outer = Jar(folder, "outer.jar", ("fabric.mod.json", Json(Fabric("outer", new JObject {
+            ["jars"] = new JArray(new JObject { ["file"] = "META-INF/jars/library.jar" }) }))),
+            ("META-INF/jars/library.jar", File.ReadAllBytes(inner)));
+        string user = Mod(folder, "user.jar", "user", new JObject { ["depends"] = new JObject { ["library"] = "*" } });
+        Check(!Local.Inspect(folder, context).HasErrors, "Nested fixture has no active provider.");
+        using FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None);
+        File.Move(outer, outer + ".disabled"); Report disabled = Local.Inspect(folder, context);
+        Check(disabled.HasErrors && disabled.IndexArchivesRead == 0 && disabled.Mods.Where(value => value.Id != "user").All(value => !value.Enabled && value.RootPath == outer + ".disabled"),
+            "Disabling an outer file left an active or stale-path nested provider.");
+        File.Move(outer + ".disabled", outer); Report enabled = Local.Inspect(folder, context);
+        Check(!enabled.HasErrors && enabled.IndexArchivesRead == 0, "Reenabling the outer file lost its selected nested provider.");
+        File.Move(outer, outer + ".disabled"); File.Copy(outer + ".disabled", outer + ".old");
+        Report ambiguous = Local.Inspect(folder, context);
+        Check(ambiguous.IndexArchivesRead == 2 && ambiguous.IndexArchivesReused == 1 && ambiguous.HasErrors &&
+            ambiguous.Mods.Where(value => value.Id == "library").Select(value => value.RootPath).Distinct().Count() == 2,
+            "Ambiguous suffix names were treated as one cached archive or reread an unchanged consumer.");
+    }
+    private static void SnapshotCompatibility() {
+        using Fixture fixture = new(); string folder = fixture.Folder("compatibility"); Context context = EnvironmentFor();
+        string core = Mod(folder, "core.jar", "core"); Mod(folder, "user.jar", "user");
+        Report first = Local.Inspect(folder, context); string index = first.IndexFile!;
+        JObject old = JObject.Parse(File.ReadAllText(index)); old.Remove("Archives");
+        File.WriteAllText(index, old.ToString()); Local.Index.ClearMemory();
+        Check(Local.Inspect(folder, context).IndexHit, "An old tree without per-file snapshots became unreadable.");
+        File.Move(core, core + ".disabled"); Report upgraded = Local.Inspect(folder, context);
+        Check(upgraded.IndexArchivesRead == 2 && upgraded.Mods.Count == 2, "Old cache did not gain snapshots on the next inventory change.");
+        JObject corrupt = JObject.Parse(File.ReadAllText(index)); corrupt["Archives"] = new JArray(JValue.CreateNull());
+        File.WriteAllText(index, corrupt.ToString()); Local.Index.ClearMemory();
+        File.Move(core + ".disabled", core); Report repaired = Local.Inspect(folder, context);
+        Check(repaired.IndexArchivesRead == 2 && !repaired.IndexReadFailed, "Malformed per-file snapshots were reused or crashed the scan.");
+        Report rebuilt = Local.RebuildIndex(folder, context);
+        Check(rebuilt.IndexArchivesRead == 2 && rebuilt.IndexArchivesReused == 0, "Explicit rebuild reused metadata instead of forcing fresh declarations.");
+        string unknown = Jar(folder, "unknown.jar", ("unrecognised.txt", Encoding.UTF8.GetBytes("no metadata")));
+        Check(Local.Inspect(folder, context).MetadataIncomplete, "Unknown metadata did not stay conservative.");
+        File.Move(unknown, unknown + ".disabled"); Report partial = Local.Inspect(folder, context);
+        Check(partial.IndexArchivesRead == 1 && partial.IndexArchivesReused == 2 && !partial.MetadataIncomplete,
+            "Changing the enabled state of incomplete metadata bypassed its fresh reliability check.");
+        File.Move(unknown + ".disabled", unknown); Report active = Local.Inspect(folder, context);
+        Check(active.IndexArchivesRead == 1 && active.MetadataIncomplete,
+            "Reenabling an unknown file reused the disabled scan's suppressed diagnostics.");
     }
     private static void InvalidationAndFailures() {
         using Fixture fixture = new(); string folder = fixture.Folder("mods"); Context context = EnvironmentFor();
@@ -124,5 +258,9 @@ internal static class ModDependencyIndexCompatibilityTests {
         var savedRequirement = cached.OnlineFiles.Single(value => value.FullPath == user).Matches.Single().Dependencies.Single();
         cached.OnlineFiles.Single(value => value.FullPath == api).Matches.Single().ProjectId = "UnrelatedProjectWithTheSameTitle";
         Online.MapRelations(cached); Check(savedRequirement.ProjectPaths.Count == 0 && savedRequirement.MatchedPaths.Count == 0, "The original remapping hook inferred project identity from a shared title.");
+        using FileStream lease = new(user, FileMode.Open, FileAccess.Read, FileShare.None);
+        File.Move(api, api + ".disabled"); Report renamed = Local.Inspect(folder, context);
+        Check(!renamed.IndexReadFailed && renamed.IndexArchivesRead == 0 && renamed.IndexArchivesReused == 3,
+            "Saving online supplements broke per-file snapshot identity and caused a full archive rescan.");
     }
 }

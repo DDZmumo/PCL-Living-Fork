@@ -81,8 +81,10 @@ internal static class ResourceSearchMatching {
     }
     internal static IEnumerable<string> ExtractWords(ResourceSearchEntry<WikiEntry> result, ResourcePlatforms source) {
         List<string> candidates = new();
-        if (result.Item.Slugs.ContainsKey(source)) candidates.Add(result.Item.Slugs[source].Replace("-", " ").Replace("/", " "));
-        if (result.Item.ChineseName is not null) candidates.Add(result.Item.ChineseName.AfterLast(" (").TrimEnd(')', ' ').BeforeFirst(" - ").Replace("-", " ").Replace("/", " ").Replace(":", " ").Replace("(", " ").Replace(")", ""));
+        string english = ResourceWikiIdentity.EnglishName(result.Item);
+        if (english.Any(c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z'))
+            candidates.Add(english.BeforeFirst(" - ").Replace("-", " ").Replace("/", " ").Replace(":", " ").Replace("(", " ").Replace(")", ""));
+        else if (result.Item.Slugs.ContainsKey(source)) candidates.Add(result.Item.Slugs[source].Replace("-", " ").Replace("/", " "));
         candidates = candidates.SelectMany(c => c.Split(' ')).Select(w => w.TrimStart('{', '[', '(').TrimEnd('}', ']', ')').Lower()).Where(w => {
             if (w.Length <= 1) return false;
             if (new[] { "the", "of", "mod", "and", "forge", "fabric", "for", "quilt", "neoforge" }.Contains(w)) return false;
@@ -98,11 +100,13 @@ internal static class ResourceSearchMatching {
     internal static List<ResourceSearchEntry<WikiEntry>> WikiEntries(IEnumerable<WikiEntry> entries, ResourcePlatforms source, Func<string, string> simplify) {
         List<ResourceSearchEntry<WikiEntry>> result = new();
         foreach (WikiEntry entry in entries) {
-            if (!entry.Slugs.ContainsKey(source)) continue;
+            string slug = entry.Slugs.GetOrDefault(source) ?? "";
+            string english = ResourceWikiIdentity.EnglishName(entry);
+            if (string.IsNullOrWhiteSpace(slug) && string.IsNullOrWhiteSpace(english)) continue;
             result.Add(new ResourceSearchEntry<WikiEntry> { Item = entry, Sources = entry.ChineseName is not null ? new() {
                 new ResourceSearchSource(simplify(entry.ChineseName.BeforeFirst(" (")).Split('/', true), 1),
-                new ResourceSearchSource(simplify(entry.ChineseName.AfterFirst(" (")) + entry.Slugs[source], 0.5)
-            } : new() { new ResourceSearchSource(entry.Slugs[source], 0.5) } });
+                new ResourceSearchSource(simplify(english) + " " + slug, 0.5)
+            } : new() { new ResourceSearchSource(slug, 0.5) } });
         }
         return result;
     }

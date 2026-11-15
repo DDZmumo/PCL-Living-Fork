@@ -45,8 +45,6 @@ public static class ModDependencyImpactViewController<TContext, TMod, TDependenc
             if (!entry.Reasons.Contains(reason)) entry.Reasons.Add(reason);
         };
         foreach (TImpact impact in ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.GetImpacts(report, paths)) {
-            bool hasPlatform = report.OnlineFiles.Any(file => SameFilePath(file.FullPath, impact.Mod.RootPath) && file.Matches.Any(match => match.IsExact));
-            if (!report.OnlineTimedOut && hasPlatform) continue;
             add(impact.Mod.RootPath, "本地参考 · " + (impact.IsDefinite ? "" : "待确认 · ") + impact.Reason);
         }
         HashSet<string> unavailable = new(removed, StringComparer.OrdinalIgnoreCase);

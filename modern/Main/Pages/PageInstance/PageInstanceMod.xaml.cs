@@ -25,6 +25,7 @@ namespace PCL
             this.SelectedMods = new List<string>();
             Native = new NativePage(CreateView(), LocalModPageRuntime.CreateHost(this)) { SortOrder = LocalResourceSortOrder.AddedNewest };
             this.InitializeComponent();
+            BtnFilterDuplicate.Check += (sender, user) => ChangeFilter((MyRadioButton)sender,user);
             LocalResourceUi.InitializeSortButton(this.BtnSort, ToggleSort, this.PanSortHeader, this.PanFilter);
             LocalResourceUi.UpdateSortButton(this.BtnSort, (int)Native.SortOrder);
         }
@@ -70,7 +71,8 @@ namespace PCL
                 new ResourcePageFilter(this.BtnFilterAll, 0, () => this.BtnFilterAll.Checked, Value => this.BtnFilterAll.Checked = Value, Value => this.BtnFilterAll.Text = Value),
                 new ResourcePageFilter(this.BtnFilterEnabled, 1, () => this.BtnFilterEnabled.Checked, Value => this.BtnFilterEnabled.Checked = Value, Value => this.BtnFilterEnabled.Text = Value),
                 new ResourcePageFilter(this.BtnFilterDisabled, 2, () => this.BtnFilterDisabled.Checked, Value => this.BtnFilterDisabled.Checked = Value, Value => this.BtnFilterDisabled.Text = Value),
-                new ResourcePageFilter(this.BtnFilterCanUpdate, 3, () => this.BtnFilterCanUpdate.Checked, Value => this.BtnFilterCanUpdate.Checked = Value, Value => this.BtnFilterCanUpdate.Text = Value)
+                new ResourcePageFilter(this.BtnFilterCanUpdate, 3, () => this.BtnFilterCanUpdate.Checked, Value => this.BtnFilterCanUpdate.Checked = Value, Value => this.BtnFilterCanUpdate.Text = Value),
+                new ResourcePageFilter(this.BtnFilterDuplicate, 4, () => this.BtnFilterDuplicate.Checked, Value => this.BtnFilterDuplicate.Checked = Value, Value => this.BtnFilterDuplicate.Text = Value)
             };
         }
 
@@ -239,7 +241,8 @@ namespace PCL
             All = 0,
             Enabled = 1,
             Disabled = 2,
-            CanUpdate = 3
+            CanUpdate = 3,
+            Duplicate = 4
         }
 
 

@@ -126,9 +126,10 @@ internal static class A003Checks {
             }
             var items = new ConcurrentDictionary<string, Border>();
             var selected = new List<string>();
-            bool[] states = new bool[4]; string[] texts = new string[4];
+            mods[0].DeclaredModIds = new[] { "same_mod" }; mods[1].DeclaredModIds = new[] { "same_mod" };
+            bool[] states = new bool[5]; string[] texts = new string[5];
             Panel list = new StackPanel(); Border empty = new(); string search = ""; int loaderCalls = 0;
-            var filters = Enumerable.Range(0, 4).Select(index => new ResourcePageFilter(new Border(), index,
+            var filters = Enumerable.Range(0, 5).Select(index => new ResourcePageFilter(new Border(), index,
                 () => states[index], value => states[index] = value, value => texts[index] = value)).ToArray();
             var view = new LegacyModPageView {
                 Root = () => new Border(), Back = () => new Border(), Empty = () => empty, ListBack = () => new Border(),
@@ -145,10 +146,11 @@ internal static class A003Checks {
             };
             var page = new LegacyModPage<FakeMod, ResourceProjectModelData, ResourceVersionModelData, Border, object, object, Border, ModDependencyImpactItemData>(view, host);
             page.LoadUI(); int serial = page.ListRebuildSerial;
-            Check(items.Count == 3 && list.Children.Count == 3 && filters.Length == 4, "Local page must keep its four original file filters.");
+            Check(items.Count == 3 && list.Children.Count == 3 && filters.Length == 5, "Local page must retain its original filters and add duplicate detection.");
             page.FilterChanged(1); Check(list.Children.Count == 2, "Enabled scope changed.");
             page.FilterChanged(2); Check(list.Children.Count == 1, "Disabled scope changed.");
-            page.FilterChanged(4); Check(page.Filter == LegacyModFilter.All && list.Children.Count == 3, "Obsolete favorites filter must fall back to All.");
+            page.FilterChanged(4); Check(page.Filter == LegacyModFilter.Duplicate && list.Children.Count == 2, "Root-ID duplicate filter missed active/disabled copies.");
+            page.FilterChanged(5); Check(page.Filter == LegacyModFilter.All && list.Children.Count == 3, "Unknown filters must fall back to All.");
             search = "gamma"; page.SearchRun(); Check(list.Children.Count == 1, "Search changed.");
             page.SortOrder = LocalResourceSortOrder.AddedOldest;
             Check(page.ListRebuildSerial == serial && loaderCalls == 0, "Local filters/search/sort rebuilt the loader.");

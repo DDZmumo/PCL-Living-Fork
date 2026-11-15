@@ -70,6 +70,7 @@ public sealed class ResourceDetailDownloadHost<TLoader, TNetFile, TVersion, TIns
     public Action<TLoader, bool> InterruptOnCancel = null!;
     public Action<TLoader> StateHint = null!, ClearFailedFolder = null!;
     public Action<string, int> Hint = null!;
+    public Action<ResourceProjectModelData, TVersion, string, ResourceDownloadReason, TInstance?>? InstallMod;
     public Func<string?, string?, string, string?, string?> SaveFile = null!;
     public Action<string> Explorer = null!;
     public Action<Action, string> RunInNewThread = null!;

@@ -59,7 +59,7 @@ $releaseOutput = Join-Path $PWD ('artifacts/public-release/' + [Guid]::NewGuid()
 pwsh -NoProfile -File scripts/Build-Release.ps1 -Slim -OfficialRelease -Configuration Release -OutputPath $releaseOutput
 ```
 
-精简包不含 .NET 运行时，也不自动生成旧版兼容桥。`SlimRelease.Artifacts.json` 记录实际版本、角色、文件名、大小与 SHA256。精简构建直接生成公开约定的 EXE、ZIP 及校验清单，ZIP 内主程序使用相同的最终 EXE 名。附件必须符合 [公开发布约定](PUBLISHING.md)。如提供旧版交接层，其负载必须与同次精简主程序一致。
+精简包不含 .NET 运行时。公开 EXE 自动包含旧版更新兼容桥，ZIP 内包含可直接运行的精简原生主程序，二者使用相同的公开文件名；兼容桥内嵌负载与 ZIP 内程序必须逐字节一致。`SlimRelease.Artifacts.json` 记录实际版本、角色、文件名、大小、SHA256、兼容桥标记和原生负载摘要。附件必须符合 [公开发布约定](PUBLISHING.md)。
 
 源码不包含实际 Client ID 或 API Key。本地通过 `PCL_MS_CLIENT_ID`、`PCL_CURSEFORGE_API_KEY` 提供构建输入；CI 仅在对应步骤映射这两个值，生成器使用独立临时目录并在结束后清理。凭据不得进入命令行、日志或提交。
 

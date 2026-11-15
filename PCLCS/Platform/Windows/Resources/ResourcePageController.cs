@@ -357,7 +357,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         if (!CanChange()) return;
         if (Host.HasRunningGame()) { Host.Hint("请先关闭游戏，再更新资源包或光影包。", false); return; }
         List<TOnline> infos = resources.Where(HasUpdate).Select(item => Online[item.FullPath!]).ToList(); if (infos.Count == 0) return;
-        if (Host.Message($"将更新 {infos.Count} 个{Title}。{NewLine}新版本可能改变游戏画面或与整合包不兼容，请确认后继续。旧文件会保留在本地回收区，可通过恢复按钮找回。", "资源更新", "更新", "取消", true) != 1) return;
+        if (Host.Message($"将更新 {infos.Count} 个{Title}。{NewLine}新版本可能改变游戏画面或与整合包不兼容，请确认后继续。新版本下载并校验后将覆盖旧文件，旧文件无法从回收区恢复。如需保留，请先自行备份。", "资源更新", "更新", "取消", true) != 1) return;
         string root = CurrentRoot!, version = Host.GameVersion(Owner!);
         RunOperation("更新资源", token => Host.InstallOnline(root, infos, Kind, version, token));
     }

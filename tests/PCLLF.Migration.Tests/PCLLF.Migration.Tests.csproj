@@ -62,6 +62,7 @@
     <Compile Include="../../PCLCS/Resources/LocalResourceSort.cs" Link="Production/Resources/LocalResourceSort.cs" />
     <Compile Include="../../PCLCS/Resources/ResourceFavorites.cs" Link="Production/Resources/ResourceFavorites.cs" />
     <Compile Include="../../PCLCS/Resources/ResourceProjectKey.cs" Link="Production/Resources/ResourceProjectKey.cs" />
+    <Compile Include="../../PCLCS/Resources/ResourceDescriptionTranslation.cs" Link="Production/Resources/ResourceDescriptionTranslation.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupContracts.cs" Link="Production/WorldBackupContracts.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupEngine.cs" Link="Production/WorldBackupEngine.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupEngine.Restore.cs" Link="Production/WorldBackupEngine.Restore.cs" />
@@ -79,9 +80,11 @@
     <Compile Include="../../PCLCS/Minecraft/InstanceCloneExportIsolation.cs" Link="Production/InstanceCloneExportIsolation.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Contracts.cs" Link="Production/ModDependencyInspection.Contracts.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Index.cs" Link="Production/ModDependencyInspection.Index.cs" />
+    <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Incremental.cs" Link="Production/ModDependencyInspection.Incremental.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Archives.cs" Link="Production/ModDependencyInspection.Archives.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyInspection.Resolution.cs" Link="Production/ModDependencyInspection.Resolution.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyVersions.cs" Link="Production/ModDependencyVersions.cs" />
+    <Compile Include="../../PCLCS/Minecraft/ModFileInstall.cs" Link="Production/ModFileInstall.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.cs" Link="Production/ModDependencyOnlinePipeline.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.Files.cs" Link="Production/ModDependencyOnlinePipeline.Files.cs" />
     <Compile Include="../../PCLCS/Minecraft/ModDependencyOnlinePipeline.Runtime.cs" Link="Production/ModDependencyOnlinePipeline.Runtime.cs" />
