@@ -158,7 +158,7 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
     private static string? Describe(TIssue issue) {
         TDependency? requirement = issue.Requirement;
         if (requirement is null) return issue.Message;
-        string prefix = issue.KindValue == ModDependencyIssueKind.MissingRequired ? "需要：" : issue.KindValue == ModDependencyIssueKind.VersionMismatch ? "要求：" : "冲突：";
+        string prefix = issue.KindValue == ModDependencyIssueKind.MissingRequired ? "需要：" : issue.KindValue == ModDependencyIssueKind.VersionMismatch ? "要求：" : issue.KindValue == ModDependencyIssueKind.Incompatible ? "禁止共存版本：" : "冲突：";
         string expected = requirement.Display;
         if (requirement.Versions is JArray versions && versions.Count > 0 && versions.All(value => value.Type == JTokenType.String))
             expected = requirement.Id + " " + string.Join(" 或 ", versions.Select(value => value.ToString()));
