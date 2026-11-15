@@ -17,15 +17,17 @@
     <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Csc's MSBuild command-line builder normalizes resource names containing
+         backslashes on Unix (dotnet/roslyn#35119). Literal response-file switches
+         retain the existing names on every build host. -->
+    <CompilerResponseFile>$(MSBuildThisFileDirectory)CoreResources.rsp</CompilerResponseFile>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="../../PCLCS/**/*.cs" Exclude="../../PCLCS/**/bin/**;../../PCLCS/**/obj/**"
       Link="%(RecursiveDir)%(Filename)%(Extension)" />
-    <EmbeddedResource Include="../../PCLCS/Launch/JavaWrapper.jar" LogicalName="Launch\JavaWrapper.jar" />
-    <EmbeddedResource Include="../../PCLCS/Launch/LwjglUnsafeAgent.jar" LogicalName="Launch\LwjglUnsafeAgent.jar" />
-    <EmbeddedResource Include="../../PCLCS/Resource/WikiEntries.txt" LogicalName="Resource\WikiEntries.txt" />
-    <EmbeddedResource Include="../../PCLCS/Minecraft/OptifineHashes.json" LogicalName="Minecraft\OptiFineHashes.json" />
+    <!-- Keep response-file resources in the compiler's incremental input graph. -->
+    <CustomAdditionalCompileInputs Include="CoreResources.rsp;../../PCLCS/Launch/JavaWrapper.jar;../../PCLCS/Launch/LwjglUnsafeAgent.jar;../../PCLCS/Resource/WikiEntries.txt;../../PCLCS/Minecraft/OptifineHashes.json" />
   </ItemGroup>
 
   <ItemGroup>

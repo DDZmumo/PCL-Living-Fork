@@ -65,4 +65,6 @@ dotnet run --project tests/PCLLF.Native.Facade.Tests --configuration Debug --no-
 
 纯业务测试现在引用 Core 工程，避免测试用源码副本与产品程序集脱节。`foundation` 组约束 Core 依赖和资源归属；WPF 组件测试核对适配库单向引用、真实图像解码和资源原始字节；Native facade 使用实际 Main 与新依赖图验证页面、任务和业务适配。
 
+Core 的四个嵌入资源通过 [编译器响应文件](../modern/Core/CoreResources.rsp)声明，保留原始反斜线名称及大小写，防止构建工具在 Linux 上将逻辑名称改为路径分隔符。资源文件与响应文件均进入增量编译输入；更换资源时需同时维护该清单。Windows 与 Linux 的业务 CI 都检查实际 DLL 中的精确名称及 Shared 读取入口，不把名称归一化后计为通过。
+
 普通本地测试使用自有临时数据。真实冷启动与升级 smoke 仍要求其声明的隔离 CI 环境，不能通过伪造环境变量运行。GUI 组件、冷启动、真实账号、游戏启动和发布包的证据分别报告，命令存在不表示某次提交已通过这些检查。
