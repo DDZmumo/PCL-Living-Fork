@@ -128,3 +128,12 @@ Java26 后续已有主菜单与退出证据，但尚无该 Java 的完整世界�
 - console／PermGen 与通用差异通知：`MmcInstances` 按诊断严重级别自动路由（`Severity >= Warning` 经 `ModMain.Hint` 以 `Blue` 提示用户，`Information` 记入 `Logger.Info`），并在 `MmcInstanceExportPreferences` 中对主动包内命令及主动 `OverrideEnv/Env` 执行可移植导出拒绝。
 
 以上改动已通过 `PCLLF.Mmc.Runtime.Tests`、`PCLLF.Mmc.Export.Tests`、`PCLLF.Migration.Tests` 与 `PCLLF.Native.Facade.Tests` 的自动化闭环回归验证（具体通过项及权限边界见提交后最新一次全套运行记录）；外部真实整合包游玩、真实认证账号与外部平台在线接口仍保留在[二期待办](mmc-phase2-todo.md)继续跟踪。
+
+## 2026-11-15 代码审查修复与 Package A 补充验收收口
+
+- 在 `codex/mmc-compatibility` 合入本地提交 `bf4176c2`（移除 `MmcInstancePaths` 祖先目录校验缓存并在 `File.Move` 边界恢复物理重检）与 `e0b87974`（持久化布局同步至三阶段 `commandContext`、活动 `PostExit` 跨进程所有权文件锁、持久 `CreatorWindowsSessionId` + Windows Job 四态 fail-closed 命令组退出证明与租约后移结算），并已由 Root 打包至 `artifacts/mmc-dev-build/20261115-e0b87974`（未改动且仅作构建证据保留）。
+- 基于 `e0b87974` 执行 Package A 补充实测与证据核对（日志见 `artifacts/mmc-postphase-20261115/`）：
+  - `PCLLF.Mmc.Export.Tests.exe` 14/14、`PCLLF.Migration.Tests.exe` 隔离/恢复 3 组 12/12、`PCLLF.Native.Facade.Tests.exe` 11 组（含导出 UI、包更新/组件编辑中断与拒绝、生命周期/修复/删除准入及选择分组，保留 60 秒分组上限）11/11 全部通过。
+  - 通过生产入口 `PCL.ModNet.CreateMmcPlatformOriginCatalog()` 完成 `Modrinth` `/v2/` 只读元数据及更新列表在线预览实测（12 条候选通过编码器核验）；`CurseForge` `/v1/` 因缺乏可用 API 凭据被阻塞。
+  - 核实 `user-launch-67112.json` 保留的 `SDL3.dll 3.4.14.0`（`2,983,936` B，SHA256 `292406de...`）与 `lwjgl-sdl-natives-windows-3.4.3.jar`（`1,241,055` B）本地字节及 `jdk-26.0.2+10-55` 一致；崩溃根因未闭环。
+- 详细五类（已实现／受控通过／公网只读已验／真实待验／设计不支持）台账见[二期待办与缺陷台账](mmc-phase2-todo.md)。
