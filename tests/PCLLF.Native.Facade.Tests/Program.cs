@@ -13,6 +13,8 @@ internal static class Program
         ["glass-shell"] = GlassShellChecks.Run,
         ["glass-window"] = GlassWindowIntegrationChecks.Run,
         ["glass-portals"] = GlassPortalChecks.Run,
+        ["glass-presentation"] = GlassPresentationChecks.Run,
+        ["workbench-commands"] = WorkbenchCommandChecks.Run,
         ["instance-delete"] = InstanceDeletionChecks.Run,
         ["launcher-update-page"] = LauncherUpdatePageChecks.Run,
         ["title-theme-toggle"] = TitleThemeToggleChecks.Run,

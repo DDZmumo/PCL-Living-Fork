@@ -20,6 +20,7 @@ public enum GlassBackdropStatus {
     WaitingForHandle,
     DesktopAcrylic,
     Wallpaper,
+    WallpaperOnly,
     TransparencyDisabled,
     HighContrast,
     UnsupportedPlatform,
@@ -37,7 +38,10 @@ public sealed class GlassBackdropOptions {
 }
 
 /// <summary>A rounded region in client-area device-independent units.</summary>
-public readonly record struct GlassWindowRegion(Rect Bounds, double CornerRadius);
+public readonly record struct GlassWindowRegion(Rect Bounds, double CornerRadius, double Opacity = 1) {
+    public GlassWindowRegion(Rect bounds, double cornerRadius) : this(bounds, cornerRadius, 1) { }
+    public void Deconstruct(out Rect bounds, out double cornerRadius) { bounds = Bounds; cornerRadius = CornerRadius; }
+}
 
 public enum GlassBackdropBackend { None, HostBackdropComposition, DwmSystemBackdrop }
 
@@ -131,7 +135,8 @@ public sealed class GlassWindowBackdrop : IDisposable {
         foreach (var region in snapshot) {
             if (region.Bounds.IsEmpty || !double.IsFinite(region.Bounds.X) || !double.IsFinite(region.Bounds.Y) ||
                 !double.IsFinite(region.Bounds.Width) || !double.IsFinite(region.Bounds.Height) ||
-                region.Bounds.Width <= 0 || region.Bounds.Height <= 0 || !double.IsFinite(region.CornerRadius) || region.CornerRadius < 0)
+                region.Bounds.Width <= 0 || region.Bounds.Height <= 0 || !double.IsFinite(region.CornerRadius) || region.CornerRadius < 0 ||
+                !double.IsFinite(region.Opacity) || region.Opacity < 0 || region.Opacity > 1)
                 throw new ArgumentOutOfRangeException(nameof(regions), "Glass regions require finite, positive bounds and a nonnegative radius.");
         }
         if (_regions.SequenceEqual(snapshot)) return;
@@ -155,6 +160,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
         if (highContrast) SetStatus(GlassBackdropStatus.HighContrast, "Windows high contrast uses an opaque system surface.");
         else if (!transparency) SetStatus(GlassBackdropStatus.TransparencyDisabled, "Windows transparency effects are disabled; using opaque material.");
         else if (_wallpaperMode) SetStatus(GlassBackdropStatus.Wallpaper, "Launcher wallpaper is sampled and blurred by each GlassSurface; native backdrop is disabled.");
+        else if (!GlassMaterial.GetDesktopBackdropEnabled(_window)) SetStatus(GlassBackdropStatus.WallpaperOnly, "Desktop material is disabled; use application wallpaper or opaque surfaces.");
         else if (!supported) SetStatus(GlassBackdropStatus.UnsupportedPlatform, "Documented Desktop Acrylic requires Windows 11 build 22621 or newer; using opaque material.");
         else if (layered || _window.AllowsTransparency) {
             if (_options.PreferCompositionBackdrop) {

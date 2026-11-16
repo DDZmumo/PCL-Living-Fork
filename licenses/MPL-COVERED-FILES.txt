@@ -207,6 +207,7 @@ PCLLF.WPF.Core/Glass/GlassDesktopComposition.cs
 PCLLF.WPF.Core/Glass/GlassMaterial.cs
 PCLLF.WPF.Core/Glass/GlassSurface.cs
 PCLLF.WPF.Core/Glass/GlassWindowBackdrop.cs
+PCLLF.WPF.Core/Glass/GlassWindowRegionClip.cs
 PCLLF.WPF.Core/Motion/MotionAssemblyInfo.cs
 PCLLF.WPF.Core/Motion/PressFeedback.cs
 PCLLF.WPF.Core/Motion/SpringMotion.cs
@@ -223,3 +224,19 @@ tests/PCLLF.Native.Facade.Tests/GlassContextNavigationChecks.cs
 tests/PCLLF.Native.Facade.Tests/GlassPortalChecks.cs
 tests/PCLLF.Native.Facade.Tests/GlassShellChecks.cs
 tests/PCLLF.Native.Facade.Tests/GlassWindowIntegrationChecks.cs
+PCLLF.WPF.Core/Glass/GlassPopupBackdrop.cs
+PCLLF.WPF.Core/Glass/WallpaperPopupContext.cs
+PCLLF.WPF.Core/Motion/ToggleFeedback.cs
+modern/Main/Glass/GlassAccountPanel.cs
+modern/Main/Glass/GlassActionMenu.cs
+modern/Main/Glass/GlassCommandChrome.cs
+modern/Main/Glass/GlassExtraButtonAdapter.cs
+modern/Main/Glass/GlassPresentation.Controls.cs
+modern/Main/Glass/GlassPresentation.Documents.cs
+modern/Main/Glass/GlassPresentation.Layout.cs
+modern/Main/Glass/GlassPresentation.cs
+modern/Main/Glass/GlassPresentationResources.xaml
+tests/PCLLF.Native.Facade.Tests/GlassMotionChecks.cs
+tests/PCLLF.Native.Facade.Tests/GlassPresentationChecks.cs
+tests/PCLLF.Native.Facade.Tests/WorkbenchCommandChecks.cs
+scripts/native-smoke/interaction/WorkspaceUiPolicy.cs

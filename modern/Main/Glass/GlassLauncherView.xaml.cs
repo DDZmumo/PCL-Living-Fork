@@ -25,6 +25,12 @@ public partial class GlassLauncherView : UserControl
     private readonly SpringMotion _expansionMotion;
     private readonly SpringMotion _railMotion;
     private readonly SpringMotion _navigationMotion;
+    private readonly SpringMotion _accountMotion;
+    private readonly SpringMotion _navigationPopoverMotion;
+    private readonly SpringMotion _homeMotion;
+    private readonly SpringMotion _pageMotion;
+    private readonly SpringMotion _titleMotion;
+    private readonly SpringMotion _optionsMotion;
     private GlassLauncherViewState _state = new();
     private bool _updatingState;
     private bool _expanded;
@@ -32,13 +38,15 @@ public partial class GlassLauncherView : UserControl
     private bool _accountOpen;
     private bool _navigationOpen;
     private bool _layoutPending;
-    private double _primaryWidth = 326;
-    private double _auxiliaryWidth = 286;
-    private double _cardHeight = 348;
-    private double _deckLeft;
-    private double _deckTop;
+    private bool _keyboardInteraction;
+    private bool _hasPageSnapshot;
+    private double _homeProgress = 1;
+    private double _pageProgress = 1;
     private ImageSource _fallbackInstanceIcon;
+    private ImageSource _fallbackAccountAvatar;
+    private bool _homeTextShadowEnabled;
     private IReadOnlyList<GlassWindowRegion> _lastRegions = Array.Empty<GlassWindowRegion>();
+    private FrameworkElement _surfaceMaskHost;
 
     public event EventHandler StartRequested;
     public event EventHandler CancelRequested;
@@ -58,13 +66,31 @@ public partial class GlassLauncherView : UserControl
     public event Action<int> NavigationRequested;
 
     public ContentControl PageContentHost => PageContent;
+    public Geometry SurfaceClip => FrameClip;
+    public Brush SurfaceOpacityMask => FrameMask;
+
+    public void SetSurfaceMaskHost(FrameworkElement host)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        if (_surfaceMaskHost != null && !ReferenceEquals(_surfaceMaskHost, host)) _surfaceMaskHost.OpacityMask = null;
+        _surfaceMaskHost = host;
+        host.OpacityMask = FrameMask;
+        UpdateWallpaperClip();
+    }
 
     public GlassLauncherView()
     {
         InitializeComponent();
+        _surfaceMaskHost = MainSurface;
         _expansionMotion = new SpringMotion(this, 0, ApplyExpansion, MotionTokens.Spatial);
         _railMotion = new SpringMotion(this, 0, ApplyRail, MotionTokens.Spatial);
-        _navigationMotion = new SpringMotion(this, 0, value => NavigationTranslation.X = value, MotionTokens.Spatial);
+        _navigationMotion = new SpringMotion(this, 0, value => NavigationTranslation.Y = value, MotionTokens.Reveal);
+        _accountMotion = new SpringMotion(this, 0, ApplyAccountPopover, MotionTokens.Reveal);
+        _navigationPopoverMotion = new SpringMotion(this, 0, ApplyNavigationPopover, MotionTokens.Reveal);
+        _homeMotion = new SpringMotion(this, 1, ApplyHomeTransition, MotionTokens.Reveal);
+        _pageMotion = new SpringMotion(this, 1, ApplyPageTransition, MotionTokens.Reveal);
+        _titleMotion = new SpringMotion(this, 0, ApplyTitleTransition, MotionTokens.Reveal);
+        _optionsMotion = new SpringMotion(this, 1, ApplyOptionsAvailability, MotionTokens.Reveal);
         Loaded += OnLoaded;
         SizeChanged += OnSizeChanged;
         LayoutUpdated += OnLayoutUpdated;
@@ -77,29 +103,37 @@ public partial class GlassLauncherView : UserControl
     {
         ArgumentNullException.ThrowIfNull(state);
         bool optionsAvailabilityChanged = _state.LaunchOptionsAvailable != state.LaunchOptionsAvailable;
+        bool homeChanged = _state.IsHome != state.IsHome;
+        bool titleChanged = _state.CanGoBack != state.CanGoBack;
         _state = state;
         _updatingState = true;
         try
         {
-            HomePanel.Visibility = state.IsHome ? Visibility.Visible : Visibility.Collapsed;
-            PageContent.Visibility = state.IsHome ? Visibility.Hidden : Visibility.Visible;
-            PageContent.IsHitTestVisible = !state.IsHome;
-            bool titleMode = state.CanGoBack;
-            NavigationButtons.Visibility = titleMode ? Visibility.Collapsed : Visibility.Visible;
-            BackTitlePanel.Visibility = titleMode ? Visibility.Visible : Visibility.Collapsed;
-            PageTitleText.Text = state.PageTitle ?? string.Empty;
+            if (homeChanged) _homeMotion.Retarget(state.IsHome ? 1 : 0, ShouldSnapMotion);
+            if (titleChanged) _titleMotion.Retarget(state.CanGoBack ? 1 : 0, ShouldSnapMotion);
+            ApplyHomeTransition(_homeMotion.Value);
+            ApplyTitleTransition(_titleMotion.Value);
+            PageTitleText.Text = state.IsHome ? string.Empty : (string.IsNullOrWhiteSpace(state.PageTitle) ? NavigationTitle(state.SelectedNavigationId) : state.PageTitle);
+            SecondaryTitleText.Text = state.IsHome ? "主页" : NavigationTitle(state.SelectedNavigationId);
             AccountNameText.Text = string.IsNullOrWhiteSpace(state.AccountName) ? "未登录" : state.AccountName;
             AccountButton.ToolTip = AccountNameText.Text;
             AutomationProperties.SetName(AccountButton, "当前账户：" + AccountNameText.Text);
-            AccountAvatarImage.Source = state.AccountAvatar;
-            AccountFallbackGlyph.Visibility = state.AccountAvatar is null ? Visibility.Visible : Visibility.Collapsed;
+            ImageSource avatar = state.AccountAvatar ?? GetFallbackAccountAvatar();
+            AccountAvatarImage.Source = avatar;
+            AccountFallbackGlyph.Visibility = avatar is null ? Visibility.Visible : Visibility.Collapsed;
 
             InstanceImage.Source = state.InstanceIcon ?? GetFallbackInstanceIcon();
+            InstanceImage.Visibility = Visibility.Visible;
             InstanceNameText.Text = string.IsNullOrWhiteSpace(state.InstanceName) ? "选择实例" : state.InstanceName;
             InstanceNameText.ToolTip = InstanceNameText.Text;
             InstanceDescriptionText.Text = state.InstanceDescription ?? string.Empty;
-            InstanceDescriptionText.Visibility = string.IsNullOrWhiteSpace(state.InstanceDescription) ? Visibility.Collapsed : Visibility.Visible;
-            InstanceSettingsButton.IsEnabled = state.HasInstance;
+            InstanceDescriptionText.Visibility = state.IsLaunching || string.IsNullOrWhiteSpace(state.InstanceDescription) ? Visibility.Collapsed : Visibility.Visible;
+            InstanceSettingsButton.IsEnabled = state.HasInstance && !state.IsLaunching;
+            SelectInstanceButton.IsEnabled = !state.IsLaunching;
+            SelectInstanceButton.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
+            InstanceSettingsButton.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
+            ExpandButtonContainer.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
+            PrimaryActions.ColumnDefinitions[3].Width = new GridLength(state.IsHome ? 0 : 36);
             LaunchButton.IsEnabled = state.IsLaunching || state.CanLaunch;
             LaunchButtonText.Text = state.IsLaunching ? "取消启动" : string.IsNullOrWhiteSpace(state.LaunchText) ? "启动游戏" : state.LaunchText;
             LaunchGlyph.Data = state.IsLaunching ? Geometry.Parse("M5,5 H19 V19 H5 Z") : (Geometry)Resources["IconPlay"];
@@ -108,11 +142,15 @@ public partial class GlassLauncherView : UserControl
             LaunchStatusText.Visibility = state.IsLaunching && !string.IsNullOrWhiteSpace(state.LaunchStatus) ? Visibility.Visible : Visibility.Collapsed;
             LaunchProgressBar.Visibility = state.IsLaunching && state.LaunchProgress.HasValue ? Visibility.Visible : Visibility.Collapsed;
             LaunchProgressBar.Value = Math.Clamp(state.LaunchProgress ?? 0, 0, 1);
-            ExpandButton.Visibility = state.LaunchOptionsAvailable ? Visibility.Visible : Visibility.Hidden;
             ExpandButton.IsEnabled = state.LaunchOptionsAvailable;
             if (optionsAvailabilityChanged)
-                _expansionMotion.Retarget(_expanded && state.LaunchOptionsAvailable ? 1 : 0, state.ReduceMotion || !IsLoaded);
+            {
+                _expansionMotion.Retarget(_expanded && state.LaunchOptionsAvailable ? 1 : 0, ShouldSnapMotion);
+                _optionsMotion.Retarget(state.LaunchOptionsAvailable ? 1 : 0, ShouldSnapMotion);
+            }
 
+            ToggleFeedback.SetReduceMotion(DependencyCheckBox, state.ReduceMotion);
+            ToggleFeedback.SetReduceMotion(AutoFillCheckBox, state.ReduceMotion);
             DependencyCheckBox.IsChecked = state.DependencyCheckEnabled;
             AutoFillCheckBox.IsChecked = state.AutoFillEnabled;
             RecentWorldButton.Visibility = state.RecentWorldAvailable ? Visibility.Visible : Visibility.Collapsed;
@@ -124,11 +162,19 @@ public partial class GlassLauncherView : UserControl
             WorldFallbackGlyph.Visibility = state.RecentWorldIcon is null ? Visibility.Visible : Visibility.Collapsed;
             AutomationProperties.SetName(RecentWorldButton, "继续游玩：" + (state.RecentWorldName ?? string.Empty));
             ApplyPalette(state.UseDarkText);
-            SetSelectedNavigation(state.ReduceMotion || !IsLoaded);
-            if (state.ReduceMotion)
+            WorkspaceHint.Text = "页面选项";
+            WorkspaceHint.Visibility = state.IsHome || _hasSidebar ? Visibility.Hidden : Visibility.Visible;
+            SetSelectedNavigation(ShouldSnapMotion);
+            if (ShouldSnapMotion)
             {
                 _expansionMotion.Snap(_expanded && state.LaunchOptionsAvailable ? 1 : 0);
                 _railMotion.Snap(_hasSidebar ? 1 : 0);
+                _accountMotion.Snap(_accountOpen ? 1 : 0);
+                _navigationPopoverMotion.Snap(_navigationOpen ? 1 : 0);
+                _homeMotion.Snap(state.IsHome ? 1 : 0);
+                _titleMotion.Snap(state.CanGoBack ? 1 : 0);
+                _optionsMotion.Snap(state.LaunchOptionsAvailable ? 1 : 0);
+                _pageMotion.Snap(1);
             }
         }
         finally
@@ -141,7 +187,20 @@ public partial class GlassLauncherView : UserControl
     public void SetPageContent(UIElement content)
     {
         if (ReferenceEquals(PageContent.Content, content)) return;
+        bool animate = !ShouldSnapMotion && !_state.IsHome && _homeProgress < .999 && content != null;
+        BitmapSource previous = animate ? CapturePageLayer() : null;
         PageContent.Content = content;
+        _hasPageSnapshot = previous != null;
+        PageSnapshot.Source = previous;
+        PageSnapshot.Visibility = _hasPageSnapshot ? Visibility.Visible : Visibility.Hidden;
+        if (animate)
+        {
+            // A different page has different content. Capture the current composite on rapid navigation
+            // so the replacement starts from exactly the displayed frame, with no stale completion callback.
+            _pageMotion.Snap(0);
+            _pageMotion.Retarget(1);
+        }
+        else _pageMotion.Snap(1);
     }
 
     public void SetSidebar(IEnumerable<GlassSidebarItem> items)
@@ -151,21 +210,23 @@ public partial class GlassLauncherView : UserControl
         {
             var button = new Button
             {
-                Style = (Style)Resources["GlassCircleButton"],
-                Width = 44,
-                Height = 44,
-                Margin = new Thickness(0, 2, 0, 2),
-                Padding = new Thickness(13),
-                BorderThickness = item.IsSelected ? new Thickness(0.7) : new Thickness(0),
-                Background = (Brush)Resources[item.IsSelected ? "GlassSelectedBrush" : "GlassControlBrush"],
+                Style = (Style)Resources["GlassButton"],
+                Height = 32,
+                MinHeight = 32,
+                Margin = new Thickness(0, 0, 0, 6),
+                Padding = new Thickness(11, 5, 11, 5),
+                BorderThickness = new Thickness(0),
+                Background = (Brush)Resources[item.IsSelected ? "GlassListSelectedBrush" : "GlassControlBrush"],
+                HorizontalContentAlignment = HorizontalAlignment.Left,
                 IsEnabled = item.IsEnabled,
                 ToolTip = string.IsNullOrWhiteSpace(item.ToolTip) ? item.Label : item.ToolTip,
             };
             AutomationProperties.SetName(button, item.Label ?? string.Empty);
             AutomationProperties.SetHelpText(button, item.ToolTip ?? string.Empty);
+            var contents = new StackPanel { Orientation = Orientation.Horizontal };
             if (item.Image != null)
             {
-                button.Content = new Image { Source = item.Image, Width = 18, Height = 18, Stretch = Stretch.Uniform };
+                contents.Children.Add(new Image { Source = item.Image, Width = 14, Height = 14, Margin = new Thickness(0, 0, 7, 0), Stretch = Stretch.Uniform });
             }
             else
             {
@@ -174,15 +235,17 @@ public partial class GlassLauncherView : UserControl
                 catch (FormatException) { }
                 if (geometry != null && !geometry.Bounds.IsEmpty)
                 {
-                    var path = new Path { Data = geometry, Width = 18, Height = 18, Stretch = Stretch.Uniform };
+                    var path = new Path { Data = geometry, Width = 14, Height = 14, Margin = new Thickness(0, 0, 7, 0), Stretch = Stretch.Uniform };
                     path.SetResourceReference(Shape.FillProperty, "GlassTextBrush");
-                    button.Content = path;
+                    contents.Children.Add(path);
                 }
                 else
                 {
-                    button.Content = new TextBlock { Style = (Style)Resources["GlassText"], Text = string.IsNullOrWhiteSpace(item.Label) ? "·" : item.Label.Substring(0, 1), FontSize = 14, FontWeight = FontWeights.Medium };
+                    // Context labels remain visible rather than becoming an unlabeled floating icon strip.
                 }
             }
+            contents.Children.Add(new TextBlock { Text = item.Label ?? string.Empty, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            button.Content = contents;
             button.Click += (_, _) => { SetNavigationOpen(false); item.Invoked?.Invoke(); };
             SidebarPanel.Children.Add(button);
         }
@@ -193,9 +256,10 @@ public partial class GlassLauncherView : UserControl
     private void UpdateSidebarAvailability()
     {
         _hasSidebar = SidebarPanel.Children.Count > 0 || NavigationContent.Content != null;
-        if (_hasSidebar) SideRail.Visibility = Visibility.Visible;
-        SideRail.IsHitTestVisible = _hasSidebar;
-        _railMotion.Retarget(_hasSidebar ? 1 : 0, _state.ReduceMotion || !IsLoaded);
+        WorkspaceHint.Visibility = _hasSidebar || _state.IsHome ? Visibility.Hidden : Visibility.Visible;
+        if (_hasSidebar && !_state.IsHome) SideRail.Visibility = Visibility.Visible;
+        SideRail.IsHitTestVisible = _hasSidebar && !_state.IsHome;
+        _railMotion.Retarget(_hasSidebar ? 1 : 0, ShouldSnapMotion);
     }
 
     public void SetAccountContent(UIElement content)
@@ -205,10 +269,15 @@ public partial class GlassLauncherView : UserControl
     }
 
     public void SetAccountOpen(bool isOpen)
+        => SetAccountOpenCore(isOpen, ShouldSnapMotion);
+
+    private void SetAccountOpenCore(bool isOpen, bool immediate)
     {
         _accountOpen = isOpen && AccountContent.Content != null;
         if (_accountOpen) SetNavigationOpen(false);
-        AccountPopover.Visibility = _accountOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (_accountOpen) AccountPopover.Visibility = Visibility.Visible;
+        AccountPopover.IsHitTestVisible = _accountOpen;
+        _accountMotion.Retarget(_accountOpen ? 1 : 0, immediate);
         AutomationProperties.SetHelpText(AccountButton, _accountOpen ? "账户面板已展开" : "打开账户面板");
         if (_accountOpen)
             AccountPopover.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
@@ -225,10 +294,15 @@ public partial class GlassLauncherView : UserControl
     }
 
     public void SetNavigationOpen(bool isOpen)
+        => SetNavigationOpenCore(isOpen, ShouldSnapMotion);
+
+    private void SetNavigationOpenCore(bool isOpen, bool immediate)
     {
         _navigationOpen = isOpen && NavigationContent.Content != null;
         if (_navigationOpen) SetAccountOpen(false);
-        NavigationPopover.Visibility = _navigationOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (_navigationOpen) NavigationPopover.Visibility = Visibility.Visible;
+        NavigationPopover.IsHitTestVisible = _navigationOpen;
+        _navigationPopoverMotion.Retarget(_navigationOpen ? 1 : 0, immediate);
         AutomationProperties.SetName(NavigationMenuButton, _navigationOpen ? "收起全部页面选项" : "展开全部页面选项");
         if (_navigationOpen) NavigationPopover.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
         ScheduleLayout();
@@ -238,43 +312,92 @@ public partial class GlassLauncherView : UserControl
     {
         WallpaperImage.Source = source;
         WallpaperImage.Visibility = source is null ? Visibility.Collapsed : Visibility.Visible;
-        GlassMaterial.SetWallpaperHost(ShellRoot, WallpaperImage);
+        GlassMaterial.SetDesktopBackdropEnabled(ShellRoot, false);
+        GlassMaterial.SetIsEnabled(ShellRoot, true);
         GlassMaterial.SetWallpaperSource(ShellRoot, source);
+        GlassMaterial.SetWallpaperHost(ShellRoot, WallpaperImage);
+        ApplyPalette(_state.UseDarkText);
         UpdateWallpaperClip();
     }
 
-    /// <summary>Rounded outer islands in view coordinates, including their current animated positions.</summary>
+    /// <summary>The two painted rounded surfaces; the gap between them stays outside the window shape.</summary>
     public IReadOnlyList<GlassWindowRegion> GetSurfaceRegions()
     {
-        var result = new List<GlassWindowRegion>(7);
-        AddSurfaceRegion(result, MainSurface, 36);
-        AddSurfaceRegion(result, AccountSurface, 28);
-        AddSurfaceRegion(result, NavigationSurface, 28);
-        AddSurfaceRegion(result, WindowControlsSurface, 28);
-        AddSurfaceRegion(result, SideRail, 28);
-        AddSurfaceRegion(result, AccountPopover, 24);
-        AddSurfaceRegion(result, NavigationPopover, 24);
-        return result;
+        if (NavigationSurface.ActualWidth <= 0 || BodyFrame.ActualWidth <= 0 || ActualHeight <= 0)
+            return Array.Empty<GlassWindowRegion>();
+        return new[] {
+            new GlassWindowRegion(NavigationSurface.TransformToAncestor(this).TransformBounds(new Rect(NavigationSurface.RenderSize)), NavigationSurface.CornerRadius.TopLeft),
+            new GlassWindowRegion(BodyFrame.TransformToAncestor(this).TransformBounds(new Rect(BodyFrame.RenderSize)), BodyFrame.CornerRadius.TopLeft)
+        };
     }
 
-    private void AddSurfaceRegion(List<GlassWindowRegion> result, FrameworkElement element, double radius)
-    {
-        if (element.Visibility != Visibility.Visible || element.Opacity < 0.005 || element.ActualWidth <= 0 || element.ActualHeight <= 0 || !element.IsDescendantOf(this)) return;
-        Rect bounds = element.TransformToAncestor(this).TransformBounds(new Rect(element.RenderSize));
-        if (!bounds.IsEmpty) result.Add(new GlassWindowRegion(bounds, radius));
-    }
+    private static string NavigationTitle(int page) => page switch { 1 => "资源中心", 10 => "收藏", 3 => "设置", 4 => "更多", _ => "主页" };
+    private double Radius(string resource) => ((CornerRadius)Resources[resource]).TopLeft;
+    private bool ShouldSnapMotion => _state.ReduceMotion || !IsLoaded || _keyboardInteraction;
 
     private void ApplyPalette(bool darkText)
     {
-        SetBrush("GlassTextBrush", darkText ? "#ED263339" : "#F4FFFFFF");
-        SetBrush("GlassSecondaryTextBrush", darkText ? "#AF354249" : "#BFFFFFFF");
-        SetBrush("GlassMainBrush", darkText ? "#61E4E6E0" : "#54343B3C");
-        SetBrush("GlassCardBrush", darkText ? "#62FFFFFF" : "#66444847");
-        SetBrush("GlassChromeBrush", darkText ? "#66D5D9D4" : "#78575F5D");
-        SetBrush("GlassAccentBrush", darkText ? "#EC334549" : "#F4FFFFFF");
-        SetBrush("GlassAccentTextBrush", darkText ? "#FFF7FAF8" : "#FF303B3C");
-        SetBrush("GlassCheckOutlineBrush", darkText ? "#885C6B70" : "#80FFFFFF");
+        if (SystemParameters.HighContrast)
+        {
+            foreach (string name in new[] { "GlassWindowBrush", "GlassMainBrush", "GlassCardBrush", "GlassChromeBrush" }) SetBrush(name, SystemColors.WindowColor.ToString());
+            foreach (string name in new[] { "GlassTextBrush", "GlassSecondaryTextBrush", "HomeTextBrush", "HomeSecondaryTextBrush" }) SetBrush(name, SystemColors.WindowTextColor.ToString());
+            SetBrush("GlassControlBrush", SystemColors.ControlColor.ToString());
+            SetBrush("GlassHoverBrush", SystemColors.ControlDarkColor.ToString());
+            SetBrush("GlassSelectedBrush", SystemColors.HighlightColor.ToString());
+            SetBrush("GlassListSelectedBrush", SystemColors.HighlightColor.ToString());
+            SetBrush("GlassOutlineBrush", SystemColors.WindowTextColor.ToString());
+            SetBrush("GlassAccentBrush", SystemColors.HighlightColor.ToString());
+            SetBrush("GlassAccentTextBrush", SystemColors.HighlightTextColor.ToString());
+            GlassMaterial.SetFallbackColor(ShellRoot, SystemColors.WindowColor);
+            WallpaperImage.Visibility = Visibility.Hidden;
+            WorkspaceSurface.Background = SystemColors.WindowBrush;
+            ContextStrip.Background = SystemColors.WindowBrush;
+            SetHomeTextShadow(false);
+            return;
+        }
+        bool wallpaper = WallpaperImage.Source != null;
+        WallpaperImage.Visibility = wallpaper ? Visibility.Visible : Visibility.Collapsed;
+        double density = wallpaper ? Math.Clamp(GlassMaterial.GetOpacityMultiplier(this), 0, 1) : 1;
+        SetBrush("GlassWindowBrush", darkText ? "#FFF5F6F8" : "#FF101925");
+        SetBrush("GlassTextBrush", darkText ? "#FF202B3A" : "#FFE8EEF5");
+        SetBrush("GlassSecondaryTextBrush", darkText ? "#FF657284" : "#FFA6B4C4");
+        SetBrush("GlassMainBrush", wallpaper ? (darkText ? "#C4F2F3F5" : "#C4202A36") : (darkText ? "#FFF1F3F6" : "#FF141F2D"));
+        Color card = darkText ? Color.FromRgb(255, 255, 255) : Color.FromRgb(32, 46, 63);
+        card.A = wallpaper ? (byte)Math.Round(224 * density) : (byte)255;
+        SetBrush("GlassCardBrush", card.ToString());
+        SetBrush("GlassChromeBrush", darkText ? "#F7F8F9FB" : "#F515202D");
+        SetBrush("GlassControlBrush", darkText ? "#E7E8EDF3" : "#FF2A3A4E");
+        SetBrush("GlassHoverBrush", darkText ? "#FFDCE6EC" : "#FF354B63");
+        SetBrush("GlassSelectedBrush", darkText ? "#FFD7E9ED" : "#FF294958");
+        SetBrush("GlassListSelectedBrush", darkText ? "#B8B9BBBD" : "#90607181");
+        SetBrush("GlassOutlineBrush", darkText ? "#208094A8" : "#304A6077");
+        SetBrush("GlassAccentBrush", darkText ? "#FF4E8FED" : "#FF5A9DF5");
+        SetBrush("GlassAccentTextBrush", "#FFFFFFFF");
+        SetBrush("HomeTextBrush", darkText ? "#FF202B3A" : "#FFF8FAFD");
+        SetBrush("HomeSecondaryTextBrush", darkText ? "#FF53657A" : "#FFE0EAF4");
+        GlassMaterial.SetFallbackColor(ShellRoot, darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(16, 25, 37));
+        SetHomeTextShadow(false);
+        WorkspaceSurface.Background = _state.IsHome ? Brushes.Transparent : (Brush)Resources["GlassMainBrush"];
+        ContextStrip.Background = _state.IsHome ? Brushes.Transparent : (Brush)Resources["GlassMainBrush"];
+        ContextStrip.BorderBrush = _state.IsHome ? Brushes.Transparent : (Brush)Resources["GlassOutlineBrush"];
     }
+
+    private void SetHomeTextShadow(bool enabled)
+    {
+        if (_homeTextShadowEnabled == enabled) return;
+        _homeTextShadowEnabled = enabled;
+        System.Windows.Media.Effects.DropShadowEffect effect = null;
+        if (enabled)
+        {
+            effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 3, ShadowDepth = 1, Opacity = .4, Color = Colors.Black };
+            effect.Freeze();
+        }
+        InstanceNameText.Effect = effect;
+        InstanceDescriptionText.Effect = effect;
+        LaunchStatusText.Effect = effect;
+    }
+
+
 
     private void SetBrush(string key, string color)
     {
@@ -299,74 +422,172 @@ public partial class GlassLauncherView : UserControl
         return _fallbackInstanceIcon;
     }
 
+    private ImageSource GetFallbackAccountAvatar()
+    {
+        if (_fallbackAccountAvatar != null) return _fallbackAccountAvatar;
+        try
+        {
+            var resource = Application.GetResourceStream(new Uri("/LivingPCL;component/Images/Skins/Steve.png", UriKind.Relative));
+            if (resource is null) return null;
+            BitmapSource skin;
+            using (resource.Stream) skin = BitmapFrame.Create(resource.Stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            int unit = Math.Max(1, skin.PixelWidth / 64);
+            var head = new CroppedBitmap(skin, new Int32Rect(8 * unit, 8 * unit, 8 * unit, 8 * unit));
+            head.Freeze(); _fallbackAccountAvatar = head;
+        }
+        catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or ArgumentException or NotSupportedException) { }
+        return _fallbackAccountAvatar;
+    }
+
     private void ApplyExpansion(double value)
     {
         double p = Math.Clamp(value, 0, 1);
         PrimaryTranslation.X = 0;
         ExpandTranslation.X = 0;
-        AuxiliaryTranslation.X = -22 * (1 - p);
+        AuxiliaryTranslation.X = -MotionTokens.AuxiliaryTravel * (1 - p);
+        AuxiliaryTranslation.Y = 0;
         AuxiliaryCards.Opacity = p;
         ExpandRotation.Angle = p * 45;
-        AuxiliaryCards.IsHitTestVisible = _expanded && _state.LaunchOptionsAvailable && p > 0.5;
-        AuxiliaryCards.Visibility = p < 0.001 && (!_expanded || !_state.LaunchOptionsAvailable) ? Visibility.Hidden : Visibility.Visible;
+        AuxiliaryCards.IsHitTestVisible = _expanded && _state.LaunchOptionsAvailable && p > MotionTokens.VisibilityThreshold;
+        AuxiliaryCards.Visibility = p < MotionTokens.VisibilityThreshold && (!_expanded || !_state.LaunchOptionsAvailable) ? Visibility.Hidden : Visibility.Visible;
     }
 
     private void ApplyRail(double value)
     {
         double p = Math.Clamp(value, 0, 1);
-        RailTranslation.X = 60 * (1 - p);
+        RailTranslation.X = 0;
+        RailTranslation.Y = -MotionTokens.RailTravel * (1 - p);
         SideRail.Opacity = p;
-        SideRail.Visibility = p < 0.001 && !_hasSidebar ? Visibility.Hidden : Visibility.Visible;
+        SideRail.Visibility = _state.IsHome || p < MotionTokens.VisibilityThreshold && !_hasSidebar ? Visibility.Hidden : Visibility.Visible;
         NotifyRegionsChanged();
+    }
+
+    private void ApplyAccountPopover(double value)
+    {
+        double p = Math.Clamp(value, 0, 1);
+        AccountPopover.Opacity = p;
+        AccountPopoverScale.ScaleX = AccountPopoverScale.ScaleY = 1;
+        AccountPopoverTranslation.Y = MotionTokens.PopoverTravel * (1 - p);
+        AccountPopover.Visibility = _accountOpen || p > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Collapsed;
+        AccountPopover.IsHitTestVisible = _accountOpen;
+        NotifyRegionsChanged();
+    }
+
+    private void ApplyNavigationPopover(double value)
+    {
+        double p = Math.Clamp(value, 0, 1);
+        NavigationPopover.Opacity = p;
+        NavigationPopoverScale.ScaleX = NavigationPopoverScale.ScaleY = 1;
+        NavigationPopoverTranslation.Y = -MotionTokens.PopoverTravel * (1 - p);
+        NavigationPopover.Visibility = _navigationOpen || p > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Collapsed;
+        NavigationPopover.IsHitTestVisible = _navigationOpen;
+        NotifyRegionsChanged();
+    }
+
+    private void ApplyHomeTransition(double value)
+    {
+        _homeProgress = Math.Clamp(value, 0, 1);
+        HomePanel.Opacity = _homeProgress;
+        HomeTranslation.X = -MotionTokens.PageTravel * (1 - _homeProgress);
+        HomePanel.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
+        HomePanel.IsHitTestVisible = _state.IsHome;
+        PrimaryCard.Opacity = _homeProgress;
+        PrimaryCard.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
+        PrimaryCard.IsHitTestVisible = _state.IsHome;
+        PageScene.Opacity = 1 - _homeProgress;
+        PageSceneTranslation.X = MotionTokens.PageTravel * _homeProgress;
+        PageScene.Visibility = !_state.IsHome || _homeProgress < 1 - MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
+        PageContent.Visibility = PageScene.Visibility;
+        PageContent.IsHitTestVisible = !_state.IsHome;
+    }
+
+    private void ApplyPageTransition(double value)
+    {
+        _pageProgress = Math.Clamp(value, 0, 1);
+        PageContent.Opacity = _pageProgress;
+        PageEntryTranslation.X = MotionTokens.LayerTravel * (1 - _pageProgress);
+        PageSnapshot.Opacity = 1 - _pageProgress;
+        if (_hasPageSnapshot && _pageProgress >= 1 - MotionTokens.VisibilityThreshold)
+        {
+            _hasPageSnapshot = false;
+            PageSnapshot.Source = null;
+        }
+        PageSnapshot.Visibility = _hasPageSnapshot ? Visibility.Visible : Visibility.Hidden;
+    }
+
+    private void ApplyTitleTransition(double value)
+    {
+        double p = Math.Clamp(value, 0, 1);
+        NavigationButtons.Opacity = 1;
+        NavigationButtons.Visibility = Visibility.Visible;
+        NavigationButtons.IsHitTestVisible = true;
+        BackTitlePanel.Opacity = p;
+        BackTitleTranslation.X = -MotionTokens.LayerTravel * (1 - p);
+        BackTitlePanel.Visibility = _state.CanGoBack || p > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
+        BackTitlePanel.IsHitTestVisible = _state.CanGoBack;
+    }
+
+    private void ApplyOptionsAvailability(double value)
+    {
+        double p = Math.Clamp(value, 0, 1);
+        ExpandButtonContainer.Opacity = p;
+        ExpandAvailabilityScale.ScaleX = ExpandAvailabilityScale.ScaleY = 1;
+        ExpandButton.Visibility = _state.LaunchOptionsAvailable || p > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
+        ExpandButtonContainer.IsHitTestVisible = _state.IsHome && _state.LaunchOptionsAvailable;
+    }
+
+    private BitmapSource CapturePageLayer()
+    {
+        if (PageLayer.ActualWidth <= 0 || PageLayer.ActualHeight <= 0 || !PageLayer.IsVisible) return null;
+        try
+        {
+            DpiScale dpi = VisualTreeHelper.GetDpi(PageLayer);
+            int width = (int)Math.Ceiling(PageLayer.ActualWidth * dpi.DpiScaleX);
+            int height = (int)Math.Ceiling(PageLayer.ActualHeight * dpi.DpiScaleY);
+            if (width < 1 || height < 1 || width > 8192 || height > 8192) return null;
+            var snapshot = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+            snapshot.Render(PageLayer);
+            snapshot.Freeze();
+            return snapshot;
+        }
+        catch (Exception error) when (error is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            // A disappearing/unrenderable visual must never delay actual page navigation.
+            return null;
+        }
     }
 
     private void ArrangeHomeDeck()
     {
-        if (HomeDeck.ActualWidth <= 0 || HomeDeck.ActualHeight <= 0) return;
-        double width = HomeDeck.ActualWidth;
-        double height = HomeDeck.ActualHeight;
-        _primaryWidth = Math.Clamp(width * 0.345, 270, 330);
-        _auxiliaryWidth = Math.Clamp(width * 0.3, 242, 290);
-        if (_primaryWidth + _auxiliaryWidth + 16 > width)
-        {
-            _primaryWidth = Math.Max(244, width - _auxiliaryWidth - 16);
-        }
-        _cardHeight = Math.Max(272, height);
-        _deckLeft = 0;
-        _deckTop = 0;
-        PrimaryCard.Width = _primaryWidth;
-        PrimaryCard.Height = _cardHeight;
-        AuxiliaryCards.Width = _auxiliaryWidth;
-        Canvas.SetLeft(PrimaryCard, _deckLeft);
-        Canvas.SetTop(PrimaryCard, _deckTop);
-        Canvas.SetLeft(AuxiliaryCards, _deckLeft + _primaryWidth + 16);
-        Canvas.SetTop(AuxiliaryCards, _deckTop);
-        Canvas.SetLeft(ExpandButtonContainer, _deckLeft + _primaryWidth - 47);
-        Canvas.SetTop(ExpandButtonContainer, _deckTop + 13);
-        bool compact = _cardHeight < 360;
-        InstanceImage.Width = InstanceImage.Height = compact ? 48 : 80;
-        InstanceNameText.FontSize = compact ? 21 : 23;
-        InstanceNameText.MaxWidth = Math.Max(180, _primaryWidth - 60);
-        InstanceDescriptionText.MaxWidth = Math.Max(180, _primaryWidth - 60);
-        InstanceNameText.Margin = new Thickness(0, compact ? 8 : 22, 0, 0);
-        InstanceCenter.Margin = new Thickness(12, compact ? 12 : 28, 12, compact ? 8 : 22);
-        LaunchButton.Margin = new Thickness(0, compact ? 14 : 32, 0, 0);
-        LaunchButton.Height = compact ? 42 : 44;
-        LaunchStatusText.MaxWidth = Math.Max(160, _primaryWidth - 64);
+        if (HomeDeck.ActualWidth <= 0) return;
+        bool compact = ActualWidth < 960;
+        PrimaryCard.Width = double.NaN;
+        PrimaryCard.Height = double.NaN;
+        InstanceImage.Width = InstanceImage.Height = 64;
+        InstanceNameText.FontSize = 18;
+        InstanceCenter.Margin = new Thickness(0);
+        LaunchButton.Width = compact ? 180 : 190;
+        LaunchButton.Height = 48;
+        LaunchButton.Margin = new Thickness(0, 22, 0, 0);
+        AuxiliaryCards.Width = compact ? 244 : 272;
         ApplyExpansion(_expansionMotion.Value);
     }
 
     private void SetSelectedNavigation(bool immediate)
     {
         int index = _state.SelectedNavigationId switch { 1 => 1, 10 => 2, 3 => 3, 4 => 4, _ => 0 };
-        double cellWidth = NavigationButtons.ActualWidth / 5;
-        if (cellWidth <= 0) return;
-        NavSelection.Width = cellWidth;
-        _navigationMotion.Retarget(cellWidth * index, immediate);
         Button[] buttons = [NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther];
+        Button selected = buttons[index];
+        if (selected.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
+        {
+            NavSelection.Width = selected.ActualWidth;
+            NavSelection.Height = selected.ActualHeight;
+            Rect slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(selected);
+            _navigationMotion.Retarget(slot.Top + (slot.Height - selected.ActualHeight) / 2, immediate);
+        }
         for (int i = 0; i < buttons.Length; i++)
         {
-            buttons[i].FontWeight = i == index ? FontWeights.SemiBold : FontWeights.Normal;
+            buttons[i].FontWeight = i == index ? FontWeights.Medium : FontWeights.Normal;
             AutomationProperties.SetItemStatus(buttons[i], i == index ? "当前页面" : string.Empty);
         }
     }
@@ -378,8 +599,9 @@ public partial class GlassLauncherView : UserControl
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
             _layoutPending = false;
+            SecondaryColumn.Width = new GridLength(_state.IsHome ? (ActualWidth < 960 ? 284 : 304) : (ActualWidth < 960 ? 230 : 254));
             ArrangeHomeDeck();
-            SetSelectedNavigation(_state.ReduceMotion || !IsLoaded);
+            SetSelectedNavigation(ShouldSnapMotion);
             NotifyRegionsChanged();
         }));
     }
@@ -395,35 +617,52 @@ public partial class GlassLauncherView : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        GlassMaterial.SetWallpaperHost(ShellRoot, WallpaperImage);
+        if (AppLogoImage.Source is null)
+        {
+            try { AppLogoImage.Source = (ImageSource)Application.LoadComponent(new Uri("/LivingPCL;component/Images/Branding/PCLLF.Logo.xaml", UriKind.Relative)); }
+            catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or NotSupportedException) { }
+        }
         ScheduleLayout();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        bool compact = ActualWidth < 930;
-        double mainLeft = compact ? 92 : 96;
-        double mainRight = compact ? 18 : 26;
-        double headerInset = compact ? 14 : 70;
-        double mainTop = compact ? 91 : 104;
-        MainSurface.Margin = new Thickness(mainLeft, mainTop, mainRight, compact ? 18 : 26);
-        MainSurface.Padding = new Thickness(26);
-        Header.Margin = new Thickness(mainLeft + headerInset, compact ? 18 : 24, mainRight + headerInset, 0);
-        AccountColumn.Width = new GridLength(compact ? 148 : 168);
-        SideRail.Margin = new Thickness(compact ? 14 : 16, mainTop, 0, compact ? 18 : 26);
-        SideRail.MaxHeight = Math.Max(96, ActualHeight - mainTop - 42);
-        AccountPopover.Margin = new Thickness(mainLeft + headerInset, compact ? 82 : 91, 0, 22);
-        AccountPopover.MaxHeight = Math.Max(180, ActualHeight - 108);
-        NavigationPopover.Margin = new Thickness(mainLeft, mainTop, 0, compact ? 18 : 26);
-        NavigationPopover.MaxHeight = Math.Max(160, ActualHeight - mainTop - 38);
+        bool compact = ActualWidth < 960;
+        MainContentGrid.Margin = new Thickness(compact ? 16 : 24, 0, compact ? 16 : 24, 24);
+        SecondaryColumn.Width = new GridLength(_state.IsHome ? (compact ? 284 : 304) : (compact ? 230 : 254));
+        AccountNameText.MaxWidth = compact ? 90 : 128;
+        AccountPopover.HorizontalAlignment = HorizontalAlignment.Left;
+        AccountPopover.VerticalAlignment = VerticalAlignment.Bottom;
+        AccountPopover.Margin = new Thickness(84, 0, 0, 16);
+        AccountPopover.MaxHeight = Math.Max(160, ActualHeight - 40);
+        NavigationPopover.Margin = new Thickness(0, 48, compact ? 16 : 24, 16);
+        NavigationPopover.MaxHeight = Math.Max(160, ActualHeight - 132);
         ScheduleLayout();
     }
 
     private void UpdateWallpaperClip()
     {
         if (MainSurface.ActualWidth <= 0 || MainSurface.ActualHeight <= 0) return;
-        Rect bounds = MainSurface.TransformToVisual(WallpaperImage).TransformBounds(new Rect(MainSurface.RenderSize));
-        if (WallpaperClip.Rect != bounds) WallpaperClip.Rect = bounds;
+        IReadOnlyList<GlassWindowRegion> regions = GetSurfaceRegions();
+        GeneralTransform transform = this.TransformToVisual(_surfaceMaskHost);
+        UpdateClip(FrameClip, regions, transform);
+        Rect viewport = transform.TransformBounds(new Rect(RenderSize));
+        if (FrameMask.Viewbox != viewport) FrameMask.Viewbox = viewport;
+        if (FrameMask.Viewport != viewport) FrameMask.Viewport = viewport;
+    }
+
+    private static void UpdateClip(GeometryGroup clip, IReadOnlyList<GlassWindowRegion> regions, GeneralTransform transform)
+    {
+        for (int index = 0; index < regions.Count; index++)
+        {
+            GlassWindowRegion region = regions[index];
+            Rect bounds = transform.TransformBounds(region.Bounds);
+            if (index >= clip.Children.Count) clip.Children.Add(new RectangleGeometry());
+            var rectangle = (RectangleGeometry)clip.Children[index];
+            if (rectangle.Rect != bounds) rectangle.Rect = bounds;
+            if (rectangle.RadiusX != region.CornerRadius) rectangle.RadiusX = rectangle.RadiusY = region.CornerRadius;
+        }
+        while (clip.Children.Count > regions.Count) clip.Children.RemoveAt(clip.Children.Count - 1);
     }
 
     private void OnLayoutUpdated(object sender, EventArgs e)
@@ -432,7 +671,7 @@ public partial class GlassLauncherView : UserControl
         NotifyRegionsChanged();
     }
     private void HomeDeck_SizeChanged(object sender, SizeChangedEventArgs e) => ArrangeHomeDeck();
-    private void NavigationButtons_SizeChanged(object sender, SizeChangedEventArgs e) => SetSelectedNavigation(true);
+    private void NavigationButtons_SizeChanged(object sender, SizeChangedEventArgs e) => SetSelectedNavigation(ShouldSnapMotion);
 
     private void ExpandButton_Click(object sender, RoutedEventArgs e)
     {
@@ -441,7 +680,7 @@ public partial class GlassLauncherView : UserControl
         if (_expanded) AuxiliaryCards.Visibility = Visibility.Visible;
         ExpandButton.ToolTip = _expanded ? "收起启动选项" : "更多启动选项";
         AutomationProperties.SetName(ExpandButton, _expanded ? "收起启动选项" : "展开启动选项");
-        _expansionMotion.Retarget(_expanded ? 1 : 0, _state.ReduceMotion);
+        _expansionMotion.Retarget(_expanded ? 1 : 0, ShouldSnapMotion);
     }
 
     private void LaunchButton_Click(object sender, RoutedEventArgs e)
@@ -471,15 +710,16 @@ public partial class GlassLauncherView : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        _keyboardInteraction = true;
         if (e.Key == Key.Escape && _accountOpen)
         {
-            SetAccountOpen(false);
+            SetAccountOpenCore(false, true);
             AccountButton.Focus();
             e.Handled = true;
         }
         else if (e.Key == Key.Escape && _navigationOpen)
         {
-            SetNavigationOpen(false);
+            SetNavigationOpenCore(false, true);
             NavigationMenuButton.Focus();
             e.Handled = true;
         }
@@ -487,6 +727,7 @@ public partial class GlassLauncherView : UserControl
 
     private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
+        _keyboardInteraction = false;
         if (e.OriginalSource is not DependencyObject source) return;
         if (_accountOpen && !IsWithin(source, AccountPopover) && !IsWithin(source, AccountButton)) SetAccountOpen(false);
         if (_navigationOpen && !IsWithin(source, NavigationPopover) && !IsWithin(source, NavigationMenuButton)) SetNavigationOpen(false);

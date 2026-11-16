@@ -19,6 +19,9 @@ public partial class MyLoadingView : Grid {
     protected virtual void OnIsErrorChanged(bool error) => IsErrorChanged?.Invoke(this, error);
     protected virtual void OnStateChanged(MyLoadingState next, MyLoadingState old) => StateChanged?.Invoke(this, next, old);
     protected virtual void OnClick(object sender, MouseButtonEventArgs args) => Click?.Invoke(sender, args);
+    public void PerformClick() {
+        if (IsEnabled) OnClick(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left));
+    }
     public bool AutoRun { get; set; } = true;
     private readonly int uuid;
     private static ControlServiceHost Services => ControlServices.Current;

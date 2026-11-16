@@ -197,12 +197,18 @@ internal sealed class GlassShellRuntime : IDisposable {
         if (ReferenceEquals(back, _avatarBack) && ReferenceEquals(fore, _avatarFore)) return;
         _avatarBack = back; _avatarFore = fore;
         if (back is null) { _accountAvatar = null; return; }
+        _accountAvatar = ComposeAccountAvatar(back, fore);
+    }
+
+    internal static DrawingImage ComposeAccountAvatar(ImageSource back, ImageSource? fore) {
         var drawing = new DrawingGroup();
-        drawing.Children.Add(new ImageDrawing(back, new Rect(2, 2, 28, 28)));
+        // Both Minecraft layers share the same 8x8-to-32 grid. An inset face would
+        // introduce a fractional pixel scale and misalign transparent hat pixels.
+        drawing.Children.Add(new ImageDrawing(back, new Rect(0, 0, 32, 32)));
         if (fore is not null) drawing.Children.Add(new ImageDrawing(fore, new Rect(0, 0, 32, 32)));
         var image = new DrawingImage(drawing);
         if (image.CanFreeze) image.Freeze();
-        _accountAvatar = image;
+        return image;
     }
 
     private void ReuseRecentPresentation(McInstance instance) {

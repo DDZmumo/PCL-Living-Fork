@@ -50,6 +50,10 @@ public sealed class ResourceItemController<TProject, TResult, TRequest, TInstanc
     }
     public void MouseUp(object sender, MouseButtonEventArgs args) {
         if (!mouseDown) return;
+        Activate(sender, args);
+    }
+    public void Activate(object sender, MouseButtonEventArgs args) {
+        if (!CanInteraction || !host.View().Root.IsEnabled) return;
         host.RaiseClick(sender, args);
         if (args.Handled) return;
         Logger.Info("按下资源工程列表项：" + host.View().Title.Text);

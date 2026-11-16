@@ -19,6 +19,11 @@ public partial class MyIconTextButtonView : Border {
     public event CheckEventHandler Change { add => change += value; remove => change -= value; }
     public event EventHandler<ControlPreviewEventArgs>? Click;
     protected virtual void OnClick() => Click?.Invoke(this, new(true));
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        Services.Info("按下带图标按钮：" + Text);
+        OnClick(); Services.RaiseCustomEvent(this);
+    }
     private static ControlServiceHost Services => ControlServices.Current;
     private static ControlAnimations Animations => Services.Animations;
     public MyIconTextButtonView() {

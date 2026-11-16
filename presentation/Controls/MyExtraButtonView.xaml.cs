@@ -64,6 +64,15 @@ public partial class MyExtraButtonView : Grid {
     public void ShowRefresh() { if (HasShowCheck) Show = CheckShow(); }
     private bool leftHeld, rightHeld;
     public bool CanRightClick { get; set; }
+    /// <summary>Logical activation for a replacement view; no pointer event or legacy chrome is fabricated.</summary>
+    public void PerformClick(bool right = false) {
+        if (!IsEnabled || right && !CanRightClick) return;
+        if (right) OnRightClick(this, null!);
+        else {
+            OnClick(this, null!);
+            Services.RaiseCustomEvent(this);
+        }
+    }
     private string ToolTipSuffix() => Operators.ConditionalCompareObjectEqual(ToolTip, "", false) ? "" : "：" + Conversions.ToString(ToolTip);
     private void LeftClick(object sender, MouseButtonEventArgs args) { if (!leftHeld) return; Services.Info("按下附加按钮" + ToolTipSuffix()); OnClick(sender, args); args.Handled = true; LeftUp(); }
     private void RightClickMouse(object sender, MouseButtonEventArgs args) { if (!rightHeld) return; Services.Info("右键按下附加按钮" + ToolTipSuffix()); OnRightClick(sender, args); args.Handled = true; RightUp(); }

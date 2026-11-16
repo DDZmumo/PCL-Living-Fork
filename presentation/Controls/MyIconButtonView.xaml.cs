@@ -58,6 +58,12 @@ public partial class MyIconButtonView : Border {
     }
     protected virtual void WithAnimationSuppressed(Action work) { suppressAnimation++; work(); suppressAnimation--; }
     public bool CanClick { get; set; } = true;
+    public void PerformClick() {
+        if (!IsEnabled || !CanClick) return;
+        Services.Info("按下图标按钮" + (string.IsNullOrEmpty(Name) ? "" : "：" + Name));
+        OnClick(this, EventArgs.Empty);
+        Services.RaiseCustomEvent(this);
+    }
     private void Button_MouseUp(object sender, MouseButtonEventArgs args) {
         if (!CanClick || !isMouseDown) return;
         Services.Info("按下图标按钮" + (string.IsNullOrEmpty(Name) ? "" : "：" + Name));

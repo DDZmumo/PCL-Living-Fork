@@ -45,8 +45,17 @@ public readonly struct SpringParameters {
 /// <summary>Shared native motion tokens; all shell surfaces use the same spatial spring.</summary>
 public static class MotionTokens {
     public static SpringParameters Spatial { get; } = new(.4, 1);
+    public static SpringParameters Reveal { get; } = new(.22, 1);
+    public static SpringParameters Toggle => Reveal;
     public static SpringParameters Press { get; } = new(.16, 1);
-    public const double PressedScale = .97;
+    public const double PressedScale = .98;
+    public const double RevealScale = .97;
+    public const double PopoverTravel = 8;
+    public const double PageTravel = 8;
+    public const double LayerTravel = 8;
+    public const double AuxiliaryTravel = 8;
+    public const double RailTravel = 8;
+    public const double VisibilityThreshold = .001;
 }
 
 /// <summary>

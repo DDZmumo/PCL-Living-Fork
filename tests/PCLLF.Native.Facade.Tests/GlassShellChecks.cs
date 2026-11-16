@@ -61,7 +61,9 @@ internal static class GlassShellChecks
             Console.WriteLine($"Glass shell component viewport: {view.ActualWidth}x{view.ActualHeight} DIP; native host: {window.ActualWidth}x{window.ActualHeight} DIP.");
             ConstrainedHost(window, view);
 
-            CapsuleRegions(view);
+            WorkbenchFrame(view);
+            BrandVector(window, view, icon);
+            AvatarPixelGrid(window, view, icon);
             Layout(window, view, 1120, 720);
             CheckboxSnapshots(view, icon);
             Layout(window, view, 810, 470);
@@ -69,6 +71,7 @@ internal static class GlassShellChecks
             Expansion(view, icon);
             Portals(window, view, icon);
             ContentHost(view, icon);
+            GlassMotionChecks.Run(window, view, icon);
             environment.AssertNoForbiddenIo();
         }
         finally
@@ -83,11 +86,11 @@ internal static class GlassShellChecks
             app.ShutdownMode = previousMode;
         }
         Native.Check(app.Windows.Count == previousWindowCount, "Glass shell checks left an owned window open.");
-        Console.WriteLine("PASS glass shell: genuine WPF view, four rounded islands, default/minimum layout and targets, events, snapshots/toggles, reversible expansion, and exclusive accessible portals.");
+        Console.WriteLine("PASS glass shell: genuine WPF workbench, two rounded surfaces and transparent gap, internal wallpaper, crisp layered pixel avatar, vertical navigation, three-pane single-instance launch pane, default/minimum layout and targets, events, snapshots/toggles, reversible options and accessible panels.");
     }
 
     private static GlassLauncherViewState State(ImageSource image, bool reduceMotion = true, bool dependency = true,
-        bool autoFill = true, bool launching = false, bool options = true, bool home = true, bool back = false) => new()
+        bool autoFill = true, bool launching = false, bool options = true, bool home = true, bool back = false, bool useDarkText = true) => new()
     {
         IsHome = home,
         SelectedNavigationId = home ? 0 : 3,
@@ -110,7 +113,7 @@ internal static class GlassShellChecks
         RecentWorldName = "用于布局验证的较长世界名称",
         RecentWorldDetail = "11/15 · Minecraft 1.21.11 · Fabric",
         RecentWorldIcon = image,
-        UseDarkText = true,
+        UseDarkText = useDarkText,
         ReduceMotion = reduceMotion,
     };
 
@@ -128,70 +131,186 @@ internal static class GlassShellChecks
         return image;
     }
 
-    private static void CapsuleRegions(GlassLauncherView view)
+    private static void AvatarPixelGrid(Window window, GlassLauncherView view, ImageSource restoreIcon)
     {
-        IReadOnlyList<GlassWindowRegion> regions = view.GetSurfaceRegions();
-        Native.Check(regions.Count == 4, "Home should expose only the main surface and three distinct header capsules.");
-        string[] names = ["MainSurface", "AccountSurface", "NavigationSurface", "WindowControlsSurface"];
-        for (int i = 0; i < names.Length; i++)
+        BitmapSource face = AvatarLayer(false), hat = AvatarLayer(true);
+        var avatar = (DrawingImage)Native.Static("PCL.GlassShellRuntime", "ComposeAccountAvatar", face, hat)!;
+        var drawing = (DrawingGroup)avatar.Drawing;
+        Native.Check(drawing.Children.Count == 2 && drawing.Children.Cast<ImageDrawing>().All(layer => layer.Rect == new Rect(0, 0, 32, 32)),
+            "Face and transparent hat must share the same full 32-DIP grid.");
+        view.SetState(State(avatar)); Flush(window);
+        Image image = Part<Image>(view, "AccountAvatarImage");
+        Native.Check(image.ActualWidth == 32 && image.ActualHeight == 32 && image.SnapsToDevicePixels && image.UseLayoutRounding &&
+            RenderOptions.GetBitmapScalingMode(image) == BitmapScalingMode.NearestNeighbor,
+            "The actual footer avatar lost its 32-DIP pixel-aligned nearest-neighbor presentation.");
+        uint[] palette = { 0xFF000000, 0xFFFFFFFF, 0xFFFF00FF, 0xFF00FFFF };
+        foreach (double scale in new[] { 1d, 1.25d, 1.5d, 1.75d })
         {
-            Rect expected = Bounds(Part<FrameworkElement>(view, names[i]), view);
-            double radius = i == 0 ? 36 : 28;
-            Native.Check(regions.Any(region => Same(region.Bounds, expected) && Math.Abs(region.CornerRadius - radius) < 0.01),
-                "Native region did not retain the actual " + names[i] + " bounds/radius.");
-            for (int j = 0; j < i; j++)
-                NoOverlap(expected, Bounds(Part<FrameworkElement>(view, names[j]), view), "The outer glass islands overlap: " + names[i] + '/' + names[j]);
+            byte[] pixels = AvatarPixels(image, scale);
+            int size = (int)(32 * scale), block = size / 8;
+            for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
+            {
+                int sx = x / block, sy = y / block;
+                uint expected = sx == 0 && sy == 0 ? palette[2] : sx == 7 && sy == 7 ? palette[3] : palette[(sx + sy) % 2];
+                Native.Check(AvatarColor(pixels, (y * size + x) * 4) == expected,
+                    $"Avatar face/hat pixels blurred or shifted at {scale * 100:0}% ({size}px), pixel {x},{y}.");
+            }
+            // Same drawing under the previous smooth image policy must introduce colors
+            // absent from the 8x8 sources; this prevents a metadata-only regression check.
+            var smooth = new Image { Source = avatar, Width = 32, Height = 32, Stretch = Stretch.UniformToFill };
+            RenderOptions.SetBitmapScalingMode(smooth, BitmapScalingMode.LowQuality);
+            smooth.Measure(new Size(32, 32)); smooth.Arrange(new Rect(0, 0, 32, 32));
+            byte[] blended = AvatarPixels(smooth, scale);
+            Native.Check(Enumerable.Range(0, size * size).Any(pixel => !palette.Contains(AvatarColor(blended, pixel * 4))),
+                "The old smooth-scaling control did not distinguish pixel-art interpolation at " + scale);
         }
-        foreach (string name in new[] { "PrimaryCard", "DependencyCard", "RecentWorldCard" })
+        // Ordinary photos retain their own source policy; projection must not force every
+        // Image to nearest-neighbor while preserving the original skin image policy.
+        var source = new Image { Source = face, Width = 32, Height = 32 };
+        RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.NearestNeighbor);
+        using (var session = PCL.GlassPresentation.Create(source))
         {
-            var surface = Part<GlassSurface>(view, name);
-            Native.Check(surface.CornerRadius == new CornerRadius(16), "A home card lost its reference 16px radius: " + name);
+            var projected = (Image)((ContentControl)session.View).Content;
+            Native.Check(RenderOptions.GetBitmapScalingMode(projected) == BitmapScalingMode.NearestNeighbor && projected.SnapsToDevicePixels,
+                "Projected skin image lost the source pixel-art policy.");
+            RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.HighQuality); session.Refresh();
+            Native.Check(RenderOptions.GetBitmapScalingMode(projected) == BitmapScalingMode.HighQuality,
+                "Image projection forced a photo to the avatar's pixel-art policy.");
         }
+        view.SetState(State(restoreIcon)); Flush(window);
+    }
+
+    private static BitmapSource AvatarLayer(bool hat)
+    {
+        var pixels = new byte[8 * 8 * 4];
+        for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++)
+        {
+            int at = (y * 8 + x) * 4;
+            if (hat)
+            {
+                if (x == 0 && y == 0) { pixels[at] = 255; pixels[at + 2] = 255; pixels[at + 3] = 255; }
+                else if (x == 7 && y == 7) { pixels[at] = 255; pixels[at + 1] = 255; pixels[at + 3] = 255; }
+            }
+            else
+            {
+                byte value = (x + y) % 2 == 0 ? (byte)0 : (byte)255;
+                pixels[at] = pixels[at + 1] = pixels[at + 2] = value; pixels[at + 3] = 255;
+            }
+        }
+        var image = BitmapSource.Create(8, 8, 96, 96, PixelFormats.Pbgra32, null, pixels, 8 * 4);
+        image.Freeze(); return image;
+    }
+    private static byte[] AvatarPixels(Image image, double scale)
+    {
+        int size = (int)(32 * scale);
+        var bitmap = new RenderTargetBitmap(size, size, 96 * scale, 96 * scale, PixelFormats.Pbgra32); bitmap.Render(image);
+        var pixels = new byte[size * size * 4]; bitmap.CopyPixels(pixels, size * 4, 0); return pixels;
+    }
+    private static uint AvatarColor(byte[] pixels, int at) => (uint)pixels[at] | (uint)pixels[at + 1] << 8 | (uint)pixels[at + 2] << 16 | (uint)pixels[at + 3] << 24;
+
+    private static void BrandVector(Window window, GlassLauncherView view, ImageSource icon)
+    {
+        Image logo = Part<Image>(view, "AppLogoImage");
+        Native.Check(logo.Source is DrawingImage, "The new application logo did not load its supplied vector resource.");
+        double Brightness()
+        {
+            byte[] pixels = AvatarPixels(logo, 1);
+            long alpha = 0, color = 0;
+            for (int at = 0; at < pixels.Length; at += 4) {
+                alpha += pixels[at + 3];
+                color += pixels[at] + pixels[at + 1] + pixels[at + 2];
+            }
+            Native.Check(alpha > 3000, "The new vector logo is empty or has no resolved foreground.");
+            return color * 255d / (3 * alpha);
+        }
+        view.SetState(State(icon)); Flush(window);
+        double darkInk = Brightness();
+        view.SetState(State(icon, useDarkText: false)); Flush(window);
+        double lightInk = Brightness();
+        Native.Check(darkInk < 100 && lightInk > 180, "The monochrome application logo did not follow light/dark theme foreground colors.");
+        view.SetState(State(icon)); Flush(window);
+    }
+
+    private static void WorkbenchFrame(GlassLauncherView view)
+    {
+        Rect frame = Bounds(Part<FrameworkElement>(view, "MainSurface"), view);
+        var regions = view.GetSurfaceRegions();
+        Rect rail = Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view);
+        Rect secondary = Bounds(Part<FrameworkElement>(view, "SecondarySurface"), view);
+        Rect header = Bounds(Part<FrameworkElement>(view, "Header"), view);
+        Rect body = Bounds(Part<FrameworkElement>(view, "BodyFrame"), view);
+        Native.Check(regions.Count == 2 && Same(regions[0].Bounds, rail) && Same(regions[1].Bounds, body) &&
+            regions[0].CornerRadius == 12 && regions[1].CornerRadius == 12,
+            "Painted surfaces and window shapes must share the exact rail/body bounds and rounded corners.");
+        Rect logo = Bounds(Part<FrameworkElement>(view, "AppLogoImage"), view);
+        Rect account = Bounds(Part<FrameworkElement>(view, "AccountButton"), view);
+        Rect wallpaperAction = Bounds(Part<FrameworkElement>(view, "WallpaperButton"), view);
+        Native.Check(frame.Contains(rail) && frame.Contains(secondary) && frame.Contains(header) &&
+            Math.Abs(rail.Width - 64) < 1 && rail.Left < 2 && secondary.Left > rail.Right && header.Left >= secondary.Right,
+            "The 64px icon rail, vertical secondary pane and right content are not separate inside the single frame.");
+        Native.Check(Math.Abs(body.Left - rail.Right - 12) < .2 && frame.Contains(body) && logo.Width == 32 && logo.Top < 64 &&
+            account.Bottom > frame.Bottom - 16 && account.Top > frame.Bottom - 64 &&
+            body.Contains(wallpaperAction) && wallpaperAction.Right > body.Right - 24 && wallpaperAction.Bottom > body.Bottom - 24,
+            "The 12px transparent gap, top app logo, bottom login avatar or body-bottom-right wallpaper entry is misplaced.");
+        DpiScale dpi = VisualTreeHelper.GetDpi(view);
+        double[] avatarInsets = { (account.Left - rail.Left) * dpi.DpiScaleX, (rail.Right - account.Right) * dpi.DpiScaleX, (rail.Bottom - account.Bottom) * dpi.DpiScaleY };
+        double[] logoInsets = { (logo.Left - rail.Left) * dpi.DpiScaleX, (rail.Right - logo.Right) * dpi.DpiScaleX, (logo.Top - rail.Top) * dpi.DpiScaleY };
+        Native.Check(avatarInsets.Max() - avatarInsets.Min() <= 1.01 && logoInsets.Max() - logoInsets.Min() <= 1.01,
+            "Rail avatar/logo outer padding differs by more than one device pixel: avatar=" + string.Join(",", avatarInsets) + "; logo=" + string.Join(",", logoInsets));
+        foreach (string name in new[] { "NavigationHeaderEndcap", "AccountSurface" }) {
+            Rect endcap = Bounds(Part<FrameworkElement>(view, name), view);
+            Native.Check(Math.Abs(endcap.Width * dpi.DpiScaleX - endcap.Height * dpi.DpiScaleY) <= 1.01,
+                "Rail endcap must stay square after layout/DPI rounding: " + name);
+        }
+        double last = 0;
+        foreach (string id in new[] { "NavLaunch", "NavDownload", "NavFavorites", "NavSettings", "NavOther" })
+        {
+            Rect target = Bounds(Part<Button>(view, id), view);
+            Native.Check(rail.Contains(target) && target.Top >= last, "Primary icons are not ordered vertically: " + id);
+            last = target.Bottom;
+        }
+        var panel = (Border)Part<FrameworkElement>(view, "PrimaryCard");
+        Native.Check(panel.BorderThickness == new Thickness(0) && panel.Background is SolidColorBrush transparent && transparent.Color.A == 0 &&
+            ((SolidColorBrush)view.Resources["GlassWindowBrush"]).Color.A == 255,
+            "The launch composition regained a heavy enclosing card or lost its opaque application base.");
     }
 
     private static void Layout(Window window, GlassLauncherView view, int width, int height)
     {
-        view.Width = width; view.Height = height;
-        window.Width = width; window.Height = height;
-        VisualAssetChecks.Pump(() => Math.Abs(view.ActualWidth - width) < 1 && Math.Abs(view.ActualHeight - height) < 1,
-            "Glass shell did not reach the requested viewport.");
-        Flush(window);
-        CapsuleRegions(view);
-        Rect main = Bounds(Part<FrameworkElement>(view, "MainSurface"), view);
-        Rect primary = Bounds(Part<FrameworkElement>(view, "PrimaryCard"), view);
-        Native.Check(main.Contains(primary), "The current-instance card extends beyond the main surface at " + width);
-        Native.Check(Math.Abs(primary.Left - main.Left - 26.8) < 1 && Math.Abs(primary.Top - main.Top - 26.8) < 1 &&
-            Math.Abs(primary.Bottom - main.Bottom + 26.8) < 1,
-            "The current-instance card is not anchored to the main top-left or does not fill its padded height at " + width);
-        Rect header = Bounds(Part<FrameworkElement>(view, "Header"), view);
-        double inset = width < 930 ? 14 : 70;
-        Native.Check(Math.Abs(header.Left - main.Left - inset) < 1 && Math.Abs(main.Right - header.Right - inset) < 1,
-            "The detached header is no longer inset from both main edges at " + width);
-        Native.Check(primary.Contains(Bounds(Part<FrameworkElement>(view, "LaunchButton"), view)) &&
-            primary.Contains(Bounds(Part<FrameworkElement>(view, "InstanceNameText"), view)),
-            "A long instance label or launch action escapes its card at " + width);
-        NoOverlap(Bounds(Part<FrameworkElement>(view, "LaunchButton"), view),
-            Bounds(Button(view, "实例设置"), view), "Launch and instance settings overlap at " + width);
-
-        foreach (string name in new[] { "LaunchButton", "ExpandButton", "InstanceSettingsButton", "WallpaperButton", "AccountButton", "NavLaunch", "NavDownload", "NavFavorites", "NavSettings", "NavOther" })
-            Target(Part<Button>(view, name), width);
+        view.Width = width; view.Height = height; window.Width = width; window.Height = height;
+        VisualAssetChecks.Pump(() => Math.Abs(view.ActualWidth - width) < 1 && Math.Abs(view.ActualHeight - height) < 1, "Reference-shell viewport");
+        Flush(window); WorkbenchFrame(view);
+        Rect frame = Bounds(Part<FrameworkElement>(view, "MainSurface"), view);
+        Rect pane = Bounds(Part<FrameworkElement>(view, "SecondarySurface"), view);
+        Rect profile = Bounds(Part<FrameworkElement>(view, "PrimaryCard"), view);
+        Rect icon = Bounds(Part<FrameworkElement>(view, "InstanceImage"), view);
+        Rect title = Bounds(Part<FrameworkElement>(view, "InstanceNameText"), view);
+        Rect launch = Bounds(Part<FrameworkElement>(view, "LaunchButton"), view);
+        Rect choose = Bounds(Button(view, "选择实例"), view);
+        Rect manage = Bounds(Part<Button>(view, "InstanceSettingsButton"), view);
+        Native.Check(pane.Contains(profile) && pane.Contains(launch) && pane.Contains(icon) &&
+            icon.Width == 64 && icon.Height == 64 && icon.Bottom <= title.Top && title.Bottom <= launch.Top &&
+            launch.Bottom <= choose.Top && Math.Abs(launch.Width - (width < 960 ? 180 : 190)) < 1 &&
+            Math.Abs(launch.Height - 48) < 1,
+            "The game icon/name/start hierarchy is not inside the left home pane at " + width);
+        Native.Check(pane.Contains(choose) && pane.Contains(manage) && choose.Right < manage.Left &&
+            pane.Contains(Bounds(Part<Button>(view, "ExpandButton"), view)) &&
+            Bounds(Part<Button>(view, "ExpandButton"), view).Bottom < icon.Top,
+            "The home header plus/footer selection-management actions do not match their pane positions.");
+        Native.Check(!Descendants(Part<FrameworkElement>(view, "HomePanel")).OfType<Button>().Any(button => button.IsVisible && button.IsHitTestVisible),
+            "The default right home area retained active central launch/account controls.");
+        foreach (string id in new[] { "LaunchButton", "ExpandButton", "InstanceSettingsButton", "WallpaperButton", "AccountButton", "NavLaunch", "NavDownload", "NavFavorites", "NavSettings", "NavOther" }) Target(Part<Button>(view, id), width);
         foreach (string name in new[] { "选择实例", "最小化窗口", "关闭窗口" }) Target(Button(view, name), width);
-
-        // Expanded placement is checked at both viewports, then restored for the next case.
         Click(Part<Button>(view, "ExpandButton"));
-        VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "AuxiliaryCards").IsHitTestVisible, "Auxiliary cards did not become interactive.");
-        Rect auxiliary = Bounds(Part<FrameworkElement>(view, "AuxiliaryCards"), view);
-        primary = Bounds(Part<FrameworkElement>(view, "PrimaryCard"), view);
-        Native.Check(Math.Abs(primary.Left - main.Left - 26.8) < 1 && Math.Abs(primary.Top - main.Top - 26.8) < 1,
-            "Expanding options moved the anchored current-instance card at " + width);
-        Native.Check(main.Contains(primary) && main.Contains(auxiliary), "Expanded cards extend beyond the main surface at " + width);
-        NoOverlap(primary, auxiliary, "Expanded cards overlap at " + width);
-        NoOverlap(Bounds(Part<FrameworkElement>(view, "DependencyCard"), view),
-            Bounds(Part<FrameworkElement>(view, "RecentWorldCard"), view), "The two expanded cards overlap at " + width);
+        VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "AuxiliaryCards").IsHitTestVisible, "Startup options");
+        Rect options = Bounds(Part<FrameworkElement>(view, "AuxiliaryCards"), view);
+        Native.Check(frame.Contains(options) && options.Left >= pane.Right && options.Top < 100,
+            "Header plus did not reveal options near the top immediately right of the home pane.");
+        NoOverlap(launch, options, "Startup options cover the primary launch action.");
+        NoOverlap(Bounds(Part<FrameworkElement>(view, "DependencyCard"), view), Bounds(Part<FrameworkElement>(view, "RecentWorldCard"), view), "Startup cards overlap.");
         Click(Part<Button>(view, "ExpandButton"));
-        VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "AuxiliaryCards").Visibility == Visibility.Hidden,
-            "Auxiliary cards did not close after layout verification.");
-        DetachedGaps(window, view, width);
+        VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "AuxiliaryCards").Visibility == Visibility.Hidden, "Close startup options");
+        InternalWallpaperAndContext(window, view, width);
     }
 
     private static void ConstrainedHost(Window window, GlassLauncherView view)
@@ -209,51 +328,79 @@ internal static class GlassShellChecks
         Flush(window);
     }
 
-    private static void DetachedGaps(Window window, GlassLauncherView view, int width)
+    private static void InternalWallpaperAndContext(Window window, GlassLauncherView view, int width)
     {
+        view.SetWallpaper(null!);
+        Flush(window);
+        var opaque = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        opaque.Render(view);
+        byte[] pixel = new byte[4];
+        opaque.CopyPixels(new Int32Rect((int)view.ActualWidth / 2, (int)view.ActualHeight / 2, 1, 1), pixel, 4, 0);
+        Native.Check(pixel[3] == 255, "The wallpaper-free application exposed the Windows desktop at " + width);
+        CheckSurfacePixels(view, opaque, "solid background");
+        ImageSource wallpaper = Image();
+        view.SetWallpaper(wallpaper);
+        Flush(window);
+        var image = Part<Image>(view, "WallpaperImage");
+        var clip = view.SurfaceClip as GeometryGroup;
+        var regions = view.GetSurfaceRegions();
+        Native.Check(ReferenceEquals(image.Source, wallpaper) && image.IsVisible && !image.IsHitTestVisible &&
+            clip != null && clip.Children.Count == 2 && clip.Children.Cast<RectangleGeometry>().Select((shape, index) =>
+                Same(shape.Rect, regions[index].Bounds) && shape.RadiusX == regions[index].CornerRadius && shape.RadiusY == regions[index].CornerRadius).All(value => value) &&
+            image.Clip is null && Part<Border>(view, "MainSurface").Clip is null &&
+            ReferenceEquals(Part<Border>(view, "MainSurface").OpacityMask, view.SurfaceOpacityMask),
+            "The custom wallpaper clip must match both rounded surfaces and preserve their transparent gap.");
+        var wallpaperPixels = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        wallpaperPixels.Render(view);
+        CheckSurfacePixels(view, wallpaperPixels, "launcher wallpaper");
+        view.SetState(State(wallpaper, home: false));
         view.SetSidebar(new[] { new GlassSidebarItem { Label = "上下文选项", IsSelected = true } });
         Flush(window);
-        Rect main = Bounds(Part<FrameworkElement>(view, "MainSurface"), view);
-        Rect rail = Bounds(Part<FrameworkElement>(view, "SideRail"), view);
-        Native.Check(main.Left - rail.Right >= 20 && main.Left - rail.Right <= 25,
-            "The contextual rail is not detached by its reference gap at " + width);
-        Rect account = Bounds(Part<FrameworkElement>(view, "AccountSurface"), view);
-        Rect navigation = Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view);
-        Rect controls = Bounds(Part<FrameworkElement>(view, "WindowControlsSurface"), view);
-        var samples = new[]
-        {
-            new Point((account.Right + navigation.Left) / 2, account.Top + account.Height / 2),
-            new Point((navigation.Right + controls.Left) / 2, controls.Top + controls.Height / 2),
-            new Point(navigation.Left + navigation.Width / 2, (navigation.Bottom + main.Top) / 2),
-            new Point((rail.Right + main.Left) / 2, rail.Top + rail.Height / 2),
-            new Point(main.Left + 2, main.Top + 2),
-        };
-        foreach (bool wallpaper in new[] { true, false })
-        {
-            view.SetWallpaper(wallpaper ? Image() : null!);
-            Flush(window);
-            if (wallpaper)
-            {
-                var host = Part<Image>(view, "WallpaperImage");
-                var clip = host.Clip as RectangleGeometry;
-                Native.Check(Math.Abs(host.ActualWidth - view.ActualWidth) < 1 && clip != null &&
-                    Same(clip.Rect, main) && clip.RadiusX == 36 && clip.RadiusY == 36,
-                    "Wallpaper source mapping or its strict main-only rounded clipping changed.");
-            }
-            var render = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-            render.Render(view);
-            foreach (Point sample in samples)
-            {
-                byte[] pixel = new byte[4];
-                render.CopyPixels(new Int32Rect((int)sample.X, (int)sample.Y, 1, 1), pixel, 4, 0);
-                Native.Check(pixel[3] == 0, "A detached capsule/rail/main gap is not truly transparent in " +
-                    (wallpaper ? "wallpaper" : "desktop") + " mode at " + width + ": " + sample);
-            }
-        }
-        view.SetWallpaper(Image());
+        Rect row = Bounds(Part<FrameworkElement>(view, "SideRail"), view);
+        Rect header = Bounds(Part<FrameworkElement>(view, "Header"), view);
+        Rect frame = Bounds(Part<FrameworkElement>(view, "MainSurface"), view);
+        Rect pane = Bounds(Part<FrameworkElement>(view, "SecondarySurface"), view);
+        Native.Check(pane.Contains(row) && row.Height > row.Width && row.Left < header.Left,
+            "Context navigation is not the shared vertical secondary pane at " + width);
+        Native.Check(view.GetSurfaceRegions().Count == 2, "Context navigation changed the two workspace window shapes.");
         view.SetSidebar(Array.Empty<GlassSidebarItem>());
+        view.SetState(State(wallpaper));
         Flush(window);
     }
+
+    internal static void CheckSurfacePixels(GlassLauncherView view, RenderTargetBitmap bitmap, string mode)
+    {
+        Rect rail = Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view);
+        Rect body = Bounds(Part<FrameworkElement>(view, "BodyFrame"), view);
+        byte Alpha(Point point) {
+            byte[] value = new byte[4];
+            bitmap.CopyPixels(new Int32Rect((int)point.X, (int)point.Y, 1, 1), value, 4, 0);
+            return value[3];
+        }
+        Point gap = new((rail.Right + body.Left) / 2, view.ActualHeight / 2);
+        Native.Check(Alpha(gap) == 0 && !view.SurfaceClip.FillContains(gap), "The workspace gap is still painted or hit-shaped in " + mode);
+        for (int y = 0; y < 12; y++)
+        for (int x = 0; x < 12; x++)
+            Native.Check(Alpha(new Point(rail.Left + x, rail.Top + y)) == Alpha(new Point(body.Left + x, body.Top + y)),
+                "Equal outer radii have different antialias coverage in " + mode);
+        foreach (Rect surface in new[] { rail, body }) {
+            Native.Check(Alpha(new Point(surface.Left + surface.Width / 2, surface.Top + surface.Height / 2)) == 255,
+                "A workspace surface lost its opaque launcher-owned base in " + mode);
+            foreach (Point corner in new[] { surface.TopLeft, new Point(surface.Right - 1, surface.Top), new Point(surface.Left, surface.Bottom - 1), new Point(surface.Right - 1, surface.Bottom - 1) })
+                Native.Check(Alpha(corner) == 0, "A rounded surface retained a painted square corner in " + mode + ": " + corner);
+            foreach (var (left, top) in new[] { (true, true), (false, true), (true, false), (false, false) }) {
+                int partial = 0;
+                for (int y = 0; y < 12; y++)
+                for (int x = 0; x < 12; x++) {
+                    Point point = new(left ? surface.Left + x : surface.Right - 1 - x, top ? surface.Top + y : surface.Bottom - 1 - y);
+                    if (Alpha(point) is > 0 and < 255) partial++;
+                }
+                Native.Check(partial >= 4, "A workspace corner lost its antialiased alpha coverage in " + mode);
+            }
+        }
+    }
+
+
 
     private static void CheckboxSnapshots(GlassLauncherView view, ImageSource image)
     {
@@ -348,7 +495,7 @@ internal static class GlassShellChecks
 
     private static void Portals(Window window, GlassLauncherView view, ImageSource image)
     {
-        view.SetState(State(image));
+        view.SetState(State(image, home: false));
         var accountContent = new TextBox { Text = "Fixture account", MinWidth = 160, Height = 36 };
         var navigationContent = new Button { Content = "Fixture contextual action", MinWidth = 160, Height = 40 };
         int accountRequests = 0, navigationRequests = 0;
@@ -374,8 +521,8 @@ internal static class GlassShellChecks
             "Context action did not open the actual exclusive portal.");
         Native.Check(ReferenceEquals(Part<ContentControl>(view, "NavigationContent").Content, navigationContent), "Context navigation content was copied or replaced.");
         Flush(window);
-        Native.Check(view.GetSurfaceRegions().Any(region => Math.Abs(region.CornerRadius - 24) < 0.01 && Same(region.Bounds, Bounds(navigationPopover, view))),
-            "The visible contextual portal was omitted from native rounded regions.");
+        Native.Check(view.GetSurfaceRegions().Count == 2 && Bounds(Part<FrameworkElement>(view, "BodyFrame"), view).Contains(Bounds(navigationPopover, view)),
+            "The contextual panel escaped the application frame or recreated a native backdrop island.");
         Escape(navigationContent);
         Native.Check(navigationPopover.Visibility == Visibility.Collapsed && ReferenceEquals(FocusManager.GetFocusedElement(window), menu),
             "Escape did not dismiss context navigation and restore logical focus to its trigger.");
@@ -385,8 +532,9 @@ internal static class GlassShellChecks
         Native.Check(accountPopover.IsVisible && !navigationPopover.IsVisible, "Opening the account left both glass portals visible.");
         view.SetAccountOpen(false);
         view.SetAccountContent(null!); view.SetNavigationContent(null!); view.SetSidebar(Array.Empty<GlassSidebarItem>());
+        view.SetState(State(image));
         Flush(window);
-        CapsuleRegions(view);
+        WorkbenchFrame(view);
     }
 
     private static void ContentHost(GlassLauncherView view, ImageSource image)
@@ -411,6 +559,8 @@ internal static class GlassShellChecks
 
     private static T Part<T>(GlassLauncherView view, string name) where T : class =>
         view.FindName(name) as T ?? throw new InvalidOperationException("Actual glass shell control missing: " + name);
+
+    private static double Radius(GlassLauncherView view, string key) => ((CornerRadius)view.Resources[key]).TopLeft;
 
     private static Button Button(GlassLauncherView view, string name) => Descendants(view).OfType<Button>()
         .Single(button => AutomationProperties.GetName(button) == name);

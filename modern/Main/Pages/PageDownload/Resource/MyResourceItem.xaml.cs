@@ -154,6 +154,8 @@ namespace PCL
 
         public event ClickEventHandler Click;
         public delegate void ClickEventHandler(object sender, MouseButtonEventArgs e);
+        public void PerformClick() => Service.Activate(this,
+            new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left));
         private void Button_MouseUp(object sender, MouseButtonEventArgs e)
         {
             if (BtnFavorite.IsMouseOver) { Service.MouseLeave(); return; }

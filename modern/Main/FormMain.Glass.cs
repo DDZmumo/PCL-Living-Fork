@@ -26,7 +26,7 @@ public partial class FormMain {
 
     private void PrepareGlassShell() {
         if (!GlassShellPreferred) return;
-        // Per-shape native HostBackdrop is composed behind this alpha-enabled WPF window.
+        // Alpha follows the separated rounded surfaces and their gap; panel bases are painted by the launcher.
         AllowsTransparency = true;
         glassShell = new GlassShellIntegration(this);
     }

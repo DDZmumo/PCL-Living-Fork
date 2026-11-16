@@ -72,7 +72,7 @@ Core 不允许引用 Main、Presentation、WPF 适配层或 WindowsDesktop。WPF
 
 ## 验证入口
 
-新 WPF 玻璃外观的材质、独立悬浮层、原页面托管与检查入口见 [玻璃界面](GLASS_UI.md)。
+新 WPF 工作台的内部壁纸材质、独立呈现树、命令与状态适配及检查入口见 [工作台界面](GLASS_UI.md)。
 
 ```powershell
 dotnet build PCL-Living-Fork.Modern.slnx --configuration Debug -nr:false

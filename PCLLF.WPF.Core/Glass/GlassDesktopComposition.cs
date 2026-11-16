@@ -140,6 +140,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
             var radius = Math.Min(region.CornerRadius, Math.Min(bounds.Width, bounds.Height) / 2);
             SetVector2(Visual, 36, size); // IVisual.put_Size.
             SetVector3(Visual, 21, new Vector3((float)(bounds.X * toDevice.M11), (float)(bounds.Y * toDevice.M22), 0)); // put_Offset.
+            Check(((delegate* unmanaged[Stdcall]<nint, float, int>)Visual.Method(23))(Visual.Pointer, (float)region.Opacity)); // IVisual.put_Opacity.
             SetVector2(_geometry, 7, new Vector2((float)(radius * toDevice.M11), (float)(radius * toDevice.M22))); // put_CornerRadius.
             SetVector2(_geometry, 11, size); // put_Size.
         }

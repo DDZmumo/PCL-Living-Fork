@@ -17,6 +17,8 @@
 <Compile Include="Glass/*.cs" />
 <Compile Include="FormMain.Glass.cs" />
 <Page Include="Glass/GlassLauncherView.xaml" />
+<Page Include="Glass/GlassPresentationResources.xaml" />
+<Page Include="Images/Branding/PCLLF.Logo.xaml" />
 <Compile Include="Controls/Behaviors/ClipboardInterceptor.cs" />
 <Compile Include="Controls/Behaviors/Interfaces.cs" />
 <Compile Include="Controls/Behaviors/LazyLoadBehavior.cs" />

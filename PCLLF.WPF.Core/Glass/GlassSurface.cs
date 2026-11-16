@@ -15,30 +15,36 @@ using Microsoft.Win32;
 namespace PCLLF.Wpf.Glass;
 
 /// <summary>
-/// A Border-compatible glass surface. Only the wallpaper layer is blurred; Child remains sharp.
-/// A null WallpaperSource deliberately relies on the owning window's real desktop backdrop.
+/// A Border-compatible application-wallpaper surface. Optional blur affects only its image layer.
+/// A missing image uses the inherited opaque fallback; desktop material is disabled by default.
 /// </summary>
 public sealed class GlassSurface : Border {
     public static readonly DependencyProperty WallpaperSourceProperty = GlassMaterial.WallpaperSourceProperty;
     public static readonly DependencyProperty WallpaperHostProperty = GlassMaterial.WallpaperHostProperty;
     public static readonly DependencyProperty IsMaterialEnabledProperty = GlassMaterial.IsEnabledProperty;
     public static readonly DependencyProperty BlurRadiusProperty = DependencyProperty.Register(
-        nameof(BlurRadius), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(22d, OnMaterialPropertyChanged),
+        nameof(BlurRadius), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(0d, OnMaterialPropertyChanged),
         value => value is double number && double.IsFinite(number) && number >= 0 && number <= 100);
     public static readonly DependencyProperty TintOpacityProperty = DependencyProperty.Register(
         nameof(TintOpacity), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(1d, OnMaterialPropertyChanged),
         value => value is double number && double.IsFinite(number) && number >= 0 && number <= 1);
     public static readonly DependencyProperty HighlightOpacityProperty = DependencyProperty.Register(
-        nameof(HighlightOpacity), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(0.14d, OnMaterialPropertyChanged),
+        nameof(HighlightOpacity), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(0d, OnMaterialPropertyChanged),
         value => value is double number && double.IsFinite(number) && number >= 0 && number <= 1);
 
     private readonly MaterialLayer _material;
     private Rect _lastWallpaperBounds = Rect.Empty;
+    private FrameworkElement? _watchedHost;
+    private Effect? _watchedEffect;
+    private static readonly DependencyPropertyDescriptor? HostOpacity = DependencyPropertyDescriptor.FromProperty(UIElement.OpacityProperty, typeof(UIElement));
+    private static readonly DependencyPropertyDescriptor? HostEffect = DependencyPropertyDescriptor.FromProperty(UIElement.EffectProperty, typeof(UIElement));
 
     static GlassSurface() {
-        var tint = new SolidColorBrush(Color.FromArgb(56, 255, 255, 255));
+        // Native composition already supplies the frosted sample. A thin neutral tint and
+        // small highlight preserve its colors instead of stacking a gray veil on every card.
+        var tint = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255));
         tint.Freeze();
-        var edge = new SolidColorBrush(Color.FromArgb(76, 255, 255, 255));
+        var edge = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255));
         edge.Freeze();
         BackgroundProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(tint, OnMaterialPropertyChanged));
         BorderBrushProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(edge, OnMaterialPropertyChanged));
@@ -61,7 +67,16 @@ public sealed class GlassSurface : Border {
     public double TintOpacity { get => (double)GetValue(TintOpacityProperty); set => SetValue(TintOpacityProperty, value); }
     public double HighlightOpacity { get => (double)GetValue(HighlightOpacityProperty); set => SetValue(HighlightOpacityProperty, value); }
 
-    internal bool CanUseTransparency => IsMaterialEnabled && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled;
+    internal bool CanUseTransparency => IsMaterialEnabled && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled &&
+        (WallpaperSource is not null || GlassMaterial.GetDesktopBackdropEnabled(this));
+    private double ImageOpacity => Math.Clamp(WallpaperHost?.Opacity ?? 1, 0, 1);
+    private Stretch ImageStretch => WallpaperHost is Image image ? image.Stretch : GlassMaterial.GetWallpaperStretch(WallpaperHost ?? this);
+    private double EffectiveBlurRadius {
+        get {
+            double global = WallpaperHost?.Effect is BlurEffect { KernelType: KernelType.Gaussian } blur ? blur.Radius : 0;
+            return Math.Sqrt(BlurRadius * BlurRadius + global * global);
+        }
+    }
 
     // The material is a separate visual behind Border.Child, so no effect ever reaches content.
     protected override int VisualChildrenCount => base.VisualChildrenCount + (_material is null ? 0 : 1);
@@ -90,6 +105,7 @@ public sealed class GlassSurface : Border {
 
     internal void InvalidateMaterial() {
         if (_material is null) return;
+        WatchWallpaperHost();
         _lastWallpaperBounds = Rect.Empty;
         _material.Update();
         InvalidateArrange();
@@ -108,7 +124,26 @@ public sealed class GlassSurface : Border {
     private void OnUnloaded(object sender, RoutedEventArgs args) {
         SystemParameters.StaticPropertyChanged -= OnSystemParameterChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        UnwatchWallpaperHost();
     }
+    private void WatchWallpaperHost() {
+        var host = IsLoaded ? WallpaperHost : null;
+        if (!ReferenceEquals(host, _watchedHost)) {
+            UnwatchWallpaperHost(); _watchedHost = host;
+            if (host is not null) { HostOpacity?.AddValueChanged(host, HostPresentationChanged); HostEffect?.AddValueChanged(host, HostPresentationChanged); }
+        }
+        var effect = host?.Effect;
+        if (ReferenceEquals(effect, _watchedEffect)) return;
+        if (_watchedEffect is { IsFrozen: false }) _watchedEffect.Changed -= HostPresentationChanged;
+        _watchedEffect = effect;
+        if (effect is { IsFrozen: false }) effect.Changed += HostPresentationChanged;
+    }
+    private void UnwatchWallpaperHost() {
+        if (_watchedHost is not null) { HostOpacity?.RemoveValueChanged(_watchedHost, HostPresentationChanged); HostEffect?.RemoveValueChanged(_watchedHost, HostPresentationChanged); }
+        if (_watchedEffect is { IsFrozen: false }) _watchedEffect.Changed -= HostPresentationChanged;
+        _watchedHost = null; _watchedEffect = null;
+    }
+    private void HostPresentationChanged(object? sender, EventArgs args) => InvalidateMaterial();
 
     private void OnSystemParameterChanged(object? sender, PropertyChangedEventArgs args) => QueuePreferenceRefresh();
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs args) => QueuePreferenceRefresh();
@@ -145,6 +180,9 @@ public sealed class GlassSurface : Border {
         private readonly WallpaperPlane _wallpaper;
         private readonly FinishPlane _finish;
         private readonly BlurEffect _blur = new() { RenderingBias = RenderingBias.Performance, KernelType = KernelType.Gaussian };
+        private Size _maskSize;
+        private CornerRadius _maskCorners;
+        private bool _hasMask;
 
         internal MaterialLayer(GlassSurface owner) {
             _owner = owner;
@@ -164,10 +202,11 @@ public sealed class GlassSurface : Border {
         };
 
         internal void Update() {
-            _blur.Radius = _owner.BlurRadius;
-            _wallpaper.Effect = _owner.BlurRadius > 0 ? _blur : null;
+            double radius = _owner.EffectiveBlurRadius;
+            _blur.Radius = radius;
+            _wallpaper.Effect = radius > 0 ? _blur : null;
             _wallpaper.Visibility = _owner.WallpaperSource is not null && _owner.CanUseTransparency ? Visibility.Visible : Visibility.Hidden;
-            Clip = RoundedGeometry(new Rect(RenderSize), _owner.CornerRadius);
+            UpdateMask(RenderSize);
             InvalidateMeasure();
             InvalidateArrange();
             _wallpaper.InvalidateVisual();
@@ -184,11 +223,32 @@ public sealed class GlassSurface : Border {
 
         protected override Size ArrangeOverride(Size finalSize) {
             // Sample beyond the surface edge before blurring, then clip the finished material.
-            var margin = _owner.BlurRadius * 2;
+            var margin = _owner.EffectiveBlurRadius * 2;
             _wallpaper.Arrange(new Rect(-margin, -margin, finalSize.Width + margin * 2, finalSize.Height + margin * 2));
             _finish.Arrange(new Rect(finalSize));
-            Clip = RoundedGeometry(new Rect(finalSize), _owner.CornerRadius);
+            UpdateMask(finalSize);
             return finalSize;
+        }
+
+        private void UpdateMask(Size size) {
+            if (size.Width <= 0 || size.Height <= 0) {
+                Clip = Geometry.Empty; OpacityMask = null; _hasMask = false; return;
+            }
+            if (_hasMask && _maskSize == size && _maskCorners == _owner.CornerRadius) return;
+            var bounds = new Rect(size);
+            // Limit the *post-effect* descendant bounds before mapping the mask: the
+            // wallpaper child deliberately extends outside this rectangle for blur sampling.
+            var rectangle = new RectangleGeometry(bounds); rectangle.Freeze(); Clip = rectangle;
+            var drawing = new GeometryDrawing(Brushes.White, null, RoundedGeometry(bounds, _owner.CornerRadius));
+            drawing.Freeze();
+            var mask = new DrawingBrush(drawing) {
+                ViewboxUnits = BrushMappingMode.Absolute, Viewbox = bounds,
+                ViewportUnits = BrushMappingMode.Absolute, Viewport = bounds,
+                Stretch = Stretch.Fill, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top,
+                TileMode = TileMode.None
+            };
+            mask.Freeze(); OpacityMask = mask;
+            _maskSize = size; _maskCorners = _owner.CornerRadius; _hasMask = true;
         }
     }
 
@@ -198,14 +258,18 @@ public sealed class GlassSurface : Border {
             var wallpaperBounds = owner.GetWallpaperBounds(this);
             if (wallpaperBounds.IsEmpty || wallpaperBounds.Width <= 0 || wallpaperBounds.Height <= 0) return;
             var brush = new ImageBrush(source) {
-                Stretch = Stretch.UniformToFill,
+                Stretch = owner.ImageStretch,
                 AlignmentX = AlignmentX.Center,
                 AlignmentY = AlignmentY.Center,
                 ViewportUnits = BrushMappingMode.Absolute,
                 Viewport = wallpaperBounds,
                 TileMode = TileMode.None
             };
+            Color color = GlassMaterial.GetFallbackColor(owner);
+            drawingContext.DrawRectangle(new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B)), null, new Rect(RenderSize));
+            drawingContext.PushOpacity(owner.ImageOpacity);
             drawingContext.DrawRectangle(brush, null, new Rect(RenderSize));
+            drawingContext.Pop();
         }
     }
 
@@ -217,7 +281,7 @@ public sealed class GlassSurface : Border {
             var transparent = owner.CanUseTransparency;
             var background = owner.Background;
             if (!transparent) {
-                background = SystemParameters.HighContrast ? SystemColors.WindowBrush : OpaqueBrush(background);
+                background = SystemParameters.HighContrast ? SystemColors.WindowBrush : OpaqueBrush(GlassMaterial.GetFallbackColor(owner));
             }
             drawingContext.PushOpacity(transparent ? owner.TintOpacity * GlassMaterial.GetOpacityMultiplier(owner) : 1);
             drawingContext.DrawGeometry(background, null, outer);
@@ -244,8 +308,7 @@ public sealed class GlassSurface : Border {
             drawingContext.DrawGeometry(SystemParameters.HighContrast ? SystemColors.WindowTextBrush : owner.BorderBrush, null, border);
         }
 
-        private static Brush OpaqueBrush(Brush? source) {
-            var color = source is SolidColorBrush solid ? solid.Color : Color.FromRgb(242, 245, 248);
+        private static Brush OpaqueBrush(Color color) {
             return new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B));
         }
     }

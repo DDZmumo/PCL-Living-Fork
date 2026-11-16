@@ -184,6 +184,16 @@ public class MyCardView : Grid {
     protected virtual bool OnPreviewSwap(object args) { PreviewSwap?.Invoke(this, (ControlPreviewEventArgs)args); return ((ControlPreviewEventArgs)args).Handled; }
     protected virtual void OnSwap(object args) => Swap?.Invoke(this, (ControlPreviewEventArgs)args);
     public const int SwapedHeight = 40;
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        Services.RaiseCustomEvent(this);
+        if (!CanSwap || (SwapControl is null && !IsSwapped)) return;
+        object args = CreateSwapArgs();
+        if (OnPreviewSwap(args)) return;
+        IsSwapped = !IsSwapped;
+        Services.Info((IsSwapped ? "折叠卡片" : "展开卡片") + (Title is null ? "" : "：" + Title));
+        OnSwap(args);
+    }
     private void MouseDownCard(object sender, MouseButtonEventArgs args) {
         double pos = Mouse.GetPosition(this).Y;
         if (!IsSwapped && (pos > (IsSwapped ? SwapedHeight : SwapedHeight - 6) || (pos == 0 && !IsMouseDirectlyOver))) return;

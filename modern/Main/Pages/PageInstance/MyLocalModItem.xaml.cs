@@ -205,6 +205,8 @@ namespace PCL
         {
             Controller.MouseUp(sender, e);
         }
+        public void PerformClick() => Controller.Activate(this,
+            new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left));
 
         private void Button_MouseDown(object sender, MouseButtonEventArgs e)
         {

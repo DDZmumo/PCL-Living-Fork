@@ -53,7 +53,14 @@ public partial class MyExtraTextButtonView : Grid {
         }); }
     }
     private bool leftHeld;
-    private void LeftClick(object sender, MouseButtonEventArgs args) { if (!leftHeld) return; Services.Info("按下附加图标按钮：" + Text); OnClick(sender, args); args.Handled = true; Services.RaiseCustomEvent(this); LeftUp(); }
+    public void PerformClick() {
+        if (!IsEnabled || !Show) return;
+        Activate(PanClick, new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) {
+            RoutedEvent = UIElement.MouseLeftButtonUpEvent, Source = PanClick
+        });
+    }
+    private void Activate(object sender, MouseButtonEventArgs args) { Services.Info("按下附加图标按钮：" + Text); OnClick(sender, args); args.Handled = true; Services.RaiseCustomEvent(this); }
+    private void LeftClick(object sender, MouseButtonEventArgs args) { if (!leftHeld) return; Activate(sender, args); LeftUp(); }
     private void LeftDown() {
         if (!leftHeld) Animations.Start(new[] {
             Animations.ScaleTransform(PanScale, .85 - ((ScaleTransform)PanScale.RenderTransform).ScaleX, new(800, ease: ControlEase.OutFluent, power: ControlEasePower.Strong)),

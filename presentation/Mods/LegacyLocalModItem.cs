@@ -144,7 +144,8 @@ public sealed class LegacyLocalModItem<TMod,TProject,TVersion,TEntry,TInfo,TButt
         else if(host.Icon(resource) is not null){view.PathLogoElement().Visibility=Visibility.Collapsed;view.ResourceLogoElement().Visibility=Visibility.Visible;view.ResourceLogo().Source=host.Icon(resource);}
         else{view.ResourceLogoElement().Visibility=Visibility.Collapsed;view.ResourceLogo().Source=null;view.PathLogoElement().Visibility=Visibility.Visible;view.SetPathLogo(host.ImagePath()+"Icons/NoIcon.png");}
     }
-    public void MouseUp(object sender,MouseButtonEventArgs e) {if(mouseDown){host.RaiseClick(sender,e);if(e.Handled)return;Logger.Info($"按下本地 Mod 列表项：{view.Title().Text}");}}
+    public void MouseUp(object sender,MouseButtonEventArgs e) {if(mouseDown)Activate(sender,e);}
+    public void Activate(object sender,MouseButtonEventArgs e) {if(!view.Root().IsEnabled)return;host.RaiseClick(sender,e);if(e.Handled)return;Logger.Info($"按下本地 Mod 列表项：{view.Title().Text}");}
     public void MouseDown(){if(!view.Root().IsMouseDirectlyOver)return;mouseDown=true;if(host.ButtonStack() is not null)host.ButtonStack()!.IsHitTestVisible=false;}
     public void MouseLeave(){mouseDown=false;if(host.ButtonStack() is not null)host.ButtonStack()!.IsHitTestVisible=true;}
     private static bool Swiping {get=>swiping;set{swiping=value;if(swipeBar is not null)swipeBar.IsHitTestVisible=!value;}}
