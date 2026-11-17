@@ -39,11 +39,11 @@ internal static class InstanceSidebarChecks
             var host = (Host)Native.Get(controller, "host")!;
             var panel = Part<StackPanel>(page, "PanItem");
             var items = panel.Children.OfType<MyListItem>().ToArray();
-            string[] order = ["0", "1", "2", "11", "15", "5", "12", "14", "16", "17", "6", "7", "3", "4", "8", "9", "10"];
+            string[] order = ["0", "1", "2", "11", "15", "5", "12", "14", "16", "6", "7", "3", "4", "8", "9", "10"];
             string[] ordinaryRoutes = ["0", "1", "2", "11", "15", "5", "12", "14", "6", "7", "3", "4", "8", "9", "10"];
             Native.Check(items.Select(item => item.Tag.ToString()).SequenceEqual(order), "Actual sidebar order/tag identity changed.");
             Native.Check(items.All(item => ReferenceEquals(item.Parent, panel)), "Radio items no longer share their native parent.");
-            Native.Check(Part<MyListItem>(page, "ItemMmcMove").Visibility == Visibility.Collapsed && Part<MyListItem>(page, "ItemMmcPlatformOrigin").Visibility == Visibility.Collapsed, "MMC-only sidebar entries leaked onto ordinary version.");
+            Native.Check(Part<MyListItem>(page, "ItemMmcMove").Visibility == Visibility.Collapsed && page.FindName("ItemMmcPlatformOrigin") is null, "MMC-only sidebar entries leaked onto ordinary version.");
             Native.Check(panel.Children.OfType<TextBlock>().Select(label => label.Text).SequenceEqual(new[] { "版本配置", "版本工具", "游戏资源" }), "Native sidebar group order differs.");
             CheckIcons(page);
             // Run the production initializer again: it must retain BAML glyphs
@@ -145,7 +145,7 @@ internal static class InstanceSidebarChecks
     {
         foreach (var (name, itemNames) in new[] {
             ("LabVersionConfiguration", new[] { "ItemSetup", "ItemModify", "ItemKeybindings" }),
-            ("LabVersionTools", new[] { "ItemPackUpdate", "ItemExport", "ItemRestorePoints", "ItemClone", "ItemMmcMove", "ItemMmcPlatformOrigin" }),
+            ("LabVersionTools", new[] { "ItemPackUpdate", "ItemExport", "ItemRestorePoints", "ItemClone", "ItemMmcMove" }),
             ("LabGameResources", new[] { "ItemSaves", "ItemScreenshots", "ItemMod", "ItemModDisabled", "ItemResourcePacks", "ItemShaderPacks", "ItemSchematics" })
         })
         {

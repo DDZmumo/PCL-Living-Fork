@@ -47,20 +47,24 @@ internal static class MmcLegacyAdoptionUiChecks {
         var type = Native.Type("PCL.MmcLegacyAdoptionUi"); var factory = Native.Property(type, "ServicesFactory"); object? oldFactory = factory.GetValue(null);
         var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action refresh = scheduler.RefreshExtraDownload;
-        using HttpClient client = new(new NoNetwork()); ModLoader.LoaderCombo<string>? actual = null; MmcLegacyAdoptionResult? published = null; bool confirmed = false, catalogSeen = false; int uiThread = Environment.CurrentManagedThreadId;
+        using HttpClient client = new(new NoNetwork()); ModLoader.LoaderCombo<string>? actual = null; MmcLegacyAdoptionResult? published = null;
+        bool confirmed = false, decidedFault = false, cancelCopy = false; string selectedName = "managed-copy"; int uiThread = Environment.CurrentManagedThreadId;
         try {
             scheduler.RefreshExtraDownload = () => { };
             factory.SetValue(null, new Func<string, MmcLegacyAdoptionUiServices>(_ => new() {
                 Metadata = new MmcMetadataStore(Path.Combine(root, "metadata"), new Uri("https://fixture.invalid/meta/"), client),
                 CacheRoots = new(Path.Combine(game, "libraries"), Path.Combine(game, "assets"), Path.Combine(root, "source-cache")),
-                SelectArchive = _ => archive, SelectName = (_, _) => "managed-copy",
+                SelectArchive = _ => archive, SelectName = (_, _) => selectedName,
                 ConfirmPreview = (preview, name) => {
                     Native.Check(Environment.CurrentManagedThreadId == uiThread && !preview.SourceCheck.HistoricalSourceVerified, "Main skipped the real old-source preview or fabricated provenance.");
                     var view = (StackPanel)Activator.CreateInstance(Native.Type("PCL.MmcLegacyAdoptionPreviewView"), Native.Flags, null, [preview, name], null)!;
                     Native.Check(view.Children.OfType<DataGrid>().Single().Items.Count == preview.SourceCheck.Differences.Length && preview.SourceCheck.Differences.Any(entry => entry.Kind == "个人快照中已删除"), "Actual Main preview lost the per-file difference table.");
                     confirmed = true; return MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding;
                 },
-                SelectRecovery = catalog => { catalogSeen = catalog.Entries.Any(entry => entry.Name == "managed-copy"); return null; },
+                CheckpointObserved = (phase, _) => {
+                    if (cancelCopy && phase == MmcLegacyAdoptionCheckpoint.PersonalSnapshotApplied) actual!.Cancel();
+                    if (!cancelCopy && !decidedFault && phase == MmcLegacyAdoptionCheckpoint.CommitDecided) { decidedFault = true; throw new IOException("owned single decided-copy interruption"); }
+                },
                 RegisterTask = task => { actual = task; ModLoader.LoaderTaskbar.Add(task); }, Published = result => published = result,
                 DownloadCreated = _ => throw new IOException("This cache-hit Main acceptance must not start network managers.")
             }));
@@ -84,19 +88,28 @@ internal static class MmcLegacyAdoptionUiChecks {
             Native.Check(Tree(source) == before && MmcManagementProbe.Read(source).State == MmcManagementState.Legacy && MmcInstanceInspector.Read(target).IsConsistent &&
                 File.ReadAllText(Path.Combine(target, "minecraft", "saves", "world", "level.dat")) == "player progress" && !File.Exists(Path.Combine(target, "minecraft", "mods", "deleted.jar")),
                 "Main copied an inconsistent source, managed the old root or restored a user-deleted author file.");
+            Native.Check(decidedFault, "The actual Main copy did not exercise automatic decided recovery.");
+            cancelCopy = true; selectedName = "cancelled-copy"; published = null;
+            Native.Static("PCL.MmcLegacyAdoptionUi", "PromptCreateCopy", instance);
+            deadline = DateTime.UtcNow.AddSeconds(20);
+            while (actual!.State == ModBase.LoadState.Loading || (bool)Native.Property(type, "HasActiveOperation").GetValue(null)!) {
+                Native.Call(typeof(FileTaskScope), "DrainPostedUi", null, deadline); if (DateTime.UtcNow >= deadline) throw new TimeoutException("Automatic copy rollback did not drain."); Thread.Sleep(5);
+            }
+            var cancelled = MmcLegacyAdoptionCatalog.Read(game).Entries.Single(entry => entry.Name == selectedName);
+            Native.Check(actual.State == ModBase.LoadState.Canceled && published is null && !Directory.Exists(Path.Combine(game, "versions", selectedName)) &&
+                !cancelled.CanRecover && cancelled.Description.Contains("自动回退", StringComparison.Ordinal) && Tree(source) == before &&
+                File.Exists(Path.Combine(cancelled.OperationDirectory, "backup.zip")) && !Directory.Exists(Path.Combine(cancelled.OperationDirectory, "private-minecraft", "versions", selectedName)),
+                "An undecided copy required manual recovery, lost its private backup or changed the original player data: " + actual.Error + " / State=" + actual.State +
+                " / Backend=" + ((ModLoader.LoaderTask<string, MmcLegacyAdoptionResult>)actual.Loaders.Single()).Output?.Failure + " / Operation=" + cancelled.OperationDirectory + " / Catalog=" + cancelled.Description);
             Native.Call(typeof(FileTaskScope), "FinishActualTasks", files); InstanceConfigProviders.FlushAndDisposeWithin(root);
             Native.Check(Path.GetFullPath(source).StartsWith(Path.GetFullPath(files.Root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "Owned legacy fixture cleanup escaped its root.");
             Directory.Delete(source, true); ModMinecraft.McInstanceList = [];
             var selection = new PageSelectRight(); var controller = Native.Property(selection.GetType(), "Service").GetValue(selection)!;
             Native.Call(controller.GetType(), "Render", controller);
-            var recovery = (FrameworkElement)selection.FindName("BtnMmcLegacyRecovery");
-            Native.Check(recovery.Visibility == Visibility.Visible && ((FrameworkElement)selection.FindName("PanEmpty")).Visibility == Visibility.Visible,
-                "The empty version list hid the independent managed-copy recovery entry.");
-            Native.Call(selection.GetType(), "BtnMmcLegacyRecovery_Click", selection, recovery, null);
-            deadline = DateTime.UtcNow.AddSeconds(10);
-            while (!catalogSeen) { Native.Call(typeof(FileTaskScope), "DrainPostedUi", null, deadline); if (DateTime.UtcNow >= deadline) throw new TimeoutException("The empty-list copy recovery entry did not read its real catalog after the old source was deleted."); Thread.Sleep(5); }
+            Native.Check(selection.FindName("BtnMmcLegacyRecovery") is null && selection.FindName("BtnMmcImportRecovery") is null && selection.FindName("BtnMmcRecovery") is null &&
+                ((FrameworkElement)selection.FindName("PanEmpty")).Visibility == Visibility.Visible, "The actual empty-list BAML retained a manual MMC recovery button.");
             environment.AssertNoForbiddenIo();
-            Console.WriteLine("PASS mmc-legacy-adoption-ui: actual Main copy entry/picker/name/virtualized preview, explicit rebind, real Java policy probe, Loader/worker and complete managed-copy publication with cache hits; old source/worlds/deletions preserved, empty-list recovery catalog works after old-source deletion, and recovery store blocks old folder deletion without versions. No game launch.");
+            Console.WriteLine("PASS mmc-legacy-adoption-ui: actual Main copy/preview/Java/Loader automatically finishes a decided failure and rolls back an undecided cancellation; old source/worlds/deletions and backup preserved; actual empty-list BAML has no manual recovery buttons. No game launch.");
         } finally {
             Native.Check(actual is null || actual.State != ModBase.LoadState.Loading, "Refusing to detach active managed-copy fixture hooks.");
             Native.Call(typeof(FileTaskScope), "FinishActualTasks", files); factory.SetValue(null, oldFactory); scheduler.RefreshExtraDownload = refresh; ConfigProviders.Default = originalProfile;

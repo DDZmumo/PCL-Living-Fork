@@ -14,15 +14,15 @@ internal static partial class MmcImportRecoveryUiChecks {
     // Actual Main producer and offscreen native task controls; no desktop interaction.
     internal static void RunProgress(FixtureEnvironment environment) {
         using var scope = new Scope(environment, "mmc-import-progress-ui");
-        scope.ImportStageProgress(); scope.BackendFailureStageCard(); scope.FailedRetryStageCard(); scope.RetryFromActualSelection();
+        scope.ImportStageProgress(); scope.BackendFailureStageCard(); scope.FailedArchiveStageCard(); scope.FreshImportAfterFailure();
         scope.VerifyLastProgressFinished();
         scope.Finish();
-        Console.WriteLine("PASS mmc-import-progress-ui: real Main tiny cache-only import advances measured archive/extraction/payload phases; seven read-only stage rows share one real producer; dynamic cfg/title changes retain one exact native task card; duplicate backend metadata does not rewind Java; decided cancellation keeps publishing; failed import/retry retain readable stage/error/recovery details and same-SHA retry completes. No game launch or desktop interaction.");
+        Console.WriteLine("PASS mmc-import-progress-ui: real Main tiny cache-only import advances measured archive/extraction/payload phases; seven stage rows share one real producer/card; duplicate metadata does not rewind Java; decided cancellation keeps publishing; failed archive/runtime stages remain readable while automatic rollback leaves no erroneous version; fresh import succeeds. No game launch or desktop interaction.");
     }
     internal static void RunProgressCancellation(FixtureEnvironment environment) {
         using var scope = new Scope(environment, "mmc-import-progress-cancel");
-        scope.ImportCancellationCard(); scope.RetryCancellationCard(); scope.OrdinaryCancellationCard(); scope.Finish();
-        Console.WriteLine("PASS mmc-import-progress-cancel: actual native cancel button retains Main import and retry cards/taskbar as Loading with Cancelling stage until the held real producer returns; unstarted cancellation creates no producer; ordinary tasks retain their existing close behavior. No game launch or desktop interaction.");
+        scope.ImportCancellationCard(); scope.PublicationCancellationCard(); scope.OrdinaryCancellationCard(); scope.Finish();
+        Console.WriteLine("PASS mmc-import-progress-cancel: actual native cancel button retains extraction/publication cards as Loading with Cancelling stage until real producers drain and automatic rollback finishes; unstarted cancellation creates no producer; ordinary tasks retain their close behavior. No game launch or desktop interaction.");
     }
     internal static void RunCompletionBoundary(FixtureEnvironment environment) {
         using var scope = new Scope(environment, "mmc-import-completion-boundary");
@@ -52,14 +52,14 @@ internal static partial class MmcImportRecoveryUiChecks {
         "Actual MMC native task card does not contain all seven measured/boundary stage rows.");
 
     private sealed partial class Scope {
-        internal void VerifyLastProgressFinished() => Native.Check(Stages(tasks.Last()).All(value => value.State == "Finished"), "Successful actual retry did not complete its real phase observations.");
+        internal void VerifyLastProgressFinished() => Native.Check(Stages(tasks.Last()).All(value => value.State == "Finished"), "Successful fresh import did not complete its real phase observations.");
         private static (PageSpeedLeft Left, PageSpeedRight Right) TaskPages() {
             _ = FileTaskShell.Install();
             var left = new PageSpeedLeft(); var right = new PageSpeedRight(); ModMain.FrmSpeedLeft = left; ModMain.FrmSpeedRight = right;
             return (left, right);
         }
         private ModLoader.LoaderCombo<string> StartProgressImport(string name, PageSpeedLeft left, Action<MmcInstanceBackendProgress>? observed = null,
-            Action<ModLoader.LoaderCombo<string>>? onRegister = null) {
+            Action<ModLoader.LoaderCombo<string>>? onRegister = null, string? sourceArchive = null, Action<MmcTransactionCheckpoint>? transactionObserved = null) {
             var hook = Native.Property(typeof(MmcInstances), "ServicesFactory"); object? old = hook.GetValue(null);
             hook.SetValue(null, new Func<ModpackMmcInstallRequest, MmcImportServices>(_ => new() {
                 Metadata = metadata, CacheRoots = cache, SelectName = candidate => {
@@ -68,9 +68,9 @@ internal static partial class MmcImportRecoveryUiChecks {
                 },
                 RegisterTask = task => { current = task; tasks.Add(task); ModLoader.LoaderTaskbarAdd(task); left.TaskRefresh(task); onRegister?.Invoke(task); },
                 Published = _ => { }, DownloadCreated = _ => throw new IOException("Tiny progress fixture unexpectedly requested an actual network transfer."),
-                ProgressObserved = observed
+                ProgressObserved = observed, TransactionObserved = (phase, _) => transactionObserved?.Invoke(phase)
             }));
-            try { return MmcInstances.StartImport(new(archive, game)); }
+            try { return MmcInstances.StartImport(new(sourceArchive ?? archive, game)); }
             finally { hook.SetValue(null, old); }
         }
         private void Returned(ModLoader.LoaderCombo<string> task, ModBase.LoadState expected) {
@@ -132,8 +132,9 @@ internal static partial class MmcImportRecoveryUiChecks {
             var card = Cards(right).Single(); CheckRows(card);
             Native.Check(Stage(task, "PrepareRuntime").State == "Failed" && Stages(task).Skip(5).All(value => value.State == "NotRun") &&
                 Rows(card).Children.OfType<TextBlock>().Any(value => Equals(value.Tag, "mmc-import-error") && value.Text.Contains("owned runtime preparation failure", StringComparison.Ordinal) &&
-                    value.Text.Contains("MMC 导入恢复", StringComparison.Ordinal) && value.Text.Contains(".pcllf-mmc-import-", StringComparison.Ordinal)),
-                "Backend failure omitted its active stage, retained-site path or recovery entry guidance.");
+                    !value.Text.Contains("MMC 导入恢复", StringComparison.Ordinal)) &&
+                !Directory.EnumerateDirectories(Path.Combine(game, "versions"), ".pcllf-mmc-import-*").Any(),
+                "Backend failure lost its active stage/error or left an unowned-looking version requiring manual recovery.");
             left.TaskRemove(task); ModLoader.LoaderTaskbar.Remove(task);
         }
 
@@ -193,16 +194,20 @@ internal static partial class MmcImportRecoveryUiChecks {
             Returned(task, ModBase.LoadState.Finished);
         }
 
-        internal void FailedRetryStageCard() {
-            EnsureParked(); var (left, right) = TaskPages();
-            registered = task => left.TaskRefresh(task);
-            string wrong = Path.Combine(root, "progress-wrong.zip"); WriteZip(wrong, "different progress bytes", Encoding.UTF8.GetBytes("{\"objects\":{}}"));
-            StartRetry(parked!, wrong, "progress-wrong"); Returned(current!, ModBase.LoadState.Failed); left.TaskRefresh(current!);
+        internal void FailedArchiveStageCard() {
+            var (left, right) = TaskPages();
+            string wrong = Path.Combine(root, "progress-invalid.zip"); File.WriteAllText(wrong, "owned invalid ZIP input");
+            StartProgressImport("progress-invalid", left, sourceArchive: wrong); Returned(current!, ModBase.LoadState.Failed); left.TaskRefresh(current!);
             var card = Cards(right).Single(); CheckRows(card);
             Native.Check(Stage(current!, "ReadArchive").State == "Failed" && Stages(current!).Skip(1).All(value => value.State == "NotRun") &&
-                Rows(card).Children.OfType<TextBlock>().Any(value => Equals(value.Tag, "mmc-import-error") && value.Text.Contains("SHA256", StringComparison.Ordinal) && Equals(value.ToolTip, "单击复制错误详情")),
-                "Failed retry hid its failed phase, falsely completed later phases or omitted copyable source-SHA diagnostic.");
-            left.TaskRemove(current!); ModLoader.LoaderTaskbar.Remove(current!); Reset();
+                Rows(card).Children.OfType<TextBlock>().Any(value => Equals(value.Tag, "mmc-import-error") && !string.IsNullOrWhiteSpace(value.Text) && Equals(value.ToolTip, "单击复制错误详情")),
+                "Invalid archive hid its failed phase, falsely completed later phases or omitted the copyable diagnostic.");
+            left.TaskRemove(current!); ModLoader.LoaderTaskbar.Remove(current!);
+        }
+        internal void FreshImportAfterFailure() {
+            var (left, _) = TaskPages(); var task = StartProgressImport("progress-fresh-after-failure", left); Returned(task, ModBase.LoadState.Finished);
+            Native.Check(MmcInstanceInspector.Read(Path.Combine(game, "versions", "progress-fresh-after-failure")).IsConsistent, "A fresh import after automatic failure cleanup required a manual retry entry.");
+            left.TaskRefresh(task); ModLoader.LoaderTaskbar.Remove(task);
         }
 
         private void CancelFromCard(PageSpeedLeft left, PageSpeedRight right, ManualResetEventSlim held, ModLoader.LoaderCombo<string> task) {
@@ -245,26 +250,20 @@ internal static partial class MmcImportRecoveryUiChecks {
                 "Cancelling the genuinely unstarted import recorded disk I/O without a producer.");
             ModLoader.LoaderTaskbar.Remove(unstarted);
         }
-        internal void RetryCancellationCard() {
-            EnsureParked(); var (left, right) = TaskPages(); using ManualResetEventSlim entered = new(), release = new();
-            var repetitions = new ConcurrentQueue<StageView[]>();
-            registered = task => {
-                left.TaskRefresh(task);
-                task.Loaders.Single().ProgressChanged += (_, _) => repetitions.Enqueue(Stages(task));
-            };
-            transaction = phase => { if (phase == MmcTransactionCheckpoint.Prepared) { entered.Set(); if (!release.Wait(10000)) throw new TimeoutException("Retry cancellation barrier not released."); } };
-            StartRetry(parked!, archive, "progress-retry-cancel");
+        internal void PublicationCancellationCard() {
+            var (left, right) = TaskPages(); using ManualResetEventSlim entered = new(), release = new();
+            StartProgressImport("progress-publication-cancel", left, transactionObserved: phase => {
+                if (phase == MmcTransactionCheckpoint.Prepared) { entered.Set(); if (!release.Wait(10000)) throw new TimeoutException("Publication cancellation barrier not released."); }
+            });
             try {
-                Until(() => entered.IsSet, "Real retry did not reach its Prepared transaction.");
+                Until(() => entered.IsSet, "Real import did not reach its Prepared transaction.");
                 Native.Check(Stages(current!).Take(6).All(value => value.State == "Finished") && Stage(current!, "PublishInstance").State == "Running",
-                    "Real retry's repeated source/metadata phases rewound completed work or prematurely finished publication.");
-                Native.Check(repetitions.Any(snapshot => snapshot.Single(value => value.Stage == "ReadArchive") is { State: "Running", Progress: null, CompletedBytes: 0 } &&
-                    snapshot.Single(value => value.Stage == "SelectJava").State == "Finished"), "Actual retry's second original-package check left Java busy or reused the first archive pass's percentage.");
+                    "The real import rewound completed work or prematurely finished publication.");
                 CancelFromCard(left, right, release, current!);
             }
             finally { release.Set(); }
-            Native.Check(!Busy && Tree(parked!.TemporaryRoot!) == parkedTree, "Cancelled retry released early or changed its original parked data.");
-            Reset();
+            Native.Check(!Directory.Exists(Path.Combine(game, "versions", "progress-publication-cancel")) &&
+                !Directory.EnumerateDirectories(Path.Combine(game, "versions"), ".pcllf-mmc-import-*").Any(), "Cancelled publication left a partial version requiring manual recovery.");
         }
         internal void OrdinaryCancellationCard() {
             var (left, right) = TaskPages();

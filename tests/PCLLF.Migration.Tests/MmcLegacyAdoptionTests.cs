@@ -16,6 +16,10 @@ internal static class MmcLegacyAdoptionTests {
         yield return ("MMC legacy copy rejects shared ambiguous active and changed sources and cancels before publication", RefusalsAndCancellation);
         yield return ("MMC legacy copy uses a real producer file lock and recovers a decided no-overwrite publication offline", Recovery);
         yield return ("MMC legacy private backup blocks old cleanup from a selected PCL folder without versions", PrivateStoreCleanupGuard);
+        yield return ("MMC automatic copy cleanup never claims a foreign root file between producer phases", () => AutomaticCleanupRefusal("foreign"));
+        yield return ("MMC automatic copy cleanup preserves foreign NTFS data streams", () => AutomaticCleanupRefusal("ads"));
+        yield return ("MMC automatic copy cleanup rejects replacement after its fixed inventory", () => AutomaticCleanupRefusal("replacement"));
+        yield return ("MMC automatic copy cleanup interruption atomically preserves root and ownership marker", () => AutomaticCleanupRefusal("interruption"));
     }
     private static void Require(bool value, string message) { if (!value) throw new Exception(message); }
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
@@ -102,6 +106,47 @@ internal static class MmcLegacyAdoptionTests {
         var recovered = fixture.Service.RecoverAsync(failed.OperationDirectory!).GetAwaiter().GetResult(); fixture.Success(recovered);
         Require(Tree(fixture.Source) == before && File.ReadAllText(Path.Combine(recovered.Paths!.GameRoot, "saves", "world", "level.dat")) == "player world", "Forward recovery changed old source or copied world data.");
         Require(fixture.Service.RecoverAsync(failed.OperationDirectory!).GetAwaiter().GetResult().Status == MmcInstanceBackendStatus.Succeeded, "Completed recovery was not idempotent.");
+        fixture.Complete();
+    }
+    private static void AutomaticCleanupRefusal(string mode) {
+        using Fixture fixture = new(false); using var preview = fixture.Preview(); using var cancellation = new CancellationTokenSource();
+        string before = Tree(fixture.Source); string? privateRoot = null, operationDirectory = null, foreign = null; bool boundary = false;
+        var intent = MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding;
+        var result = fixture.Service.CreateManagedCopyAutomaticallyAsync(preview, new(fixture.Target, "managed-copy", preview.ConfirmationFingerprint(fixture.Target, "managed-copy", intent), intent) {
+            Checkpoint = (phase, operation) => {
+                operationDirectory = operation; privateRoot = Path.Combine(operation, "private-minecraft", "versions", "managed-copy");
+                if (phase == MmcLegacyAdoptionCheckpoint.PrivateImportComplete) {
+                    if (mode == "foreign") { foreign = Path.Combine(privateRoot, "foreign-note.txt"); File.WriteAllText(foreign, "foreign root note must remain"); }
+                    if (mode == "ads") {
+                        foreign = Path.Combine(privateRoot, "PCL", "InstanceDefinition.json") + (OperatingSystem.IsWindows() ? ":foreign-note" : ".foreign-note");
+                        File.WriteAllText(foreign, "foreign stream must remain");
+                    }
+                }
+                if (phase == MmcLegacyAdoptionCheckpoint.PersonalSnapshotApplied) cancellation.Cancel();
+            },
+            AutomaticCleanupCheckpoint = (phase, _) => {
+                if (mode == "replacement" && phase == MmcInstancePurgeCheckpoint.PlanPrepared) {
+                    boundary = true; foreign = Path.Combine(privateRoot!, "minecraft", "config", "user.cfg");
+                    File.Move(foreign, foreign + ".original"); File.WriteAllText(foreign, "replacement after fixed inventory must remain");
+                }
+                if (mode == "interruption" && phase == MmcInstancePurgeCheckpoint.BeforeDecision) { boundary = true; throw new IOException("owned interruption before atomic cleanup commit"); }
+            }
+        }, cancellation.Token).GetAwaiter().GetResult();
+        Require(result.Status == MmcInstanceBackendStatus.NeedsRecovery && !Directory.Exists(fixture.Target) && privateRoot is not null &&
+            Directory.Exists(privateRoot) && File.Exists(Path.Combine(privateRoot, "PCL", "MmcLegacyAdoptionPending.json")) && Tree(fixture.Source) == before && File.Exists(result.BackupPath),
+            "Automatic cleanup deleted foreign bytes/ownership, committed an interrupted tree, or changed the old source: " + mode + " / " + result.Failure);
+        if (mode is "foreign" or "ads") Require(foreign is not null && File.ReadAllText(foreign).Contains("must remain", StringComparison.Ordinal), "A producer rescan claimed and deleted the foreign file/stream.");
+        if (!OperatingSystem.IsWindows()) {
+            Require(result.Failure?.Contains("Windows", StringComparison.Ordinal) == true && !boundary &&
+                File.ReadAllText(Path.Combine(privateRoot!, "minecraft", "saves", "world", "level.dat")) == "player world",
+                "Unsupported automatic cleanup did not explicitly refuse while preserving the complete private copy.");
+            fixture.Complete(); return;
+        }
+        if (mode is "replacement" or "interruption") Require(boundary, "Automatic cleanup did not reach its injection checkpoint; no replacement/interruption was attempted: " + mode + " / " + result.Failure + " / PrivateRoot=" + privateRoot);
+        if (mode == "replacement") Require(File.ReadAllText(foreign!).Contains("must remain", StringComparison.Ordinal) && File.Exists(foreign + ".original"), "A same-name replacement was deleted after observation.");
+        if (mode == "interruption") Require(File.ReadAllText(Path.Combine(privateRoot!, "minecraft", "saves", "world", "level.dat")) == "player world" &&
+            File.Exists(Path.Combine(operationDirectory!, "automatic-cleanup.intent.record")) && !File.Exists(Path.Combine(operationDirectory!, "automatic-cleanup.completed.record")),
+            "Interrupted cleanup lost bytes or the external durable intent.");
         fixture.Complete();
     }
     private sealed class Fixture : IDisposable {

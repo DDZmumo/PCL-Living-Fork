@@ -69,16 +69,16 @@ internal static class MmcExportUiChecks {
             var request = new MmcInstanceExportRequest(source, Path.Combine(root, "default.zip"), "managed", inspection.Definition!.InstanceId,
                 inspection.Definition.Generation, inspection.PrimarySha256!, defaults);
 
-            // Overview no longer duplicates MMC export; real sidebar routes Tag 5 to PageInstanceMmcTool.
+            // Overview no longer duplicates MMC export; real sidebar routes Tag 5 to the original PageInstanceExport in MMC mode.
             var oldPage = PageInstanceLeft.Instance;
             try {
                 PageInstanceLeft.Instance = instance;
                 var overview = new PageInstanceOverall(); Native.Check(overview.FindName("BtnMmcExport") is null, "Duplicate BtnMmcExport remained in Overview.");
                 var left = new PageInstanceLeft();
                 Native.Check(((FrameworkElement)left.FindName("ItemExport")).Visibility == Visibility.Visible, "Managed sidebar export entry stayed hidden.");
-                var mmcTool = (PageInstanceMmcTool)left.PageGet(FormMain.PageSubType.InstanceExport);
-                Native.Check((FormMain.PageSubType)Native.Property(mmcTool.GetType(), "SubRoute").GetValue(mmcTool)! == FormMain.PageSubType.InstanceExport &&
-                    ((FrameworkElement)mmcTool.FindName("BtnPrimaryAction")).IsEnabled, "Managed export tool page was not active.");
+                var mmcTool = (PageInstanceExport)left.PageGet(FormMain.PageSubType.InstanceExport);
+                Native.Check((bool)Native.Call(typeof(PageInstanceExport), "IsManagedOwner", mmcTool, instance, inspection.Definition.InstanceId)!,
+                    "Original export page did not bind its MMC owner.");
                 PageInstanceLeft.Instance = null; Native.Call(left.GetType(), "SyncInstanceContext", left);
                 Native.Check(left.PageGet(FormMain.PageSubType.InstanceExport) is PageInstanceExport, "Ordinary instance did not retain PageInstanceExport.");
             } finally { PageInstanceLeft.Instance = oldPage; }
@@ -107,8 +107,7 @@ internal static class MmcExportUiChecks {
             try {
                 PageInstanceLeft.Instance = instance;
                 var left = new PageInstanceLeft();
-                var toolPage = (PageInstanceMmcTool)left.PageGet(FormMain.PageSubType.InstanceExport);
-                Native.Call(toolPage.GetType(), "BtnPrimaryAction_Click", toolPage, toolPage.FindName("BtnPrimaryAction"), null);
+                Native.Static("PCL.MmcExportUi", "Prompt", instance);
             } finally { PageInstanceLeft.Instance = previousPage; }
             Wait(previousCount);
             Native.Check(Current.State == ModBase.LoadState.Finished && results.Single().Status == MmcInstanceExportStatus.Completed && File.Exists(request.OutputZipPath), "Late cancellation erased a completed publication outcome.");
