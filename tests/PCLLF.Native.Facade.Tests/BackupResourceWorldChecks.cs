@@ -107,6 +107,8 @@ internal static class BackupResourceWorldChecks
         object? oldFlag = Native.Field(module, "HasRunningMinecraft").GetValue(null);
         using IdleProcess child = new();
         try {
+            Native.Check(MeloongCore.PathUtils.IsSame(instance.PathIndie, game) && Settings.Get<bool>("VersionWorldBackupAutoEnabled", instance),
+                "The backup fixture did not establish its launched isolated folder and enabled automatic backup.");
             World("Track", instance, child.Value);
             Put(Path.Combine(scope.Profile, "world-backup-sessions", child.Value.Id + "-1.json"), new JObject { ["gameFolder"] = Path.Combine(scope.Root, "stale-pid-game"), ["pid"] = child.Value.Id, ["started"] = 1 }.ToString());
             Native.Check((bool)World("HasActiveGame", game, null)!, "Tracked live process did not block capture.");
@@ -114,7 +116,13 @@ internal static class BackupResourceWorldChecks
             Native.Check(!(bool)World("HasActiveGame", game, child.Value)!, "Exited Watcher was treated as a live game.");
             int count = Points(game).Count;
             Cache(instance, "VersionArgumentIndieV2", false);
-            try { World("OnProcessStopped", instance, child.Value, true); }
+            try {
+                string exactSession = Path.Combine(scope.Profile, "world-backup-sessions", child.Value.Id + "-" + child.Value.StartTime.ToUniversalTime().Ticks + ".json");
+                Native.Check(!Settings.Get<bool>("VersionArgumentIndieV2", instance) && !MeloongCore.PathUtils.IsSame(instance.PathIndie, game) &&
+                    MeloongCore.PathUtils.IsSame(JObject.Parse(File.ReadAllText(exactSession))["gameFolder"]!.ToString(), game),
+                    "The backup fixture did not retain the launched folder while actually switching current isolation.");
+                World("OnProcessStopped", instance, child.Value, true);
+            }
             finally { Cache(instance, "VersionArgumentIndieV2", true); }
             Native.Check(Points(game).Count == count + 2, "Normal exit lost the launched folder when current isolation changed, stale PID record existed and legacy running flag remained set.");
             World("OnProcessStopped", instance, child.Value, false);
