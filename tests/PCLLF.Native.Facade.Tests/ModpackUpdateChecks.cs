@@ -47,6 +47,13 @@ internal static class ModpackUpdateChecks
         ModpackUpdateFlowChecks.RunOrigins(environment,root);
         environment.AssertNoForbiddenIo();
     }
+    internal static void RunOriginsMore(FixtureEnvironment environment)
+    {
+        string root = Path.Combine(environment.Data,"origins-more-"+Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        ModpackUpdateFlowChecks.RunOriginsMore(environment,root);
+        environment.AssertNoForbiddenIo();
+    }
 
     private static void TransactionFixtures(string root)
     {

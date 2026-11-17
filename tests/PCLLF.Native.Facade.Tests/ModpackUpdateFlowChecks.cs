@@ -61,11 +61,15 @@ internal static class ModpackUpdateFlowChecks
         RunIsolated(environment,fixtureRoot,"flow",FlowScenarios);
 
     internal static void RunOrigins(FixtureEnvironment environment, string fixtureRoot) =>
+        RunOriginsBatch(environment, fixtureRoot, false);
+    internal static void RunOriginsMore(FixtureEnvironment environment, string fixtureRoot) =>
+        RunOriginsBatch(environment, fixtureRoot, true);
+    private static void RunOriginsBatch(FixtureEnvironment environment, string fixtureRoot, bool more) =>
         RunIsolated(environment,fixtureRoot,"origins",(flow,root,minecraft) => {
             string old = Pack(root,"flow-old",new(){["config/author.txt"]="old-author",["config/personal.txt"]="old-default"},fabric:false);
             string next = Pack(root,"flow-next",new(){["config/author.txt"]="new-author",["config/personal.txt"]="new-default"},fabric:false);
-            AutomaticOrigins(flow,minecraft,root,old,next);
-            Console.WriteLine("PASS native modpack-update origins: all ten original exact Modrinth/CurseForge source, primary archive, hash/project/origin, cancellation and schema-2 transaction scenarios.");
+            AutomaticOrigins(flow,minecraft,root,old,next,more);
+            Console.WriteLine("PASS native modpack-update origins " + (more ? "6-10" : "1-5") + ": five original exact-source scenarios, actual archive/parser, account reload and fixed transaction checks; the two bounded groups retain all ten original cases.");
         });
 
     private static void RunIsolated(FixtureEnvironment environment,string fixtureRoot,string leaf,Action<LiveFlow,string,string> scenarios)
@@ -77,7 +81,7 @@ internal static class ModpackUpdateFlowChecks
         using ReloadAccountStore accounts = new(environment); TraceStage("account-scope-installed");
         using FileTaskScope scope = new(environment); TraceStage("file-task-scope-installed");
         string root = Path.Combine(fixtureRoot, leaf); Directory.CreateDirectory(root);
-        string minecraft = Path.Combine(root, "minecraft"); scope.SelectMinecraft(minecraft);
+        string minecraft = Path.Combine(root, "minecraft"); Directory.CreateDirectory(minecraft); scope.SelectMinecraft(minecraft);
         _ = FileTaskShell.Install();
         // Match the second real update: TaskManager already exists before Add.
         ModMain.FrmSpeedLeft = new PageSpeedLeft(); ModMain.FrmSpeedRight = new PageSpeedRight();
@@ -275,12 +279,15 @@ internal static class ModpackUpdateFlowChecks
     private static PackUpdateStageSnapshot[] Stages(ModLoader.LoaderBase task) =>
         (PackUpdateStageSnapshot[])Native.Static("PCL.ModpackUpdateFlow", "GetStageSnapshot", new List<ModLoader.LoaderBase> { task })!;
 
-    private static void AutomaticOrigins(LiveFlow flow, string minecraft, string root, string old, string next)
+    private static void AutomaticOrigins(LiveFlow flow, string minecraft, string root, string old, string next, bool more)
     {
         string wrongFolder = Path.Combine(root, "auto-wrong-original"); Directory.CreateDirectory(wrongFolder);
         string wrong = Pack(wrongFolder, "flow-old", new() { ["config/author.txt"] = "wrong-author", ["config/personal.txt"] = "old-default" }, fabric: false);
-        foreach (string platform in new[] { "Modrinth", "CurseForge" })
-        foreach (string scenario in platform == "Modrinth" ? new[] { "accept", "preview-cancel", "foreign", "corrupt", "wrong-original", "cancel", "changed-origin", "schema2" } : new[] { "accept", "foreign" })
+        (string Platform, string Scenario)[] cases = [
+            ("Modrinth", "accept"), ("Modrinth", "preview-cancel"), ("Modrinth", "foreign"), ("Modrinth", "corrupt"), ("Modrinth", "wrong-original"),
+            ("Modrinth", "cancel"), ("Modrinth", "changed-origin"), ("Modrinth", "schema2"), ("CurseForge", "accept"), ("CurseForge", "foreign")
+        ];
+        foreach (var (platform, scenario) in cases.Skip(more ? 5 : 0).Take(5))
         {
             string label = "AUTO-" + platform + "-" + scenario;
             ModMinecraft.McInstance instance = Instance(minecraft, "auto-" + platform + "-" + scenario + "-1.20.1");
@@ -289,6 +296,8 @@ internal static class ModpackUpdateFlowChecks
             Put(Path.Combine(instance.PathIndie, "config/author.txt"), "old-author");
             Put(Path.Combine(instance.PathIndie, "config/personal.txt"), "my-edit");
             string originPath = Path.Combine(instance.PathVersion, "PCL", "ModpackOrigin.json");
+            string versionRoot = instance.PathVersion, gameRoot = instance.PathIndie;
+            var attached = instance.Config.ContextStamp;
             JObject recorded = JObject.Parse(File.ReadAllText(originPath));
             string project = platform == "Modrinth" ? "pack-project" : "7001", version = platform == "Modrinth" ? "old-version" : "511111";
             recorded["source"] = new JObject { ["platform"] = platform, ["project"] = project, ["version"] = version };
@@ -341,7 +350,9 @@ internal static class ModpackUpdateFlowChecks
                 Check(File.ReadAllText(originPath) == originBefore, label, "repaired origin was written before preview approval");
                 return scenario == "preview-cancel" ? 2 : 1;
             };
-            bool selectedProfile = platform == "Modrinth" && scenario == "accept";
+            // Each independently scheduled half must exercise the genuine selected/page
+            // setter and encrypted account-read contract through its accepted source.
+            bool selectedProfile = scenario == "accept";
             if (selectedProfile) {
                 // This independently scheduled group must exercise the same real selected/page
                 // setter and encrypted account-read contract instead of borrowing prior group state.
@@ -355,7 +366,8 @@ internal static class ModpackUpdateFlowChecks
             if (scenario is "accept" or "schema2") {
                 JObject committed = JObject.Parse(File.ReadAllText(originPath));
                 Check(flow.Worker!.LastSucceeded && previews == 1 && flow.Messages.Count == 0 && committed["schema"]?.Value<int>() == 2 && committed["complete"]?.Value<bool>() == true,
-                    label, "automatic baseline did not reach the genuine schema-2 update transaction: state=" + flow.Step!.State + "; success=" + flow.Worker.LastSucceeded + "; previews=" + previews + "; messages=" + string.Join(",", flow.Messages) + "; info=" + string.Join(" / ", flow.Infos.TakeLast(2)) + "; error=" + flow.Step.Error);
+                    label, "automatic baseline did not reach the genuine schema-2 update transaction: state=" + flow.Step!.State + "; success=" + flow.Worker.LastSucceeded + "; previews=" + previews + "; messages=" + string.Join(",", flow.Messages) + "; info=" + string.Join(" / ", flow.Infos.TakeLast(2)) + "; error=" + flow.Step.Error +
+                    "; versionRoot=" + versionRoot + " (length=" + versionRoot.Length + ", exists=" + Directory.Exists(versionRoot) + ", context=" + attached + "); gameRoot=" + gameRoot + " (length=" + gameRoot.Length + ", exists=" + Directory.Exists(gameRoot) + ")");
                 Check(File.ReadAllText(Path.Combine(instance.PathIndie, "config/author.txt")) == "new-author", label, "author update was not applied");
                 if (selectedProfile) Check(PageInstanceLeft.Instance is not null && !ReferenceEquals(PageInstanceLeft.Instance,instance) &&
                     Native.Full(PageInstanceLeft.Instance.PathVersion)==Native.Full(instance.PathVersion) && ReferenceEquals(PageInstanceLeft.Instance,ModMinecraft.McInstanceSelected),

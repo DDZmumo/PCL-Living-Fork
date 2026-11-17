@@ -27,6 +27,7 @@ internal static class Program
         ["instance-clone"] = CloneNativeChecks.Run,
         ["modpack-update"] = ModpackUpdateChecks.Run,
         ["modpack-update-origins"] = ModpackUpdateChecks.RunOrigins,
+        ["modpack-update-origins-more"] = ModpackUpdateChecks.RunOriginsMore,
         ["environment-history"] = EnvironmentHistoryChecks.Run,
         ["local-features"] = LocalFeatureChecks.Run,
         ["launch-dependencies"] = LaunchDependencyChecks.Run,
