@@ -115,7 +115,7 @@ internal static class MmcManagedImportChecks {
         }
         internal void MixedRootRouting() {
             foreach (var (markers, expected) in new[] {
-                (new[] { "mcbbs.packmeta", "mmc-pack.json" }, false),
+                (new[] { "mcbbs.packmeta", "mmc-pack.json" }, true),
                 (new[] { "mmc-pack.json", "manifest.json" }, true),
                 (new[] { "mmc-pack.json", "modrinth.index.json" }, true),
                 (new[] { "manifest.json", "nested/mmc-pack.json", "CON/ordinary-unchecked" }, false),
@@ -123,7 +123,7 @@ internal static class MmcManagedImportChecks {
             }) {
                 string path = Path.Combine(root, "routing-" + Guid.NewGuid().ToString("N") + ".zip");
                 using (var archive = ZipFile.Open(path, ZipArchiveMode.Create)) foreach (string marker in markers) Add(archive, marker, "{}");
-                Native.Check(MmcBoundedArchiveClassifier.IsMmcCandidate(path) == expected, "Bounded mixed-root routing changed LF's explicit root marker priority.");
+                Native.Check(MmcBoundedArchiveClassifier.IsMmcCandidate(path) == expected, "Root MMC must use Core; nested loose markers must preserve an explicitly ordinary package.");
             }
         }
         internal void DecisionCancellation() {

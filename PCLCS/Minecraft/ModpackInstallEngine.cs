@@ -59,50 +59,56 @@ public sealed partial class ModpackInstallEngine<TLoader, TNetFile, TVersion, TP
             string targetFolder = host.MinecraftFolder() + "versions\\" + instanceName + "\\";
             if (targetFolder.Contains("!") || targetFolder.Contains(";")) { host.Hint("游戏路径中不能含有感叹号或分号：" + targetFolder, true); throw new OperationCanceledException(); }
             int packType = -1;
+            bool managedMmc;
             try {
-                if (host.InstallManagedMmc is not null && MmcBoundedArchiveClassifier.IsMmcCandidate(file!)) {
-                    Logger.Info("整合包种类：MMC（完整组件与实例后端）");
-                    return host.InstallManagedMmc(new(file!, host.MinecraftFolder(), instanceName, logo, source));
-                }
-                archive = FileUtils.OpenZip(file!);
-                // Preserve LF's root-before-one-directory scan and exact marker priorities.
-                if (archive.GetEntry("mcbbs.packmeta") is not null) packType = 3;
-                else if (archive.GetEntry("mmc-pack.json") is not null) packType = 2;
-                else if (archive.GetEntry("modrinth.index.json") is not null) packType = 4;
-                else if (archive.GetEntry("manifest.json") is ZipArchiveEntry manifest) {
-                    JObject json = (JObject)manifest.Open().ReadString(Encoding.UTF8).DeserializeJson()!;
-                    packType = json["addons"] is null ? 0 : 3;
-                } else if (archive.GetEntry("modpack.json") is not null) packType = 1;
-                else if (archive.GetEntry("modpack.zip") is not null || archive.GetEntry("modpack.mrpack") is not null) packType = 9;
-                else foreach (ZipArchiveEntry entry in archive.Entries) {
-                    string[] parts = entry.FullName.Split('/');
-                    archiveBaseFolder = parts[0] + "/";
-                    if (parts.Length != 2) continue;
-                    if (parts[1] == "mcbbs.packmeta") { packType = 3; break; }
-                    if (parts[1] == "mmc-pack.json") { packType = 2; break; }
-                    if (parts[1] == "modrinth.index.json") { packType = 4; break; }
-                    if (parts[1] == "manifest.json") {
-                        JObject json = (JObject)entry.Open().ReadString(Encoding.UTF8).DeserializeJson()!;
-                        if (json["addons"] is null) packType = 0;
-                        else { packType = 3; archiveBaseFolder = "overrides/"; }
-                        break;
+                managedMmc = MmcBoundedArchiveClassifier.IsMmcCandidate(file!);
+                if (!managedMmc) {
+                    archive = FileUtils.OpenZip(file!);
+                    // Ordinary formats retain LF's root-before-one-directory marker priorities.
+                    if (archive.GetEntry("mcbbs.packmeta") is not null) packType = 3;
+                    else if (archive.GetEntry("modrinth.index.json") is not null) packType = 4;
+                    else if (archive.GetEntry("manifest.json") is ZipArchiveEntry manifest) {
+                        JObject json = (JObject)manifest.Open().ReadString(Encoding.UTF8).DeserializeJson()!;
+                        packType = json["addons"] is null ? 0 : 3;
+                    } else if (archive.GetEntry("modpack.json") is not null) packType = 1;
+                    else if (archive.GetEntry("modpack.zip") is not null || archive.GetEntry("modpack.mrpack") is not null) packType = 9;
+                    else foreach (ZipArchiveEntry entry in archive.Entries) {
+                        string[] parts = entry.FullName.Split('/');
+                        archiveBaseFolder = parts[0] + "/";
+                        if (parts.Length != 2) continue;
+                        if (parts[1] == "mcbbs.packmeta") { packType = 3; break; }
+                        if (parts[1] == "modrinth.index.json") { packType = 4; break; }
+                        if (parts[1] == "manifest.json") {
+                            JObject json = (JObject)entry.Open().ReadString(Encoding.UTF8).DeserializeJson()!;
+                            if (json["addons"] is null) packType = 0;
+                            else { packType = 3; archiveBaseFolder = "overrides/"; }
+                            break;
+                        }
+                        if (parts[1] == "modpack.json") { packType = 1; break; }
+                        if (parts[1] == "modpack.zip" || parts[1] == "modpack.mrpack") { packType = 9; break; }
                     }
-                    if (parts[1] == "modpack.json") { packType = 1; break; }
-                    if (parts[1] == "modpack.zip" || parts[1] == "modpack.mrpack") { packType = 9; break; }
                 }
             } catch (Exception error) {
                 if (error.GetDisplay(true).Contains("Error.WinIOError")) throw new Exception("打开整合包文件失败", error);
                 if (PathUtils.GetExtension(file!) == "rar") throw new Exception("PCL 无法处理 rar 格式的压缩包，请在解压后重新压缩为 zip 格式再试", error);
                 throw new Exception("打开整合包文件失败，文件可能损坏或为不支持的压缩包格式", error);
             }
+            // MMC / MultiMC / Prism has exactly one installation boundary. Missing
+            // services and Core parser/semantic failures propagate from that boundary;
+            // none may authorize an ordinary InstallGame or extraction fallback.
+            if (managedMmc) {
+                var install = host.InstallManagedMmc ?? throw new InvalidOperationException("MMC 整合包导入服务未配置，无法使用 MMCC Core 安装；已停止导入。");
+                Logger.Info("整合包种类：MMC（完整组件与实例后端）");
+                return install(new(file!, host.MinecraftFolder(), instanceName, logo, source));
+            }
+            ZipArchive ordinaryArchive = archive ?? throw new InvalidOperationException("整合包压缩文件未打开。");
             switch (packType) {
-                case 0: Logger.Info("整合包种类：CurseForge"); return InstallPackCurseForge(file!, archive, archiveBaseFolder, instanceName, logo, source);
-                case 1: Logger.Info("整合包种类：HMCL"); return InstallPackHMCL(file!, archive, archiveBaseFolder);
-                case 2: Logger.Info("整合包种类：MMC"); return InstallPackMMC(file!, archive, archiveBaseFolder);
-                case 3: Logger.Info("整合包种类：MCBBS"); return InstallPackMCBBS(file!, archive, archiveBaseFolder, instanceName);
-                case 4: Logger.Info("整合包种类：Modrinth"); return InstallPackModrinth(file!, archive, archiveBaseFolder, instanceName, logo, source);
-                case 9: Logger.Info("整合包种类：带启动器的压缩包"); return InstallPackLauncherPack(file!, archive, archiveBaseFolder);
-                default: Logger.Info("整合包种类：未能识别，假定为压缩包"); return InstallPackCompress(file!, archive);
+                case 0: Logger.Info("整合包种类：CurseForge"); return InstallPackCurseForge(file!, ordinaryArchive, archiveBaseFolder, instanceName, logo, source);
+                case 1: Logger.Info("整合包种类：HMCL"); return InstallPackHMCL(file!, ordinaryArchive, archiveBaseFolder);
+                case 3: Logger.Info("整合包种类：MCBBS"); return InstallPackMCBBS(file!, ordinaryArchive, archiveBaseFolder, instanceName);
+                case 4: Logger.Info("整合包种类：Modrinth"); return InstallPackModrinth(file!, ordinaryArchive, archiveBaseFolder, instanceName, logo, source);
+                case 9: Logger.Info("整合包种类：带启动器的压缩包"); return InstallPackLauncherPack(file!, ordinaryArchive, archiveBaseFolder);
+                default: Logger.Info("整合包种类：未能识别，假定为压缩包"); return InstallPackCompress(file!, ordinaryArchive);
             }
         } finally { archive?.Dispose(); }
     }

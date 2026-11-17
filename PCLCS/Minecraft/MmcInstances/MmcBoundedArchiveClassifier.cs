@@ -43,7 +43,10 @@ public static class MmcBoundedArchiveClassifier {
             file.Seek(extra + comment, SeekOrigin.Current); remaining -= bytes; count++;
         }
         if (count != entries) throw new InvalidDataException("Archive directory count is inconsistent.");
-        return !rootMcbbs && (rootMmc || nestedMmc && !otherRoot);
+        // A root MMC manifest is authoritative even when another format marker is
+        // present. Core validates it; it cannot be rescued by an ordinary installer.
+        // Loose nested manifests inside an explicitly ordinary package remain data.
+        return rootMmc || nestedMmc && !rootMcbbs && !otherRoot;
     }
     private static bool EndsWithMarker(ReadOnlySpan<byte> value) => value.Length > 13 && value[^14] is (byte)'/' or (byte)'\\' && Matches(value[^13..], "mmc-pack.json");
     private static bool Matches(ReadOnlySpan<byte> value, string ascii) {

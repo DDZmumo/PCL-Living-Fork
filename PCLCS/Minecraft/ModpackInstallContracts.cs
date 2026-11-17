@@ -44,9 +44,6 @@ public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TI
     public Func<string, ModpackNameValidator> NameValidator = null!;
     public Action<string, string, object> WriteIni = null!;
     public Action<string> ClearIniCache = null!;
-    public Func<string, string, string?, string?> ReadIni = null!;
-    public Func<string, string, bool, bool> ReadIniBoolean = null!;
-    public Func<string, string> SettingString = null!;
     public Func<ZipArchive, string, TIsolation?> ReadIsolation = null!;
     public Func<string, string, TIsolation?, string> GameFolder = null!;
     public Action<string, TIsolation> ConfigureIsolation = null!;
@@ -68,8 +65,8 @@ public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TI
     public Func<string, List<TNetFile>, MinecraftDownloadLoaderSettings, TLoader> Download = null!;
     public Func<TLoader, double> Weight = null!;
     public Func<string, string, McComponents, List<TLoader>> InstallGame = null!;
-    // Production Main supplies this; null exists only for explicitly retained legacy host/oracle tests.
-    public Func<ModpackMmcInstallRequest, TLoader>? InstallManagedMmc;
+    // The sole MMC / MultiMC / Prism installer. Missing services fail explicitly.
+    public Func<ModpackMmcInstallRequest, TLoader> InstallManagedMmc = null!;
     public Func<IEnumerable<string>> TaskbarNames = null!;
     public Action<TLoader> AttachInstallState = null!, AddTaskbar = null!;
     public Action<TLoader, string> Start = null!;
