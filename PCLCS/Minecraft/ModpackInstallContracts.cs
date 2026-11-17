@@ -26,6 +26,9 @@ public sealed class ModpackMessage {
     public string Text = null!, Title = "提示", Button1 = "确定", Button2 = "";
     public bool IsWarn, ForceWait;
 }
+/// <summary>Original source and selected host context. Component/patch semantics are never flattened here.</summary>
+public sealed record ModpackMmcInstallRequest(string ArchivePath, string MinecraftFolder, string? InstanceName = null,
+    string? LogoPath = null, JObject? PlatformSource = null);
 /// <summary>Actual LF models, loader constructors and platform primitives. All pack decisions and workloads are C#.</summary>
 public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TIsolation, TOptiFine>
     where TLoader : class where TNetFile : class where TVersion : ResourceVersionModelData
@@ -65,6 +68,8 @@ public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TI
     public Func<string, List<TNetFile>, MinecraftDownloadLoaderSettings, TLoader> Download = null!;
     public Func<TLoader, double> Weight = null!;
     public Func<string, string, McComponents, List<TLoader>> InstallGame = null!;
+    // Production Main supplies this; null exists only for explicitly retained legacy host/oracle tests.
+    public Func<ModpackMmcInstallRequest, TLoader>? InstallManagedMmc;
     public Func<IEnumerable<string>> TaskbarNames = null!;
     public Action<TLoader> AttachInstallState = null!, AddTaskbar = null!;
     public Action<TLoader, string> Start = null!;

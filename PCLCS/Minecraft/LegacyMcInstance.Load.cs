@@ -14,6 +14,9 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
     private void WriteIni(string key, string? value) => host.WriteIni(PathVersion + "PCL\\Setup.ini", key, value);
 
     public bool Check() {
+        MmcInstanceInspection managed = MmcInstanceInspector.Read(PathVersion);
+        UsesMmcBackend = !managed.IsLegacy;
+        if (!managed.IsLegacy || !managed.Management.ObservationComplete) return ApplyManagedView(managed);
         if (!DirectoryUtils.Exists(PathVersion)) {
             StateCode = 0;
             Info = "未找到版本 " + Name;
@@ -57,6 +60,12 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
 
     public TSelf Load() {
         try {
+            MmcInstanceInspection managed = MmcInstanceInspector.Read(PathVersion);
+            UsesMmcBackend = !managed.IsLegacy;
+            if (!managed.IsLegacy || !managed.Management.ObservationComplete) {
+                ApplyManagedView(managed);
+                return Self;
+            }
             if (Check()) {
                 switch (Version.VanillaName) {
                     case "Unknown": StateCode = 0; break;
@@ -157,6 +166,7 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
     }
 
     public TSelf Rename(string newName) {
+        MmcInstanceInspector.AssertLegacyOperationAllowed(PathVersion, "重命名");
         string oldName = Name;
         string oldPath = PathVersion;
         string newPath = PathUtils.AddSlashSuffix(Path.Combine(PathUtils.RemoveLastPart(oldPath), newName));

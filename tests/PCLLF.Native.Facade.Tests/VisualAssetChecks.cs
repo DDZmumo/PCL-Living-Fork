@@ -194,6 +194,7 @@ internal static class VisualAssetChecks
         }
         private void FinishOwnedProviders()
         {
+            PCLCS.InstanceConfigProviders.FlushAndDisposeWithin(Root);
             Stopwatch deadline = Stopwatch.StartNew();
             foreach (var weak in MeloongCore.JsonConfigProvider.allProviders)
             {

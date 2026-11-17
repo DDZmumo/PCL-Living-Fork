@@ -75,3 +75,10 @@ The separately invoked [published Main interaction probe](../../scripts/native-s
 Each family's original source IDs and assertions are retained in its source, and a static map or runtime completeness check distinguishes coverage from execution. Compilation never counts these Windows cases as passed. The genuine product cold-entry and old-to-native update remain separate process jobs, with the latter requiring same-run Release build/resource/package/credential/identity/cold receipts even when an unrelated data family fails.
 
 The actual C# credential gate separately binds the exact managed Main SHA to the published native bundle entry, exercises its real credential methods and runs the production C# generator/foundation with synthetic inputs. A failed credential outcome rejects upgrade qualification. It is a pure CLR check, not product entry or account UI acceptance.
+# Local MMC Java checks
+
+The explicit `mmc-launch-java` group requires `PCLLF_MMC_TEST_JAVA8` and
+`PCLLF_MMC_TEST_JAVA21` to point to existing real java.exe files. Select it with
+`--groups mmc-launch-java`; it does not run in the default registry or CI group list.
+`--list-explicit-groups` lists these local prerequisite groups. Missing prerequisites
+fail clearly. The checks probe real Java without installing it or changing the catalog.

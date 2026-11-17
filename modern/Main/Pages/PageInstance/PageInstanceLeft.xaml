@@ -44,6 +44,7 @@
                     <Binding ElementName="ItemExport" Path="Visibility" />
                     <Binding ElementName="ItemRestorePoints" Path="Visibility" />
                     <Binding ElementName="ItemClone" Path="Visibility" />
+                    <Binding ElementName="ItemMmcMove" Path="Visibility" />
                 </MultiBinding>
             </TextBlock.Visibility>
         </TextBlock>
@@ -58,6 +59,7 @@
         </local:MyListItem>
         <local:MyListItem x:Name="ItemRestorePoints" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="12" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="还原点" Logo="{x:Static local:InstanceSidebarIcons.History}" />
         <local:MyListItem x:Name="ItemClone" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="14" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="克隆" Logo="{x:Static local:InstanceSidebarIcons.Copy}" />
+        <local:MyListItem x:Name="ItemMmcMove" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="18" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="移动实例" Visibility="Collapsed" LogoScale="0.92" />
         <TextBlock x:Name="LabGameResources" Text="游戏资源" FontSize="12" Foreground="{DynamicResource ColorBrush1}" Opacity="0.6" Margin="16,17,0,5">
             <TextBlock.Visibility>
                 <MultiBinding Converter="{StaticResource SidebarGroupVisibility}">

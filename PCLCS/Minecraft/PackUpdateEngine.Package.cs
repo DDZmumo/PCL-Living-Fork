@@ -307,6 +307,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         return null;
     }
     public void RecordInstalled(string archivePath, string versionFolder, JObject? source = null) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "记录旧格式整合包来源");
         string stage = host.TempFolder();
         try {
             TPackage package = ReadPackage(archivePath, stage, CancellationToken.None); package.Source = source;

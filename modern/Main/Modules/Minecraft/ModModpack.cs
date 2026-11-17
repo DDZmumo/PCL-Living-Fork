@@ -86,6 +86,7 @@ namespace PCL
                 Download = global::PCL.ModModpack.NewDownload,
                 Weight = new Func<global::PCL.ModLoader.LoaderBase, global::System.Double>(Loader => Loader.ProgressWeight),
                 InstallGame = global::PCL.ModModpack.InstallGame,
+                InstallManagedMmc = global::PCL.MmcInstances.StartImport,
                 TaskbarNames = new Func<global::System.Collections.Generic.IEnumerable<global::System.String>>(() => global::PCL.ModLoader.LoaderTaskbar.Select(Loader => Loader.Name)),
                 AttachInstallState = new Action<global::PCL.ModLoader.LoaderBase>(Loader => Loader.OnStateChanged = global::PCL.ModDownloadLib.McInstallState),
                 AddTaskbar = new Action<global::PCL.ModLoader.LoaderBase>(Loader => global::PCL.ModLoader.LoaderTaskbarAdd((global::PCL.ModLoader.LoaderCombo<global::System.String>)Loader)),

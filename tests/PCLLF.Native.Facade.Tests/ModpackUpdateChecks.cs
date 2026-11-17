@@ -38,6 +38,16 @@ internal static class ModpackUpdateChecks
         environment.AssertNoForbiddenIo();
     }
 
+    // These independent cases retain their original assertions and actual shared setup,
+    // with their own unchanged Native 60-second process budget.
+    internal static void RunOrigins(FixtureEnvironment environment)
+    {
+        string root = Path.Combine(environment.Data,"modpack-update-origins-"+Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        ModpackUpdateFlowChecks.RunOrigins(environment,root);
+        environment.AssertNoForbiddenIo();
+    }
+
     private static void TransactionFixtures(string root)
     {
         string game = Path.Combine(root, "game"), version = Path.Combine(root, "version");

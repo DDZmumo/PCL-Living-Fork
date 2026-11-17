@@ -60,6 +60,10 @@ public sealed partial class ModpackInstallEngine<TLoader, TNetFile, TVersion, TP
             if (targetFolder.Contains("!") || targetFolder.Contains(";")) { host.Hint("游戏路径中不能含有感叹号或分号：" + targetFolder, true); throw new OperationCanceledException(); }
             int packType = -1;
             try {
+                if (host.InstallManagedMmc is not null && MmcBoundedArchiveClassifier.IsMmcCandidate(file!)) {
+                    Logger.Info("整合包种类：MMC（完整组件与实例后端）");
+                    return host.InstallManagedMmc(new(file!, host.MinecraftFolder(), instanceName, logo, source));
+                }
                 archive = FileUtils.OpenZip(file!);
                 // Preserve LF's root-before-one-directory scan and exact marker priorities.
                 if (archive.GetEntry("mcbbs.packmeta") is not null) packType = 3;

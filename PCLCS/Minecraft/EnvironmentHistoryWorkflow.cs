@@ -24,6 +24,10 @@ public sealed class EnvironmentHistoryWorkflow<TInstance> where TInstance : clas
     private static bool SameText(string? first, string? second) => string.Equals(first ?? "", second ?? "", StringComparison.Ordinal);
 
     public void Start(TInstance? instance, bool restore, string? pointId = null, IEnumerable<string>? deleteIds = null) {
+        if (instance is not null) {
+            var capability = MmcInstanceCapabilities.LegacyOperation(host.VersionPath(instance), "旧格式环境还原点修改");
+            if (!capability.Allowed) { host.HintError(capability.RefusalReason!); return; }
+        }
         if (instance is null || host.HasRunningGame() || host.HasRunningSessions() || host.LaunchLoading() || host.Updating() || host.AnyLocked() || host.UpdatingModFolders()) {
             host.HintError("请先关闭游戏并等待版本任务完成。");
             return;

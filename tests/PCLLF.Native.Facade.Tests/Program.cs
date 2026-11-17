@@ -26,6 +26,7 @@ internal static class Program
         ["backup-resources"] = BackupResourceChecks.Run,
         ["instance-clone"] = CloneNativeChecks.Run,
         ["modpack-update"] = ModpackUpdateChecks.Run,
+        ["modpack-update-origins"] = ModpackUpdateChecks.RunOrigins,
         ["environment-history"] = EnvironmentHistoryChecks.Run,
         ["local-features"] = LocalFeatureChecks.Run,
         ["launch-dependencies"] = LaunchDependencyChecks.Run,
@@ -39,24 +40,135 @@ internal static class Program
         ["map-install-recycle"] = MapInstallChecks.Run,
         ["resource-updates"] = ResourceUpdateChecks.Run,
         ["mmc-import-contract"] = MmcImportChecks.Run,
+        ["mmc-download"] = MmcDownloadChecks.Run,
+        ["mmc-java-maintenance"] = MmcJavaMaintenanceChecks.Run,
+        ["mmc-managed-import"] = MmcManagedImportChecks.Run,
+        ["mmc-launch-preferences"] = MmcLaunchPreferenceChecks.Run,
+        ["mmc-lifecycle"] = MmcLifecycleChecks.Run,
+        ["mmc-quarantine-list"] = MmcQuarantineListChecks.Run,
+        ["mmc-catalog-paging-stale"] = MmcCatalogPagingUiChecks.RunStaleConfirmation,
+        ["mmc-import-private-list"] = MmcImportVisibilityChecks.Run,
+        ["mmc-selection-groups"] = MmcSelectionGroupingChecks.Run,
+        ["mmc-import-progress-ui"] = MmcImportRecoveryUiChecks.RunProgress,
+        ["mmc-import-progress-cancel"] = MmcImportRecoveryUiChecks.RunProgressCancellation,
+        ["mmc-import-completion-boundary"] = MmcImportRecoveryUiChecks.RunCompletionBoundary,
+        ["mmc-import-stage-details"] = MmcImportRecoveryUiChecks.RunStageDetails,
+        ["mmc-rename-admission"] = MmcRenameAdmissionChecks.Run,
+        ["mmc-permanent-delete"] = MmcPermanentDeleteChecks.Run,
+        ["mmc-permanent-delete-safety"] = MmcPermanentDeleteChecks.RunSafety,
+        ["mmc-permanent-delete-rollback"] = MmcPermanentDeleteChecks.RunRollback,
+        ["mmc-relocation-auto-recovery"] = MmcRelocationAutoRecoveryChecks.Run,
+        ["mmc-export-ui"] = MmcExportUiChecks.Run,
+        ["mmc-history-ui"] = MmcHistoryUiChecks.Run,
+        ["mmc-move-ui"] = MmcMoveUiChecks.Run,
+        ["mmc-repair-ui"] = MmcRepairUiChecks.Run,
+        ["mmc-repair-admission"] = MmcRepairUiChecks.RunAdmission,
+        ["mmc-projection-rebuild"] = MmcRepairUiChecks.RunProjectionRebuild,
+        ["mmc-projection-admission"] = MmcRepairUiChecks.RunProjectionAdmission,
+        ["mmc-projection-cancel"] = MmcRepairUiChecks.RunProjectionCancellation,
+        ["mmc-projection-backup-deleted"] = MmcRepairUiChecks.RunProjectionBackupDeleted,
+        ["mmc-projection-backup-replaced"] = MmcRepairUiChecks.RunProjectionBackupReplaced,
+        ["mmc-component-edits"] = MmcComponentEditorUiChecks.RunEdits,
+        ["mmc-component-version"] = MmcComponentEditorUiChecks.RunExactVersion,
+        ["mmc-component-patch"] = MmcComponentEditorUiChecks.RunPatch,
+        ["mmc-component-cancel-unstarted"] = MmcComponentEditorUiChecks.RunCancellationUnstarted,
+        ["mmc-component-cancel-preview"] = MmcComponentEditorUiChecks.RunCancellationPreview,
+        ["mmc-component-cancel-before-decision"] = MmcComponentEditorUiChecks.RunCancellationBeforeDecision,
+        ["mmc-component-cancel-final-validation"] = MmcComponentEditorUiChecks.RunCancellationFinalValidation,
+        ["mmc-component-cancel-after-decision"] = MmcComponentEditorUiChecks.RunCancellationAfterDecision,
+        ["mmc-component-input-changed"] = MmcComponentEditorUiChecks.RunRefuseChangedInput,
+        ["mmc-component-unsupported"] = MmcComponentEditorUiChecks.RunRefuseUnsupported,
+        ["mmc-component-stale"] = MmcComponentEditorUiChecks.RunRefuseStaleSelection,
+        ["mmc-component-session"] = MmcComponentEditorUiChecks.RunRefuseSession,
+        ["mmc-component-unknown-target"] = MmcComponentEditorUiChecks.RunRefuseUnknownTarget,
+        ["mmc-component-new-root"] = MmcComponentEditorUiChecks.RunRefuseNewRoot,
+        ["mmc-component-world-success"] = MmcComponentEditorUiChecks.RunWorldSuccess,
+        ["mmc-component-world-locked"] = MmcComponentEditorUiChecks.RunWorldLocked,
+        ["mmc-component-world-changed"] = MmcComponentEditorUiChecks.RunWorldChanged,
+        ["mmc-component-editor-download"] = MmcComponentEditorDownloadChecks.Run,
+        ["mmc-platform-origin-views"] = MmcPlatformOriginUiChecks.RunViews,
+        ["mmc-platform-origin-cancel-unstarted"] = MmcPlatformOriginUiChecks.RunCancellationUnstarted,
+        ["mmc-platform-attach"] = MmcPlatformOriginUiTaskChecks.RunAttach,
+        ["mmc-platform-attach-preview-cancel"] = MmcPlatformOriginUiTaskChecks.RunAttachPreviewCancel,
+        ["mmc-platform-attach-metadata-change"] = MmcPlatformOriginUiTaskChecks.RunAttachMetadataChange,
+        ["mmc-legacy-adoption-ui"] = MmcLegacyAdoptionUiChecks.Run,
+        ["mmc-import-recovery-ui"] = MmcImportRecoveryUiChecks.RunRecovery,
+        ["mmc-import-retry-ui"] = MmcImportRecoveryUiChecks.RunRetry,
+        ["mmc-import-cleanup-guards"] = MmcImportRecoveryUiChecks.RunCleanupGuards,
         ["launch-process"] = LaunchProcessChecks.Run,
         ["pack-root-install"] = PackRootInstallChecks.Run,
         ["account-ui"] = AccountUiChecks.Run,
         ["mod-favorites"] = ModFavoriteChecks.Run,
         ["update-log-prompt"] = UpdateLogPromptChecks.Run,
-        ["instance-sidebar"] = InstanceSidebarChecks.Run
+        ["instance-sidebar"] = InstanceSidebarChecks.Run,
+        ["mmc-sidebar"] = MmcSidebarChecks.Run,
+        ["mmc-java-controls"] = MmcJavaControlsChecks.Run,
+        ["mmc-java-selector"] = MmcJavaControlsChecks.RunSelector,
+        ["mmc-reused-pages-light"] = MmcReusedPageVisualChecks.RunLight,
+        ["mmc-reused-pages-dark"] = MmcReusedPageVisualChecks.RunDark,
+        ["mmc-export-page"] = MmcExportPageChecks.Run,
+        ["mmc-export-page-admission"] = MmcExportPageChecks.RunAdmission,
+        ["mmc-history-page"] = MmcHistoryPageChecks.Run,
+        ["mmc-history-page-admission"] = MmcHistoryPageChecks.RunAdmission,
+        ["mmc-pack-update-page-unbound"] = MmcPackUpdatePageChecks.RunUnbound,
+        ["mmc-pack-update-page-bound"] = MmcPackUpdatePageChecks.RunBound,
+        ["mmc-pack-update-page-stale"] = MmcPackUpdatePageChecks.RunStale,
+        ["mmc-pack-update-page-ordinary"] = MmcPackUpdatePageChecks.RunOrdinary,
+        ["mmc-components-page"] = MmcComponentsPageChecks.Run,
+        ["mmc-components-page-admission"] = MmcComponentsPageChecks.RunAdmission,
+        ["mmc-sidebar-states"] = MmcSidebarChecks.RunStates,
+        ["mmc-sidebar-visuals"] = MmcSidebarChecks.RunVisuals,
+        ["mmc-sidebar-admission"] = MmcSidebarChecks.RunAdmission
+    };
+    // Requires explicit locally installed JDKs; keep these out of the normal CI/default registry.
+    private static readonly Dictionary<string, Action<FixtureEnvironment>> ExplicitCases = new(StringComparer.Ordinal) {
+        ["mmc-authentication"] = MmcLaunchChecks.RunAuthentication,
+        ["mmc-import-java-current-catalogue"] = MmcImportJavaSelectionChecks.Run,
+        ["mmc-java-settings-discovery"] = MmcJavaDiscoveryChecks.Run,
+        ["mmc-import-java-original-gtnh"] = MmcImportJavaSelectionChecks.RunGtnh,
+        ["mmc-platform-online-success"] = MmcPlatformOriginUiTaskChecks.RunOnline,
+        ["mmc-platform-online-preview-cancel"] = MmcPlatformOriginUiTaskChecks.RunOnlinePreviewCancel,
+        ["mmc-platform-online-metadata-change"] = MmcPlatformOriginUiTaskChecks.RunOnlineMetadataChange,
+        ["mmc-platform-online-download-cancel"] = MmcPlatformOriginUiTaskChecks.RunOnlineDownloadCancel,
+        ["mmc-component-java"] = MmcComponentEditorUiChecks.RunJava,
+        ["mmc-package-update-ui"] = MmcPackageUpdateUiChecks.Run,
+        ["mmc-package-update-cancel-unstarted"] = MmcPackageUpdateUiChecks.RunCancellationUnstarted,
+        ["mmc-package-update-cancel-preview"] = MmcPackageUpdateUiChecks.RunCancellationPreview,
+        ["mmc-package-update-cancel-before-decision"] = MmcPackageUpdateUiChecks.RunCancellationBeforeDecision,
+        ["mmc-package-update-cancel-after-decision"] = MmcPackageUpdateUiChecks.RunCancellationAfterDecision,
+        ["mmc-package-update-refuse-unknown"] = MmcPackageUpdateUiChecks.RunRefusalUnknownDependencies,
+        ["mmc-package-update-refuse-error"] = MmcPackageUpdateUiChecks.RunRefusalDefiniteError,
+        ["mmc-package-update-refuse-stale"] = MmcPackageUpdateUiChecks.RunRefusalStalePreview,
+        ["mmc-package-update-refuse-layout"] = MmcPackageUpdateUiChecks.RunRefusalGameTreeRole,
+        ["mmc-package-update-world-success"] = MmcPackageUpdateUiChecks.RunWorldBackupSuccess,
+        ["mmc-package-update-world-locked"] = MmcPackageUpdateUiChecks.RunWorldBackupLocked,
+        ["mmc-launch-replay"] = MmcLaunchChecks.Run,
+        ["mmc-variant-launch"] = MmcLaunchChecks.RunVariants,
+        ["mmc-phase2-launch"] = MmcPhase2LaunchChecks.Run,
+        ["mmc-phase2-dotmc-active-root"] = MmcPhase2LaunchChecks.RunDotMcActiveRoot,
+        ["mmc-phase2-postexit-lease"] = MmcPhase2LaunchChecks.RunPostExitLease,
+        ["mmc-launch-java"] = environment => {
+            foreach (var check in MmcLaunchJavaChecks.Cases()) { check.Run(); Console.WriteLine("PASS " + check.Name); }
+            environment.AssertNoForbiddenIo();
+        }
     };
     [STAThread]
     private static int Main(string[] args)
     {
         try
         {
+            if (MmcGtnhAcceptance.TryRun(args, out int gtnhExit)) return gtnhExit;
+            if (MmcGtnhPostPublishChecks.TryRun(args, out int postPublishExit)) return postPublishExit;
+            if (MmcGtnhLaunchAcceptance.TryRun(args, out int launchExit)) return launchExit;
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("This host requires a real Windows .NET10/WPF runtime.");
             if (args.SequenceEqual(new[] { "--list-groups" }, StringComparer.Ordinal))
             {
                 Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(Cases.Keys.ToArray()));
                 return 0;
+            }
+            if (args.SequenceEqual(new[] { "--list-explicit-groups" }, StringComparer.Ordinal)) {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(ExplicitCases.Keys.ToArray())); return 0;
             }
             if (args.Contains("--modpack-download-child", StringComparer.Ordinal))
                 return ModpackDownloadProcess.RunChild(args);
@@ -74,7 +186,7 @@ internal static class Program
                 return NativeDependencyChecks.IndexChild(environment, args);
             foreach (string group in selected)
             {
-                Cases[group](environment);
+                (Cases.TryGetValue(group, out var run) ? run : ExplicitCases[group])(environment);
                 environment.AssertNoForbiddenIo();
                 Console.WriteLine("PASS native facade " + group);
             }
@@ -104,7 +216,7 @@ internal static class Program
         if (selected.Length == 0 || selected.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Empty facade selection.");
         foreach (string item in selected)
-            if (!Cases.ContainsKey(item))
+            if (!Cases.ContainsKey(item) && !ExplicitCases.ContainsKey(item))
                 throw new ArgumentException("Unknown facade group: " + item);
         if (selected.Contains("registry-data", StringComparer.Ordinal) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
             throw new ArgumentException("Select registry-data alone in its fresh hosted-profile process.");

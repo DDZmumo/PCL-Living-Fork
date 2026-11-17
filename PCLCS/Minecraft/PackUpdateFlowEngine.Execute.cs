@@ -17,6 +17,7 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
     where TChange : PackUpdateChangeData<TFile> where TPlan : PackUpdatePlanData<TPackage, TChange>
     where TVersion : ResourceVersionModelData where TInstance : class where TTask : class where TCombo : class where TWorker : class where TProgress : class {
     public void Execute(TInstance instance, bool online, string? archivePath, TTask task, string? requestedVersion = null) {
+        MmcInstanceCapabilities.RequireLegacy(host.VersionFolder(instance), "旧整合包更新");
         CancellationToken token = host.Cancellation(task); string stage = host.TempFolder();
         void Stage(PackUpdateStage phase, string? detail = null) => host.SetStage(task, phase, PackUpdateStageState.Running, detail);
         void Done(PackUpdateStage phase) => host.SetStage(task, phase, PackUpdateStageState.Finished, null);

@@ -19,16 +19,31 @@ namespace PCL
     public partial class PageInstanceRestorePoints : IRefreshable
     {
         private readonly HistoryController Controller;
-        private readonly ModLoader.LoaderTask<string, List<JObject>> PointsLoader;
+        private readonly ModLoader.LoaderTask<HistoryPointsRequest, HistoryPointsResult> PointsLoader;
         private readonly EnvironmentHistoryUi.ChangedEventHandler HistoryChangedHandler;
-        public PageInstanceRestorePoints()
+        public PageInstanceRestorePoints() : this(null, null)
         {
+        }
+
+        internal PageInstanceRestorePoints(ModMinecraft.McInstance owner, Guid? expectedInstanceId = null)
+        {
+            MmcOwner = owner;
+            IsMmcHistory = owner is not null;
+            MmcRoot = owner is null ? "" : System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(owner.PathVersion));
+            MmcInstanceId = owner is null ? Guid.Empty : CaptureMmcInstanceId(owner, expectedInstanceId);
             __LfAttachOwnHandles();
             HistoryChangedHandler = Refresh;
             this.InitializeComponent();
             Controller = new HistoryController(CreateView(), CreateHost());
-            PointsLoader = new ModLoader.LoaderTask<string, List<JObject>>("读取还原点", Task => Task.Output = EnvironmentHistory.Points(Task.Input));
+            PointsLoader = new ModLoader.LoaderTask<HistoryPointsRequest, HistoryPointsResult>(IsMmcHistory ? "读取 MMC 环境记录" : "读取还原点", Task =>
+            {
+                HistoryPointsRequest request = Task.Input;
+                Task.Output = new HistoryPointsResult(request, IsMmcHistory
+                    ? ReadMmcPoints(request, Task.CreateCancellationToken())
+                    : EnvironmentHistory.Points(request.Root));
+            });
             Init();
+            if (IsMmcHistory) InitMmcHistory();
         }
 
         private HistoryView CreateView()
@@ -73,6 +88,7 @@ namespace PCL
 
         private HistoryHost CreateHost()
         {
+            if (IsMmcHistory) return CreateMmcHost();
             return new HistoryHost()
             {
                 CurrentInstance = new Func<ModMinecraft.McInstance>(() => PageInstanceLeft.Instance),
@@ -81,7 +97,7 @@ namespace PCL
                 Retention = new Func<ModMinecraft.McInstance, int>(Instance => Settings.Get<int>("VersionEnvironmentHistoryRetention", Instance: Instance)),
                 SetAutoCleanup = new Action<ModMinecraft.McInstance, bool>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryAutoCleanup", Value, Instance: Instance)),
                 SetRetention = new Action<ModMinecraft.McInstance, int>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryRetention", Value, Instance: Instance)),
-                StartLoader = new Action<string>(VersionFolder => PointsLoader.Start(VersionFolder, IsForceRestart: true)),
+                StartLoader = new Action<string>(VersionFolder => PointsLoader.Start(new HistoryPointsRequest(VersionFolder), IsForceRestart: true)),
                 CancelLoader = new Action(() => PointsLoader.Cancel()),
                 LoaderFailed = new Func<bool>(() => PointsLoader.State == ModBase.LoadState.Failed),
                 AnimationEnabled = new Func<bool>(() => ModAnimation.AniControlEnabled == 0),
@@ -95,6 +111,11 @@ namespace PCL
 
         private void BindChanged(bool Attach)
         {
+            if (IsMmcHistory)
+            {
+                BindMmcChanged(Attach);
+                return;
+            }
             if (Attach)
             {
                 EnvironmentHistoryUi.Changed += HistoryChangedHandler;
@@ -301,16 +322,26 @@ namespace PCL
 
         private void PageLoaded()
         {
+            if (IsMmcHistory) RefreshMmcState();
             Controller.PageLoaded();
         }
 
         private void PageUnloaded()
         {
+            if (IsMmcHistory) InvalidateMmcRead();
             Controller.PageUnloaded();
         }
 
         public void Refresh()
         {
+            if (IsMmcHistory && !RefreshMmcState())
+            {
+                InvalidateMmcRead();
+                Controller.Entries = new List<JObject>();
+                Controller.SelectedIds.Clear();
+                Controller.RenderList();
+                return;
+            }
             Controller.Refresh();
         }
 
@@ -346,7 +377,8 @@ namespace PCL
 
         private void LoadedPoints()
         {
-            Controller.LoadedPoints(() => PointsLoader.Output);
+            if (IsMmcHistory && !AcceptMmcPoints(PointsLoader.Output)) return;
+            Controller.LoadedPoints(() => PointsLoader.Output.Points);
         }
 
         private void SearchChanged()

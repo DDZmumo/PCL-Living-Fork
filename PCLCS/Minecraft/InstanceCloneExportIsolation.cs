@@ -48,6 +48,7 @@ public sealed class InstanceCloneExportIsolationEngine<TChoice> where TChoice : 
     private readonly Func<bool, IEnumerable<string>?, TChoice> createChoice;
     public InstanceCloneExportIsolationEngine(InstanceCloneExportIsolationHost host, Func<bool, IEnumerable<string>?, TChoice> createChoice) { this.host = host; this.createChoice = createChoice; }
     public void ConfigureExport(string overridesFolder, bool enabled, IEnumerable<string>? versionFolders = null) {
+        MmcInstanceCapabilities.RequireLegacy(overridesFolder,"旧格式隔离导出");
         TChoice policy = createChoice(enabled, versionFolders);
         string setupFile = Path.Combine(overridesFolder, "PCL", "Setup.ini");
         host.WriteIni(setupFile, MarkerKey, enabled);
@@ -68,6 +69,7 @@ public sealed class InstanceCloneExportIsolationEngine<TChoice> where TChoice : 
         return createChoice(enabled, (folders ?? "PCL").Split('|'));
     }
     public void ConfigureTarget(string versionFolder, TChoice policy) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder,"旧格式版本隔离设置");
         string setupFile = Path.Combine(versionFolder, "PCL", "Setup.ini");
         host.WriteIni(setupFile, "VersionArgumentIndie", policy.Enabled ? 1 : 2);
         host.WriteIni(setupFile, "VersionArgumentIndieV2", policy.Enabled);
@@ -83,6 +85,8 @@ public sealed class InstanceCloneExportIsolationEngine<TChoice> where TChoice : 
         return Path.Combine(policy.Enabled || isVersionFile ? versionFolder : gameFolder, relative);
     }
     public void CopyOverrides(string overridesFolder, string versionFolder, string gameFolder, TChoice policy) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder,"旧格式整合包文件覆盖");
+        MmcInstanceCapabilities.RequireLegacyContainingInstance(gameFolder,"旧格式整合包文件覆盖");
         if (Directory.Exists(overridesFolder)) {
             string prefix = Path.GetFullPath(overridesFolder).TrimEnd('\\') + "\\";
             foreach (string fileName in Directory.EnumerateFiles(prefix, "*", SearchOption.AllDirectories)) { string relative = fileName.Substring(prefix.Length); host.CopyFile(fileName, OverrideTarget(relative, versionFolder, gameFolder, policy)); }

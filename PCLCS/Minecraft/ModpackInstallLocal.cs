@@ -29,6 +29,7 @@ public sealed partial class ModpackInstallEngine<TLoader, TNetFile, TVersion, TP
         return Start("HMCL 整合包安装：" + instanceName + " ", new List<TLoader> { PackCombo(installLoaders), GameCombo(mergeLoaders) }, versionFolder);
     }
     public TLoader InstallPackMMC(string fileAddress, ZipArchive archive, string archiveBaseFolder) {
+        if (host.InstallManagedMmc is not null) return host.InstallManagedMmc(new(fileAddress, host.MinecraftFolder()));
         JObject packJson; string packInstance;
         try {
             packJson = (JObject)archive.GetEntry(archiveBaseFolder + "mmc-pack.json")!.Open().ReadString(Encoding.UTF8).DeserializeJson()!;

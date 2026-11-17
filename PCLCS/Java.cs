@@ -32,14 +32,24 @@ namespace PCLCS;
     /// 检查该 Java 是否存在问题，并获取其版本号。
     /// 返回其是否通过了检查。
     /// </summary>
-    public async Task<bool> CheckAsync(CancellationToken cancellationToken = default) {
-        if (Interlocked.Exchange(ref isChecked, 1) == 1 && available != null) return available!.Value; // 已检查过
+    public Task<bool> CheckAsync(CancellationToken cancellationToken = default) => CheckCoreAsync(cancellationToken, null);
+
+    /// <summary>Explicit host runner for isolated MMC probes. Use a fresh Java object; ordinary checks retain their existing cache/environment contract.</summary>
+    public Task<bool> CheckAsync(CancellationToken cancellationToken, Func<string, CancellationToken, Task<string>> runProbe) {
+        ArgumentNullException.ThrowIfNull(runProbe);
+        return CheckCoreAsync(cancellationToken, runProbe);
+    }
+
+    private async Task<bool> CheckCoreAsync(CancellationToken cancellationToken, Func<string, CancellationToken, Task<string>>? runProbe) {
+        if (Interlocked.Exchange(ref isChecked, 1) == 1 && available != null && runProbe is null) return available!.Value; // 普通检查保持原缓存
         string? output = null;
         try {
             if (!FileUtils.Exists(JavaExePath)) throw new FileNotFoundException("未找到 java.exe 文件", JavaExePath);
 
             // 运行 -version
-            output = (await TaskUtils.RunProgramAsync(JavaExePath, "-XshowSettings:properties -version", 15000, cancellationToken: cancellationToken).NoCapture()).Output.Lower();
+            output = (runProbe is null
+                ? (await TaskUtils.RunProgramAsync(JavaExePath, "-XshowSettings:properties -version", 15000, cancellationToken: cancellationToken).NoCapture()).Output
+                : await runProbe(JavaExePath, cancellationToken).ConfigureAwait(false)).Lower();
             if (output == "") throw new InvalidOperationException("尝试运行该 Java 失败");
             Logger.Trace($"Java 检查输出：{JavaExePath}{Environment.NewLine}{output}");
             if (output.Contains("/lib/ext exists")) throw new InvalidOperationException("无法运行该 Java，请在删除 Java 文件夹中的 /lib/ext 文件夹后再试");

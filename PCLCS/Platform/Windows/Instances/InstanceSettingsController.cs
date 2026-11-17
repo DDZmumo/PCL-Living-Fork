@@ -13,6 +13,7 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     where TInstance : LegacyMcInstance<TInstance,TState,TCard> where TState : struct,Enum where TCard : struct,Enum where TItem : FrameworkElement where TButton : FrameworkElement {
     private readonly InstanceSettingsView<TItem,TButton> view; private readonly InstanceSettingsHost<TInstance> host; private readonly InstanceRamDisplayController ram;
     private bool isReverting;
+    private long javaListRevision;
     public InstanceSettingsController(InstanceSettingsView<TItem,TButton> view, InstanceSettingsHost<TInstance> host, InstanceRamDisplayController ram) { this.view=view; this.host=host; this.ram=ram; }
     public void Loaded() {
         host.ApplyVisibility(); view.ScrollHome(); ram.Refresh(false); host.AddAnimation(1); Reload(); host.AddAnimation(-1);
@@ -24,6 +25,10 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     public void Reload() {
         try {
             _ = host.Instance().PathIndie;
+            var isolation = MmcInstanceCapabilities.LegacyOperation(host.Instance().PathVersion,"切换版本隔离");
+            view.Isolation.IsEnabled = isolation.Allowed;
+            view.Isolation.ToolTip = isolation.RefusalReason;
+            ToolTipService.SetShowOnDisabled(view.Isolation,!isolation.Allowed);
             view.Isolation.SelectedIndex = host.Boolean("VersionArgumentIndieV2",host.Instance()) ? 0 : 1; UpdateJavaList();
             view.Login.SelectedIndex = host.Integer("VersionServerLogin",host.Instance()); view.SetLoginLast(view.Login.SelectedIndex); UpdateServerLoginUi();
             if (host.Integer("VersionAdvanceAssets",host.Instance()) == 2) { host.Info("已迁移老版本的关闭文件校验设置"); host.Reset("VersionAdvanceAssets",host.Instance()); host.Set("VersionAdvanceAssetsV2",true,host.Instance()); }
@@ -31,8 +36,15 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
         } catch (Exception ex) { host.Error(ex,"重载版本独立设置时出错"); }
     }
     public void Reset() {
+        var capability = MmcInstanceCapabilities.LegacyOperation(host.Instance().PathVersion,"初始化旧版本独立设置");
+        if (!capability.Allowed) {
+            host.ErrorAlert(new InvalidOperationException(capability.RefusalReason),"初始化版本独立设置失败");
+            return;
+        }
         try {
-            host.ResetSettings(); host.Reset("VersionServerLogin",host.Instance()); host.Reset("VersionArgumentIndieV2",host.Instance()); host.Reset("VersionAdvanceAssets",host.Instance()); Configs.JavaForced.Reset(host.Instance().Config); host.JavaRefresh().Start();
+            host.ResetSettings(); host.Reset("VersionServerLogin",host.Instance()); host.Reset("VersionArgumentIndieV2",host.Instance()); host.Reset("VersionAdvanceAssets",host.Instance());
+            if (host.SetForcedJava is not null) host.SetForcedJava(host.Instance(),null); else Configs.JavaForced.Reset(host.Instance().Config);
+            host.JavaRefresh().Start();
             host.Info("已初始化版本独立设置"); host.HintGreen("已初始化版本独立设置！",false);
         } catch (Exception ex) { host.ErrorAlert(ex,"初始化版本独立设置失败"); }
         Reload();
@@ -57,12 +69,30 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     public void ReloadCurrentJava() => host.ReloadCurrentJava();
     public void UpdateJavaRelatedUi() => host.RunInUi(UpdateJavaUi);
     private void Hint(string text,int theme) => view.SetJavaHint(text,theme);
+    private void StartJavaPreview(RedoableWorker<Java> worker) {
+        if(host.StartJavaPreview is not null) host.StartJavaPreview(host.Instance(),worker);
+        else worker.Start();
+    }
     public void UpdateJavaUi() {
         RedoableWorker<Java> worker=host.JavaWorker();
+        var managed = host.ManagedJavaPreview?.Invoke(host.Instance(), worker);
+        if (managed is not null) {
+            view.JavaHint.Visibility=Visibility.Visible;
+            view.JavaRange.Visibility=view.JavaKind.SelectedIndex==1 ? Visibility.Visible : Visibility.Collapsed;
+            view.JavaSelectPanel.Visibility=view.JavaKind.SelectedIndex==3 ? Visibility.Visible : Visibility.Collapsed;
+            // Discrete component candidates cannot be represented by the legacy single interval.
+            // Display the declared candidates; never silently save a vanilla-derived default range.
+            if (managed.State==InstanceJavaPreviewState.NotStarted && !worker.Running) {
+                StartJavaPreview(worker);
+            }
+            Hint(managed.Message,managed.Theme);
+            return;
+        }
+        bool needsCurrent = host.JavaPreviewIsCurrent is not null && !host.JavaPreviewIsCurrent(host.Instance(),worker);
         switch (view.JavaKind.SelectedIndex) {
             case 0: case 2:
                 view.JavaHint.Visibility=Visibility.Visible; view.JavaRange.Visibility=Visibility.Collapsed; view.JavaSelectPanel.Visibility=Visibility.Collapsed;
-                if (!worker.LastSucceeded || worker.Running) { if (!worker.Running) worker.Start(); Hint("正在查找 Java……",0); }
+                if (needsCurrent || !worker.LastSucceeded || worker.Running) { if (!worker.Running) StartJavaPreview(worker); Hint("正在查找 Java……",0); }
                 else if (worker.LastResult is null) { if (view.JavaKind.SelectedIndex==0) Hint("你的电脑上没有可供该版本使用的 Java，PCL 会在启动游戏时自动下载。",2); else Hint("该版本的版本文件夹中没有发现任何 Java！\r\n请点击此处打开版本文件夹，然后将 Java 文件夹复制进去。",1); }
                 else Hint($"将会使用：{worker.LastResult}",0);
                 break;
@@ -70,7 +100,7 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
                 view.JavaHint.Visibility=Visibility.Visible; view.JavaRange.Visibility=Visibility.Visible; view.JavaSelectPanel.Visibility=Visibility.Collapsed;
                 if (!host.HasSaved("VersionArgumentJavaRange",host.Instance())) { string range=host.JavaRequirement(host.Instance()).ToString().Replace("-∞","").Replace("+∞",""); host.Set("VersionArgumentJavaRange",range,host.Instance()); view.JavaRange.Text=range; }
                 string error=view.JavaRangeError(); if (!string.IsNullOrEmpty(error)) { Hint("Java 版本范围错误："+error,1); return; }
-                if (!worker.LastSucceeded || worker.Running) { if (!worker.Running) worker.Start(); Hint("正在查找 Java……",0); }
+                if (needsCurrent || !worker.LastSucceeded || worker.Running) { if (!worker.Running) StartJavaPreview(worker); Hint("正在查找 Java……",0); }
                 else if (worker.LastResult is null) Hint("你的电脑上没有任何 Java 符合该版本范围！\r\n如果 Mojang 提供了对应版本的 Java，PCL 会在启动游戏时自动下载。",2);
                 else Hint($"将会使用：{worker.LastResult}",0);
                 break;
@@ -81,14 +111,34 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     public void UpdateJavaList() {
         if (view.JavaSelect is null || view.JavaLabel is null || !view.JavaSelect.IsLoaded) return;
         view.JavaSelect.Items.Clear();
+        long revision = ++javaListRevision;
+        TInstance owner = host.Instance();
+        var ownerStamp = owner.Config.ContextStamp;
         if (host.JavaRefresh().Running) { view.JavaSearch.IsEnabled=false; view.JavaSelect.IsEnabled=false; view.JavaLabel.Text="搜索中 …"; return; }
         view.JavaSearch.IsEnabled=true; view.JavaSelect.IsEnabled=true;
-        Java? selected=Configs.JavaForced.Get(host.Instance().Config);
+        Java? selected=Configs.JavaForced.Get(owner.Config);
+        view.JavaLabel.ToolTip = selected?.JavaExePath;
         view.JavaLabel.Text=!Configs.JavaList.Get()!.Any() ? "未找到 Java，点击以导入已有的 Java" : selected is null ? "点击选择 Java …" : selected.ToString();
         try {
             foreach (Java entry in Configs.JavaList.Get()!) {
                 TItem item=view.CreateJavaItem(entry,entry.ToString()); item.MouseLeftButtonUp+=(_,e)=>e.Handled=true;
-                view.OnJavaClick(item,()=> { Configs.JavaForced.Set(entry,host.Instance().Config); UpdateJavaList(); view.JavaSelect.IsDropDownOpen=false; }); view.JavaSelect.Items.Add(item);
+                view.OnJavaClick(item,()=> {
+                    if (revision != javaListRevision || !ReferenceEquals(host.Instance(), owner) || owner.Config.ContextStamp != ownerStamp) {
+                        view.JavaSelect.IsDropDownOpen=false;
+                        return;
+                    }
+                    var current = MmcInstanceInspector.Read(owner.PathVersion);
+                    if (ownerStamp.Kind == MmcConfigurationContextKind.Managed
+                        ? !current.IsConsistent || current.Definition?.InstanceId != ownerStamp.InstanceId
+                        : !current.Management.CanUseLegacyBackend) {
+                        Hint("实例管理状态已变化，请重新打开实例设置后再选择 Java。",1);
+                        view.JavaSelect.IsDropDownOpen=false;
+                        return;
+                    }
+                    if (host.SetForcedJava is not null) host.SetForcedJava(owner,entry); else Configs.JavaForced.Set(entry,owner.Config);
+                    if (host.ManagedJavaPreview?.Invoke(owner,host.JavaWorker()) is not null) host.ReloadCurrentJava();
+                    UpdateJavaList(); view.JavaSelect.IsDropDownOpen=false;
+                }); view.JavaSelect.Items.Add(item);
                 bool official=PathUtils.IsParentOf($@"{Paths.AppData}.minecraft\runtime\",entry.Folder);
                 TButton delete=view.CreateJavaButton(false); delete.IsEnabled=!official; delete.ToolTip=delete.IsEnabled ? "从列表中移除" : "无法移除官方 Java"; view.OnButtonClick(delete,()=>host.RemoveJava(entry)); ToolTipService.SetShowOnDisabled(delete,true);
                 TButton open=view.CreateJavaButton(true); open.ToolTip="打开文件夹"; view.OnButtonClick(open,()=>host.Explorer(entry.JavaExePath)); view.SetButtons(item,new List<TButton>{delete,open});
@@ -99,6 +149,14 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     public void SearchJava() => host.SearchJava();
     public void IsolationChanged(ComboBox sender,SelectionChangedEventArgs e) {
         if (host.Animation()!=0 || isReverting) return;
+        var capability = MmcInstanceCapabilities.LegacyOperation(host.Instance().PathVersion,"切换版本隔离");
+        if (!capability.Allowed) {
+            isReverting=true;
+            try { if (e.RemovedItems.Count>0) view.Isolation.SelectedItem=e.RemovedItems[0]; }
+            finally { isReverting=false; }
+            host.ErrorAlert(new InvalidOperationException(capability.RefusalReason),"此实例的版本隔离由 MMC 布局管理");
+            return;
+        }
         if (host.Confirm("调整版本隔离设置后，你需要游戏存档、Mod 等文件手动迁移到新的游戏文件夹中。\r\n如果发现存档消失，把这项设置改回来就能恢复。\r\n如果你不会迁移存档，不建议修改这项设置！","警告","我知道我在做什么","取消",true)==2) { isReverting=true; if (e.RemovedItems.Count>0) view.Isolation.SelectedItem=e.RemovedItems[0]; isReverting=false; }
         host.Set("VersionArgumentIndieV2",sender.SelectedIndex==0,host.Instance());
     }

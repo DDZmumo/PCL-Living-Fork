@@ -161,8 +161,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             string targetFile = host.PureFolder() + "nide8auth.jar";
             try {
                 Logger.Info("开始获取统一通行证下载信息");
-                JObject info = (JObject)host.RequestJson("https://auth.mc-user.com:233/" + ReadString("VersionServerNide", instance), null).DeserializeJson()!;
-                result.Add(host.CreateNetFile(["https://login.mc-user.com:233/index/jar"], targetFile, new FileChecker { Hash = info["jarHash"]!.ToString() }));
+                JObject info = (JObject)host.RequestJson(LegacyAuthenticationAgentSources.NideMetadataPrefix + ReadString("VersionServerNide", instance), null).DeserializeJson()!;
+                result.Add(host.CreateNetFile([LegacyAuthenticationAgentSources.NideJar], targetFile, new FileChecker { Hash = info["jarHash"]!.ToString() }));
             } catch (Exception ex) {
                 if (FileUtils.Exists(targetFile)) Logger.Warn(ex, "获取统一通行证下载信息失败");
                 else throw new Exception("获取统一通行证下载信息失败", ex);
@@ -172,7 +172,7 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             string targetFile = host.PureFolder() + "authlib-injector.jar";
             try {
                 Logger.Info("开始获取 Authlib-Injector 下载信息");
-                JObject info = (JObject)host.RequestJson("https://authlib-injector.yushi.moe/artifact/latest.json", "https://bmclapi2.bangbang93.com/mirrors/authlib-injector/artifact/latest.json").DeserializeJson()!;
+                JObject info = (JObject)host.RequestJson(LegacyAuthenticationAgentSources.AuthlibMetadata, LegacyAuthenticationAgentSources.AuthlibMetadataMirror).DeserializeJson()!;
                 string address = info["download_url"]!.ToString().Replace("bmclapi2.bangbang93.com/mirrors/authlib-injector", "authlib-injector.yushi.moe");
                 result.Add(host.CreateNetFile([address, address.Replace("authlib-injector.yushi.moe", "bmclapi2.bangbang93.com/mirrors/authlib-injector")],
                     targetFile, new FileChecker { Hash = info["checksums"]!["sha256"]!.ToString() }));

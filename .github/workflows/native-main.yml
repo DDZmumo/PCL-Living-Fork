@@ -380,6 +380,19 @@ jobs:
           }
           if ($failedGroups.Count -ne 0) { throw ('Actual native Main acceptance failed: ' + ($failedGroups -join ', ')) }
 
+      - name: Verify managed MMC export through the genuine production graph
+        if: ${{ !cancelled() && steps.facade.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          & dotnet restore tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --verbosity minimal "-p:Configuration=$env:NATIVE_CONFIGURATION"
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export production graph restore failed.' }
+          & dotnet build tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-restore --verbosity minimal -warnaserror -p:BuildProjectReferences=false --disable-build-servers -nodeReuse:false -m:1
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export production graph build failed.' }
+          & dotnet run --project tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build 2>&1 |
+            Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'mmc-export-runtime.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export/import roundtrip or ownership/cancellation acceptance failed.' }
+
       - name: Verify actual Main safe navigation theme focus and wheel
         id: interaction
         # Independent fresh profile/fixture after the original cold receipt;

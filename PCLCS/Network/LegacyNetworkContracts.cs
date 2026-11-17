@@ -55,6 +55,8 @@ public interface ILegacyNetworkDownload<TFile>
 
 public sealed class LegacyNetworkDownloadRecord
 {
+    internal readonly LegacyNetworkIoCounter IoWork = new();
+    public int ActiveIoProducerCount => IoWork.Active;
     internal int FileRemain;
     internal readonly object FileRemainLock = new();
     internal double Progress;

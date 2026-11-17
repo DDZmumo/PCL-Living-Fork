@@ -111,7 +111,12 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
 /// <summary>LF's cancellation-time directory disappearance policy, retaining the original narrow exception handling.</summary>
 public static class LegacyMinecraftDirectoryScanner {
     public static DirectoryInfo[] GetDirectories(string folder) {
-        try { return DirectoryUtils.GetInfo(folder).GetDirectories(); }
+        // MeloongCore may return extended-namespace DirectoryInfo paths. Keep
+        // MMC classification bound to the caller's logical root and actual leaf.
+        try { return DirectoryUtils.GetInfo(folder).GetDirectories().Where(item =>
+            Directory.Exists(Path.Combine(folder, item.Name)) &&
+            !MmcImportVisibility.IsPrivateReservation(Path.Combine(folder, item.Name)) &&
+            !MmcInstanceLifecycleVisibility.IsCompletedQuarantine(Path.Combine(folder, item.Name))).ToArray(); }
         catch (DirectoryNotFoundException) { return []; }
     }
     public static bool HasFiles(DirectoryInfo folder) {

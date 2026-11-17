@@ -112,6 +112,7 @@ namespace PCL
                 return;
             try
             {
+                if (TryRefreshMmcImport(Loader)) return;
                 // 获取实际加载器列表
                 List<ModLoader.LoaderBase> LoaderList = (List<ModLoader.LoaderBase>)NewLateBinding.LateGet(Loader, null, "GetLoaderList", Array.Empty<object>(), null, null, null);
                 var PackStages = ModpackUpdateFlow.GetStageSnapshot(LoaderList);
@@ -358,6 +359,7 @@ namespace PCL
 
         public void TaskRemove(object Loader)
         {
+            if (TryRemoveMmcImport(Loader)) return;
             if (RightCards.ContainsKey(Conversions.ToString(Conversions.ToString(NewLateBinding.LateGet(Loader, null, "Name", Array.Empty<object>(), null, null, null)))))
             {
                 ModBase.RunInUiWait(() =>

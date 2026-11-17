@@ -220,6 +220,7 @@ internal sealed class FixtureEnvironment : IDisposable
         disposed = true;
         try
         {
+            InstanceConfigProviders.FlushAndDisposeWithin(Root);
             if (application is not null)
             {
                 Native.Check(application.Windows.Count == 0, "Unexpected window before facade shutdown.");

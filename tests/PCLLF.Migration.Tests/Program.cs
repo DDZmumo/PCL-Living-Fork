@@ -12,6 +12,13 @@ internal static class Program {
 
     private static int Main(string[] args) {
         if (LegacyJavaTests.TryRunChild(args, out int javaExitCode)) return javaExitCode;
+        if (MmcTransactionTests.TryRunChild(args, out int mmcTransactionExitCode)) return mmcTransactionExitCode;
+        if (MmcSessionTests.TryRunChild(args, out int mmcSessionExitCode)) return mmcSessionExitCode;
+        if (MmcCommandExecutionTests.TryRunChild(args, out int mmcCommandExitCode)) return mmcCommandExitCode;
+        if (MmcConfigurationTests.TryRunChild(args, out int mmcConfigurationExitCode)) return mmcConfigurationExitCode;
+        if (MmcInstanceLifecycleTests.TryRunChild(args, out int mmcLifecycleExitCode)) return mmcLifecycleExitCode;
+        if (MmcInstancePurgeTests.TryRunChild(args, out int mmcPurgeExitCode)) return mmcPurgeExitCode;
+        if (MmcInstanceBackendTests.TryRunPrivatePayloadImportProbe(args, out int payloadProbeExitCode)) return payloadProbeExitCode;
         // Factories keep unselected groups from constructing or enumerating cases.
         // Canonical order matches the original all-tests runner; aliases only
         // select groups, so overlapping/repeated selectors cannot duplicate cases.
@@ -45,7 +52,34 @@ internal static class Program {
             ("mod-favorites", ResourceFavoriteTests.Cases),
             ("validation-loaders", LegacyValidationLoaderTests.Cases),
             ("legacy-java", LegacyJavaTests.Cases),
-            ("foundation", LegacyFoundationTests.Cases)
+            ("foundation", LegacyFoundationTests.Cases),
+            ("mmc-profile", () => MmcProfileTests.Cases()
+                .Concat(MmcResolutionTests.Cases()).Concat(MmcCompilationTests.Cases())
+                .Concat(MmcManagementTests.Cases()).Concat(MmcInstancePathsTests.Cases())),
+            ("mmc-metadata", MmcMetadataTests.Cases),
+            ("mmc-transactions", () => MmcTransactionTests.Cases().Concat(MmcSessionTests.Cases()).Concat(MmcOperationPendingGuardTests.Cases())),
+            ("mmc-artifacts", MmcArtifactTests.Cases),
+            ("mmc-configuration", () => MmcConfigurationTests.Cases().Concat(MmcCommandExecutionTests.Cases())),
+            ("mmc-archive", () => MmcArchiveInspectionTests.Cases().Concat(MmcPackagePreservationTests.Cases()).Concat(MmcArchiveTests.Cases())),
+            ("mmc-definition", () => MmcDefinitionTests.Cases().Concat(MmcLaunchAuthorityTests.Cases()).Concat(MmcProjectionTests.Cases())),
+            ("mmc-java", MmcJavaPinTests.Cases),
+            ("mmc-runtime-environment", MmcRuntimeEnvironmentTests.Cases),
+            ("mmc-backend", MmcInstanceBackendTests.Cases),
+            ("mmc-variants", MmcInstanceBackendTests.VariantCases),
+            ("mmc-clone", MmcInstanceCloneTests.Cases),
+            ("mmc-lifecycle", MmcInstanceLifecycleTests.Cases),
+            ("mmc-catalog-paging", MmcLifecycleCatalogPagingTests.Cases),
+            ("mmc-purge", MmcInstancePurgeTests.PlatformCases),
+            ("mmc-history", MmcInstanceHistoryTests.Cases),
+            ("mmc-definition-change", MmcInstanceDefinitionChangeTests.Cases),
+            ("mmc-platform-origin", MmcPlatformOriginTests.Cases),
+            ("mmc-import-publication", MmcInstanceBackendTests.PublicationCases),
+            ("mmc-package-revision", MmcPackageRevisionTests.Cases),
+            ("mmc-package-scope", MmcPackageLocalScopeTests.Cases),
+            ("mmc-package-update", MmcInstancePackageUpdateTests.Cases),
+            ("mmc-standard-managed", MmcStandardManagedTests.Cases),
+            ("mmc-legacy-adoption", MmcLegacyAdoptionTests.Cases),
+            ("mmc-import-recovery", MmcImportRecoveryTests.Cases)
         ];
         if (args.Length == 1 && args[0] == "--list-groups") {
             foreach (var group in groups) Console.WriteLine(group.Key);

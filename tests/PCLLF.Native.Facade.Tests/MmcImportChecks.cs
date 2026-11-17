@@ -13,6 +13,7 @@ internal static class MmcImportChecks
     private static readonly HashSet<string> seen = new(StringComparer.Ordinal);
     private static void Check(string id, bool condition) { Native.Check(condition, "MMC original contract " + id); seen.Add(id); }
     internal static void Run(FixtureEnvironment environment) {
+        MmcFoundationChecks.Run(environment);
         seen.Clear(); using MmcImportScope scope = new(environment);
         FullPack(scope, "root", "", true, false);
         FullPack(scope, "nested", "Pack/", false, true);

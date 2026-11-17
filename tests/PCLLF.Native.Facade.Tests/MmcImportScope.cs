@@ -48,6 +48,9 @@ internal sealed class MmcImportScope : IDisposable
             Game = Path.Combine(Root, "minecraft"); Directory.CreateDirectory(Game); tasks.SelectMinecraft(Game);
             Native.Check(ModMinecraft.McFolderSelected == Game + Path.DirectorySeparatorChar, "MMC fixture must select its root with exactly the FileTaskScope-owned trailing separator.");
             object engine = Native.Field(typeof(ModModpack), "Service").GetValue(null)!; host = Native.Get(engine, "host")!;
+            // This retained suite is the legacy adapter oracle. The new production callback
+            // is exercised separately by mmc-managed-import with the full owned backend.
+            Set("InstallManagedMmc", null!);
             var readBoolean = (Func<string, string, bool, bool>)Native.Get(host, "ReadIniBoolean")!;
             Set("ReadIniBoolean", new Func<string, string, bool, bool>((file, key, fallback) => {
                 ObserveIni("ReadIniBoolean", file, key, "call", fallback ? "true" : "false");
