@@ -51,7 +51,8 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
             MmcInstanceDefinitionChangeBackend<TNetFile>.PackageAssertMapped(currentPaths, current, mapped);
             var operations = engine.ManagedFileOperations(preview.Plan, token);
             var requiredUndo = PackageUndoPaths(currentPaths, operations);
-            if (preview.ChangesMinecraftVersion) backups = BackupWorlds(currentPaths, token);
+            using var worlds = preview.ChangesMinecraftVersion ? new MmcDefinitionChangeWorldGuard(currentPaths, token) : null;
+            if (worlds is not null) backups = worlds.Backup(backupWorlds, token, autoBackupWorlds);
             undo = MmcInstanceHistoryStore.Capture(currentLease, primary, currentSaved, "整合包更新前", token, null, requiredUndo, fullSafeEnvironment: true);
             var locals = preview.LocalInputs.ToDictionary(value => value.FileName, StringComparer.OrdinalIgnoreCase);
             using var prepared = materializer.PrepareAsync(artifacts, fetched.CreateAccess((artifact, ct) => {
@@ -114,6 +115,7 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
                 if (phase == MmcTransactionCheckpoint.CommitDecided) decided = true;
                 request.TransactionCheckpoint?.Invoke(phase, index);
                 if (phase == MmcTransactionCheckpoint.BeforeDecision) {
+                    worlds?.AssertUnchanged(token);
                     _ = MmcPlatformOriginFiles.ReadSaved(currentPaths, bound.Definition);
                     MmcInstanceHistoryFiles.Verify(currentPaths, prepared.OrderedBindings.Select(value => new MmcHistoryFile(value.TargetRelativePath, value.Sha256, value.SizeBytes))
                         .Concat(prepared.AdoptedLocks.Select(value => new MmcHistoryFile(value.RecoveryObjectRelativePath, value.AdoptedSha256, value.SizeBytes)))
@@ -128,20 +130,6 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
         } catch (OperationCanceledException error) { return new(decided ? MmcInstanceBackendStatus.NeedsRecovery : MmcInstanceBackendStatus.Cancelled, UndoPoint: undo, WorldBackupIds: backups, Failure: error.Message); }
         catch (Exception error) when (Expected(error)) { return new(MmcInstanceBackendStatus.NeedsRecovery, UndoPoint: undo, WorldBackupIds: backups, Failure: error.Message); }
         finally { for (int index = leases.Count - 1; index >= 0; index--) leases[index].Dispose(); for (int index = quiet.Count - 1; index >= 0; index--) quiet[index].Dispose(); }
-    }
-    private ImmutableArray<string> BackupWorlds(MmcInstancePaths paths, CancellationToken token) {
-        string saves = paths.ResolveRelative(MmcPathRole.Game, "saves"); if (!Directory.Exists(saves)) return [];
-        int worlds = 0;
-        foreach (string directory in Directory.EnumerateDirectories(saves)) {
-            MmcInstancePaths.EnsureNoLinks(directory); if (Path.GetFileName(directory).StartsWith(".pcl-", StringComparison.OrdinalIgnoreCase)) continue;
-            if (File.Exists(Path.Combine(directory, "level.dat"))) worlds++;
-            if (worlds > 100000) throw new IOException("World backup count exceeds its budget.");
-        }
-        if (worlds == 0) return [];
-        if (backupWorlds is null) throw new IOException("Changing Minecraft version with existing worlds requires the host's existing WorldBackupEngine adapter.");
-        var result = backupWorlds(paths.GameRoot, token).ToImmutableArray();
-        if (result.Length < worlds || result.Any(string.IsNullOrWhiteSpace)) throw new IOException("Existing world backup did not complete for every current world; the update was not committed.");
-        return result;
     }
     private static void ValidateLocalSnapshot(MmcInstancePackageUpdatePreview preview, MmcInstancePaths paths, CancellationToken token) {
         if (!preview.LocalSnapshot.SequenceEqual(MmcInstancePackageUpdatePlanning<TNetFile>.LocalSnapshot(paths, token))) throw new IOException("Local files or their namespace changed after ZIP update preview.");

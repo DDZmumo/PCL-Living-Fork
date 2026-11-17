@@ -27,7 +27,12 @@ internal static class LegacySettingsTests {
         // LF main50 adds source/channel/color-mode/panel-opacity; no baseline key is removed.
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
-        Equal(214, fixture.Entries.Count);
+        Equal(216, fixture.Entries.Count);
+        foreach (string key in new[] { "LaunchWorldBackupAutoEnabled", "ToolDownloadModDependencies" }) {
+            Equal(true, fixture.Entries[key].DefaultValue);
+            Equal(typeof(bool), fixture.Entries[key].Type);
+            Equal(LegacySettingSource.Normal, fixture.Entries[key].Source);
+        }
         Equal(false, fixture.Entries["UiLaunchMoreSettings"].DefaultValue);
         Equal(typeof(bool), fixture.Entries["UiLaunchMoreSettings"].Type);
         Equal("[]", fixture.Entries["LaunchPersonalOptionsExcluded"].DefaultValue);

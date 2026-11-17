@@ -17,13 +17,16 @@ internal sealed class MmcDefinitionChangeWorldGuard : IDisposable {
         try { snapshot = Scan(token, pin: true); }
         catch { Dispose(); throw; }
     }
-    internal ImmutableArray<string> Backup(Func<string, CancellationToken, IReadOnlyList<string>>? capture, CancellationToken token) {
+    internal ImmutableArray<string> Backup(Func<string, CancellationToken, IReadOnlyList<string>>? capture, CancellationToken token, bool autoBackupWorlds = true) {
         if (worlds.Count == 0) return [];
-        if (capture is null) throw new IOException("Changing Minecraft version with existing worlds requires the host's existing WorldBackupEngine adapter.");
         AssertUnchanged(token);
-        var result = capture(paths.GameRoot, token).ToImmutableArray();
-        if (result.Length != worlds.Count || result.Any(string.IsNullOrWhiteSpace) || result.Distinct(StringComparer.Ordinal).Count() != result.Length)
-            throw new IOException("Existing world backup did not complete for every current world; the component change was not committed.");
+        ImmutableArray<string> result = [];
+        if (autoBackupWorlds) {
+            if (capture is null) throw new IOException("Changing Minecraft version with existing worlds requires the host's existing WorldBackupEngine adapter.");
+            result = capture(paths.GameRoot, token).ToImmutableArray();
+            if (result.Length != worlds.Count || result.Any(string.IsNullOrWhiteSpace) || result.Distinct(StringComparer.Ordinal).Count() != result.Length)
+                throw new IOException("Existing world backup did not complete for every current world; the component change was not committed.");
+        }
         // The backup engine owns these locks while copying. Pin them only after
         // it returns, and keep them until this transaction finishes or rolls back.
         foreach (string world in worlds) {

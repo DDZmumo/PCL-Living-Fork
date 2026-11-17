@@ -22,8 +22,10 @@ internal static class Program
         ["file-tasks"] = FileTaskScenarios.Run,
         ["mod-dependencies"] = NativeDependencyChecks.Local,
         ["mod-dependency-online"] = NativeDependencyChecks.Online,
+        ["mod-download-dependencies"] = _ => ModpackDownloadProcess.RunDependencyParent(),
         ["updater"] = NativeUpdateChecks.Run,
         ["backup-resources"] = BackupResourceChecks.Run,
+        ["world-backup-global"] = BackupResourceWorldChecks.RunGlobal,
         ["instance-clone"] = CloneNativeChecks.Run,
         ["modpack-update"] = ModpackUpdateChecks.Run,
         ["modpack-update-origins"] = ModpackUpdateChecks.RunOrigins,
@@ -170,7 +172,7 @@ internal static class Program
             if (args.SequenceEqual(new[] { "--list-explicit-groups" }, StringComparer.Ordinal)) {
                 Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(ExplicitCases.Keys.ToArray())); return 0;
             }
-            if (args.Contains("--modpack-download-child", StringComparer.Ordinal))
+            if (args.Contains("--modpack-download-child", StringComparer.Ordinal) || args.Contains(ModpackDownloadProcess.DependencyFlag, StringComparer.Ordinal))
                 return ModpackDownloadProcess.RunChild(args);
             if (BackupResourceChecks.TryRunIdleChild(args, out int backupIdleExit))
                 return backupIdleExit;
@@ -225,7 +227,8 @@ internal static class Program
         return selected.Distinct(StringComparer.Ordinal).ToArray();
     }
 
-    internal static int RunDownloadChild(string nonce) => RunChild(["--modpack-download-child", nonce], true);
+    internal static int RunDownloadChild(string nonce, bool dependencies = false) =>
+        RunChild([dependencies ? ModpackDownloadProcess.DependencyFlag : "--modpack-download-child", nonce], true);
 
     private static int RunChild(string[] args, bool dedicatedDownload = false)
     {
@@ -267,7 +270,8 @@ internal static class Program
                     if (process.WaitForExit(Math.Min(25, Remaining())))
                         throw new InvalidOperationException("Dedicated download exited before its complete owned-manager receipt: " + process.ExitCode);
                 }
-                ModpackDownloadProcess.RequireReceipt(receipt, args[1], process.Id, root);
+                bool dependencies = args[0] == ModpackDownloadProcess.DependencyFlag;
+                ModpackDownloadProcess.RequireReceipt(receipt, args[1], process.Id, root, dependencies);
                 if (process.HasExited) throw new InvalidOperationException("Dedicated download exited before the parent took ownership of its retained manager threads.");
                 // LF's three NetManager loops intentionally live for the entire
                 // product process. The verified dedicated child retains its
@@ -280,7 +284,9 @@ internal static class Program
                 if (errors.Length != 0) throw new InvalidOperationException("Dedicated download reported stderr despite its receipt: " + errors);
                 Console.Write(stdout.GetAwaiter().GetResult());
                 outputPrinted = true;
-                Console.WriteLine("PASS native modpack download lifetime: complete UX/file/network/listener evidence; exactly three original foreground NetManager loops retained until expected parent-owned termination (-1), not a natural exit0.");
+                Console.WriteLine(dependencies
+                    ? "PASS native mod dependency download lifetime: complete file/network/listener evidence; exactly three original foreground NetManager loops retained until expected parent-owned termination (-1), not a natural exit0."
+                    : "PASS native modpack download lifetime: complete UX/file/network/listener evidence; exactly three original foreground NetManager loops retained until expected parent-owned termination (-1), not a natural exit0.");
                 return 0;
             }
             if (!process.WaitForExit(Remaining()) || !Task.WaitAll(drains, Remaining()) || run.ElapsedMilliseconds >= 60000)

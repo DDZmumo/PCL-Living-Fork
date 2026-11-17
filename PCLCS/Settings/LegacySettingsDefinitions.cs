@@ -121,6 +121,7 @@ public static class LegacySettingsDefinitions {
         Add("LaunchArgumentWindowHeight", 480);
         Add("LaunchArgumentWindowType", 1);
         Add("LaunchArgumentRam", false, LegacySettingSource.Registry);
+        Add("LaunchWorldBackupAutoEnabled", true);
         Add("LaunchModDependencyCheck", true);
         Add("LaunchModDependencyAutoFill", true);
         Add("LaunchAdvanceJvm", "-XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=True -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True");
@@ -146,6 +147,7 @@ public static class LegacySettingsDefinitions {
         Add("ToolDownloadTranslateV2", 1, LegacySettingSource.Registry);
         Add("ToolDownloadCert", false, LegacySettingSource.Registry);
         Add("ToolDownloadMod", 2, LegacySettingSource.Registry);
+        Add("ToolDownloadModDependencies", true);
         Add("ToolModLocalNameStyle", 0, LegacySettingSource.Registry);
         Add("ToolLauncherUpdateIgnoredTag", "", LegacySettingSource.Registry);
         Add("ToolLauncherUpdateSource", 0);

@@ -15,6 +15,17 @@ internal static class MmcInstanceDefinitionChangeTests {
         yield return ("MMC component transactions roll back predecision cancellation and recover a decided interruption", Transactions);
         yield return ("MMC component asset mapping preserves unknown and edited resources while allowing owned revisions and safe missing or identical targets", MappedResources);
         yield return ("MMC history rejects ordinary author to mapped asset role migration without claiming a partial restoration", MappedRoleRestore);
+        yield return ("MMC disabling automatic backup retains the world inventory guard", DisabledWorldBackup);
+    }
+    private static void DisabledWorldBackup() {
+        using Fixture fixture = new(); fixture.Import(); fixture.Put("minecraft/saves/world/level.dat", "world data");
+        using var guard = new MmcDefinitionChangeWorldGuard(MmcInstancePaths.Resolve(fixture.VersionRoot), CancellationToken.None);
+        bool called = false;
+        var result = guard.Backup((_, _) => { called = true; return new[] { "unexpected" }; }, CancellationToken.None, autoBackupWorlds: false);
+        Equal(false, called); Equal(0, result.Length); Equal("world data", fixture.Read("minecraft/saves/world/level.dat"));
+        fixture.Put("minecraft/saves/world/late-file.txt", "outside edit");
+        try { guard.AssertUnchanged(CancellationToken.None); throw new Exception("Disabled backup also disabled the world inventory check."); }
+        catch (IOException) { }
     }
     private static void MappedRoleRestore() {
         using Fixture fixture = new(authorResource: true); fixture.Import(); var primary = fixture.Primary();

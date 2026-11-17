@@ -89,6 +89,7 @@ internal static class MmcComponentEditorUi {
         // Read before the backend quiesces settings. The callback uses only its
         // supplied game root and this captured value, never a settings provider.
         int retention = Settings.Get<int>("VersionWorldBackupRetention", Instance: instance);
+        bool autoBackupWorlds = WorldBackups.AutoEnabled(instance);
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) throw new IOException("另一项 MMC 组件修改尚未完成。");
         var fence = new MmcOperationCancellationFence(() => Interlocked.Exchange(ref busy, 0));
         var worker = new MmcOperationWorker<string, MmcInstanceDefinitionChangeResult>(fence, "读取 MMC 组件与个人覆盖", task => {
@@ -97,7 +98,8 @@ internal static class MmcComponentEditorUi {
             var model = suppliedModel ?? LoadModelAsync(instance, selected, token).GetAwaiter().GetResult();
             var backend = new MmcInstanceDefinitionChangeBackend<ModNet.NetFile>(services.Metadata, services.CacheRoots, MmcDownloads.BuildFile,
                 (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, onLoaderCreated: services.DownloadCreated),
-                backupWorlds: (gameRoot, cancellation) => WorldBackups.CaptureFolder(gameRoot, "修改 Minecraft 组件前", retention, cancellation));
+                backupWorlds: (gameRoot, cancellation) => WorldBackups.CaptureFolder(gameRoot, "修改 Minecraft 组件前", retention, cancellation),
+                autoBackupWorlds: autoBackupWorlds);
             MmcComponentEditorChoice previous = null;
             for (;;) {
                 token.ThrowIfCancellationRequested(); AssertSelected(instance, selected);

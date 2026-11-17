@@ -48,6 +48,7 @@
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="世界备份与环境还原点">
                 <StackPanel Margin="25,40,25,20">
+                    <local:MyCheckBox x:Name="CheckWorldBackupAuto" Text="启用所有实例的存档自动备份" local:SettingService.Key="LaunchWorldBackupAutoEnabled" Margin="0,0,0,14" ToolTip="关闭后不再在游戏正常退出或更改 Minecraft 版本前自动备份。各实例的备份开关和已有备份会保留，仍可手动备份。" />
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Name" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
                         <TextBlock Text="存储位置" VerticalAlignment="Center" Margin="0,0,25,0" />
@@ -60,6 +61,7 @@
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="社区资源">
                 <StackPanel Margin="25,37,25,12">
+                    <local:MyCheckBox x:Name="CheckModDownloadDependencies" Text="下载 Mod 时检查并提示必需前置" local:SettingService.Key="ToolDownloadModDependencies" Margin="0,0,0,14" ToolTip="下载前显示缺失前置及兼容版本，确认后一起安装。关闭后仅下载选中的 Mod；启动前依赖检查使用独立设置。" />
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />

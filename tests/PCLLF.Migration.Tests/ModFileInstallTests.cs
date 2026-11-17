@@ -14,8 +14,16 @@ internal static class ModFileInstallTests {
         yield return ("verified project identity supports renamed IDs while unrecognized incoming files retain originals", VerifiedProject);
         yield return ("concurrent mod downloads serialize commits and retain one selected version", ConcurrentCommits);
         yield return ("external file edits before commit stop replacement without losing those edits", ChangedFile);
+        yield return ("explicit required dependency installation enables its matching disabled file", EnableDependency);
     }
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+    private static void EnableDependency() {
+        using Fixture f = new(); string disabled = f.File("library.jar.disabled", "library|1");
+        string incoming = f.File("incoming.jar", "library|2", false);
+        var result = f.Install.Install(incoming, Path.Combine(f.Mods, "library.jar"), enable: true);
+        Check(result.Destination.EndsWith("library.jar", StringComparison.Ordinal) && !File.Exists(disabled) &&
+            File.ReadAllText(result.Destination) == "library|2", "Confirmed required dependency remained disabled.");
+    }
     private sealed class Fixture : IDisposable {
         internal readonly string Root = Path.Combine(Path.GetTempPath(), "pcllf-mod-install-" + Guid.NewGuid().ToString("N"));
         internal readonly string Mods;

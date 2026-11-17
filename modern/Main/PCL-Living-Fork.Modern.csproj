@@ -401,5 +401,6 @@
   <Resource Include="Images/Branding/DefaultBackgroundNight.png" />
 <Compile Include="Modules/Minecraft/ModDependencyIndex.cs" />
 <Compile Include="Modules/Minecraft/ModDownloadInstaller.cs" />
+<Compile Include="Modules/Minecraft/ModDownloadDependencies.cs" />
 </ItemGroup>
 </Project>

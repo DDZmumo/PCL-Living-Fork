@@ -130,6 +130,43 @@ internal static class BackupResourceWorldChecks
         } finally { watchers.Remove(watch); Native.Field(module, "HasRunningMinecraft").SetValue(null, oldFlag); }
     }
 
+    private static void GlobalAutomaticSwitch(Scope scope) {
+        string game = Path.Combine(scope.Root, "global-auto/minecraft/versions/fixture");
+        var instance = Instance(game);
+        Put(Path.Combine(game, "saves/World A/level.dat"), "global switch world");
+        bool previous = Settings.Get<bool>("LaunchWorldBackupAutoEnabled");
+        try {
+            Settings.Set("LaunchWorldBackupAutoEnabled", true);
+            var page = new PageSetupSystem();
+            var control = (MyCheckBox)(page.FindName("CheckWorldBackupAuto") ?? throw new Exception("Global backup control is missing."));
+            SettingService.RefreshSettings(control);
+            Native.Check(control.Checked && SettingService.GetKey(control) == "LaunchWorldBackupAutoEnabled",
+                "The genuine system page does not expose the global automatic-backup switch.");
+            control.Checked = false; Native.Call(typeof(MyCheckBox), "OnChange", control, true);
+            Native.Check(!Settings.Get<bool>("LaunchWorldBackupAutoEnabled") && Settings.Get<bool>("VersionWorldBackupAutoEnabled", instance),
+                "The global switch was not saved or rewrote instance preferences.");
+            int before = Points(game).Count;
+            Native.Check(((IEnumerable)World("BeforeMinecraftChange", instance, "1.20.1", "1.21.1", None)!).Cast<object>().Count() == 0,
+                "Global disable still backed up before a Minecraft change.");
+            using (IdleProcess child = new()) {
+                World("Track", instance, child.Value); child.Finish(); World("OnProcessStopped", instance, child.Value, true);
+                Native.Check(Points(game).Count == before && !Directory.GetFiles(Path.Combine(scope.Profile, "world-backup-sessions"), child.Value.Id + "-*.json").Any(),
+                    "Global disable still backed up on exit or retained its stopped-process session.");
+            }
+            string manual = Capture(game, "World A");
+            Native.Check(Points(game).Any(point => (string?)point["id"] == manual), "Global automatic disable blocked a manual backup.");
+            Settings.Set("LaunchWorldBackupAutoEnabled", true); Cache(instance, "VersionWorldBackupAutoEnabled", false);
+            Native.Check(((IEnumerable)World("BeforeMinecraftChange", instance, "1.20.1", "1.21.1", None)!).Cast<object>().Count() == 0,
+                "Re-enabling the global switch overrode an instance's explicit disable.");
+        } finally { Cache(instance, "VersionWorldBackupAutoEnabled", true); Settings.Set("LaunchWorldBackupAutoEnabled", previous); }
+    }
+    internal static void RunGlobal(FixtureEnvironment environment) {
+        using Scope scope = new(environment);
+        GlobalAutomaticSwitch(scope);
+        environment.AssertNoForbiddenIo();
+        Console.WriteLine("PASS global automatic backups: genuine settings control, persisted master disable, preserved instance choices, exit/version-change suppression, stopped-session cleanup and manual capture.");
+    }
+
     private static void Recovery(string game, string world, string store, string first)
     {
         string transaction = Guid.NewGuid().ToString("N"), previous = Path.Combine(game, "saves/.pcl-world-" + transaction + ".before"), stage = Path.Combine(game, "saves/.pcl-world-" + transaction + ".stage");
