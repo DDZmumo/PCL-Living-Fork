@@ -11,13 +11,15 @@ using PCLLF.MMCC.Core;
 
 internal static class MmcLegacyAdoptionTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
-        yield return ("MMC strict legacy copy preserves source worlds preferences deletions and actual package authority", StrictCopy);
+        if (OperatingSystem.IsWindows()) {
+            yield return ("MMC strict legacy copy preserves source worlds preferences deletions and actual package authority", StrictCopy);
+        } else yield return ("MMC managed-copy publication refuses an unverified non-Windows volume boundary and preserves source and private evidence", UnsupportedCopyPublication);
         yield return ("MMC source rebinding requires its own preview intent and cannot silently replace strict verification", ExplicitRebinding);
         yield return ("MMC legacy copy rejects shared ambiguous active and changed sources and cancels before publication", RefusalsAndCancellation);
-        yield return ("MMC legacy copy uses a real producer file lock and recovers a decided no-overwrite publication offline", Recovery);
+        if (OperatingSystem.IsWindows()) yield return ("MMC legacy copy uses a real producer file lock and recovers a decided no-overwrite publication offline", Recovery);
         yield return ("MMC legacy private backup blocks old cleanup from a selected PCL folder without versions", PrivateStoreCleanupGuard);
         yield return ("MMC automatic copy cleanup never claims a foreign root file between producer phases", () => AutomaticCleanupRefusal("foreign"));
-        yield return ("MMC automatic copy cleanup preserves foreign NTFS data streams", () => AutomaticCleanupRefusal("ads"));
+        yield return (OperatingSystem.IsWindows() ? "MMC automatic copy cleanup preserves foreign NTFS data streams" : "MMC unsupported native copy cleanup preserves a foreign companion file without claiming NTFS stream coverage", () => AutomaticCleanupRefusal("ads"));
         yield return ("MMC automatic copy cleanup rejects replacement after its fixed inventory", () => AutomaticCleanupRefusal("replacement"));
         yield return ("MMC automatic copy cleanup interruption atomically preserves root and ownership marker", () => AutomaticCleanupRefusal("interruption"));
     }
@@ -26,6 +28,18 @@ internal static class MmcLegacyAdoptionTests {
     private static string Tree(string root) => string.Join("|", Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
         .Select(path => Path.GetRelativePath(root, path) + ":" + Hash(File.ReadAllBytes(path))));
     private static void Denied(Action work) { try { work(); } catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException) { return; } throw new Exception("Expected a clear refusal."); }
+    private static void UnsupportedCopyPublication() {
+        using Fixture fixture = new(retainedMetadata: true); string before = Tree(fixture.Source);
+        using var preview = fixture.Preview();
+        var result = fixture.Create(preview, MmcLegacyAdoptionIntent.StrictVerified);
+        Require(result.Status == MmcInstanceBackendStatus.NeedsRecovery && result.Failure?.Contains("Windows", StringComparison.Ordinal) == true &&
+            !Directory.Exists(fixture.Target) && Tree(fixture.Source) == before && File.Exists(result.BackupPath) && result.OperationDirectory is not null,
+            "Unsupported copy publication changed the source, claimed the target, or lost its backup/operation evidence: " + result.Failure);
+        string privateRoot = Path.Combine(result.OperationDirectory!, "private-minecraft", "versions", "managed-copy");
+        Require(File.ReadAllText(Path.Combine(privateRoot, "minecraft", "saves", "world", "level.dat")) == "player world" &&
+            File.Exists(Path.Combine(privateRoot, "PCL", "MmcLegacyAdoptionPending.json")), "Unsupported publication lost private player data or its ownership guard.");
+        fixture.Complete();
+    }
     private static void PrivateStoreCleanupGuard() {
         using Fixture fixture = new(true); string game = Path.Combine(fixture.Root, "cleanup-game"), pcl = Path.Combine(game, "PCL"); Directory.CreateDirectory(pcl);
         MmcInstanceCapabilities.RequireLegacyGameFolder(game, "普通目录清理检查");
@@ -68,7 +82,14 @@ internal static class MmcLegacyAdoptionTests {
         string strictConfirmation = preview.ConfirmationFingerprint(fixture.Target, "managed-copy", MmcLegacyAdoptionIntent.StrictVerified);
         var hiddenFallback = fixture.Service.CreateManagedCopyAsync(preview, new(fixture.Target, "managed-copy", strictConfirmation, MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding)).GetAwaiter().GetResult();
         Require(hiddenFallback.Status == MmcInstanceBackendStatus.Rejected, "A strict confirmation was silently changed to rebinding.");
-        var created = fixture.Create(preview, MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding); fixture.Success(created);
+        var created = fixture.Create(preview, MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding);
+        if (!OperatingSystem.IsWindows()) {
+            Require(created.Status == MmcInstanceBackendStatus.NeedsRecovery && created.Failure?.Contains("Windows", StringComparison.Ordinal) == true &&
+                !Directory.Exists(fixture.Target) && Tree(fixture.Source) == before && File.Exists(created.BackupPath),
+                "Explicit source intent bypassed the unsupported volume boundary or changed its old source: " + created.Failure);
+            fixture.Complete(); return;
+        }
+        fixture.Success(created);
         Require(created.Definition!.Origin.PackageSha256 == preview.PackageSha256 && Tree(fixture.Source) == before, "Explicit new source did not stay separate from current personal bytes.");
         fixture.Complete();
     }

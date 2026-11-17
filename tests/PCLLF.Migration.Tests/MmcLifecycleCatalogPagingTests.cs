@@ -7,10 +7,71 @@ using PCLCS;
 // Real host catalog, journal and instance backend; one tiny imported instance per case.
 internal static class MmcLifecycleCatalogPagingTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
-        yield return ("MMC catalog reaches the 257th real quarantine in stable forward/backward pages and binds cursor scope", CompletePaging);
-        yield return ("MMC catalog invalidates changed membership and re-reads same-leaf records without granting stale authority", Changes);
-        yield return ("MMC catalog byte budgets shrink pages without skipping records, isolate oversized rows and cancel real reads", BudgetAndCancellation);
+        if (OperatingSystem.IsWindows()) {
+            yield return ("MMC catalog reaches the 257th real quarantine in stable forward/backward pages and binds cursor scope", CompletePaging);
+            yield return ("MMC catalog invalidates changed membership and re-reads same-leaf records without granting stale authority", Changes);
+            yield return ("MMC catalog byte budgets shrink pages without skipping records, isolate oversized rows and cancel real reads", BudgetAndCancellation);
+        } else {
+            yield return ("MMC non-Windows catalog pages 257 actual unknown records without inventing quarantine or recovery authority", UnknownPaging);
+            yield return ("MMC non-Windows catalog invalidates real membership changes and never executes malformed records", UnknownChanges);
+            yield return ("MMC non-Windows catalog budgets and cancellation read production-format aborted records while actual delete remains unsupported", BudgetAndCancellation);
+        }
     }
+    private static void UnknownPaging() {
+        using Fixture fixture = new();
+        for (int number = 257; number > 0; number--) fixture.Bad(number);
+        var compatibility = MmcInstanceLifecycleCatalog.Read(fixture.Game);
+        Check(compatibility.Truncated && compatibility.Entries.Length == 256 && compatibility.Entries.All(NoAuthority), "Unknown records became authorized quarantines or bypassed the compatibility bound.");
+        var request = new MmcLifecycleCatalogPageRequest(fixture.Game);
+        var first = MmcInstanceLifecycleCatalog.ReadPage(request);
+        var second = MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = first.Next });
+        var back = MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = second.Previous });
+        Check(first.Previous is null && Leaves(first).SequenceEqual(Leaves(back)), "Unknown-record backward paging lost the stable first range.");
+        List<string> found = []; var page = first;
+        do {
+            Check(!page.NeedsRefresh && page.Entries.Length <= 32 && page.Entries.All(NoAuthority), "Unknown page acquired operation authority or exceeded its bound.");
+            found.AddRange(Leaves(page));
+            if (page.Next is null) break;
+            page = MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = page.Next });
+        } while (true);
+        Check(found.Count == 257 && found.Distinct(StringComparer.Ordinal).Count() == 257 && found.SequenceEqual(found.Order(StringComparer.Ordinal)), "Unknown record paging skipped or duplicated an actual directory.");
+        Denied(() => MmcInstanceLifecycleCatalog.ReadPage(request with { MinecraftRoot = fixture.Root, Cursor = first.Next }));
+        Denied(() => MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = first.Next, PageSize = 16 }));
+        Denied(() => MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = first.Next, MaximumBytes = 1024 }));
+        Denied(() => MmcInstanceLifecycleCatalog.Execute(first.Entries[0], true));
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        Cancelled(() => MmcInstanceLifecycleCatalog.ReadPage(request, cancellation.Token));
+    }
+    private static void UnknownChanges() {
+        using Fixture fixture = new();
+        for (int number = 1; number <= 3; number++) fixture.Bad(number);
+        var request = new MmcLifecycleCatalogPageRequest(fixture.Game, PageSize: 2);
+        var first = MmcInstanceLifecycleCatalog.ReadPage(request);
+        fixture.Bad(4);
+        Check(MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = first.Next }).NeedsRefresh, "An added actual unknown record did not invalidate membership.");
+        first = MmcInstanceLifecycleCatalog.ReadPage(request);
+        Directory.Delete(fixture.BadPath(4), true);
+        Check(MmcInstanceLifecycleCatalog.ReadPage(request with { Cursor = first.Next }).NeedsRefresh, "A removed actual unknown record did not invalidate membership.");
+        var stale = MmcInstanceLifecycleCatalog.ReadPage(request).Entries[0];
+        string record = Path.Combine(stale.OperationDirectory, "intent.record"); File.AppendAllText(record, " changed");
+        string expected = File.ReadAllText(record);
+        var fresh = MmcInstanceLifecycleCatalog.ReadPage(request);
+        Check(fresh.Entries.All(NoAuthority), "Changed malformed records gained an actionable state.");
+        Denied(() => MmcInstanceLifecycleCatalog.Execute(stale, false));
+        Check(File.ReadAllText(record) == expected, "Attempting to execute an unknown record modified its evidence.");
+        File.WriteAllBytes(Path.Combine(fixture.BadPath(1), "intent.record"), new byte[64 * 1024 + 1]);
+        var one = new MmcLifecycleCatalogPageRequest(fixture.Game, PageSize: 1);
+        var page = MmcInstanceLifecycleCatalog.ReadPage(one); int count = 0;
+        do {
+            Check(page.Entries.Length == 1 && NoAuthority(page.Entries[0]), "An oversized unknown record poisoned later navigation or gained authority.");
+            count++;
+            if (page.Next is null) break;
+            page = MmcInstanceLifecycleCatalog.ReadPage(one with { Cursor = page.Next });
+        } while (true);
+        Check(count == 3, "Oversized unknown records made later actual directories unreachable.");
+    }
+    private static bool NoAuthority(MmcLifecycleCatalogEntry entry) => entry.State == MmcLifecycleCatalogState.Unknown &&
+        !entry.CanRestore && !entry.CanRecover && !entry.CanPurge;
     private static void CompletePaging() {
         using Fixture fixture = new(); var source = fixture.Import();
         var deleted = new MmcInstanceLifecycleBackend().DeleteAsync(new(fixture.Source, source.Definition!.InstanceId, 1, source.PrimarySha256!)).GetAwaiter().GetResult();
@@ -77,7 +138,15 @@ internal static class MmcLifecycleCatalogPagingTests {
     }
     private static void BudgetAndCancellation() {
         using Fixture fixture = new(); var source = fixture.Import(); var backend = new MmcInstanceLifecycleBackend();
+        if (!OperatingSystem.IsWindows()) {
+            string before = SnapshotTree(fixture.Root);
+            var refused = backend.DeleteAsync(new(fixture.Source, source.Definition!.InstanceId, 1, source.PrimarySha256!)).GetAwaiter().GetResult();
+            Check(refused.Status == MmcInstanceBackendStatus.Rejected && refused.Failure?.Contains("Windows", StringComparison.Ordinal) == true &&
+                refused.OperationDirectory is null && !refused.Quarantined && !refused.Purged && before == SnapshotTree(fixture.Root),
+                "Non-Windows deletion was successful, changed the fixture or failed to explain its unsupported volume boundary.");
+        }
         for (int i = 0; i < 3; i++) {
+            if (!OperatingSystem.IsWindows()) { fixture.AbortedRecord(source); continue; }
             using var cancel = new CancellationTokenSource();
             var aborted = backend.DeleteAsync(new(fixture.Source, source.Definition!.InstanceId, 1, source.PrimarySha256!) {
                 Checkpoint = (phase, _) => { if (phase == MmcLifecycleCheckpoint.IntentPrepared) cancel.Cancel(); }
@@ -105,6 +174,9 @@ internal static class MmcLifecycleCatalogPagingTests {
         Cancelled(() => MmcInstanceLifecycleCatalog.ReadPage(new(fixture.Game), duringRead.Token));
         Check(timer.Elapsed < TimeSpan.FromSeconds(5), "Cancellation did not finish the real enumerator/record read.");
     }
+    private static string SnapshotTree(string root) => string.Join("\n", Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)
+        .Order(StringComparer.Ordinal).Select(path => Path.GetRelativePath(root, path).Replace('\\', '/') +
+            (Directory.Exists(path) ? "/" : ":" + Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))))));
     private static string[] Leaves(MmcLifecycleCatalogPage page) => page.Entries.Select(value => Path.GetFileName(value.OperationDirectory)).ToArray();
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static void Denied(Action action) { try { action(); } catch (IOException) { return; } throw new Exception("Expected a scoped/stale catalog refusal."); }
@@ -119,6 +191,16 @@ internal static class MmcLifecycleCatalogPagingTests {
         internal Fixture() { Directory.CreateDirectory(Game); }
         internal string BadPath(int number) => Path.Combine(Store, number.ToString("x32"));
         internal void Bad(int number) { Directory.CreateDirectory(BadPath(number)); File.WriteAllText(Path.Combine(BadPath(number), "intent.record"), "broken record"); }
+        internal void AbortedRecord(MmcInstanceInspection source) {
+            // Reader fixture only: the production journal writer emits a genuine
+            // non-actionable Aborted record. This does not emulate a successful
+            // Delete, a quarantine, an OS move or a backend cancellation boundary.
+            Guid operation = Guid.NewGuid();
+            string target = Path.Combine(Path.GetDirectoryName(Source)!, ".pcllf-mmc-quarantine-" + operation.ToString("N"));
+            using var lease = MmcAdmissionGate.Acquire(Source, source.Definition!.InstanceId, TimeSpan.Zero);
+            var intent = new MmcLifecycleIntent(1, operation, "Delete", source.Definition.InstanceId, Source, target, 1, 1, source.PrimarySha256!, null, source.Definition.Layout.GameRootLeaf);
+            MmcInstanceLifecycleJournal.Create(intent, lease).Complete("Aborted");
+        }
         internal MmcInstanceInspection Import() {
             byte[] index = Encoding.UTF8.GetBytes("{\"objects\":{}}"); string hash = Convert.ToHexStringLower(SHA1.HashData(index));
             using (var zip = ZipFile.Open(Path.Combine(Root, "pack.zip"), ZipArchiveMode.Create)) {

@@ -26,6 +26,20 @@ internal static partial class MmcSessionTests {
             Throws<IOException>(()=>MmcSessionRuntimeDirectories.Prepare(MmcInstancePaths.Resolve(fixture.Root),fixture.Id,sid,new string('b',64),authority));
         }finally{DeleteShortFixture(scope);}
     }
+    private static void LocalMutableIsolation(){
+        using Fixture fixture=new(DeepSessionScope(),Guid.NewGuid(),true);using var lease=fixture.Lease();Guid sid=Guid.NewGuid();
+        var paths=MmcInstancePaths.Resolve(fixture.Root);
+        var mutable=MmcSessionRuntimeDirectories.Prepare(paths,fixture.Id,sid,new string('b',64));
+        Equal<MmcMutableRuntimeLayout?>(null,mutable.RuntimeBinding.MutableLayout);
+        Equal<string?>(null,mutable.RuntimeBinding.AuthorityFingerprint);
+        Equal(true,mutable.SessionRoot.StartsWith(fixture.Root+Path.DirectorySeparatorChar,StringComparison.Ordinal));
+        string sentinel=Path.Combine(mutable.ExtractDirectory,"native.dll");File.WriteAllText(sentinel,"owned local native bytes");
+        string marker=Path.Combine(mutable.SessionRoot,"owner.txt");string expected=File.ReadAllText(marker);File.WriteAllText(marker,"foreign owner");
+        Throws<IOException>(()=>MmcSessionRuntimeDirectories.AbandonUnlaunched(lease,sid,mutable.RuntimeBinding));Equal(true,File.Exists(sentinel));
+        File.WriteAllText(marker,expected);MmcSessionRuntimeDirectories.AbandonUnlaunched(lease,sid,mutable.RuntimeBinding);
+        MmcSessionRuntimeDirectories.AbandonUnlaunched(lease,sid,mutable.RuntimeBinding);Equal(false,Directory.Exists(mutable.SessionRoot));
+        Throws<IOException>(()=>MmcSessionRuntimeDirectories.Prepare(paths,fixture.Id,sid,new string('b',64)));
+    }
     private static void ShortMutableExit(){
         string scope=ShortFixtureRoot();try{
             var authority=ShortAuthority(scope);using Fixture fixture=new(DeepSessionScope(),Guid.NewGuid(),true);using var lease=fixture.Lease();FixturePin? pin=null;Guid sid=Guid.NewGuid();
@@ -64,7 +78,12 @@ internal static partial class MmcSessionTests {
             try{
                 WaitFile(fixture.HostReady,15000);fixture.WaitChild();string[]ready=File.ReadAllLines(fixture.HostReady);Guid sid=Guid.ParseExact(ready[0],"N");string mutable=ready[1];
                 host.Kill();if(!host.WaitForExit(5000))throw new IOException("Owned host did not exit.");
-                using var lease=fixture.Lease();Equal(MmcSessionObservation.MatchingRunning,MmcSessions.Reconcile(lease,sid,new MmcSessionProcessInspector((_,nonce)=>fixture.ChildNonce()==nonce),_=>throw new Exception("Live pin must remain."),authority).Observation);
+                using var lease=fixture.Lease();Equal(OperatingSystem.IsWindows()?MmcSessionObservation.MatchingRunning:MmcSessionObservation.Unknown,
+                    MmcSessions.Reconcile(lease,sid,new MmcSessionProcessInspector((_,nonce)=>fixture.ChildNonce()==nonce),_=>throw new Exception("Live pin must remain."),authority).Observation);
+                if(!OperatingSystem.IsWindows()){
+                    Equal(true,mutable.StartsWith(fixture.Root+Path.DirectorySeparatorChar,StringComparison.Ordinal));
+                    Throws<IOException>(()=>MmcFileTransactions.Execute(lease,fixture.TransactionRequest()));
+                }
                 Equal(true,File.Exists(fixture.PinFile));Equal(true,Directory.Exists(mutable));Throws<IOException>(()=>MmcSessions.AssertNoActive(lease));
                 fixture.StopAndWait();Equal(MmcSessionObservation.ProvenExited,MmcSessions.Reconcile(lease,sid,new MmcSessionProcessInspector(),_=>File.Delete(fixture.PinFile),authority).Observation);
                 Equal(false,File.Exists(fixture.PinFile));Equal(false,Directory.Exists(mutable));

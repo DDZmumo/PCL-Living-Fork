@@ -10,13 +10,25 @@ using PCLLF.MMCC.Core;
 
 internal static class MmcImportRecoveryTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
-        yield return ("MMC import producer Use blocks concurrent recovery and committed data publishes offline", Committed);
+        if (OperatingSystem.IsWindows()) yield return ("MMC import producer Use blocks concurrent recovery and committed data publishes offline", Committed);
+        else yield return ("MMC completed import audit remains inert after repair without claiming Windows live-producer sharing-lock coverage", CompletedAudit);
         yield return ("MMC undecided initial transaction rolls back and fresh retry requires same ZIP SHA with a different name", RollbackAndRetry);
         yield return ("MMC recovery preserves changed payload and unproven legacy residuals", ForeignAndLegacy);
-        yield return ("MMC moved import with an already removed ignore file finishes exact pending cleanup", MovedFinal);
+        if (OperatingSystem.IsWindows()) yield return ("MMC moved import with an already removed ignore file finishes exact pending cleanup", MovedFinal);
         yield return ("MMC import recovery store blocks old cleanup from a selected PCL folder without versions", PrivateStoreCleanupGuard);
     }
     private static void Require(bool value, string message) { if (!value) throw new Exception(message); }
+    private static void CompletedAudit() {
+        using Fixture fixture = new();
+        var imported = fixture.Backend().ImportAsync(fixture.Request()).GetAwaiter().GetResult();
+        Require(imported.Status == MmcInstanceBackendStatus.Succeeded && imported.Definition is not null, "Controlled import did not publish: " + imported.Failure);
+        var repaired = fixture.Backend().RepairAsync(new(fixture.Final, fixture.Environment, imported.Definition!.InstanceId)).GetAwaiter().GetResult();
+        Require(repaired.Status == MmcInstanceBackendStatus.Succeeded && repaired.Definition!.Generation == 2, "Post-import repair failed.");
+        var audit = fixture.Catalog().Entries.Single();
+        Require(audit.State == MmcImportRecoveryState.Completed && !audit.CanRecover && !audit.CanRetry &&
+            File.ReadAllText(Path.Combine(fixture.Final, "minecraft", "config", "player.cfg")) == "author player bytes", "Completed audit offered stale recovery or changed player payload.");
+        fixture.Complete();
+    }
     private static void PrivateStoreCleanupGuard() {
         using Fixture fixture = new(); string pcl = Path.Combine(fixture.Game, "PCL"); Directory.CreateDirectory(pcl);
         MmcImportRecovery.RequireLegacyGameFolderSafe(fixture.Game, "普通目录清理检查");

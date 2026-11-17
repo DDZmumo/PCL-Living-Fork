@@ -11,14 +11,44 @@ internal static class MmcInstanceLifecycleTests {
     internal static IEnumerable<(string Name,Action Run)> Cases() {
         yield return ("MMC path handoff preserves queued preferences and detaches every old provider without recreating its path", PreferenceHandoff);
         yield return ("MMC lifecycle permits require an exact published source and bound durable intent", JournalPermit);
-        yield return ("MMC rename and same-volume move preserve identity/worlds and advance name projections without an installed Java", Relocation);
-        yield return ("MMC lifecycle predecision cancellation rolls back while decided target conflicts recover forward", CancellationAndConflict);
-        yield return ("MMC delete quarantines only private data and restores without reviving detached providers", DeleteRestore);
-        yield return ("MMC exclusive primary file locks preserve the source and allow safe relocation retry", LockedDirectory);
-        yield return ("MMC killed lifecycle producers recover exact predecision rollback and postdecision forward publication", KilledProducer);
-        yield return ("MMC terminal recovery rejects another valid instance primary without attributing or changing it", TerminalReplacement);
+        if (OperatingSystem.IsWindows()) {
+            yield return ("MMC rename and same-volume move preserve identity/worlds and advance name projections without an installed Java", Relocation);
+            yield return ("MMC lifecycle predecision cancellation rolls back while decided target conflicts recover forward", CancellationAndConflict);
+            yield return ("MMC delete quarantines only private data and restores without reviving detached providers", DeleteRestore);
+            yield return ("MMC exclusive primary file locks preserve the source and allow safe relocation retry", LockedDirectory);
+            yield return ("MMC killed lifecycle producers recover exact predecision rollback and postdecision forward publication", KilledProducer);
+            yield return ("MMC terminal recovery rejects another valid instance primary without attributing or changing it", TerminalReplacement);
+        } else {
+            yield return ("MMC non-Windows rename and move explicitly refuse the unsupported volume boundary without changing either path", NonWindowsRelocationRefusal);
+        }
         yield return ("MMC lists hide only exactly completed owned quarantines while unknown or damaged names stay visible", QuarantineVisibility);
     }
+    private static void NonWindowsRelocationRefusal() {
+        using Fixture fixture = new(); var source = fixture.Import(); var backend = new MmcInstanceLifecycleBackend();
+        string before = SnapshotTree(fixture.Root), primary = MmcSavedSourceStore.ReadPrimary(source.Paths!).Sha256;
+        foreach (var selection in new[] {
+            new MmcInstanceRelocationRequest(fixture.Source, Path.Combine(Path.GetDirectoryName(fixture.Source)!, "renamed"), source.Definition!.InstanceId, 1, primary, MmcInstanceRelocationKind.Rename),
+            new MmcInstanceRelocationRequest(fixture.Source, fixture.Target, source.Definition.InstanceId, 1, primary, MmcInstanceRelocationKind.Move)
+        }) {
+            int checkpoints = 0;
+            var result = backend.RelocateAsync(selection with { Checkpoint = (_, _) => checkpoints++ }).GetAwaiter().GetResult();
+            Unsupported(result);
+            Equal(0, checkpoints); Equal(false, Directory.Exists(selection.TargetRoot)); Equal(before, SnapshotTree(fixture.Root));
+            var current = MmcInstanceInspector.Read(fixture.Source);
+            Equal(true, current.IsConsistent); Equal(source.Definition.InstanceId, current.Definition!.InstanceId);
+            Equal(1L, current.Definition.Generation); Equal(primary, current.PrimarySha256);
+        }
+        Equal(0, MmcInstanceLifecycleCatalog.Read(Path.GetDirectoryName(Path.GetDirectoryName(fixture.Source)!)!).Entries.Length);
+    }
+    private static void Unsupported(MmcInstanceLifecycleResult result) {
+        Equal(MmcInstanceBackendStatus.Rejected, result.Status);
+        Equal(true, result.Failure?.Contains("Windows", StringComparison.Ordinal) == true);
+        Equal(true, result.OperationDirectory is null && result.Definition is null);
+        Equal(false, result.Quarantined || result.Purged || result.PurgeDecided);
+    }
+    private static string SnapshotTree(string root) => string.Join("\n", Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)
+        .Order(StringComparer.Ordinal).Select(path => Path.GetRelativePath(root, path).Replace('\\', '/') +
+            (Directory.Exists(path) ? "/" : ":" + Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))))));
     private static void QuarantineVisibility() {
         using Fixture fixture = new(); var imported = fixture.Import();
         string versions = Path.GetDirectoryName(fixture.Source)!;
@@ -26,8 +56,17 @@ internal static class MmcInstanceLifecycleTests {
         Directory.CreateDirectory(foreign); File.WriteAllText(Path.Combine(foreign, "keep.txt"), "unknown user data");
         Equal(false, MmcInstanceLifecycleVisibility.IsCompletedQuarantine(foreign));
         var service = new MmcInstanceLifecycleBackend();
+        string before = SnapshotTree(fixture.Root);
         var deleted = service.DeleteAsync(new(fixture.Source, imported.Definition!.InstanceId, 1,
             MmcSavedSourceStore.ReadPrimary(imported.Paths!).Sha256)).GetAwaiter().GetResult();
+        if (!OperatingSystem.IsWindows()) {
+            Unsupported(deleted); Equal(before, SnapshotTree(fixture.Root));
+            Equal(true, Directory.Exists(fixture.Source)); Equal(false, MmcInstanceLifecycleVisibility.IsCompletedQuarantine(fixture.Source));
+            Equal(false, MmcInstanceLifecycleVisibility.IsCompletedQuarantine(foreign));
+            Equal("unknown user data", File.ReadAllText(Path.Combine(foreign, "keep.txt")));
+            Equal(0, MmcInstanceLifecycleCatalog.Read(Path.GetDirectoryName(versions)!).Entries.Length);
+            return;
+        }
         Equal(MmcInstanceBackendStatus.Succeeded, deleted.Status);
         string root = deleted.CurrentRoot!;
         Equal(true, MmcInstanceLifecycleVisibility.IsCompletedQuarantine(root));

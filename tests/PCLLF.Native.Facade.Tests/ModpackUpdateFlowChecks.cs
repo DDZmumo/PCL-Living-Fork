@@ -382,7 +382,7 @@ internal static class ModpackUpdateFlowChecks
             Check(File.ReadAllText(Path.Combine(instance.PathIndie, "config/personal.txt")) == "my-edit", label, "personal edit was replaced");
             Check(!flow.Updating && !ModMinecraft.McInstanceLock.IsLocked(instance), label, "original download left an update reservation active");
         }
-        Console.WriteLine("PASS automatic schema-1 origins: 10 genuine native workflow cases; exact source/project/version and primary archive, existing-hash verification, personal edits, transaction/cancellation and schema-2 no-repeat.");
+        Console.WriteLine("PASS automatic origins " + (more ? "6-10" : "1-5") + ": five genuine native workflow cases; exact source/project/version and primary archive, existing-hash verification, personal edits, transaction/cancellation and schema-2 no-repeat.");
     }
 
     // The real SelectInstance evaluates CacheNideServer/CacheAuthServerServer

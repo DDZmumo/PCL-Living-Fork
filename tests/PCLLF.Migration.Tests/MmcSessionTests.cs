@@ -13,20 +13,36 @@ internal static partial class MmcSessionTests {
         yield return ("MMC session active Dispose keeps durable uncertainty and Java pin", DisposeKeepsProtection);
         yield return ("MMC session PID reuse and absent nonce evidence remain unknown", IdentityAndNonce);
         yield return ("MMC wrapper exit never concludes the game exited while managed Java survives", WrapperExitTable);
-        yield return ("MMC wrapper exit registers both identities and proves the whole group gone", WrapperGroup);
-        yield return ("MMC wrapper early exit retains live pipes, refuses premature settlement and reconciles managed Java", WrapperEarlyExitAndReconcile);
-        yield return ("MMC wrapper writing >16 KB startup output before Java does not deadlock pipe and replays FIFO", WrapperPipePreBufferDrainsLargeStartupBanner);
-        yield return ("MMC wrapper identity mismatch and early exit without Java clean up without leaking pins", WrapperFailureCleanup);
+        if (OperatingSystem.IsWindows()) {
+            yield return ("MMC wrapper exit registers both identities and proves the whole group gone", WrapperGroup);
+            yield return ("MMC wrapper early exit retains live pipes, refuses premature settlement and reconciles managed Java", WrapperEarlyExitAndReconcile);
+            yield return ("MMC wrapper writing >16 KB startup output before Java does not deadlock pipe and replays FIFO", WrapperPipePreBufferDrainsLargeStartupBanner);
+            yield return ("MMC wrapper identity mismatch and early exit without Java clean up without leaking pins", WrapperFailureCleanup);
+        } else {
+            yield return ("MMC default Windows process-group host refuses non-Windows before creating a child", WindowsProcessGroupHostUnsupported);
+        }
         yield return ("MMC session interrupted Launching without PID cannot be guessed exited", LaunchingInterruption);
         yield return ("MMC session rejects stale generation layout and caller nonce overrides", InvalidLaunch);
         yield return ("MMC session serialized receipts contain identities but no process arguments", ReceiptPrivacy);
-        yield return ("MMC session host termination retains running receipt and blocks structural writes", KilledHost);
+        yield return (OperatingSystem.IsWindows()
+            ? "MMC session host termination retains running receipt and blocks structural writes"
+            : "MMC non-Windows host termination retains Unknown receipts and refuses structural writes", KilledHost);
         yield return ("MMC unlaunched mutable runtime cleanup validates ownership and preserves receipts", AbandonMutable);
         yield return ("MMC mutable cleanup failure retains pin and exit evidence for reconciliation retry", RetryMutableCleanup);
-        yield return ("MMC deep mutable scopes use a trusted short authority and preserve unknown owners", ShortMutableIsolation);
-        yield return ("MMC short mutable cleanup releases pins only after confirmed exit and successful owned cleanup", ShortMutableExit);
-        yield return ("MMC short mutable host death retains runtime binding and blocks writes until reconciliation", ShortMutableHostDeath);
-        yield return ("MMC session active PostExit owner lease blocks second-host reconciliation until settled and recovers after host death", ActivePostExitOwnerLeaseBlocksSecondHostUntilSettled);
+        if (OperatingSystem.IsWindows())
+            yield return ("MMC deep mutable scopes use a trusted short authority and preserve unknown owners", ShortMutableIsolation);
+        else
+            yield return ("MMC non-Windows deep mutable scopes retain instance-local layout and reject foreign owners", LocalMutableIsolation);
+        yield return (OperatingSystem.IsWindows()
+            ? "MMC short mutable cleanup releases pins only after confirmed exit and successful owned cleanup"
+            : "MMC instance-local mutable cleanup releases pins only after confirmed exit and successful owned cleanup", ShortMutableExit);
+        yield return (OperatingSystem.IsWindows()
+            ? "MMC short mutable host death retains runtime binding and blocks writes until reconciliation"
+            : "MMC non-Windows mutable host death preserves Unknown runtime ownership and refuses structural writes", ShortMutableHostDeath);
+        if (OperatingSystem.IsWindows())
+            yield return ("MMC session active PostExit owner lease blocks second-host reconciliation until settled and recovers after host death", ActivePostExitOwnerLeaseBlocksSecondHostUntilSettled);
+        else
+            yield return ("MMC non-Windows exited receipt keeps an active finalization owner Unknown and write-protected until settlement", ActiveExitOwnerLeaseWithoutWindowsCommand);
         if (OperatingSystem.IsWindows()) yield return ("MMC observes a suspended child image before its module list initializes", SuspendedImage);
     }
 
@@ -518,9 +534,52 @@ internal static partial class MmcSessionTests {
         Equal(true, File.Exists(fixture.PinFile)); Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
         var inspector = new MmcSessionProcessInspector((pid, nonce) => pid == fixture.ChildPid() && nonce == fixture.ChildNonce());
         MmcSessionResult result = MmcSessions.Reconcile(lease, id, inspector, _ => throw new Exception("running pin must remain"));
-        Equal(MmcSessionObservation.MatchingRunning, result.Observation);
+        Equal(OperatingSystem.IsWindows() ? MmcSessionObservation.MatchingRunning : MmcSessionObservation.Unknown, result.Observation);
+        if (!OperatingSystem.IsWindows()) {
+            Equal(true, File.Exists(fixture.PinFile));
+            Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
+            Throws<IOException>(() => MmcFileTransactions.Execute(lease, fixture.TransactionRequest()));
+        }
         fixture.StopAndWait();
         Equal(MmcSessionObservation.ProvenExited, MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(), _ => File.Delete(fixture.PinFile)).Observation);
+    }
+
+    private static void WindowsProcessGroupHostUnsupported() {
+        using Fixture fixture = new();
+        bool validationReached = false;
+        foreach (bool redirectPipes in new[] { false, true }) {
+            var start = fixture.Request().StartInfo;
+            Throws<PlatformNotSupportedException>(() => {
+                using var tree = MmcSessionProcessTree.Start(AppHost(), start, redirectPipes, _ => validationReached = true);
+            });
+        }
+        Equal(false, validationReached);
+        Equal(false, File.Exists(fixture.Ready));
+        Equal(false, File.Exists(fixture.PinFile));
+    }
+
+    private static void ActiveExitOwnerLeaseWithoutWindowsCommand() {
+        using Fixture fixture = new(); using var lease = fixture.Lease();
+        Guid id = Guid.NewGuid(); var binding = new MmcSessionRuntimeBinding(new string('b', 64));
+        string mutable = CreateMutable(fixture.Root, id, binding);
+        FixturePin? pin = null;
+        using var session = MmcSessions.Launch(lease, fixture.Request() with { SessionId = id, RuntimeBinding = binding },
+            () => { }, (_, image) => pin = new(image, fixture.PinFile));
+        FixturePin actualPin = pin ?? throw new Exception("Controlled finalization-owner Java pin was not acquired.");
+        fixture.WaitChild(); fixture.Stop();
+        if (!session.Process.WaitForExit(10000)) throw new Exception("Controlled finalization-owner child did not exit.");
+        session.RecordVerifiedExit(lease);
+        string exited = Path.Combine(fixture.Sessions, id.ToString("N"), "Exited.record");
+        Equal(true, File.Exists(exited)); Equal(true, Directory.Exists(mutable)); Equal(true, File.Exists(fixture.PinFile));
+        Equal(MmcSessionObservation.Unknown, MmcSessions.Reconcile(lease, id, new MmcSessionProcessInspector(),
+            _ => throw new Exception("An active finalization owner must retain its Java pin.")).Observation);
+        Throws<IOException>(() => MmcSessions.AssertNoActive(lease));
+        Throws<IOException>(() => MmcFileTransactions.Execute(lease, fixture.TransactionRequest()));
+        Equal(false, actualPin.Completed); Equal(true, File.Exists(exited)); Equal(true, Directory.Exists(mutable));
+        session.FinalizeVerifiedExit(lease);
+        Equal(true, actualPin.Completed); Equal(false, File.Exists(fixture.PinFile)); Equal(false, Directory.Exists(mutable));
+        Equal(true, File.Exists(Path.Combine(fixture.Root, "PCL", "MmcSessionHistory", id.ToString("N"), "Exited.record")));
+        MmcSessions.AssertNoActive(lease);
     }
 
     private static void ActivePostExitOwnerLeaseBlocksSecondHostUntilSettled() {

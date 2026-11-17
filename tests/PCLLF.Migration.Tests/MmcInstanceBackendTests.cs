@@ -9,13 +9,17 @@ using PCLLF.MMCC.Core;
 
 internal static partial class MmcInstanceBackendTests {
     internal static IEnumerable<(string Name, Action Run)> PublicationCases() {
+        if (!OperatingSystem.IsWindows()) {
+            yield return ("MMC Unix import publication preserves identity with a live reader without claiming Windows sharing-denial coverage", () => PublicationReader("unix"));
+            yield break;
+        }
         yield return ("MMC import publication waits for a transient reader and retains its exact private identity", () => PublicationReader("release"));
         yield return ("MMC import publication retry preserves a newly claimed destination", () => PublicationReader("claimed"));
         yield return ("MMC import publication retry refuses changed primary bytes", () => PublicationReader("changed"));
         yield return ("MMC import publication leaves a persistently locked private root recoverable", () => PublicationReader("held"));
     }
     private static void PublicationReader(string mode) {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("This test requires actual Windows directory sharing behavior.");
+        if (!OperatingSystem.IsWindows() && mode != "unix") throw new PlatformNotSupportedException("This test requires actual Windows directory sharing behavior.");
         using Fixture fixture = new(); FileStream? reader = null; string? privateRoot = null; int waits = 0;
         try {
             var result = fixture.Backend().ImportAsync(new(fixture.Archive, fixture.VersionRoot, "fixture", new("windows", "x86_64", 8)),
@@ -30,10 +34,15 @@ internal static partial class MmcInstanceBackendTests {
                         if (mode == "changed") File.AppendAllText(Path.Combine(privateRoot!, "PCL", "InstanceDefinition.json"), " ");
                     }
                 })).GetAwaiter().GetResult();
-            if (mode == "release") {
+            if (mode is "release" or "unix") {
                 if (result.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception("Publication failed with a temporary reader: " + result.Failure);
-                Equal(true, waits >= 1); Equal(false, Directory.Exists(privateRoot)); Equal("player config", File.ReadAllText(Path.Combine(fixture.VersionRoot, "minecraft", "config", "example.cfg")));
+                Equal(true, mode == "unix" ? waits == 0 : waits >= 1); Equal(false, Directory.Exists(privateRoot)); Equal("player config", File.ReadAllText(Path.Combine(fixture.VersionRoot, "minecraft", "config", "example.cfg")));
                 Equal(result.Definition!.InstanceId, MmcSavedSourceStore.ReadPrimary(result.Paths!).Definition.InstanceId);
+                if (mode == "unix") {
+                    if (reader is null || !reader.CanRead) throw new Exception("The Unix publication fixture did not keep its real read handle open.");
+                    reader.Position = 0; byte[] retained = new byte[checked((int)reader.Length)]; reader.ReadExactly(retained);
+                    Equal("player config", Encoding.UTF8.GetString(retained));
+                }
             } else {
                 Equal(MmcInstanceBackendStatus.NeedsRecovery, result.Status); Equal(true, waits >= 1); Equal(true, Directory.Exists(privateRoot));
                 Equal(true, File.Exists(Path.Combine(privateRoot!, "PCL", "MmcImportPending.json")));
