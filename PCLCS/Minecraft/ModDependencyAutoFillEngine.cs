@@ -169,6 +169,9 @@ public sealed partial class ModDependencyAutoFillEngine<TContext, TMod, TDepende
         using CancellationTokenSource budget = CancellationTokenSource.CreateLinkedTokenSource(token);
         budget.CancelAfter(20000);
         host.Enrich(report, root, budget.Token, configuration);
+        // Enrichment can discover platform-only required relationships. Rebuild
+        // the activation proposal after those exact mappings become available.
+        result = Prepare(root, report, token);
         HashSet<string> existing = new(report.OnlineFiles.Where(value => value.Enabled).SelectMany(value => value.Matches)
             .Where(value => value.IsExact).Select(value => Key(value.Platform, value.ProjectId)), StringComparer.Ordinal);
         HashSet<string> disabled = new(report.OnlineFiles.Where(value => !value.Enabled).SelectMany(value => value.Matches)

@@ -71,7 +71,7 @@ public sealed class ModFileInstall {
     private static HashSet<string>? Ids(IReadOnlyCollection<string>? ids) => ids is null || ids.Count == 0 || ids.Any(string.IsNullOrWhiteSpace)
         ? null : ids.ToHashSet(StringComparer.Ordinal);
 
-    public ModFileInstallResult Install(string downloaded, string destination, CancellationToken token = default, Action<int,int>? progress = null) {
+    public ModFileInstallResult Install(string downloaded, string destination, CancellationToken token = default, Action<int,int>? progress = null, bool enable = false) {
         token.ThrowIfCancellationRequested();
         downloaded = Full(downloaded); destination = Full(destination);
         string root = System.IO.Path.GetDirectoryName(destination)!;
@@ -85,11 +85,11 @@ public sealed class ModFileInstall {
                 token.ThrowIfCancellationRequested();
                 try { owned = mutex.WaitOne(50); } catch (AbandonedMutexException) { owned = true; }
             }
-            return Commit(downloaded, destination, root, token, progress);
+            return Commit(downloaded, destination, root, token, progress, enable);
         } finally { if (owned) mutex.ReleaseMutex(); }
     }
 
-    private ModFileInstallResult Commit(string downloaded, string destination, string root, CancellationToken token, Action<int,int>? progress) {
+    private ModFileInstallResult Commit(string downloaded, string destination, string root, CancellationToken token, Action<int,int>? progress, bool enable) {
         HashSet<string>? incoming;
         string incomingHash;
         using (var evidence = new FileStream(downloaded, FileMode.Open, FileAccess.Read, FileShare.Read)) {
@@ -111,7 +111,7 @@ public sealed class ModFileInstall {
         }
         bool Conflicts(string path) => Directory.Exists(path) || (File.Exists(path) && !existing.Any(file => string.Equals(Full(file.Path), path, StringComparison.OrdinalIgnoreCase)));
         if (Conflicts(destination)) throw new IOException("目标存在同名文件，但无法确认是同一模组；已保留原文件，请选择其他文件名。");
-        if (existing.Count > 0 && existing.All(file => EnabledPath(file.Path) != file.Path)) {
+        if (!enable && existing.Count > 0 && existing.All(file => EnabledPath(file.Path) != file.Path)) {
             string suffix = existing.All(file => file.Path.EndsWith(".old", StringComparison.OrdinalIgnoreCase)) ? ".old" : ".disabled";
             destination = EnabledPath(destination) + suffix;
         }

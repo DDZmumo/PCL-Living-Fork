@@ -7,6 +7,7 @@ namespace PCLCS;
 
 public enum ResourceReleaseTypes { Release = 1, Beta = 2, Alpha = 3 }
 public enum ResourceDownloadReason { Standalone, Dependency, ModPack, Update }
+public sealed record ModDownloadDependencyReference(string? ProjectId, string? VersionId);
 
 /// <summary>Only LF's settings-dependent mirror/debug/platform primitives are supplied by the host.</summary>
 public sealed class ResourceVersionServices {
@@ -34,6 +35,11 @@ public abstract partial class ResourceVersionModelData {
     public List<string>? DownloadUrls;
     public string? Hash;
     public int Size = -1;
+    [JsonIgnore] public string? ProjectId;
+    [JsonIgnore] public List<string>? ExactGameVersions;
+    // Null identifies an older cache entry whose full dependency declarations
+    // must be fetched before offering an automatic install.
+    [JsonIgnore] public List<ModDownloadDependencyReference>? RequiredDependencyReferences;
     internal List<string> RawDependencies = new();
     public List<string> Dependencies = new();
     [JsonIgnore] public abstract int ReleaseTypeCode { get; set; }

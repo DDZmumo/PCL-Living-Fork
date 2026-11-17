@@ -15,6 +15,7 @@ internal static class BackupResourceGroupChecks
     {
         string game = Path.Combine(scope.Root, "groups/minecraft/versions/fixture"), otherGame = Path.Combine(scope.Root, "groups/other/versions/fixture");
         ModMinecraft.McInstance owner = Instance(game), otherOwner = Instance(otherGame);
+        Cache(owner, "VersionWorldBackupMode", 1); Cache(otherOwner, "VersionWorldBackupMode", 1);
         Put(Path.Combine(game, "saves/Folder A/level.dat"), "fixture-world-a");
         Put(Path.Combine(game, "saves/Folder B/level.dat"), "fixture-world-b");
         Put(Path.Combine(otherGame, "saves/Folder A/level.dat"), "fixture-world-a");

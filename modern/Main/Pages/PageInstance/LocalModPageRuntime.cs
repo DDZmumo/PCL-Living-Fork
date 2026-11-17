@@ -115,7 +115,7 @@ namespace PCL
                 NavigateDetails = global::PCL.LocalModPageRuntime.NavigateDetails,
                 ToNetFile = new Func<global::PCL.ResourceVersion, global::System.String, global::PCL.ModNet.NetFile>((Value, Address) => Value.ToNetFile(Address, global::PCL.ResourceVersion.DownloadReason.Update, global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders)),
                 CreateUpdateJob = global::PCL.LocalModPageRuntime.CreateUpdateJob,
-                CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureInstance(Instance, Caption, Token)),
+                CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Caption, Token)),
                 RefreshDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
                 RibbleDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
                 FormatSize = global::MeloongCore.StringUtils.FormatByteSize

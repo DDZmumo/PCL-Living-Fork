@@ -52,6 +52,9 @@ namespace PCL
             {
                 Root = this,
                 CardRetention = CardRetention,
+                PanIndependent = PanIndependentRetention,
+                PreferenceMode = () => ComboRetentionMode.SelectedIndex,
+                SetPreferenceMode = value => ComboRetentionMode.SelectedIndex = value,
                 PanRetention = PanRetention,
                 CardList = CardList,
                 RestoreButton = BtnRestore,
@@ -64,8 +67,10 @@ namespace PCL
                 SetRetentionText = new Action<string>(Value => this.TextRetention.Text = Value),
                 SetAllText = new Action<string>(Value => this.FilterAll.Text = Value),
                 SetHealthyText = new Action<string>(Value => this.FilterHealthy.Text = Value),
-                AutoCleanup = new Func<bool>(() => this.CheckAutoCleanup.Checked),
-                SetAutoCleanup = new Action<bool>(Value => this.CheckAutoCleanup.Checked = Value),
+                AutoCleanup = new Func<bool>(() => this.ComboHistoryRetentionPolicy.SelectedIndex == 1),
+                SetAutoCleanup = new Action<bool>(Value => this.ComboHistoryRetentionPolicy.SelectedIndex = Value ? 1 : 0),
+                AutoCreate = () => CheckHistoryAutoCreate.Checked,
+                SetAutoCreate = value => CheckHistoryAutoCreate.Checked = value,
                 RetentionHasFocus = new Func<bool>(() => this.TextRetention.IsKeyboardFocusWithin),
                 SearchHasFocus = new Func<bool>(() => this.SearchBox.IsKeyboardFocusWithin),
                 CheckAll = new Action(() => this.FilterAll.Checked = true),
@@ -97,6 +102,10 @@ namespace PCL
                 Retention = new Func<ModMinecraft.McInstance, int>(Instance => Settings.Get<int>("VersionEnvironmentHistoryRetention", Instance: Instance)),
                 SetAutoCleanup = new Action<ModMinecraft.McInstance, bool>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryAutoCleanup", Value, Instance: Instance)),
                 SetRetention = new Action<ModMinecraft.McInstance, int>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryRetention", Value, Instance: Instance)),
+                PreferenceMode = BackupPreferences.HistoryMode,
+                SetPreferenceMode = BackupPreferences.SetHistoryMode,
+                AutoCreate = instance => Settings.Get<bool>("VersionEnvironmentHistoryAutoEnabled", instance),
+                SetAutoCreate = (instance, value) => Settings.Set("VersionEnvironmentHistoryAutoEnabled", value, instance),
                 StartLoader = new Action<string>(VersionFolder => PointsLoader.Start(new HistoryPointsRequest(VersionFolder), IsForceRestart: true)),
                 CancelLoader = new Action(() => PointsLoader.Cancel()),
                 LoaderFailed = new Func<bool>(() => PointsLoader.State == ModBase.LoadState.Failed),
@@ -354,6 +363,9 @@ namespace PCL
         {
             Controller?.AutoCleanupChanged(User);
         }
+        private void RetentionModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.PreferenceModeChanged();
+        private void HistoryRetentionPolicyChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.AutoCleanupChanged(true);
+        private void HistoryAutoCreateChanged(object sender, bool user) => Controller?.AutoCreateChanged(user);
 
         private void RetentionEdited()
         {

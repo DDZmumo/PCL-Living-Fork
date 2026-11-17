@@ -14,6 +14,7 @@ internal static class MmcInstancePackageUpdateTests {
         yield return ("MMC ZIP update stale choices, changed candidate bytes and active or pending states never alter live data", Refusals);
         yield return ("MMC ZIP update cancellation and decided interruption retain recoverable package and ownership authority", Transactions);
         yield return ("MMC ZIP Minecraft changes use actual world backups and reject implicit game-tree migration", WorldSafety);
+        yield return ("MMC ZIP Minecraft changes honor explicit automatic-backup disable and retain worlds", DisabledWorldBackup);
         yield return ("MMC external candidate stores block old whole-root and PCL cleanup even without an active versions child", ExternalStoreGuard);
         yield return ("MMC ZIP undo and redo retain exact modified removed and absent resource custom and root-file states", DynamicUndo);
         yield return ("MMC exact history coverage keeps legacy shape and rejects unknown unsafe noncanonical or contradictory payload roles", CoverageBoundaries);
@@ -260,6 +261,24 @@ internal static class MmcInstancePackageUpdateTests {
         var changed = fixture.Update().PrepareAsync(fixture.Request(leaf)).GetAwaiter().GetResult();
         Equal(MmcInstanceBackendStatus.Rejected, changed.Status); Equal("world data", fixture.Read("minecraft/saves/world/level.dat"));
     }
+    private static void DisabledWorldBackup() {
+        using Fixture fixture = new(); fixture.Import(fixture.Pack("A", "runtimeA", new()));
+        fixture.Put("minecraft/saves/world/level.dat", "world data");
+        string next = fixture.Pack("newmc", "runtimeB", new(), minecraft: "1.8.9");
+        var preview = Preserve(fixture, Prepare(fixture, next));
+        string before = fixture.Primary().Sha256, session = Path.Combine(fixture.GameRoot, "saves/world/session.lock");
+        File.WriteAllText(session, "live lock");
+        preview = Preserve(fixture, Prepare(fixture, next));
+        using (var held = new FileStream(session, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) {
+            var refused = fixture.Update(autoBackupWorlds: false).CommitAsync(NewCommit(preview)).GetAwaiter().GetResult();
+            Equal(MmcInstanceBackendStatus.NeedsRecovery, refused.Status); Equal(before, fixture.Primary().Sha256);
+        }
+        // Re-preview after adding the session marker, preserving the same world.
+        preview = Preserve(fixture, Prepare(fixture, next));
+        var result = fixture.Update(autoBackupWorlds: false).CommitAsync(NewCommit(preview)).GetAwaiter().GetResult(); Require(result);
+        Equal(0, result.WorldBackupIds.Length); Equal(0, fixture.WorldBackups.Points(fixture.GameRoot).Count);
+        Equal("world data", fixture.Read("minecraft/saves/world/level.dat"));
+    }
     private static void ExternalStoreGuard() {
         using Fixture fixture = new();
         var request = new MmcInstancePackageUpdateRequest(fixture.VersionRoot, Guid.NewGuid(), 1, new string('a', 64), Path.Combine(fixture.Root, "unused.zip"), new("windows", "x86_64", 8));
@@ -334,8 +353,8 @@ internal static class MmcInstancePackageUpdateTests {
         private MmcArtifactCacheRoots Caches() => new(System.IO.Path.Combine(CacheRoot, "libraries"), System.IO.Path.Combine(CacheRoot, "assets"), System.IO.Path.Combine(CacheRoot, "sources"));
         private async Task Downloads(ImmutableArray<MmcArtifactDownloadSpec> files, CancellationToken token) { foreach (var file in files) await File.WriteAllBytesAsync(file.DownloadPath, index, token); }
         internal MmcInstanceBackend<MmcArtifactDownloadSpec> Backend() => new(Store(), Caches(), value => value, Downloads);
-        internal MmcInstancePackageUpdateBackend<MmcArtifactDownloadSpec> Update(bool backups = true) => new(Store(), Caches(), value => value, Downloads,
-            backups ? (root, token) => WorldBackups.CaptureFolder(root, "Minecraft版本更改前", 3, token) : null);
+        internal MmcInstancePackageUpdateBackend<MmcArtifactDownloadSpec> Update(bool backups = true, bool autoBackupWorlds = true) => new(Store(), Caches(), value => value, Downloads,
+            backups ? (root, token) => WorldBackups.CaptureFolder(root, "Minecraft版本更改前", 3, token) : null, autoBackupWorlds: autoBackupWorlds);
         internal void Import(string archive) { var result = Backend().ImportAsync(new(archive, VersionRoot, "live", new("windows", "x86_64", 8))).GetAwaiter().GetResult(); if (result.Status != MmcInstanceBackendStatus.Succeeded) throw new Exception(result.Failure); }
         internal MmcInstancePackageUpdateRequest Request(string archive) { var current = Primary(); return new(VersionRoot, current.Definition.InstanceId, current.Definition.Generation, current.Sha256, archive, new("windows", "x86_64", 8)); }
         internal MmcStoredPrimaryDefinition Primary() => MmcSavedSourceStore.ReadPrimary(MmcInstancePaths.Resolve(VersionRoot));

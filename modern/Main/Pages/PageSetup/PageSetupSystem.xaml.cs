@@ -31,7 +31,8 @@ namespace PCL
             Initialized += InitLauncherUpdateSource;
             __LfAttachOwnHandles();
             this.InitializeComponent();
-            Loaded += (_, _) => RefreshBackupStorage();
+            RefreshBackupRetention();
+            Loaded += (_, _) => { RefreshBackupStorage(); RefreshBackupRetention(); };
         }
 
         private void InitLauncherUpdateSource(object sender, EventArgs e) => Controller.InitializeLauncherUpdates();
@@ -46,6 +47,7 @@ namespace PCL
         public void Reload()
         {
             Controller.Reload();
+            RefreshBackupRetention();
         }
 
         internal void RefreshModpackSwitch()
@@ -60,7 +62,10 @@ namespace PCL
 
         public void Reset()
         {
+            Settings.Reset("LaunchWorldBackupKeepAll");
+            Settings.Reset("LaunchEnvironmentHistoryAutoCleanup");
             Controller.Reset();
+            RefreshBackupRetention();
         }
 
         private void SliderLoad()

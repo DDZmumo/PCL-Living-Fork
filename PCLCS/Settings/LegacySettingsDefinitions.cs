@@ -121,6 +121,12 @@ public static class LegacySettingsDefinitions {
         Add("LaunchArgumentWindowHeight", 480);
         Add("LaunchArgumentWindowType", 1);
         Add("LaunchArgumentRam", false, LegacySettingSource.Registry);
+        Add("LaunchWorldBackupAutoEnabled", true);
+        Add("LaunchWorldBackupRetention", 5);
+        Add("LaunchWorldBackupKeepAll", false);
+        Add("LaunchEnvironmentHistoryAutoCleanup", false);
+        Add("LaunchEnvironmentHistoryAutoEnabled", true);
+        Add("LaunchEnvironmentHistoryRetention", 10);
         Add("LaunchModDependencyCheck", true);
         Add("LaunchModDependencyAutoFill", true);
         Add("LaunchAdvanceJvm", "-XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=True -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True");
@@ -146,6 +152,7 @@ public static class LegacySettingsDefinitions {
         Add("ToolDownloadTranslateV2", 1, LegacySettingSource.Registry);
         Add("ToolDownloadCert", false, LegacySettingSource.Registry);
         Add("ToolDownloadMod", 2, LegacySettingSource.Registry);
+        Add("ToolDownloadModDependencies", true);
         Add("ToolModLocalNameStyle", 0, LegacySettingSource.Registry);
         Add("ToolLauncherUpdateIgnoredTag", "", LegacySettingSource.Registry);
         Add("ToolLauncherUpdateSource", 0);
@@ -215,8 +222,12 @@ public static class LegacySettingsDefinitions {
         Add("VersionArgumentIndieV2", false, LegacySettingSource.Instance);
         Add("VersionPersonalOptionsSync", 0, LegacySettingSource.Instance);
         Add("VersionWorldBackupAutoEnabled", true, LegacySettingSource.Instance);
+        Add("VersionWorldBackupMode", -1, LegacySettingSource.Instance);
         Add("VersionWorldBackupRetention", 5, LegacySettingSource.Instance);
+        Add("VersionWorldBackupKeepAll", false, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryAutoCleanup", false, LegacySettingSource.Instance);
+        Add("VersionEnvironmentHistoryAutoEnabled", true, LegacySettingSource.Instance);
+        Add("VersionEnvironmentHistoryMode", -1, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryRetention", 10, LegacySettingSource.Instance);
         Add("VersionArgumentJavaSelect", "使用全局设置", LegacySettingSource.Instance);
         Add("VersionArgumentJavaV2", 0, LegacySettingSource.Instance);

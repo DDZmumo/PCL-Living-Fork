@@ -78,6 +78,7 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
             object unavailable = LaunchRepair(fixture);
             LaunchViews(fixture, unavailable);
             LaunchActivation(scope.Root);
+            LaunchPlatformActivation(scope.Root);
             LaunchToggles();
             environment.AssertNoForbiddenIo();
         }

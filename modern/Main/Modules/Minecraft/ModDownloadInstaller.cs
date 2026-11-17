@@ -15,6 +15,7 @@ using PCLCS;
 namespace PCL;
 
 internal static class ModDownloadInstaller {
+    internal static Func<string> DownloadCache = () => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PCLLivingFork", "Cache", "ModDownloads");
     private static string Key(string path) => Path.GetFullPath(PathUtils.RemoveExtendedPrefix(path)).TrimEnd('\\','/');
     internal static bool MatchesVerifiedProject(string path, ResourceProjectModelData project, CancellationToken token) {
         var entry = LocalResourceLoaders.LocalResourceLoader.Output?.ToArray().FirstOrDefault(mod => mod is not null &&
@@ -50,7 +51,7 @@ internal static class ModDownloadInstaller {
         context.LoaderKnown = context.LoaderVersions.Count > 0;
         return context;
     }
-    internal static ModLoader.LoaderTask<string,string> CreateInstallTask(ResourceProjectModelData project, ResourceVersion version, string payload, string target, ModMinecraft.McInstance owner) {
+    internal static ModLoader.LoaderTask<string,string> CreateInstallTask(ResourceProjectModelData project, ResourceVersion version, string payload, string target, ModMinecraft.McInstance owner, bool enableDependency = false) {
         var context = Context(owner,version);
         return new ModLoader.LoaderTask<string,string>("检查并替换已有模组", task => {
             CancellationToken token = task.CreateCancellationToken();
@@ -62,7 +63,7 @@ internal static class ModDownloadInstaller {
                 result = new ModFileInstall((path,ct) => ReadIds(path,context,ct),(path,ct)=>MatchesVerifiedProject(path,project,ct)) {
                     CleanupWarning = error => Logger.Warn(error,"清理已完成的 Mod 安装事务副本失败")
                 }.Install(payload,target,token,
-                    (done,total) => task.Progress = total == 0 ? 0 : Math.Min(0.99, (double)done/total));
+                    (done,total) => task.Progress = total == 0 ? 0 : Math.Min(0.99, (double)done/total), enable: enableDependency);
             });
             worker.Failed += error => failure = error;
             string lockedPath = owner?.PathVersion ?? Path.GetDirectoryName(Path.GetFullPath(target));
@@ -79,18 +80,54 @@ internal static class ModDownloadInstaller {
                     if (owner is not null && ModMain.FrmInstanceMod is not null && ReferenceEquals(PageInstanceLeft.Instance,owner)) ModMain.FrmInstanceMod.LoaderRun(ModLoader.LoaderFolderRunType.ForceRun);
                 });
             } finally { if (acquired) ModMinecraft.McInstanceLock.Release(worker,lockedPath); }
-        }) { ProgressWeight = 1, InterruptOnCancel = false };
+        }) { ProgressWeight = 1, InterruptOnCancel = false, Block = true };
     }
     internal static void Start(ResourceProjectModelData project, ResourceVersion version, string target, ResourceDownloadReason reason, ModMinecraft.McInstance preferred) {
         if (!ModModpackMode.ConfirmModAction("安装 Mod")) return;
         var owner = Owner(target, preferred);
-        string cacheRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PCLLivingFork","Cache","ModDownloads");
+        if (!Settings.Get<bool>("ToolDownloadModDependencies")) { StartPrepared(project, version, target, reason, owner); return; }
+        ModMain.Hint("正在检查模组必需前置……");
+        ModBase.RunInNewThread(() => {
+            try { PrepareAndStart(project, version, target, reason, owner); }
+            catch (Exception error) { Logger.Error(error, "检查模组前置失败", LogBehavior.Toast); }
+        }, "检查下载模组前置");
+    }
+    internal static void PrepareAndStart(ResourceProjectModelData project, ResourceVersion version, string target,
+        ResourceDownloadReason reason, ModMinecraft.McInstance owner) {
+        var plan = ModDownloadDependencies.Prepare(project, version, target, owner, CancellationToken.None);
+        var choice = ModBase.RunInUiWait(() => ModDownloadDependencies.Confirm(plan));
+        if (choice == ModDependencyDownloadChoice.Cancel) return;
+        ModBase.RunInUi(() => StartPrepared(project, version, target, reason, owner,
+            choice == ModDependencyDownloadChoice.WithDependencies ? plan : null));
+    }
+    internal static ModLoader.LoaderCombo<string> StartPrepared(ResourceProjectModelData project, ResourceVersion version, string target,
+        ResourceDownloadReason reason, ModMinecraft.McInstance owner, ModDownloadDependencyPlan<ResourceVersion> plan = null) {
+        if (plan is not null && !plan.CanInstall) throw new IOException("前置安装计划尚有未解决的问题，请重新确认。");
+        var items = new List<(ResourceProjectModelData Project, ResourceVersion Version, string Target, bool Dependency)>();
+        if (plan is not null) foreach (var item in plan.Dependencies.Where(item => !item.Installed))
+            items.Add((item.Project, item.Version, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(target)), item.Version.FileName), true));
+        items.Add((project, version, target, false));
+        if (items.Select(item => Path.GetFullPath(item.Target)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != items.Count)
+            throw new IOException("不同模组使用了相同的目标文件名，请分别选择保存位置。");
+        string cacheRoot = Path.GetFullPath(DownloadCache());
         string stage = Path.Combine(cacheRoot,Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
-        string payload = Path.Combine(stage,"download" + Path.GetExtension(target));
-        var download = new ModNet.LoaderDownload("下载模组文件", new[] { version.ToNetFile(payload,(ResourceVersion.DownloadReason)(int)reason,null,ModLoaders.None) }) { ProgressWeight = 6, Block = true };
-        var install = CreateInstallTask(project,version,payload,target,owner);
-        var loader = new ModLoader.LoaderCombo<string>("Mod 下载："+project.TranslatedName+" ",new List<ModLoader.LoaderBase>{download,install}) {
+        var files = new List<ModNet.NetFile>();
+        var tasks = new List<ModLoader.LoaderBase>();
+        for (int index = 0; index < items.Count; index++) {
+            var item = items[index]; string payload = Path.Combine(stage, index + Path.GetExtension(item.Target));
+            files.Add(item.Version.ToNetFile(payload, item.Dependency ? ResourceVersion.DownloadReason.Dependency : (ResourceVersion.DownloadReason)(int)reason,
+                plan?.MinecraftVersion, plan?.Loader ?? ModLoaders.None));
+            tasks.Add(CreateInstallTask(item.Project, item.Version, payload, item.Target, owner, item.Dependency));
+        }
+        if (plan is not null && plan.Dependencies.Any(item => item.Installed)) tasks.Insert(0,
+            new ModLoader.LoaderTask<string,string>("复核已安装前置", task => {
+                var hashes = new ModDownloadDependencies.InstalledHashes(Path.GetDirectoryName(Path.GetFullPath(target)));
+                foreach (var item in plan.Dependencies.Where(item => item.Installed))
+                    if (!hashes.Contains(item.Version, task.CreateCancellationToken())) throw new IOException("前置 " + item.Name + " 在确认后发生变化，请重新下载。");
+            }) { InterruptOnCancel = false, Block = true });
+        tasks.Insert(0, new ModNet.LoaderDownload("下载模组及必需前置", files) { ProgressWeight = 6, Block = true });
+        var loader = new ModLoader.LoaderCombo<string>("Mod 下载："+project.TranslatedName+" ", tasks) {
             OnStateChanged = ModDownloadLib.LoaderStateChangedHintOnly
         };
         // This guard also drains an install still rolling back after the combo is canceled.
@@ -104,5 +141,6 @@ internal static class ModDownloadInstaller {
         };
         cleanup.Start(); ModLoader.LoaderTaskbarAdd(loader);
         ModMain.FrmMain?.BtnExtraDownload.ShowRefresh(); ModMain.FrmMain?.BtnExtraDownload.Ribble();
+        return loader;
     }
 }

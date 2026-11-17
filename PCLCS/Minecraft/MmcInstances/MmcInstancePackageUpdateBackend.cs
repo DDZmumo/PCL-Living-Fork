@@ -14,10 +14,11 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
     private readonly MmcArtifactMaterializer materializer;
     private readonly MmcArtifactPrefetchAdapter<TNetFile> prefetch;
     private readonly Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds;
+    private readonly bool autoBackupWorlds;
     public MmcInstancePackageUpdateBackend(MmcMetadataStore metadata, MmcArtifactCacheRoots roots, Func<MmcArtifactDownloadSpec, TNetFile> build,
         Func<ImmutableArray<TNetFile>, CancellationToken, Task> runBatch,
-        Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds = null, MmcArtifactLimits? limits = null) {
-        this.metadata = metadata; this.backupWorlds = backupWorlds; importer = new(metadata, roots, build, runBatch, limits);
+        Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds = null, MmcArtifactLimits? limits = null, bool autoBackupWorlds = true) {
+        this.metadata = metadata; this.backupWorlds = backupWorlds; this.autoBackupWorlds = autoBackupWorlds; importer = new(metadata, roots, build, runBatch, limits);
         materializer = new(limits); prefetch = new(roots, build, runBatch, limits);
     }
     public Task<MmcInstancePackageUpdatePreviewResult> PrepareAsync(MmcInstancePackageUpdateRequest request, CancellationToken token = default,

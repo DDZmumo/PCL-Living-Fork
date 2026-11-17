@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -18,6 +19,7 @@ public static class MmcManagementProbe {
     private static readonly string[] ReservedStores = ["MmcSource", "MmcOverrides", "MmcArtifacts", "MmcRuntime", "MmcTransactionHistory", "MmcSessions", "MmcSessionHistory", "MmcCommands", "MmcLifecycle", "MmcHistory", "MmcDefinitionChanges", "MmcPackageUpdateReceipts", "MmcProjectionBackups"];
     private static readonly string[] PendingNames = ["MmcImportPending.json", "MmcLifecyclePending.json", "MmcLegacyAdoptionPending.json"];
     private static readonly string[] ReceiptNames = ["MmcImportPayload.json", "MmcClonePrepared.json"];
+    private static readonly HashSet<string> MarkerNames = new(ReservedStores.Concat(PendingNames).Concat(ReceiptNames).Append("MmcTransactions"), StringComparer.OrdinalIgnoreCase);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     public static MmcManagementResult Read(string versionRoot) => MmcManagementReader.Evaluate(Capture(versionRoot));
 
@@ -38,6 +40,9 @@ public static class MmcManagementProbe {
         MmcManagementDocument definition = ReadDocument(Path.Combine(pcl, "InstanceDefinition.json"));
         MmcManagementDocument configHint = ReadHint(Path.Combine(pcl, "config.json"), true);
         MmcManagementDocument versionHint = ReadHint(Path.Combine(root, logicalVersionName + ".json"), false);
+        if (!definition.Exists && definition.Error is null && !configHint.Exists && configHint.Error is null &&
+            !versionHint.Exists && versionHint.Error is null && ObserveOrdinaryDirectory(pcl))
+            return new(definition, configHint, versionHint);
         bool sources = false, pending = false, complete = true;
         foreach (string pendingName in PendingNames) try {
             string import = Path.Combine(pcl, pendingName);
@@ -79,6 +84,26 @@ public static class MmcManagementProbe {
             }
         } catch (Exception ex) when (IsObservationFailure(ex)) { complete = false; }
         return new(definition, configHint, versionHint, sources, pending, complete);
+    }
+
+    private static bool ObserveOrdinaryDirectory(string pcl) {
+        try {
+            // A fresh top-level enumeration replaces dozens of repeated ancestor
+            // walks for absent markers. Nothing is retained between observations;
+            // positive, uncertain or changing namespaces take the strict path.
+            MmcInstancePaths.EnsureNoLinks(pcl);
+            FileAttributes? attributes = MmcInstancePaths.Attributes(pcl);
+            if (attributes is null) return true;
+            if ((attributes.Value & FileAttributes.Directory) == 0) return false;
+            var directory = new DirectoryInfo(pcl);
+            DateTime created = directory.CreationTimeUtc, written = directory.LastWriteTimeUtc;
+            int count = 0;
+            foreach (var item in directory.EnumerateFileSystemInfos())
+                if (++count > 4096 || MarkerNames.Contains(item.Name)) return false;
+            MmcInstancePaths.EnsureNoLinks(pcl);
+            directory.Refresh();
+            return directory.Exists && directory.CreationTimeUtc == created && directory.LastWriteTimeUtc == written;
+        } catch (Exception error) when (IsObservationFailure(error)) { return false; }
     }
 
     private static MmcManagementDocument ReadDocument(string path) {

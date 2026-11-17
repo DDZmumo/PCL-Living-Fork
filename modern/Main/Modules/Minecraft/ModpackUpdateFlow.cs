@@ -135,7 +135,7 @@ namespace PCL
                 RuntimeWorkload = new Func<global::PCL.ModLoader.LoaderCombo<global::System.String>, global::System.String, global::MeloongCore.ProgressProvider, global::System.Action>((Build, Folder, Progress) => global::PCL.LoaderFileOperation.CreateWorkloadWithProgress(Build, Folder, Progress)),
                 CancelCombo = new Action<global::PCL.ModLoader.LoaderCombo<global::System.String>>(Build => Build.Cancel()),
                 BeforeMinecraftChange = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.String, global::System.Threading.CancellationToken>((Instance, OldMinecraft, NewMinecraft, Token) => global::PCL.WorldBackups.BeforeMinecraftChange(Instance, OldMinecraft, NewMinecraft, Token)),
-                CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureInstance(Instance, Caption, Token)),
+                CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Caption, Token)),
                 ResetSettings = new Action<global::PCL.ModMinecraft.McInstance>(Instance => Instance.ResetSettingsCache()),
                 LoadInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Folder => new global::PCL.ModMinecraft.McInstance(Folder).Load()),
                 PageInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),

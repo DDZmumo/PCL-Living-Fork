@@ -23,15 +23,43 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
       <local:MyButton x:Name="BtnMmcUndo" Text="撤回上次还原" Grid.Column="3" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" Visibility="Collapsed" IsEnabled="False" />
  </Grid>
     </local:MyCard>
-    <local:MyCard x:Name="CardRetention" Title="保留设置" Margin="0,0,0,15" IsEnabled="False">
-     <StackPanel Margin="25,40,25,20">
-      <local:MyCheckBox x:Name="CheckAutoCleanup" Text="自动清理超过上限的旧还原点" ToolTip="手动还原点不计入上限。新还原点保存成功后，才会清理最旧的自动还原点。" />
-      <StackPanel x:Name="PanRetention" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
-       <TextBlock Text="保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
+    <local:MyCard x:Name="CardRetention" Title="还原点设置" Margin="0,0,0,15" IsEnabled="False">
+     <StackPanel Grid.IsSharedSizeScope="True" Margin="25,40,25,20">
+      <Grid Margin="0,0,0,12">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+       <TextBlock x:Name="LabHistorySource" Text="配置来源" VerticalAlignment="Center" Margin="0,0,25,0" />
+       <local:MyComboBox x:Name="ComboRetentionMode" Grid.Column="1" Height="28" SelectionChanged="RetentionModeChanged" ToolTip="全局配置位于：设置 → 其他 → 世界备份与环境还原点。">
+       <local:MyComboBoxItem Content="跟随全局设置" />
+       <local:MyComboBoxItem Content="实例独立配置" />
+      </local:MyComboBox>
+      </Grid>
+      <StackPanel x:Name="PanIndependentRetention" Visibility="Collapsed">
+      <Grid Margin="0,0,0,12">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+       <TextBlock x:Name="LabHistoryAutoCreate" Text="自动创建" VerticalAlignment="Center" Margin="0,0,25,0" />
+       <local:MyCheckBox x:Name="CheckHistoryAutoCreate" Grid.Column="1" Text="启动游戏或修改环境前创建还原点" Change="HistoryAutoCreateChanged" />
+      </Grid>
+      <Grid Margin="0,0,0,12">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+       <TextBlock x:Name="LabHistoryPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
+       <local:MyComboBox x:Name="ComboHistoryRetentionPolicy" Grid.Column="1" Height="28" SelectionChanged="HistoryRetentionPolicyChanged">
+       <local:MyComboBoxItem Content="全部保留" />
+       <local:MyComboBoxItem Content="保留最近若干份" />
+      </local:MyComboBox>
+      </Grid>
+      <StackPanel x:Name="PanRetention" Margin="0,0,0,0" Visibility="Collapsed">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+        <TextBlock x:Name="LabHistoryCount" Text="保留份数" VerticalAlignment="Center" Margin="0,0,25,0" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
        <local:MyTextBox x:Name="TextRetention" Width="65" MaxLength="3" Text="10" ShowValidateResult="False" ToolTip="允许 1 到 100 个自动还原点，手动还原点不计入。">
         <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>
        </local:MyTextBox>
        <TextBlock Text="个自动还原点" VerticalAlignment="Center" Margin="10,0,0,0" />
+
+        </StackPanel>
+       </Grid>
+      </StackPanel>
       </StackPanel>
      </StackPanel>
     </local:MyCard>
@@ -41,7 +69,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
       <local:MyRadioButton x:Name="FilterHealthy" Text="正常运行" ColorType="Highlight" Margin="2,0" />
      </StackPanel>
      <StackPanel Margin="20,48,18,22">
-      <TextBlock x:Name="LabEmpty" Text="暂无还原点。更新前会自动保存，也可以手动创建。" Opacity="0.65" TextWrapping="Wrap" Margin="5,0,5,8" />
+      <TextBlock x:Name="LabEmpty" Text="暂无还原点。" Opacity="0.65" TextWrapping="Wrap" Margin="5,0,5,8" />
       <StackPanel x:Name="PanEntries" />
      </StackPanel>
     </local:MyCard>

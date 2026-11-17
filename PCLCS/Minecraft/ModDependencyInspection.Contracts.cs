@@ -146,14 +146,14 @@ public sealed partial class ModDependencyInspection<TContext, TMod, TDependency,
         public bool HasErrors => Issues.Any(issue => issue.IsError);
         // Platform declarations are reviewed alongside local constraints, never
         // promoted into loader errors or accepted from name-search candidates.
-        public List<string> PlatformReviewNotes() {
+        public List<string> PlatformReviewNotes(Func<TOnlineFile, TOnlineDependency, bool>? planned = null) {
             List<string> notes = new();
             foreach (TOnlineFile file in OnlineFiles.Where(file => file.Enabled && file.IsSupplementTarget))
                 foreach (TOnlineProject project in file.Matches.Where(project => project.IsExact))
                     foreach (TOnlineDependency dependency in project.Dependencies) {
                         string source = System.IO.Path.GetFileName(file.FullPath) + " · " + project.Platform + " 版本 " + project.VersionId;
                         string requested = dependency.DisplayName + (string.IsNullOrEmpty(dependency.VersionId) ? "" : "（平台版本 " + dependency.VersionId + "）");
-                        if (dependency.Kind == "required" && dependency.EnabledPaths.Count == 0 && RuntimeProvidersForPlatformDependency((TReport)this,file.FullPath,dependency).Count == 0)
+                        if (dependency.Kind == "required" && dependency.EnabledPaths.Count == 0 && RuntimeProvidersForPlatformDependency((TReport)this,file.FullPath,dependency).Count == 0 && !(planned?.Invoke(file, dependency) ?? false))
                             notes.Add(source + "\r\n平台声明必需：" + requested + "\r\n" + dependency.Status + "。请结合内嵌声明核对，未据此判定加载器错误。");
                         else if (dependency.Kind == "incompatible" && dependency.EnabledPaths.Count > 0)
                             notes.Add(source + "\r\n平台声明不兼容：" + requested + "\r\n当前启用：" + string.Join("、", dependency.EnabledPaths.Select(System.IO.Path.GetFileName)) + "。请核对平台与内嵌声明的差异。");

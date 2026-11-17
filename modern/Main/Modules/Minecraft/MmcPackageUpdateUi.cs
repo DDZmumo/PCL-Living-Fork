@@ -70,14 +70,15 @@ internal static partial class MmcPackageUpdateUi {
         if (services.Metadata is null || services.CacheRoots is null) throw new IOException("MMC 更新缺少下载和元数据服务。");
         // Read settings before Commit takes configuration quiescence. The backup
         // callback itself only uses the supplied game root and captured retention.
-        int retention = Settings.Get<int>("VersionWorldBackupRetention", Instance: instance);
+        int retention = BackupPreferences.WorldRetention(instance);
+        bool autoBackupWorlds = WorldBackups.AutoEnabled(instance);
         var fence = AcquireOperationFence();
         var worker = new MmcOperationWorker<string, MmcInstancePackageUpdateResult>(fence, initialStage, task => {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(task.CreateCancellationToken(), fence.Token);
             var token = linked.Token;
             var backend = new MmcInstancePackageUpdateBackend<ModNet.NetFile>(services.Metadata, services.CacheRoots, MmcDownloads.BuildFile,
                 (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, onLoaderCreated: services.DownloadCreated),
-                (gameRoot, cancellation) => WorldBackups.CaptureFolder(gameRoot, "整合包更新前", retention, cancellation));
+                (gameRoot, cancellation) => WorldBackups.CaptureFolder(gameRoot, "整合包更新前", retention, cancellation), autoBackupWorlds: autoBackupWorlds);
             OwnedCandidate owned = null;
             bool discard = false, published = false;
             try {

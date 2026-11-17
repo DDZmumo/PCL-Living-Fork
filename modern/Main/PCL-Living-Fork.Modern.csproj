@@ -110,6 +110,7 @@
 <Compile Include="Modules/Minecraft/ModpackUpdate.cs" />
 <Compile Include="Modules/Minecraft/EnvironmentHistory.cs" />
 <Compile Include="Modules/Minecraft/WorldBackups.cs" />
+<Compile Include="Modules/Minecraft/BackupPreferences.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyInspector.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyOnline.cs" />
 <Compile Include="Modules/Minecraft/LaunchDependencyCheck.cs" />
@@ -401,5 +402,6 @@
   <Resource Include="Images/Branding/DefaultBackgroundNight.png" />
 <Compile Include="Modules/Minecraft/ModDependencyIndex.cs" />
 <Compile Include="Modules/Minecraft/ModDownloadInstaller.cs" />
+<Compile Include="Modules/Minecraft/ModDownloadDependencies.cs" />
 </ItemGroup>
 </Project>

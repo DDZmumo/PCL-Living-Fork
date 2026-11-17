@@ -31,12 +31,17 @@ public interface IEnvironmentHistoryPageRow {
 
 public sealed class EnvironmentHistoryPageView<TInstance> where TInstance : class {
     public FrameworkElement Root = null!, CardRetention = null!, PanRetention = null!, CardList = null!, RestoreButton = null!;
+    public FrameworkElement? PanIndependent, GlobalRetentionNotice;
+    public Func<int>? PreferenceMode;
+    public Action<int>? SetPreferenceMode;
     public Panel Entries = null!;
     public TextBlock Empty = null!, Select = null!;
     public Func<string> Search = null!, RetentionText = null!;
     public Action<string> SetSearch = null!, SetRetentionText = null!, SetAllText = null!, SetHealthyText = null!;
     public Func<bool> AutoCleanup = null!, RetentionHasFocus = null!, SearchHasFocus = null!;
     public Action<bool> SetAutoCleanup = null!;
+    public Func<bool>? AutoCreate;
+    public Action<bool>? SetAutoCreate;
     public Action CheckAll = null!, ForceRetentionResize = null!, ScrollHome = null!;
     public Func<IEnvironmentHistoryPageRow> CreateRow = null!;
     public Func<object, IEnvironmentHistoryPageRow> AdaptRow = null!;
@@ -52,6 +57,10 @@ public sealed class EnvironmentHistoryPageHost<TInstance> where TInstance : clas
     public Func<TInstance, int> Retention = null!;
     public Action<TInstance, bool> SetAutoCleanup = null!;
     public Action<TInstance, int> SetRetention = null!;
+    public Func<TInstance, int>? PreferenceMode;
+    public Action<TInstance, int>? SetPreferenceMode;
+    public Func<TInstance, bool>? AutoCreate;
+    public Action<TInstance, bool>? SetAutoCreate;
     public Action<string> StartLoader = null!, HintError = null!, OpenFolder = null!;
     public Action CancelLoader = null!;
     public Func<bool> LoaderFailed = null!, AnimationEnabled = null!;
@@ -108,7 +117,12 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         BindingRetention = true;
         try {
             view.CardRetention.IsEnabled = Owner is not null;
+            bool independent = Owner is not null && (host.PreferenceMode?.Invoke(Owner) ?? 1) == 1;
+            view.SetPreferenceMode?.Invoke(independent ? 1 : 0);
+            if (view.PanIndependent is not null) view.PanIndependent.Visibility = independent ? Visibility.Visible : Visibility.Collapsed;
+            if (view.GlobalRetentionNotice is not null) view.GlobalRetentionNotice.Visibility = independent ? Visibility.Collapsed : Visibility.Visible;
             view.SetAutoCleanup(Owner is not null && host.AutoCleanup(Owner));
+            view.SetAutoCreate?.Invoke(Owner is not null && (host.AutoCreate?.Invoke(Owner) ?? true));
             view.PanRetention.Visibility = view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
             if (!RetentionDirty || !view.RetentionHasFocus()) {
                 view.SetRetentionText((Owner is null ? 10 : host.Retention(Owner)).ToString());
@@ -120,10 +134,20 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         if (BindingRetention) return;
         view.PanRetention.Visibility = view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
         view.ForceRetentionResize();
-        if (user && Owner is not null) host.SetAutoCleanup(Owner, view.AutoCleanup());
+        if (user && Owner is not null && (host.PreferenceMode?.Invoke(Owner) ?? 1) == 1) host.SetAutoCleanup(Owner, view.AutoCleanup());
+    }
+    public void PreferenceModeChanged() {
+        if (BindingRetention || Owner is null || view.PreferenceMode is null || host.SetPreferenceMode is null || view.PreferenceMode() < 0) return;
+        if (!CommitRetention()) { BindRetention(); return; }
+        host.SetPreferenceMode(Owner, view.PreferenceMode() == 1 ? 1 : 0);
+        BindRetention(); view.ForceRetentionResize();
+    }
+    public void AutoCreateChanged(bool user) {
+        if (!BindingRetention && user && Owner is not null && (host.PreferenceMode?.Invoke(Owner) ?? 1) == 1 && view.AutoCreate is not null)
+            host.SetAutoCreate?.Invoke(Owner, view.AutoCreate());
     }
     public void RetentionEdited() {
-        if (!BindingRetention && Owner is not null && view.RetentionHasFocus()) RetentionDirty = true;
+        if (!BindingRetention && Owner is not null && (host.PreferenceMode?.Invoke(Owner) ?? 1) == 1 && view.RetentionHasFocus()) RetentionDirty = true;
     }
     public void RetentionKey(object sender, KeyEventArgs args) {
         if (args.Key != Key.Enter) return;
@@ -131,6 +155,8 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
     }
     public bool CommitRetention() {
         if (BindingRetention || Owner is null || !RetentionDirty) return true;
+        if ((host.PreferenceMode?.Invoke(Owner) ?? 1) != 1) { RetentionDirty = false; BindRetention(); return true; }
+        if (!view.AutoCleanup()) { RetentionDirty = false; BindRetention(); return true; }
         RetentionDirty = false;
         bool valid = int.TryParse(view.RetentionText(), out int count) && count >= 1 && count <= 100;
         int previous = host.Retention(Owner);
@@ -164,7 +190,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         List<JObject> visible = matching.Where(item => !HealthyOnly || (bool)item["healthy"]!).ToList();
         SelectedIds.IntersectWith(visible.Select(item => item["id"]!.ToString()));
         view.Empty.Visibility = visible.Any() ? Visibility.Collapsed : Visibility.Visible;
-        view.Empty.Text = host.EmptyText?.Invoke(Entries.Any()) ?? (Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。更新前会自动保存，也可以手动创建。");
+        view.Empty.Text = host.EmptyText?.Invoke(Entries.Any()) ?? (Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。");
         foreach (JObject point in visible) {
             IEnvironmentHistoryPageRow item = view.CreateRow();
             item.Bind(point);

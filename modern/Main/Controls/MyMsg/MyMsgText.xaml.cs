@@ -46,7 +46,7 @@ internal static class MessageDialogPlatform {
         Animations = () => ControlServices.Current.Animations,
         UpdateWidth = body => (body as ModLauncherUpdate.UpdatePromptView)?.PreferredWidth ?? (body as ReleaseNotesView)?.PreferredWidth ?? (body as ReleaseNotesPromptView)?.PreferredWidth,
         ModpackWidth = body => (body as ModpackDialogView)?.PreferredWidth ?? (body as MmcProjectionReviewView)?.PreferredWidth,
-        DependenciesWidth = body => (body as ModDependencyCheckView)?.PreferredWidth,
+        DependenciesWidth = body => (body as ModDependencyCheckView)?.PreferredWidth ?? (body as ModDownloadDependencyView)?.PreferredWidth,
         GraphWidth = body => (body as ModDependencyGraphView)?.PreferredWidth,
         ImpactsWidth = body => (body as ModDependencyImpactView)?.PreferredWidth,
         VersionSelection = VersionSelection, Radio = Radio

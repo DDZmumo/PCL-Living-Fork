@@ -13,10 +13,11 @@ public sealed partial class MmcInstanceDefinitionChangeBackend<TNetFile> where T
     private readonly MmcArtifactMaterializer materializer;
     private readonly MmcArtifactPrefetchAdapter<TNetFile> prefetch;
     private readonly Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds;
+    private readonly bool autoBackupWorlds;
     public MmcInstanceDefinitionChangeBackend(MmcMetadataStore metadata, MmcArtifactCacheRoots roots,
         Func<MmcArtifactDownloadSpec, TNetFile> build, Func<ImmutableArray<TNetFile>, CancellationToken, Task> runBatch, MmcArtifactLimits? limits = null,
-        Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds = null) {
-        this.metadata = metadata; this.backupWorlds = backupWorlds; materializer = new(limits); prefetch = new(roots, build, runBatch, limits);
+        Func<string, CancellationToken, IReadOnlyList<string>>? backupWorlds = null, bool autoBackupWorlds = true) {
+        this.metadata = metadata; this.backupWorlds = backupWorlds; this.autoBackupWorlds = autoBackupWorlds; materializer = new(limits); prefetch = new(roots, build, runBatch, limits);
     }
     public Task<MmcInstanceDefinitionChangePreviewResult> PreviewAsync(MmcInstanceDefinitionChangeRequest request, CancellationToken token = default) =>
         Task.Run(() => Preview(request, token), CancellationToken.None);
@@ -122,7 +123,7 @@ public sealed partial class MmcInstanceDefinitionChangeBackend<TNetFile> where T
             // The admission lease prevents a managed game from starting between the
             // final no-session check, the real host backup and the commit decision.
             using var worlds = previous.MinecraftVersion != compiled.MinecraftVersion ? new MmcDefinitionChangeWorldGuard(paths, token) : null;
-            if (worlds is not null) backups = worlds.Backup(backupWorlds, token);
+            if (worlds is not null) backups = worlds.Backup(backupWorlds, token, autoBackupWorlds);
             undo = MmcInstanceHistoryStore.Capture(lease, primary, saved, "修改游戏组件前", token, null);
             var local = candidate.LocalFacts.ToDictionary(value => value.FileName, StringComparer.OrdinalIgnoreCase);
             using var prepared = materializer.PrepareAsync(artifacts, fetched.CreateAccess((artifact, ct) => {
