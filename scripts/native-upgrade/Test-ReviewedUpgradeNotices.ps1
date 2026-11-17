@@ -49,13 +49,14 @@ $previousHighlights='- 汇总四个预发布版本，包含依赖、主题、登
 $currentHighlights='- 全局项目收藏：下载、版本资源管理与收藏页同步，跨文件和版本去重'+$nl+'- 整合包更新独立侧栏，预览中处理缺失前置与不兼容模组'+$nl+'- 更新任务分项显示原生进度，增加文件读取和写入速度'+$nl+'- 顶栏快捷切换深浅色，圆角侧栏、渐变光圈与夜间星光'+$nl+'- 更新公告可选择下次更新前不再弹出，暂缓更新后可从顶栏重开'+$nl+'- 改善部分 Windows 10 启动兼容性，更新 README 与项目日历'+$nl+'- 精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
 $newHighlights='- PCLLF 原创独立代码采用 MPL-2.0，关于页可离线查看许可与来源'+$nl+'- 个人基础设置同步独立侧栏，全局和版本设置均支持编辑后保存'+$nl+'- 修复跨平台前置误报和模组更新漏报，保留本地依赖版本范围检查'+$nl+'- 首页更多设置可统一收起面板，展开沿用 PCL 回弹动画'+$nl+'- 修复深色主题提示框，完善原生开关、键位和拖动条对照'+$nl+'- 预发布精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
 $releaseHighlights='- 下载模组时按真实身份替换同模组版本，新增重复筛选与简介翻译'+$nl+'- 完善替代前置、NeoForge 与 Quilt 依赖匹配，清楚标注禁止共存版本'+$nl+'- 优化依赖影响检查与增量索引，修复删除副本时连带删除同名文件的问题'+$nl+'- 修复主页账号遮挡，启动时统一收起更多设置面板，结束或取消后恢复'+$nl+'- 完善资源搜索项目身份核对与旧版启动器升级兼容'+$nl+'- 正式精简版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
+$latestHighlights='- 支持 MultiMC／Prism 实例导入、组件管理与整合包维护'+$nl+'- 下载 Mod 前确认必需前置，卡片展示图标、版本与安装状态'+$nl+'- 启动前可启用精确匹配且兼容的已禁用前置，减少重复核对提示'+$nl+'- 存档备份与环境还原点支持全局默认、实例独立配置和全部保留'+$nl+'- 加快本地版本列表扫描，优化备份与还原点设置界面'+$nl+'- Windows x64 正式版不内带运行时，需 .NET 10 Desktop Runtime'
 $repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $sourceSummary=[regex]::Match([IO.File]::ReadAllText((Join-Path $repository 'presentation/Window/LegacyMainWindowLifecycle.cs')),'private const string ForkReleaseHighlights = "([^"\r\n]*)";')
-$reviewSummary=[regex]::Match([IO.File]::ReadAllText((Join-Path $repository 'scripts/native-smoke/interaction/ReviewedInformationNotice.cs')),'private const string CurrentHighlights = "([^"\r\n]*)";')
-Assert-Value $true {$sourceSummary.Success -and [regex]::Unescape($sourceSummary.Groups[1].Value) -ceq $releaseHighlights} 'current product summary matches the reviewed body'
-Assert-Value $true {$reviewSummary.Success -and [regex]::Unescape($reviewSummary.Groups[1].Value) -ceq $releaseHighlights} 'interaction policy matches the reviewed current body'
-foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3')){
- $highlights=if($version -cin @('dev_edition','1.4.3')){$releaseHighlights}elseif($version -ceq '1.4.2-pre-1'){$newHighlights}elseif($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
+$reviewSummary=[regex]::Match([IO.File]::ReadAllText((Join-Path $repository 'scripts/native-smoke/interaction/ReviewedInformationNotice.cs')),'private const string LatestHighlights = "([^"\r\n]*)";')
+Assert-Value $true {$sourceSummary.Success -and [regex]::Unescape($sourceSummary.Groups[1].Value) -ceq $latestHighlights} 'current product summary matches the reviewed body'
+Assert-Value $true {$reviewSummary.Success -and [regex]::Unescape($reviewSummary.Groups[1].Value) -ceq $latestHighlights} 'interaction policy matches the reviewed current body'
+foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0')){
+ $highlights=if($version -cin @('dev_edition','1.5.0')){$latestHighlights}elseif($version -ceq '1.4.3'){$releaseHighlights}elseif($version -ceq '1.4.2-pre-1'){$newHighlights}elseif($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
  $script:nativeProof=[pscustomobject]@{versionBaseName=$version;displayName='PCL Living Fork';buildType=50;startupNoticeStyle='plain';startupNoticeSource='local';startupNoticeTitle=('PCL Living Fork '+$version+' 版本说明')}
  $script:newNotice='PCL Living Fork '+$version+' 版本说明'
  if((& $titleExpression $nativeProof) -cne $newNotice){throw 'Actual native title assignment ignored plain metadata.'};$count++
@@ -99,6 +100,8 @@ foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1',
 }
 foreach($route in @(
  @{Version='dev_edition';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
+ @{Version='1.5.0';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
+ @{Version='1.5.0';Style='markdown';Source='published-or-local';Local='暂未读取到当前版本的完整发布说明，以下为本地简述。'},
  @{Version='1.4.3';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
  @{Version='1.4.3';Style='markdown';Source='published-or-local';Local='暂未读取到当前版本的完整发布说明，以下为本地简述。'},
  @{Version='1.4.2-pre-1';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
