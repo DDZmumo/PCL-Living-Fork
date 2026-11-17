@@ -17,18 +17,21 @@ internal static class BackupPreferenceChecks {
     private static object? Preference(string name, params object?[] args) => Native.Static("PCL.BackupPreferences", name, args);
     internal static void Run(FixtureEnvironment environment) {
         using Scope scope = new(environment);
-        string[] globals = ["LaunchWorldBackupAutoEnabled", "LaunchWorldBackupRetention", "LaunchEnvironmentHistoryAutoCleanup", "LaunchEnvironmentHistoryRetention", "LaunchWorldBackupKeepAll"];
+        string[] globals = ["LaunchWorldBackupAutoEnabled", "LaunchWorldBackupRetention", "LaunchEnvironmentHistoryAutoCleanup", "LaunchEnvironmentHistoryRetention", "LaunchWorldBackupKeepAll", "LaunchEnvironmentHistoryAutoEnabled"];
         object[] previous = globals.Select(key => Settings.Get(key)).ToArray();
         var first = Instance(Path.Combine(scope.Root, "policy/minecraft/versions/first"));
         var second = Instance(Path.Combine(scope.Root, "policy/minecraft/versions/second"));
         try {
-            Settings.Set(globals[0], false); Settings.Set(globals[1], 8); Settings.Set(globals[2], true); Settings.Set(globals[3], 3); Settings.Set(globals[4], false);
+            Settings.Set(globals[0], false); Settings.Set(globals[1], 8); Settings.Set(globals[2], true); Settings.Set(globals[3], 3); Settings.Set(globals[4], false); Settings.Set(globals[5], false);
             Native.Check((int)Preference("WorldMode", first)! == 0 && !(bool)Preference("WorldAutoEnabled", first)! && (int)Preference("WorldRetention", first)! == 8,
                 "A fresh instance did not inherit both global world-backup defaults.");
             var settings = (FrameworkElement)New("PCL.WorldBackupSettings");
             Native.Call(settings.GetType(), "BindOwner", settings, first);
             var mode = Part<MyComboBox>(settings, "ComboMode");
             var independent = Part<FrameworkElement>(settings, "PanIndependent");
+            Native.Check(Part<TextBlock>(settings, "LabWorldSource").Text == "配置来源" &&
+                Part<TextBlock>(settings, "LabWorldPolicy").Text == "保留策略" &&
+                Grid.GetColumn(mode) == 1, "World settings selectors lost their left labels or aligned control column.");
             Native.Check(mode.SelectedIndex == 0 && independent.Visibility == Visibility.Collapsed && Part<FrameworkElement>(settings, "LabGlobal").Visibility == Visibility.Visible,
                 "Following global defaults still exposes independent backup controls.");
             Capture(settings, "world-follow-global.png");
@@ -64,11 +67,18 @@ internal static class BackupPreferenceChecks {
             controller.Owner = second; controller.BindRetention();
             var historyMode = Part<MyComboBox>(history, "ComboRetentionMode");
             var historyIndependent = Part<FrameworkElement>(history, "PanIndependentRetention");
+            Native.Check(Part<TextBlock>(history, "LabHistorySource").Text == "配置来源" &&
+                Part<TextBlock>(history, "LabHistoryPolicy").Text == "保留策略" && Grid.GetColumn(historyMode) == 1,
+                "Restore-point settings selectors are unlabeled or misaligned.");
             Native.Check(historyMode.SelectedIndex == 0 && historyIndependent.Visibility == Visibility.Collapsed &&
                 (bool)Preference("HistoryAutoCleanup", second)! && (int)Preference("HistoryRetention", second)! == 3,
                 "Restore-point preferences did not follow global defaults.");
             Capture(Part<MyCard>(history, "CardRetention"), "history-follow-global.png");
             historyMode.SelectedIndex = 1;
+            var create = Part<MyCheckBox>(history, "CheckHistoryAutoCreate");
+            Native.Check(!create.Checked && !(bool)Preference("HistoryAutoEnabled", second)!, "Independent creation did not initialize from the global switch.");
+            create.Checked = true; Native.Call(typeof(PageInstanceRestorePoints), "HistoryAutoCreateChanged", history, create, true);
+            Native.Check((bool)Preference("HistoryAutoEnabled", second)!, "Independent restore-point creation did not override the global default.");
             var cleanup = Part<MyComboBox>(history, "ComboHistoryRetentionPolicy");
             var historyCount = Part<MyTextBox>(history, "TextRetention");
             Native.Check(historyIndependent.Visibility == Visibility.Visible && cleanup.SelectedIndex == 1 && historyCount.Text == "3",
@@ -92,6 +102,27 @@ internal static class BackupPreferenceChecks {
             var globalPage = new PageSetupSystem();
             Native.Call(typeof(PageSetupSystem), "RefreshBackupRetention", globalPage);
             var globalWorldPolicy = Part<MyComboBox>(globalPage, "ComboWorldBackupRetention");
+            var globalCreate = Part<MyCheckBox>(globalPage, "CheckHistoryAutoCreate");
+            Native.Check(SettingService.GetKey(globalCreate) == "LaunchEnvironmentHistoryAutoEnabled" &&
+                Part<TextBlock>(globalPage, "LabHistoryAutoCreate").Text == "自动创建" &&
+                Part<TextBlock>(globalPage, "LabHistoryPolicy").Text == "保留策略" && Grid.GetColumn(globalWorldPolicy) == 1,
+                "Global restore-point creation or labeled policy rows are missing.");
+            foreach (string controlName in new[] { "CheckWorldBackupAuto", "CheckHistoryAutoCreate", "TextWorldBackupRetention", "TextHistoryRetention" })
+                SettingService.RefreshSettings(Part<FrameworkElement>(globalPage, controlName));
+            Capture(Part<MyCard>(globalPage, "CardBackupSettings"), "global-backup-settings.png");
+            var captureOwner = EnvironmentHistoryChecks.Instance(Path.Combine(scope.Root, "automatic/minecraft/versions/capture"));
+            Cache(captureOwner, "VersionEnvironmentHistoryMode", 0);
+            object? priorHistoryRoot = Native.Property(Native.Type("PCL.EnvironmentHistory"), "TestRoot").GetValue(null);
+            Native.Property(Native.Type("PCL.EnvironmentHistory"), "TestRoot").SetValue(null, Path.Combine(scope.Root, "history-data"));
+            try {
+                Native.Check(Native.Static("PCL.EnvironmentHistory", "CaptureAutomatic", captureOwner, "游戏启动前", CancellationToken.None) is null,
+                    "Global automatic restore-point disable was ignored.");
+                string manual = (string)Native.Static("PCL.EnvironmentHistory", "CaptureInstance", captureOwner, "手动还原点", CancellationToken.None)!;
+                Native.Check(!string.IsNullOrEmpty(manual), "Disabling automatic restore points blocked manual creation.");
+                Settings.Set("VersionEnvironmentHistoryMode", 1, captureOwner); Settings.Set("VersionEnvironmentHistoryAutoEnabled", true, captureOwner);
+                string automatic = (string)Native.Static("PCL.EnvironmentHistory", "CaptureAutomatic", captureOwner, "游戏启动前", CancellationToken.None)!;
+                Native.Check(!string.IsNullOrEmpty(automatic), "Independent automatic creation could not override the global default.");
+            } finally { Native.Property(Native.Type("PCL.EnvironmentHistory"), "TestRoot").SetValue(null, priorHistoryRoot); }
             var globalHistoryPolicy = Part<MyComboBox>(globalPage, "ComboHistoryRetention");
             globalWorldPolicy.SelectedIndex = 0; globalHistoryPolicy.SelectedIndex = 0;
             Native.Check(Part<FrameworkElement>(globalPage, "PanWorldBackupRetentionCount").Visibility == Visibility.Collapsed &&

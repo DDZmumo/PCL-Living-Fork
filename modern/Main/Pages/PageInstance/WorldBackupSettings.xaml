@@ -10,24 +10,42 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:PCL" Margin="0,0,0,15" IsEnabled="False">
  <local:MyCard x:Name="CardSettings" Title="存档自动备份" CanSwap="True" IsSwapped="True">
-  <StackPanel x:Name="PanSettings" Margin="25,40,25,20">
-   <local:MyComboBox x:Name="ComboMode" Height="28" Margin="0,0,0,12" SelectionChanged="ModeChanged">
+  <StackPanel x:Name="PanSettings" Grid.IsSharedSizeScope="True" Margin="25,40,25,20">
+   <Grid Margin="0,0,0,12">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+    <TextBlock x:Name="LabWorldSource" Text="配置来源" VerticalAlignment="Center" Margin="0,0,25,0" />
+    <local:MyComboBox x:Name="ComboMode" Grid.Column="1" Height="28" SelectionChanged="ModeChanged">
     <local:MyComboBoxItem Content="跟随全局设置" />
     <local:MyComboBoxItem Content="实例独立配置" />
    </local:MyComboBox>
+   </Grid>
    <TextBlock x:Name="LabGlobal" Text="在“设置 → 其他 → 世界备份与环境还原点”中调整全局开关和保留份数。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" />
    <StackPanel x:Name="PanIndependent" Visibility="Collapsed">
-   <local:MyCheckBox x:Name="CheckAuto" Text="正常退出游戏或更新 Minecraft 前自动备份世界" Margin="0,0,0,12" />
-   <local:MyComboBox x:Name="ComboRetentionPolicy" Height="28" Margin="0,0,0,12" SelectionChanged="RetentionPolicyChanged">
+   <Grid Margin="0,0,0,12">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+    <TextBlock x:Name="LabWorldAutoCreate" Text="自动备份" VerticalAlignment="Center" Margin="0,0,25,0" />
+    <local:MyCheckBox x:Name="CheckAuto" Grid.Column="1" Text="正常退出游戏或更新 Minecraft 前自动备份世界"  />
+   </Grid>
+   <Grid Margin="0,0,0,12">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+    <TextBlock x:Name="LabWorldPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
+    <local:MyComboBox x:Name="ComboRetentionPolicy" Grid.Column="1" Height="28" SelectionChanged="RetentionPolicyChanged">
     <local:MyComboBoxItem Content="全部保留" />
     <local:MyComboBoxItem Content="保留最近若干份" />
    </local:MyComboBox>
-   <StackPanel x:Name="PanRetentionCount" Orientation="Horizontal">
-    <TextBlock Text="每个世界保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
+   </Grid>
+   <StackPanel x:Name="PanRetentionCount">
+    <Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
+     <TextBlock x:Name="LabWorldCount" Text="保留份数" VerticalAlignment="Center" Margin="0,0,25,0" />
+     <StackPanel Grid.Column="1" Orientation="Horizontal">
     <local:MyTextBox x:Name="TextRetention" Width="65" MaxLength="2" Text="5" ShowValidateResult="False" ToolTip="允许 1 到 50 份自动备份。手动备份不计入上限；新备份成功校验后才会清理旧自动备份。">
      <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
     </local:MyTextBox>
     <TextBlock Text="份自动备份" VerticalAlignment="Center" Margin="10,0,0,0" />
+
+     </StackPanel>
+    </Grid>
    </StackPanel>
    </StackPanel>
   </StackPanel>

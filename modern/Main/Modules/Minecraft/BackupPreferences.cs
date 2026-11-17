@@ -7,7 +7,7 @@ namespace PCL;
 
 internal static class BackupPreferences {
     internal static int WorldMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionWorldBackupMode", "VersionWorldBackupAutoEnabled", "VersionWorldBackupRetention", "VersionWorldBackupKeepAll");
-    internal static int HistoryMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionEnvironmentHistoryMode", "VersionEnvironmentHistoryAutoCleanup", "VersionEnvironmentHistoryRetention");
+    internal static int HistoryMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionEnvironmentHistoryMode", "VersionEnvironmentHistoryAutoCleanup", "VersionEnvironmentHistoryRetention", "VersionEnvironmentHistoryAutoEnabled");
     private static int Mode(ModMinecraft.McInstance instance, string mode, string enabled, string retention, string keepAll = null) {
         int value = Settings.Get<int>(mode, instance);
         if (value >= 0) return value == 1 ? 1 : 0;
@@ -24,6 +24,8 @@ internal static class BackupPreferences {
         ? Settings.Get<int>("LaunchWorldBackupRetention") : Settings.Get<int>("VersionWorldBackupRetention", instance);
     internal static bool HistoryAutoCleanup(ModMinecraft.McInstance instance) => HistoryMode(instance) == 0
         ? Settings.Get<bool>("LaunchEnvironmentHistoryAutoCleanup") : Settings.Get<bool>("VersionEnvironmentHistoryAutoCleanup", instance);
+    internal static bool HistoryAutoEnabled(ModMinecraft.McInstance instance) => HistoryMode(instance) == 0
+        ? Settings.Get<bool>("LaunchEnvironmentHistoryAutoEnabled") : Settings.Get<bool>("VersionEnvironmentHistoryAutoEnabled", instance);
     internal static int HistoryRetention(ModMinecraft.McInstance instance) => HistoryMode(instance) == 0
         ? Settings.Get<int>("LaunchEnvironmentHistoryRetention") : Settings.Get<int>("VersionEnvironmentHistoryRetention", instance);
     internal static void SetWorldMode(ModMinecraft.McInstance instance, int mode) {
@@ -33,6 +35,8 @@ internal static class BackupPreferences {
     }
     internal static void SetHistoryMode(ModMinecraft.McInstance instance, int mode) {
         bool enabled = HistoryAutoCleanup(instance); int retention = HistoryRetention(instance);
+        bool create = HistoryAutoEnabled(instance);
+        if (mode == 1 && !Settings.HasSaved("VersionEnvironmentHistoryAutoEnabled", instance)) Settings.Set("VersionEnvironmentHistoryAutoEnabled", create, instance);
         SetMode(instance, mode, "VersionEnvironmentHistoryMode", "VersionEnvironmentHistoryAutoCleanup", "VersionEnvironmentHistoryRetention", enabled, retention);
     }
     private static void SetMode(ModMinecraft.McInstance instance, int mode, string modeKey, string enabledKey, string retentionKey, bool enabled, int retention) {

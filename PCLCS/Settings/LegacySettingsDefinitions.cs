@@ -125,6 +125,7 @@ public static class LegacySettingsDefinitions {
         Add("LaunchWorldBackupRetention", 5);
         Add("LaunchWorldBackupKeepAll", false);
         Add("LaunchEnvironmentHistoryAutoCleanup", false);
+        Add("LaunchEnvironmentHistoryAutoEnabled", true);
         Add("LaunchEnvironmentHistoryRetention", 10);
         Add("LaunchModDependencyCheck", true);
         Add("LaunchModDependencyAutoFill", true);
@@ -225,6 +226,7 @@ public static class LegacySettingsDefinitions {
         Add("VersionWorldBackupRetention", 5, LegacySettingSource.Instance);
         Add("VersionWorldBackupKeepAll", false, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryAutoCleanup", false, LegacySettingSource.Instance);
+        Add("VersionEnvironmentHistoryAutoEnabled", true, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryMode", -1, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryRetention", 10, LegacySettingSource.Instance);
         Add("VersionArgumentJavaSelect", "使用全局设置", LegacySettingSource.Instance);

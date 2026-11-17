@@ -132,6 +132,12 @@ namespace PCL
         {
             return global::PCL.EnvironmentHistory.Service.CaptureInstance(Instance, Label, Token);
         }
+        internal static string CaptureAutomatic(ModMinecraft.McInstance instance, string label, CancellationToken token) {
+            token.ThrowIfCancellationRequested();
+            MmcInstanceCapabilities.RequireLegacy(instance.PathVersion, "创建旧格式自动环境还原点");
+            if (!BackupPreferences.HistoryAutoEnabled(instance)) return null;
+            return Service.CaptureInstance(instance, label, token);
+        }
         internal static string CaptureWithProgress(string VersionFolder, string GameRoot, string Label, CancellationToken Token, Action<double> Progress, Dictionary<string, string> Dependencies = null, string Description = "")
         {
             return Service.CaptureWithProgress(VersionFolder, GameRoot, Label, Token, Progress, Dependencies, Description);

@@ -70,6 +70,8 @@ namespace PCL
                 SetHealthyText = new Action<string>(Value => this.FilterHealthy.Text = Value),
                 AutoCleanup = new Func<bool>(() => this.ComboHistoryRetentionPolicy.SelectedIndex == 1),
                 SetAutoCleanup = new Action<bool>(Value => this.ComboHistoryRetentionPolicy.SelectedIndex = Value ? 1 : 0),
+                AutoCreate = () => CheckHistoryAutoCreate.Checked,
+                SetAutoCreate = value => CheckHistoryAutoCreate.Checked = value,
                 RetentionHasFocus = new Func<bool>(() => this.TextRetention.IsKeyboardFocusWithin),
                 SearchHasFocus = new Func<bool>(() => this.SearchBox.IsKeyboardFocusWithin),
                 CheckAll = new Action(() => this.FilterAll.Checked = true),
@@ -103,6 +105,8 @@ namespace PCL
                 SetRetention = new Action<ModMinecraft.McInstance, int>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryRetention", Value, Instance: Instance)),
                 PreferenceMode = BackupPreferences.HistoryMode,
                 SetPreferenceMode = BackupPreferences.SetHistoryMode,
+                AutoCreate = instance => Settings.Get<bool>("VersionEnvironmentHistoryAutoEnabled", instance),
+                SetAutoCreate = (instance, value) => Settings.Set("VersionEnvironmentHistoryAutoEnabled", value, instance),
                 StartLoader = new Action<string>(VersionFolder => PointsLoader.Start(new HistoryPointsRequest(VersionFolder), IsForceRestart: true)),
                 CancelLoader = new Action(() => PointsLoader.Cancel()),
                 LoaderFailed = new Func<bool>(() => PointsLoader.State == ModBase.LoadState.Failed),
@@ -362,6 +366,7 @@ namespace PCL
         }
         private void RetentionModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.PreferenceModeChanged();
         private void HistoryRetentionPolicyChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.AutoCleanupChanged(true);
+        private void HistoryAutoCreateChanged(object sender, bool user) => Controller?.AutoCreateChanged(user);
 
         private void RetentionEdited()
         {
