@@ -365,6 +365,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           $failedGroups = @()
+          # Isolated hosts create their own GUID directories; a short runner
+          # temp base keeps the real native-loader path budget intact.
+          if (-not [IO.Directory]::Exists($env:RUNNER_TEMP)) { throw 'Runner temp base is missing.' }
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
           $registeredJson = & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --list-groups
           if ($LASTEXITCODE -ne 0) { throw 'The real facade host did not enumerate its registered groups.' }
           $registered = @(($registeredJson -join "`n") | ConvertFrom-Json)

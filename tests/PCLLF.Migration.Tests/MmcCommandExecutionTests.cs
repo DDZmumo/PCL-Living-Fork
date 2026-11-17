@@ -10,29 +10,31 @@ using PCLLF.MMCC.Core;
 
 /// <summary>
 /// Exercises the frozen package-command stage contract (docs/mmc-phase2-command-contract.md) against the
-/// real production stage boundary. No game process is ever created: the injected process entry records the
-/// exact <see cref="ProcessStartInfo"/> the stage would have used and starts an independent harmless child,
-/// so the execution host, the working directory, the ordered arguments and the expanded text are all
-/// observable facts rather than assumptions.
+/// real production stage boundary. No game process is ever created. Preparation checks capture the exact
+/// <see cref="ProcessStartInfo"/> and stop at the injected host; Windows execution checks additionally start
+/// independent harmless children. Other platforms verify the explicit default-host refusal.
 /// </summary>
 internal static class MmcCommandExecutionTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("MMC package command stage is admitted once its text is decodable", AbilityGate);
-        yield return ("MMC package command stage uses the frozen cmd.exe argument list with GameRoot cwd", ExecutionHost);
+        yield return ("MMC package command preparation preserves Windows framing, GameRoot cwd and redacted templates without starting a process", PreparedCommandHost);
         yield return ("MMC package command stage expands the runtime variables once and refuses an unknown one", VariableExpansion);
         yield return ("MMC package command stage refuses NUL, oversize and credential references before starting", CommandRefusals);
-        yield return ("MMC package command stage treats a non-zero exit code according to its stage", ExitCodePolicy);
-        yield return ("MMC package command stage terminates the whole managed tree on cancellation", CancellationTeardown);
-        yield return ("MMC package command stage logs only the redacted command text", LogRedaction);
         yield return ("MMC package command stage skips an inactive source and reads stages independently", InactiveSource);
         yield return ("MMC package command stage changes the recomputed input fingerprint when an artifact changes", PostCommandRevalidation);
-        yield return ("MMC package command stage applies package Env and session TEMP only for PreLaunch and PostExit", StageEnvironmentOverlay);
+        yield return ("MMC package command preparation applies package Env and session TEMP only for PreLaunch and PostExit", StageEnvironmentOverlay);
         yield return ("MMC package command stage refuses PreLaunch or PostExit Env without a valid session temporary directory", StageEnvironmentRefusals);
         if (OperatingSystem.IsWindows()) {
+            yield return ("MMC package command stage uses the frozen cmd.exe argument list with GameRoot cwd", ExecutionHost);
+            yield return ("MMC package command stage treats a non-zero exit code according to its stage", ExitCodePolicy);
+            yield return ("MMC package command stage terminates the whole managed tree on cancellation", CancellationTeardown);
+            yield return ("MMC package command stage logs only the redacted command text", LogRedaction);
             yield return ("MMC package command production start waits for surviving start /b child and cancels the whole job tree", ProductionDefaultStartRootExitsSurvivingChildWaitsAndCancels);
             yield return ("MMC package command cancellation failure or grace timeout retains pending ledger and blocks cleanup until child exits", CancellationFailureAndGraceTimeoutRetainLedgerAndBlockWrites);
             yield return ("MMC package command host kill preserves surviving start /b orphan and blocks cleanup until exit", KilledHostWithSurvivingStartBOrphanRetainsTempAndRecovers);
             yield return ("MMC package command injected Unknown job and cross-session intent never downgrade to process scan", InjectedKernelJobUnknownAndCrossSessionNeverDowngradeToScan);
+        } else {
+            yield return ("MMC package command default Windows host explicitly refuses every stage on this platform before execution", DefaultWindowsHostUnsupported);
         }
     }
 
@@ -217,6 +219,55 @@ internal static class MmcCommandExecutionTests {
         return start.Arguments["/d /s /c \"".Length..^1];
     }
 
+    private sealed class PreparedStartObservedException : Exception { }
+
+    private static void ObservePreparation(Instance instance, Action execute, bool preparationOnly = false) {
+        if (OperatingSystem.IsWindows() && !preparationOnly) { execute(); return; }
+        var previousHandler = instance.Handler;
+        instance.Handler = _ => throw new PreparedStartObservedException();
+        instance.ResetObserved();
+        try {
+            execute();
+        } catch (PreparedStartObservedException) {
+            Require(instance.Observed is not null, "The injected host did not observe a prepared command.");
+            return;
+        } finally { instance.Handler = previousHandler; }
+        throw new Exception("The preparation fixture must stop at the injected host before any process starts.");
+    }
+
+    private static void PreparedCommandHost() {
+        using var instance = new Instance();
+        const string secret = "prepared-command-secret";
+        var context = Context(instance, "OverrideCommands=true\nPreLaunchCommand=echo") with { RedactionSecrets = [secret] };
+        List<string> lines = new();
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null,
+            "echo ${INST_DIR} " + secret, lines.Add), preparationOnly: true);
+        var start = instance.Observed ?? throw new Exception("Prepared command start info is missing.");
+        Equal("cmd.exe", start.FileName, "Prepared Windows execution host");
+        Require(!start.UseShellExecute && start.CreateNoWindow, "Prepared command changed shell/window behaviour.");
+        Equal(Path.GetFullPath(instance.GameRoot), Path.GetFullPath(start.WorkingDirectory), "Prepared GameRoot working directory");
+        Equal("echo " + instance.Root.Replace('\\', '/') + " [redacted]", ExtractShellCommand(start), "Prepared expansion/redaction");
+        string logged = string.Join("\n", lines);
+        Require(logged.Contains("${INST_DIR}", StringComparison.Ordinal) && logged.Contains("[redacted]", StringComparison.Ordinal) &&
+            !logged.Contains(secret, StringComparison.Ordinal) && !logged.Contains(instance.Root.Replace('\\', '/'), StringComparison.Ordinal),
+            "Preparation logged a credential or the expanded command instead of its redacted template.");
+        Equal("echo [redacted]", MmcRuntimeCommandExecution.Redact("echo prefix_secret_longer_suffix", ["prefix_secret", "prefix_secret_longer_suffix"]),
+            "Prepared overlapping secret redaction");
+    }
+
+    private static void DefaultWindowsHostUnsupported() {
+        using var instance = new Instance(useDefaultStart: true, initializeInstanceDefinition: false);
+        var context = Context(instance, "OverrideCommands=true\nPreLoadCommand=echo never\nPreLaunchCommand=echo never\nPostExitCommand=echo never");
+        foreach (var stage in new[] { MmcRuntimeCommandStage.PreLoad, MmcRuntimeCommandStage.PreLaunch, MmcRuntimeCommandStage.PostExit }) {
+            List<string> lines = new(); bool refused = false;
+            try { MmcRuntimeCommandExecution.Execute(stage, context, null, "echo never", lines.Add); }
+            catch (PlatformNotSupportedException error) {
+                refused = error.Message.Contains("Windows", StringComparison.Ordinal) && error.Message.Contains("cmd.exe", StringComparison.Ordinal);
+            }
+            Require(refused && lines.Count == 0, stage + " did not explicitly refuse the Windows host before announcing execution.");
+        }
+    }
+
     private static void ExecutionHost() {
         using var instance = new Instance();
         var context = Context(instance, "OverrideCommands=true\nPreLaunchCommand=echo hi");
@@ -244,14 +295,14 @@ internal static class MmcCommandExecutionTests {
         var context = Context(instance, "OverrideCommands=true\nPreLaunchCommand=echo");
         // The expanded text is asserted through a recorded start, so the separator is chosen not to be a
         // cmd-special character even though the stage only ever hands the text to the shell verbatim.
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null,
-            "echo $INST_DIR;${INST_MC_DIR};${instance_directory};${game_directory}");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null,
+            "echo $INST_DIR;${INST_MC_DIR};${instance_directory};${game_directory}"));
         string text = ExtractShellCommand(instance.Observed!);
         string root = instance.Root.Replace('\\', '/'), game = instance.GameRoot.Replace('\\', '/');
         Equal("echo " + root + ";" + game + ";" + root + ";" + game, text, "Root variables");
         Require(root != game, "INST_DIR and INST_MC_DIR must be different roles for this case to be meaningful.");
         // A bare spelling is only matched on a word boundary, and an unmatched dollar stays literal.
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo $INST_DIRECTORY $ 100%");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo $INST_DIRECTORY $ 100%"));
         Equal("echo $INST_DIRECTORY $ 100%", ExtractShellCommand(instance.Observed!), "Bare boundary or literal dollar");
         // An unknown variable is refused, never replaced by an empty string.
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, null, "echo ${nope}"), "Unknown ${} variable");
@@ -261,11 +312,11 @@ internal static class MmcCommandExecutionTests {
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${classpath}"), "PreLoad classpath");
         ExpectVariable(() => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${version_name}"), "PreLoad version_name");
         // The host values the pre-plan context does carry still resolve at PreLoad.
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${launcher_name} ${launcher_version}");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, context, null, "echo ${launcher_name} ${launcher_version}"));
         Equal("echo PCL Living Fork 1.0.0", ExtractShellCommand(instance.Observed!), "PreLoad host variables");
         // A supplied plan-variable set is what makes the plan-derived names resolvable.
         var planVariables = new Dictionary<string, string>(StringComparer.Ordinal) { ["classpath"] = @"C:\a.jar", ["version_name"] = "1.7.10" };
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, planVariables, "echo ${classpath};${version_name}");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLaunch, context, planVariables, "echo ${classpath};${version_name}"));
         Equal(@"echo C:\a.jar;1.7.10", ExtractShellCommand(instance.Observed!), "Plan-derived variables");
     }
 
@@ -430,11 +481,11 @@ internal static class MmcCommandExecutionTests {
 
         // PreLoad must never apply package Env or session TEMP/TMP, even if TemporaryDirectory is supplied.
         var preLoadNoTemp = Context(instance, cfg);
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadNoTemp, null, "echo preload");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadNoTemp, null, "echo preload"));
         Require(instance.Observed is not null && !instance.Observed.Environment.ContainsKey("PACK_CMD"),
             "PreLoad must not receive package Env entries.");
         var preLoadWithTemp = Context(instance, cfg) with { TemporaryDirectory = sessionTemp };
-        MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadWithTemp, null, "echo preload");
+        ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(MmcRuntimeCommandStage.PreLoad, preLoadWithTemp, null, "echo preload"));
         Require(instance.Observed is not null && !instance.Observed.Environment.ContainsKey("PACK_CMD") &&
                 !string.Equals(instance.Observed.Environment.TryGetValue("TEMP", out string? preLoadTemp) ? preLoadTemp : null, sessionTemp, StringComparison.OrdinalIgnoreCase),
             "PreLoad must ignore TemporaryDirectory and never inherit package Env.");
@@ -445,7 +496,7 @@ internal static class MmcCommandExecutionTests {
         try {
             var withTemp = Context(instance, cfg) with { TemporaryDirectory = sessionTemp };
             foreach (var stage in new[] { MmcRuntimeCommandStage.PreLaunch, MmcRuntimeCommandStage.PostExit }) {
-                MmcRuntimeCommandExecution.Execute(stage, withTemp, null, "echo ok");
+                ObservePreparation(instance, () => MmcRuntimeCommandExecution.Execute(stage, withTemp, null, "echo ok"));
                 var env = instance.Observed!.Environment;
                 Equal("${INST_DIR}/literal", env["PACK_CMD"], stage + " PACK_CMD literal");
                 Equal("中文😀", env["UNICODE"], stage + " UNICODE literal");

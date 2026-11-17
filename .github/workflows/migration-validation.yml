@@ -117,6 +117,7 @@ jobs:
         run: |
           python - <<'PYTHON'
           import json, os, subprocess
+          from pathlib import Path
           groups = json.loads(os.environ['MIGRATION_GROUPS'])
           if not groups or not all(isinstance(group, str) for group in groups):
               raise SystemExit('Empty or malformed selected test groups.')
@@ -124,7 +125,16 @@ jobs:
           for group in groups:
               command.extend(['--group', group])
           print('Selected migration groups: ' + ', '.join(groups), flush=True)
-          subprocess.run(command, check=True)
+          process_env = os.environ.copy()
+          if os.name == 'nt':
+              # Native-loader fixtures deliberately keep the production MAX_PATH
+              # suffix budget. Use the runner's short owned temp base rather than
+              # the long runneradmin profile; each fixture creates its own GUID.
+              temp_root = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+              if not temp_root.is_dir():
+                  raise SystemExit('Runner temp base is not a directory.')
+              process_env['TEMP'] = process_env['TMP'] = str(temp_root)
+          subprocess.run(command, check=True, env=process_env)
           PYTHON
 
       - name: Require fixed LF CLR4 and modern Windows resource I/O equivalence

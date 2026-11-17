@@ -18,6 +18,8 @@ internal static class MmcTransactionTests {
         yield return ("MMC transaction input identity generation hashes and reserved paths are checked", InvalidRequests);
         yield return ("MMC transaction file-backed staging streams into locked journal objects and refuses tampering or escape", FileBackedSource);
         yield return ("MMC admission gate excludes another process even when its claimed instance ID differs", CrossProcessGate);
+        yield return ("MMC admission held-gate cancellation timeout and release preserve thread ownership without leaking the named lock", AdmissionWaits);
+        yield return ("MMC admission reports real abandoned ownership and releases the replacement lease", AbandonedAdmission);
         yield return ("MMC transaction recovers real process termination before and after decision", KilledChildRecovery);
     }
 
@@ -184,6 +186,83 @@ internal static class MmcTransactionTests {
         using Process child = StartChild("gate", fixture, Guid.NewGuid(), Path.Combine(fixture.Scope, "unused"));
         if (!child.WaitForExit(10000)) { child.Kill(true); throw new Exception("Gate child timed out."); }
         Equal(0, child.ExitCode);
+    }
+    private static void AdmissionWaits() {
+        using Fixture fixture = new(); using CancellationTokenSource cancellation = new();
+        var owner = fixture.Lease(); GateWaiter? cancelled = null, timedOut = null, released = null;
+        try {
+            cancelled = new(fixture, Timeout.InfiniteTimeSpan, cancellation.Token);
+            cancelled.AssertBlocked(); cancellation.Cancel(); cancelled.AwaitEnd();
+            Equal(false, cancelled.Acquired); Equal(true, cancelled.Error is OperationCanceledException);
+            owner.AssertHeld();
+
+            timedOut = new(fixture, TimeSpan.FromMilliseconds(80), CancellationToken.None); timedOut.AwaitEnd();
+            Equal(false, timedOut.Acquired); Equal(true, timedOut.Error is IOException);
+            if (timedOut.Elapsed.TotalMilliseconds < 60 || timedOut.Elapsed.TotalSeconds > 3)
+                throw new Exception("Held gate did not honor its single finite timeout budget: " + timedOut.Elapsed);
+            owner.AssertHeld();
+
+            Exception? wrongThread = null;
+            Thread invalidDisposer = new(() => { try { owner.Dispose(); } catch (Exception error) { wrongThread = error; } }) { IsBackground = true };
+            invalidDisposer.Start(); if (!invalidDisposer.Join(5000)) throw new Exception("Wrong-thread gate check did not finish.");
+            Equal(true, wrongThread is InvalidOperationException); owner.AssertHeld();
+
+            released = new(fixture, Timeout.InfiniteTimeSpan, CancellationToken.None); released.AssertBlocked();
+            owner.Dispose(); released.AwaitEnd();
+            Equal(true, released.Acquired); Equal<Exception?>(null, released.Error);
+            using (var fresh = fixture.Lease()) {
+                fresh.AssertHeld();
+                Throws<OperationCanceledException>(() => { using var unexpected = MmcAdmissionGate.Acquire(fixture.Root, Guid.NewGuid(), TimeSpan.Zero, cancellation.Token); });
+                Throws<ArgumentOutOfRangeException>(() => { using var unexpected = MmcAdmissionGate.Acquire(fixture.Root, Guid.NewGuid(), TimeSpan.FromMilliseconds((double)int.MaxValue + 100)); });
+            }
+            using var afterCancellation = new GateWaiter(fixture, TimeSpan.FromSeconds(2), CancellationToken.None);
+            afterCancellation.AwaitEnd(); Equal(true, afterCancellation.Acquired); Equal<Exception?>(null, afterCancellation.Error);
+        } finally {
+            cancellation.Cancel(); owner.Dispose();
+            cancelled?.Dispose(); timedOut?.Dispose(); released?.Dispose();
+        }
+    }
+    private static void AbandonedAdmission() {
+        using Fixture fixture = new(); MmcAdmissionLease? orphan = null; Exception? failure = null;
+        Thread abandoning = new(() => {
+            try { orphan = fixture.Lease(); } catch (Exception error) { failure = error; }
+            // Deliberately end the owning thread without disposing this real named lease.
+        }) { IsBackground = true };
+        abandoning.Start(); if (!abandoning.Join(5000)) throw new Exception("Owned abandoning thread did not exit.");
+        if (failure is not null) throw new Exception("Could not acquire the real lease before abandonment.", failure);
+        try {
+            using (var recovered = MmcAdmissionGate.Acquire(fixture.Root, fixture.Id, TimeSpan.FromSeconds(2))) {
+                Equal(true, recovered.WasAbandoned); recovered.AssertHeld();
+            }
+            using var next = fixture.Lease(); Equal(false, next.WasAbandoned);
+        } finally {
+            // Close only the dead thread's original handle. This neither fabricates lease
+            // ownership nor releases a mutex from the wrong thread.
+            var handle = (Mutex?)typeof(MmcAdmissionLease).GetField("mutex", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(orphan);
+            handle?.Dispose(); GC.KeepAlive(orphan);
+        }
+    }
+    private sealed class GateWaiter : IDisposable {
+        private readonly Thread thread;
+        private readonly ManualResetEventSlim done = new();
+        internal bool Acquired;
+        internal Exception? Error;
+        internal TimeSpan Elapsed;
+        internal GateWaiter(Fixture fixture, TimeSpan timeout, CancellationToken token) {
+            thread = new(() => {
+                var watch = Stopwatch.StartNew();
+                try { using var lease = MmcAdmissionGate.Acquire(fixture.Root, Guid.NewGuid(), timeout, token); lease.AssertHeld(); Acquired = true; }
+                catch (Exception error) { Error = error; }
+                finally { Elapsed = watch.Elapsed; done.Set(); }
+            }) { IsBackground = true };
+            thread.Start();
+        }
+        internal void AssertBlocked() {
+            if (!SpinWait.SpinUntil(() => done.IsSet || (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) != 0, 5000) || done.IsSet)
+                throw new Exception("The real gate waiter never blocked on the held named mutex.", Error);
+        }
+        internal void AwaitEnd() { if (!thread.Join(5000)) throw new Exception("Actual named-gate waiter did not finish."); }
+        public void Dispose() { AwaitEnd(); done.Dispose(); }
     }
     private static void KilledChildRecovery() {
         foreach (var stop in new[] { MmcTransactionCheckpoint.Prepared, MmcTransactionCheckpoint.AfterMutation, MmcTransactionCheckpoint.CommitDecided }) {

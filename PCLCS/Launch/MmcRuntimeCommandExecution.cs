@@ -57,6 +57,7 @@ public static class MmcRuntimeCommandExecution {
     /// <summary>
     /// Host-injected process entry. Controlled verification may replace this hook; otherwise production spawns
     /// <c>cmd.exe</c> suspended directly inside an owned Windows Job Object so no fast child escapes group tracking.
+    /// The default host explicitly refuses non-Windows platforms; an injected host remains a separate boundary.
     /// </summary>
     public static Func<ProcessStartInfo, Process?> StartProcess { get; set; } = DefaultStartProcess;
 
@@ -133,6 +134,10 @@ public static class MmcRuntimeCommandExecution {
         string expanded = Expand(command, Variables(context, planVariables), context.RedactionSecrets);
         cancellationToken.ThrowIfCancellationRequested();
 
+        bool usingCustomStart = !ReferenceEquals(StartProcess, DefaultStartProcess);
+        if (!usingCustomStart && !OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("MMC 包内命令默认执行器仅支持 Windows cmd.exe 与受管理的 Windows Job 进程组。");
+
         // The log entry is built and published only after static checks and pre-start cancellation gates pass,
         // and carries the redacted template only: an expanded command text never reaches the log.
         log?.Invoke("执行 MMC 包内命令（" + StageName(stage) + "）：" + redacted);
@@ -142,7 +147,6 @@ public static class MmcRuntimeCommandExecution {
         long createdUtcTicks = commandLease?.Intent.CreatedUtcTicks ?? DateTime.UtcNow.Ticks;
         ProcessStartInfo start = BuildStartInfo(stage, context, expanded, commandToken);
 
-        bool usingCustomStart = !ReferenceEquals(StartProcess, DefaultStartProcess);
         MmcSessionProcessTree? tree = null;
         SafeWaitHandle? manualJob = null;
         Process? process = null;

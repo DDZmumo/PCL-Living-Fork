@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -26,14 +27,38 @@ public static class MmcAdmissionGate {
         try {
             cancellationToken.ThrowIfCancellationRequested();
             try {
-                int selected = WaitHandle.WaitAny([mutex, cancellationToken.WaitHandle], timeout);
-                if (selected == 1) cancellationToken.ThrowIfCancellationRequested();
-                acquired = selected == 0;
+                if (OperatingSystem.IsWindows()) {
+                    int selected = WaitHandle.WaitAny([mutex, cancellationToken.WaitHandle], timeout);
+                    if (selected == 1) cancellationToken.ThrowIfCancellationRequested();
+                    acquired = selected == 0;
+                } else acquired = WaitNamedMutex(mutex, timeout, cancellationToken);
             } catch (AbandonedMutexException) { acquired = true; abandoned = true; }
             if (!acquired) throw new IOException("MMC 实例正忙，请稍后重试。");
             cancellationToken.ThrowIfCancellationRequested();
             return new(mutex, root, instanceId, abandoned);
         } catch { if (acquired) mutex.ReleaseMutex(); mutex.Dispose(); throw; }
+    }
+    private static bool WaitNamedMutex(Mutex mutex, TimeSpan timeout, CancellationToken cancellationToken) {
+        // Unix supports a real named Mutex via WaitOne, but not WaitAny with that
+        // mutex. Keep ownership on this thread and use one monotonic total budget.
+        long milliseconds = (long)timeout.TotalMilliseconds;
+        if (milliseconds < Timeout.Infinite || milliseconds > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(timeout));
+        long started = Stopwatch.GetTimestamp();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (mutex.WaitOne(0)) return true;
+        if (milliseconds == 0) return false;
+        for (;;) {
+            cancellationToken.ThrowIfCancellationRequested();
+            int slice = 20;
+            if (milliseconds != Timeout.Infinite) {
+                double remaining = milliseconds - Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                if (remaining <= 0) return false;
+                slice = (int)Math.Min(slice, Math.Ceiling(remaining));
+            }
+            // Return immediately after acquisition. The shared post-acquire token
+            // check/catch above must see acquired=true before it can release it.
+            if (mutex.WaitOne(slice)) return true;
+        }
     }
 }
 
