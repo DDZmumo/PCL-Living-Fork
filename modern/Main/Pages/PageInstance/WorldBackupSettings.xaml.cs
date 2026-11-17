@@ -40,7 +40,6 @@ namespace PCL
                     ComboRetentionPolicy.SelectedIndex = 1;
                     PanRetentionCount.Visibility = Visibility.Visible;
                     PanIndependent.Visibility = Visibility.Collapsed;
-                    LabGlobal.Visibility = Visibility.Visible;
                     this.CheckAuto.Checked = false;
                     this.TextRetention.Text = "5";
                     RetentionDirty = false;
@@ -49,7 +48,6 @@ namespace PCL
                 bool independent = BackupPreferences.WorldMode(Value) == 1;
                 ComboMode.SelectedIndex = independent ? 1 : 0;
                 PanIndependent.Visibility = independent ? Visibility.Visible : Visibility.Collapsed;
-                LabGlobal.Visibility = independent ? Visibility.Collapsed : Visibility.Visible;
                 this.CheckAuto.Checked = Settings.Get<bool>("VersionWorldBackupAutoEnabled", Instance: Value);
                 bool keepAll = Settings.Get<bool>("VersionWorldBackupKeepAll", Value);
                 ComboRetentionPolicy.SelectedIndex = keepAll ? 0 : 1;

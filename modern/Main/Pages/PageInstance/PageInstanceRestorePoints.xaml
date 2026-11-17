@@ -28,12 +28,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
       <Grid Margin="0,0,0,12">
        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
        <TextBlock x:Name="LabHistorySource" Text="配置来源" VerticalAlignment="Center" Margin="0,0,25,0" />
-       <local:MyComboBox x:Name="ComboRetentionMode" Grid.Column="1" Height="28" SelectionChanged="RetentionModeChanged">
+       <local:MyComboBox x:Name="ComboRetentionMode" Grid.Column="1" Height="28" SelectionChanged="RetentionModeChanged" ToolTip="全局配置位于：设置 → 其他 → 世界备份与环境还原点。">
        <local:MyComboBoxItem Content="跟随全局设置" />
        <local:MyComboBoxItem Content="实例独立配置" />
       </local:MyComboBox>
       </Grid>
-      <TextBlock x:Name="LabGlobalRetention" Text="在“设置 → 其他 → 世界备份与环境还原点”中调整全局自动创建和保留策略。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" />
       <StackPanel x:Name="PanIndependentRetention" Visibility="Collapsed">
       <Grid Margin="0,0,0,12">
        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
@@ -70,7 +69,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
       <local:MyRadioButton x:Name="FilterHealthy" Text="正常运行" ColorType="Highlight" Margin="2,0" />
      </StackPanel>
      <StackPanel Margin="20,48,18,22">
-      <TextBlock x:Name="LabEmpty" Text="暂无还原点。更新前会自动保存，也可以手动创建。" Opacity="0.65" TextWrapping="Wrap" Margin="5,0,5,8" />
+      <TextBlock x:Name="LabEmpty" Text="暂无还原点。" Opacity="0.65" TextWrapping="Wrap" Margin="5,0,5,8" />
       <StackPanel x:Name="PanEntries" />
      </StackPanel>
     </local:MyCard>

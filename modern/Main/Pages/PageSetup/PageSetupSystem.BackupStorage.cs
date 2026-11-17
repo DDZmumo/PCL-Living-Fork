@@ -47,8 +47,10 @@ public partial class PageSetupSystem {
     private void RefreshBackupStorage() {
         try { TextBackupStoragePath.Text = BackupStorage.Root; }
         catch (Exception error) { TextBackupStoragePath.Text = "无法读取存储位置：" + error.Message; }
-        BtnBackupStorageChoose.IsEnabled = !BackupStorage.IsChanging;
-        LabBackupStorageStatus.Text = BackupStorage.IsChanging ? "正在迁移，请在任务列表中查看进度。" : "世界备份和环境还原点共同使用此目录。";
+        bool changing = BackupStorage.IsChanging;
+        BtnBackupStorageChoose.IsEnabled = !changing;
+        LabBackupStorageStatus.Text = changing ? "正在迁移，请在任务列表中查看进度。" : "";
+        LabBackupStorageStatus.Visibility = changing ? Visibility.Visible : Visibility.Collapsed;
     }
     private void BtnBackupStorageChoose_Click(object sender, MouseButtonEventArgs e) {
         try {

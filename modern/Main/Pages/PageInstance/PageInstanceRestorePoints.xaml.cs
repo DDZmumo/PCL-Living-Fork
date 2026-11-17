@@ -53,7 +53,6 @@ namespace PCL
                 Root = this,
                 CardRetention = CardRetention,
                 PanIndependent = PanIndependentRetention,
-                GlobalRetentionNotice = LabGlobalRetention,
                 PreferenceMode = () => ComboRetentionMode.SelectedIndex,
                 SetPreferenceMode = value => ComboRetentionMode.SelectedIndex = value,
                 PanRetention = PanRetention,

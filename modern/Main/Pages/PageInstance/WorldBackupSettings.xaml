@@ -14,12 +14,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
    <Grid Margin="0,0,0,12">
     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
     <TextBlock x:Name="LabWorldSource" Text="配置来源" VerticalAlignment="Center" Margin="0,0,25,0" />
-    <local:MyComboBox x:Name="ComboMode" Grid.Column="1" Height="28" SelectionChanged="ModeChanged">
+    <local:MyComboBox x:Name="ComboMode" Grid.Column="1" Height="28" SelectionChanged="ModeChanged" ToolTip="全局配置位于：设置 → 其他 → 世界备份与环境还原点。">
     <local:MyComboBoxItem Content="跟随全局设置" />
     <local:MyComboBoxItem Content="实例独立配置" />
    </local:MyComboBox>
    </Grid>
-   <TextBlock x:Name="LabGlobal" Text="在“设置 → 其他 → 世界备份与环境还原点”中调整全局开关和保留份数。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" />
    <StackPanel x:Name="PanIndependent" Visibility="Collapsed">
    <Grid Margin="0,0,0,12">
     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="WorldSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>

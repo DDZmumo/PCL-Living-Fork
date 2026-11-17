@@ -32,7 +32,7 @@ internal static class BackupPreferenceChecks {
             Native.Check(Part<TextBlock>(settings, "LabWorldSource").Text == "配置来源" &&
                 Part<TextBlock>(settings, "LabWorldPolicy").Text == "保留策略" &&
                 Grid.GetColumn(mode) == 1, "World settings selectors lost their left labels or aligned control column.");
-            Native.Check(mode.SelectedIndex == 0 && independent.Visibility == Visibility.Collapsed && Part<FrameworkElement>(settings, "LabGlobal").Visibility == Visibility.Visible,
+            Native.Check(mode.SelectedIndex == 0 && independent.Visibility == Visibility.Collapsed,
                 "Following global defaults still exposes independent backup controls.");
             Capture(settings, "world-follow-global.png");
             mode.SelectedIndex = 1;

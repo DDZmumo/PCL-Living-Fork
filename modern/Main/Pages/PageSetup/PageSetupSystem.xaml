@@ -57,7 +57,7 @@
                     <Grid Margin="0,0,0,12">
                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
                      <TextBlock x:Name="LabWorldBackupPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyComboBox x:Name="ComboWorldBackupRetention" Grid.Column="1" Height="28" SelectionChanged="WorldBackupRetentionChanged">
+                     <local:MyComboBox x:Name="ComboWorldBackupRetention" Grid.Column="1" Height="28" SelectionChanged="WorldBackupRetentionChanged" ToolTip="仅限制自动备份的数量，手动备份不计入上限。">
                         <local:MyComboBoxItem Content="全部保留" />
                         <local:MyComboBoxItem Content="保留最近若干份" />
                     </local:MyComboBox>
@@ -84,7 +84,7 @@
                     <Grid Margin="0,0,0,12">
                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
                      <TextBlock x:Name="LabHistoryPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyComboBox x:Name="ComboHistoryRetention" Grid.Column="1" Height="28" SelectionChanged="HistoryRetentionChanged">
+                     <local:MyComboBox x:Name="ComboHistoryRetention" Grid.Column="1" Height="28" SelectionChanged="HistoryRetentionChanged" ToolTip="仅限制自动还原点的数量，手动还原点不计入上限。">
                         <local:MyComboBoxItem Content="全部保留" />
                         <local:MyComboBoxItem Content="保留最近若干份" />
                     </local:MyComboBox>
@@ -102,15 +102,14 @@
                       </StackPanel>
                      </Grid>
                     </StackPanel>
-                    <TextBlock Text="选择“跟随全局设置”的实例使用以上默认值。手动备份与手动还原点不计入保留上限。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,0,0,20" />
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
                         <TextBlock Text="存储位置" VerticalAlignment="Center" Margin="0,0,25,0" />
                         <local:MyTextBox x:Name="TextBackupStoragePath" Grid.Column="1" MinHeight="30" IsReadOnly="True" ToolTip="世界备份与环境还原点的实际存储目录。点击右侧选择按钮更改位置。" />
                         <local:MyButton x:Name="BtnBackupStorageChoose" Text="选择" Grid.Column="3" Height="30" Click="BtnBackupStorageChoose_Click" />
                     </Grid>
-                    <TextBlock x:Name="LabBackupStorageStatus" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,10,0,12" />
-                    <local:MyButton x:Name="BtnBackupStorageOpen" Text="打开文件夹" Width="140" Height="35" HorizontalAlignment="Left" Click="BtnBackupStorageOpen_Click" />
+                    <TextBlock x:Name="LabBackupStorageStatus" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,10,0,0" Visibility="Collapsed" />
+                    <local:MyButton x:Name="BtnBackupStorageOpen" Text="打开文件夹" Width="140" Height="35" Margin="0,12,0,0" HorizontalAlignment="Left" Click="BtnBackupStorageOpen_Click" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="社区资源">

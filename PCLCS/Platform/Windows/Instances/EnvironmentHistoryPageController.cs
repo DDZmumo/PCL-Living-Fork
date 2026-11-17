@@ -190,7 +190,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         List<JObject> visible = matching.Where(item => !HealthyOnly || (bool)item["healthy"]!).ToList();
         SelectedIds.IntersectWith(visible.Select(item => item["id"]!.ToString()));
         view.Empty.Visibility = visible.Any() ? Visibility.Collapsed : Visibility.Visible;
-        view.Empty.Text = host.EmptyText?.Invoke(Entries.Any()) ?? (Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。更新前会自动保存，也可以手动创建。");
+        view.Empty.Text = host.EmptyText?.Invoke(Entries.Any()) ?? (Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。");
         foreach (JObject point in visible) {
             IEnvironmentHistoryPageRow item = view.CreateRow();
             item.Bind(point);
