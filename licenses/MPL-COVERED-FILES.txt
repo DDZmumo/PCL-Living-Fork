@@ -147,6 +147,7 @@ modern/Main/Modules/Minecraft/PersonalGameSettings.cs
 modern/Main/Modules/Minecraft/QuickPlayWorlds.cs
 modern/Main/Modules/Minecraft/RecentEnvironmentChanges.cs
 modern/Main/Modules/Minecraft/WorldBackups.cs
+modern/Main/Modules/Minecraft/BackupPreferences.cs
 modern/Main/Modules/Minecraft/WorldMetadata.cs
 modern/Main/Modules/ModLauncherUpdate.Deferred.cs
 modern/Main/Modules/ModLauncherUpdate.ReleaseNotes.cs
@@ -197,3 +198,5 @@ tests/PCLLF.Native.Facade.Tests/NativeModDownloadChecks.cs
 PCLCS/Resources/ModDownloadDependencyResolver.cs
 modern/Main/Modules/Minecraft/ModDownloadDependencies.cs
 tests/PCLLF.Native.Facade.Tests/ModDownloadDependencyChecks.cs
+tests/PCLLF.Native.Facade.Tests/BackupPreferenceChecks.cs
+tests/PCLLF.Native.Facade.Tests/InstanceListScanChecks.cs

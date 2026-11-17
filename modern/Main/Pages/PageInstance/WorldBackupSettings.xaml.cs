@@ -4,6 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System.Windows.Input;
+using System.Windows;
+using System.Windows.Controls;
 using MeloongCore;
 
 namespace PCL
@@ -34,12 +36,18 @@ namespace PCL
                 this.IsEnabled = Value is not null;
                 if (Value is null)
                 {
+                    ComboMode.SelectedIndex = 0;
+                    PanIndependent.Visibility = Visibility.Collapsed;
+                    LabGlobal.Visibility = Visibility.Visible;
                     this.CheckAuto.Checked = false;
                     this.TextRetention.Text = "5";
                     RetentionDirty = false;
                     return;
                 }
-
+                bool independent = BackupPreferences.WorldMode(Value) == 1;
+                ComboMode.SelectedIndex = independent ? 1 : 0;
+                PanIndependent.Visibility = independent ? Visibility.Visible : Visibility.Collapsed;
+                LabGlobal.Visibility = independent ? Visibility.Collapsed : Visibility.Visible;
                 this.CheckAuto.Checked = Settings.Get<bool>("VersionWorldBackupAutoEnabled", Instance: Value);
                 if (!PreserveInput)
                 {
@@ -55,7 +63,7 @@ namespace PCL
 
         private void AutoChanged(object Sender, bool User)
         {
-            if (BindingOwner || !User || Owner is null)
+            if (BindingOwner || !User || Owner is null || ComboMode.SelectedIndex != 1)
                 return;
             if (Settings.Get<bool>("VersionWorldBackupAutoEnabled", Instance: Owner) != this.CheckAuto.Checked)
                 Settings.Set("VersionWorldBackupAutoEnabled", this.CheckAuto.Checked, Instance: Owner);
@@ -63,8 +71,15 @@ namespace PCL
 
         private void RetentionEdited()
         {
-            if (!BindingOwner && Owner is not null && this.TextRetention.IsKeyboardFocusWithin)
+            if (!BindingOwner && Owner is not null && ComboMode.SelectedIndex == 1 && this.TextRetention.IsKeyboardFocusWithin)
                 RetentionDirty = true;
+        }
+        private void ModeChanged(object sender, SelectionChangedEventArgs args) {
+            if (BindingOwner || Owner is null || ComboMode.SelectedIndex < 0) return;
+            if (!CommitPending()) { BindOwner(Owner); return; }
+            BackupPreferences.SetWorldMode(Owner, ComboMode.SelectedIndex == 1 ? 1 : 0);
+            BindOwner(Owner);
+            CardSettings.TriggerForceResize();
         }
 
         private void RetentionLostFocus()
@@ -84,6 +99,7 @@ namespace PCL
         {
             if (BindingOwner || Owner is null || !RetentionDirty)
                 return true;
+            if (BackupPreferences.WorldMode(Owner) != 1) { RetentionDirty = false; BindOwner(Owner); return true; }
             RetentionDirty = false;
             int Count;
             bool Valid = int.TryParse(this.TextRetention.Text, out Count) && Count >= 1 && Count <= 50;

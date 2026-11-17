@@ -110,6 +110,7 @@
 <Compile Include="Modules/Minecraft/ModpackUpdate.cs" />
 <Compile Include="Modules/Minecraft/EnvironmentHistory.cs" />
 <Compile Include="Modules/Minecraft/WorldBackups.cs" />
+<Compile Include="Modules/Minecraft/BackupPreferences.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyInspector.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyOnline.cs" />
 <Compile Include="Modules/Minecraft/LaunchDependencyCheck.cs" />

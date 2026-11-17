@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using MeloongCore;
@@ -14,6 +15,7 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
     where TFolder : LegacyMinecraftFolder<TFolderKind>, new() where TLibrary : LegacyMinecraftLibrary, new()
     where TNetFile : class where TState : struct, Enum where TCard : struct, Enum where TFolderKind : struct, Enum {
     public void InitMcInstanceList(string pathMc, Func<bool> isCanceled) {
+        var elapsed = Stopwatch.StartNew();
         try {
             host.StoreInstances(new Dictionary<TCard, List<TInstance>>());
             List<string> folderList = [];
@@ -68,6 +70,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             if (isCanceled() || ex.IsCanceled()) return;
             WriteIni(pathMc + "PCL.ini", "InstanceCache", "");
             Logger.Error(ex, "加载 .minecraft 版本列表失败");
+        } finally {
+            Logger.Info($"本地版本列表处理完成：{host.Instances().Values.Sum(items => items.Count)} 个版本，{elapsed.Elapsed.TotalMilliseconds:0} ms，已取消 {isCanceled()}");
         }
     }
 

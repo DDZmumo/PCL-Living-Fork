@@ -25,6 +25,12 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
     </local:MyCard>
     <local:MyCard x:Name="CardRetention" Title="保留设置" Margin="0,0,0,15" IsEnabled="False">
      <StackPanel Margin="25,40,25,20">
+      <local:MyComboBox x:Name="ComboRetentionMode" Height="28" Margin="0,0,0,12" SelectionChanged="RetentionModeChanged">
+       <local:MyComboBoxItem Content="跟随全局设置" />
+       <local:MyComboBoxItem Content="实例独立配置" />
+      </local:MyComboBox>
+      <TextBlock x:Name="LabGlobalRetention" Text="在“设置 → 其他 → 世界备份与环境还原点”中调整全局清理开关和保留份数。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" />
+      <StackPanel x:Name="PanIndependentRetention" Visibility="Collapsed">
       <local:MyCheckBox x:Name="CheckAutoCleanup" Text="自动清理超过上限的旧还原点" ToolTip="手动还原点不计入上限。新还原点保存成功后，才会清理最旧的自动还原点。" />
       <StackPanel x:Name="PanRetention" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
        <TextBlock Text="保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -32,6 +38,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
         <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>
        </local:MyTextBox>
        <TextBlock Text="个自动还原点" VerticalAlignment="Center" Margin="10,0,0,0" />
+      </StackPanel>
       </StackPanel>
      </StackPanel>
     </local:MyCard>

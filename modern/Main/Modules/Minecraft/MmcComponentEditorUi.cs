@@ -88,7 +88,7 @@ internal static class MmcComponentEditorUi {
         if (services.Metadata is null || services.CacheRoots is null) throw new IOException("MMC 组件编辑缺少下载和元数据服务。");
         // Read before the backend quiesces settings. The callback uses only its
         // supplied game root and this captured value, never a settings provider.
-        int retention = Settings.Get<int>("VersionWorldBackupRetention", Instance: instance);
+        int retention = BackupPreferences.WorldRetention(instance);
         bool autoBackupWorlds = WorldBackups.AutoEnabled(instance);
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) throw new IOException("另一项 MMC 组件修改尚未完成。");
         var fence = new MmcOperationCancellationFence(() => Interlocked.Exchange(ref busy, 0));

@@ -11,6 +11,12 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
  xmlns:local="clr-namespace:PCL" Margin="0,0,0,15" IsEnabled="False">
  <local:MyCard x:Name="CardSettings" Title="存档自动备份" CanSwap="True" IsSwapped="True">
   <StackPanel x:Name="PanSettings" Margin="25,40,25,20">
+   <local:MyComboBox x:Name="ComboMode" Height="28" Margin="0,0,0,12" SelectionChanged="ModeChanged">
+    <local:MyComboBoxItem Content="跟随全局设置" />
+    <local:MyComboBoxItem Content="实例独立配置" />
+   </local:MyComboBox>
+   <TextBlock x:Name="LabGlobal" Text="在“设置 → 其他 → 世界备份与环境还原点”中调整全局开关和保留份数。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" />
+   <StackPanel x:Name="PanIndependent" Visibility="Collapsed">
    <local:MyCheckBox x:Name="CheckAuto" Text="正常退出游戏或更新 Minecraft 前自动备份世界" Margin="0,0,0,12" />
    <StackPanel Orientation="Horizontal">
     <TextBlock Text="每个世界保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -18,6 +24,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
      <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
     </local:MyTextBox>
     <TextBlock Text="份自动备份" VerticalAlignment="Center" Margin="10,0,0,0" />
+   </StackPanel>
    </StackPanel>
   </StackPanel>
  </local:MyCard>

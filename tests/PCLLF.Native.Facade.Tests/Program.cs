@@ -26,6 +26,8 @@ internal static class Program
         ["updater"] = NativeUpdateChecks.Run,
         ["backup-resources"] = BackupResourceChecks.Run,
         ["world-backup-global"] = BackupResourceWorldChecks.RunGlobal,
+        ["backup-preferences"] = BackupPreferenceChecks.Run,
+        ["instance-list-scan"] = InstanceListScanChecks.Run,
         ["instance-clone"] = CloneNativeChecks.Run,
         ["modpack-update"] = ModpackUpdateChecks.Run,
         ["modpack-update-origins"] = ModpackUpdateChecks.RunOrigins,

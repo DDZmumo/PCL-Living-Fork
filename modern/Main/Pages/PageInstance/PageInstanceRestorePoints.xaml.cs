@@ -52,6 +52,10 @@ namespace PCL
             {
                 Root = this,
                 CardRetention = CardRetention,
+                PanIndependent = PanIndependentRetention,
+                GlobalRetentionNotice = LabGlobalRetention,
+                PreferenceMode = () => ComboRetentionMode.SelectedIndex,
+                SetPreferenceMode = value => ComboRetentionMode.SelectedIndex = value,
                 PanRetention = PanRetention,
                 CardList = CardList,
                 RestoreButton = BtnRestore,
@@ -97,6 +101,8 @@ namespace PCL
                 Retention = new Func<ModMinecraft.McInstance, int>(Instance => Settings.Get<int>("VersionEnvironmentHistoryRetention", Instance: Instance)),
                 SetAutoCleanup = new Action<ModMinecraft.McInstance, bool>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryAutoCleanup", Value, Instance: Instance)),
                 SetRetention = new Action<ModMinecraft.McInstance, int>((Instance, Value) => Settings.Set("VersionEnvironmentHistoryRetention", Value, Instance: Instance)),
+                PreferenceMode = BackupPreferences.HistoryMode,
+                SetPreferenceMode = BackupPreferences.SetHistoryMode,
                 StartLoader = new Action<string>(VersionFolder => PointsLoader.Start(new HistoryPointsRequest(VersionFolder), IsForceRestart: true)),
                 CancelLoader = new Action(() => PointsLoader.Cancel()),
                 LoaderFailed = new Func<bool>(() => PointsLoader.State == ModBase.LoadState.Failed),
@@ -354,6 +360,7 @@ namespace PCL
         {
             Controller?.AutoCleanupChanged(User);
         }
+        private void RetentionModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.PreferenceModeChanged();
 
         private void RetentionEdited()
         {

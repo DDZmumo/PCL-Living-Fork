@@ -48,7 +48,25 @@
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="世界备份与环境还原点">
                 <StackPanel Margin="25,40,25,20">
-                    <local:MyCheckBox x:Name="CheckWorldBackupAuto" Text="启用所有实例的存档自动备份" local:SettingService.Key="LaunchWorldBackupAutoEnabled" Margin="0,0,0,14" ToolTip="关闭后不再在游戏正常退出或更改 Minecraft 版本前自动备份。各实例的备份开关和已有备份会保留，仍可手动备份。" />
+                    <TextBlock Text="存档自动备份 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
+                    <local:MyCheckBox x:Name="CheckWorldBackupAuto" Text="正常退出游戏或更新 Minecraft 前自动备份世界" local:SettingService.Key="LaunchWorldBackupAutoEnabled" Margin="0,0,0,12" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                        <TextBlock Text="每个世界保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <local:MyTextBox x:Name="TextWorldBackupRetention" Width="65" MaxLength="2" Text="5" ShowValidateResult="False" local:SettingService.Key="LaunchWorldBackupRetention">
+                            <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
+                        </local:MyTextBox>
+                        <TextBlock Text="份自动备份" VerticalAlignment="Center" Margin="10,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="环境还原点 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
+                    <local:MyCheckBox x:Name="CheckHistoryAutoCleanup" Text="自动清理超过上限的旧还原点" local:SettingService.Key="LaunchEnvironmentHistoryAutoCleanup" Margin="0,0,0,12" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <local:MyTextBox x:Name="TextHistoryRetention" Width="65" MaxLength="3" Text="10" ShowValidateResult="False" local:SettingService.Key="LaunchEnvironmentHistoryRetention">
+                            <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>
+                        </local:MyTextBox>
+                        <TextBlock Text="个自动还原点" VerticalAlignment="Center" Margin="10,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="选择“跟随全局设置”的实例使用以上默认值。手动备份与手动还原点不计入保留上限。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,0,0,20" />
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Name" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
                         <TextBlock Text="存储位置" VerticalAlignment="Center" Margin="0,0,25,0" />

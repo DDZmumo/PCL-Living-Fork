@@ -25,6 +25,7 @@ internal static class MmcManagementTests {
         yield return ("MMC empty transaction stores cannot clear import or lifecycle pending ownership", OuterPending);
         yield return ("MMC management disk probe duplicate hints remain positive ownership evidence", DuplicateHints);
         yield return ("MMC management disk probe rejects malformed UTF8 reserved files", InvalidUtf8);
+        yield return ("MMC ordinary directory observations never cache missing ownership markers", FreshOrdinaryObservation);
     }
 
     private static string Hint(long generation = 1, string id = Id) =>
@@ -182,6 +183,25 @@ internal static class MmcManagementTests {
     }
     private static void Equal<T>(T expected, T actual) {
         if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new Exception($"Expected {expected}, got {actual}.");
+    }
+    private static void FreshOrdinaryObservation() {
+        using Fixture fixture = new(); Directory.CreateDirectory(fixture.Pcl);
+        File.WriteAllText(Path.Combine(fixture.Pcl, "ordinary.ini"), "keep");
+        var before = fixture.Inventory();
+        Equal(true, MmcManagementProbe.Read(fixture.Root).CanUseLegacyBackend);
+        Equal(true, before.SequenceEqual(fixture.Inventory()));
+        DateTime stamp = Directory.GetLastWriteTimeUtc(fixture.Pcl);
+        string store = Path.Combine(fixture.Pcl, "MmcRuntime"); Directory.CreateDirectory(store);
+        Directory.SetLastWriteTimeUtc(fixture.Pcl, stamp);
+        Equal(MmcManagementState.ManagedMmcRepairRequired, MmcManagementProbe.Read(fixture.Root).State);
+        Directory.Delete(store); Directory.SetLastWriteTimeUtc(fixture.Pcl, stamp);
+        Equal(true, MmcManagementProbe.Read(fixture.Root).CanUseLegacyBackend);
+        string pending = Path.Combine(fixture.Pcl, "MmcImportPending.json"); File.WriteAllText(pending, "{}");
+        Directory.SetLastWriteTimeUtc(fixture.Pcl, stamp);
+        Equal(MmcManagementState.PendingTransaction, MmcManagementProbe.Read(fixture.Root).State);
+        File.Delete(pending); Equal(true, MmcManagementProbe.Read(fixture.Root).CanUseLegacyBackend);
+        File.WriteAllText(store, "wrong kind");
+        Equal(false, MmcManagementProbe.Read(fixture.Root).CanUseLegacyBackend);
     }
     private sealed class Fixture : IDisposable {
         private readonly string scope = Path.Combine(Path.GetTempPath(), "pcllf-mmc-management-" + Guid.NewGuid().ToString("N"));

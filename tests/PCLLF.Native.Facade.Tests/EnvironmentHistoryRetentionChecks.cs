@@ -48,10 +48,10 @@ internal static class EnvironmentHistoryRetentionChecks
 
     private static void RetentionPage(ModMinecraft.McInstance instance, string mc, Func<List<JObject>> points)
     {
-        FrameworkElement page = (FrameworkElement)New("PCL.PageInstanceRestorePoints"); PageState(page, "Owner", instance); Cache(instance, "VersionEnvironmentHistoryAutoCleanup", false);
+        FrameworkElement page = (FrameworkElement)New("PCL.PageInstanceRestorePoints"); PageState(page, "Owner", instance); Cache(instance, "VersionEnvironmentHistoryMode", 1); Cache(instance, "VersionEnvironmentHistoryAutoCleanup", false);
         Native.Call(page.GetType(), "BindRetention", page);
         MyCheckBox cleanup = Part<MyCheckBox>(page, "CheckAutoCleanup"); MyTextBox retention = Part<MyTextBox>(page, "TextRetention");
-        Check("T100", !cleanup.Checked && Part<FrameworkElement>(page, "PanRetention").Visibility == Visibility.Collapsed);
+        Check("T100", !cleanup.Checked && Part<FrameworkElement>(page, "PanIndependentRetention").Visibility == Visibility.Visible && Part<FrameworkElement>(page, "PanRetention").Visibility == Visibility.Visible);
         int count = points().Count; cleanup.Checked = true; Native.Call(page.GetType(), "AutoCleanupChanged", page, null, true);
         Check("T103", (bool)Cache(instance, "VersionEnvironmentHistoryAutoCleanup")! && Part<FrameworkElement>(page, "PanRetention").Visibility == Visibility.Visible && points().Count == count);
         retention.Text = "3"; PageState(page, "RetentionDirty", true); Check("T105", (bool)Native.Call(page.GetType(), "CommitRetention", page)! && (int)Cache(instance, "VersionEnvironmentHistoryRetention")! == 3);
