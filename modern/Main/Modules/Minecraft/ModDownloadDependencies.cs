@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Newtonsoft.Json.Linq;
 using PCLCS;
 
@@ -61,34 +62,25 @@ internal static class ModDownloadDependencies {
     internal static ModDependencyDownloadChoice Confirm(ModDownloadDependencyPlan<ResourceVersion> plan) {
         if (Select is not null) return Select(plan);
         bool installable = plan.CanInstall;
+        bool missing = plan.Dependencies.Any(item => !item.Installed);
         int result = ModMain.MyMsgBoxConfirmContent(
-            installable ? "此模组需要以下前置。确认后会一起下载并安装。" : "部分必需前置无法自动安装，可取消后手动核对，或仅下载当前模组。",
-            "安装必需前置", installable ? "安装并补全" : "仅下载此模组", () => CreateView(plan),
-            CancelText: "取消", ThirdText: installable ? "仅下载此模组" : "", IsWarn: false);
+            Summary(plan), "下载 Mod 与必需前置", !installable ? "仅下载此模组" : missing ? "安装并补全" : "下载此模组", () => CreateView(plan),
+            CancelText: "取消", ThirdText: installable && missing ? "仅下载此模组" : "", IsWarn: false);
         return result == 1 ? installable ? ModDependencyDownloadChoice.WithDependencies : ModDependencyDownloadChoice.PrimaryOnly :
             result == 3 ? ModDependencyDownloadChoice.PrimaryOnly : ModDependencyDownloadChoice.Cancel;
     }
 
     internal static ModDownloadDependencyView CreateView(ModDownloadDependencyPlan<ResourceVersion> plan) {
         var panel = new ModDownloadDependencyView { Width = 490, MaxWidth = 490 };
-        panel.Children.Add(Label(plan.CanInstall ? "此模组需要以下前置。可一起安装，或仅下载当前模组。" :
-            "以下前置无法自动补全，可取消后手动核对，或仅下载当前模组。", 0, 10));
+        panel.Children.Add(Label(Summary(plan), 0, 10));
         panel.Children.Add(Label(string.IsNullOrEmpty(plan.MinecraftVersion) ? "尚未确定目标游戏环境" :
             "Minecraft " + plan.MinecraftVersion + " · " + plan.Loader, 0, 10));
         var rows = new StackPanel();
+        if (plan.PrimaryProject is not null) rows.Children.Add(Card(plan.PrimaryProject, plan.PrimaryProject.TranslatedName,
+            plan.PrimaryVersion?.Display ?? plan.PrimaryVersion?.FileName, "当前模组", false));
         foreach (var item in plan.Dependencies) {
-            var row = new Grid { Margin = new Thickness(0, 0, 0, 12) };
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var description = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
-            var name = new TextBlock { Text = item.Name, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
-            name.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushTextSecondary");
-            description.Children.Add(name);
-            description.Children.Add(Label(item.Failure ?? item.Version?.Display ?? item.Version?.FileName ?? "未找到兼容版本", 3, 0));
-            row.Children.Add(description);
-            var state = Label(item.Failure is not null ? "需手动核对" : item.Installed ? "已安装" : "将安装", 0, 0);
-            state.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(state, 1); row.Children.Add(state);
-            rows.Children.Add(row);
+            rows.Children.Add(Card(item.Project, item.Name, item.Failure ?? item.Version?.Display ?? item.Version?.FileName ?? "未找到兼容版本",
+                item.Failure is not null ? "需手动核对" : item.Installed ? "已安装" : "将安装", item.Failure is not null));
         }
         foreach (string problem in plan.Problems) rows.Children.Add(Label(problem, 0, 10));
         panel.Children.Add(new MyScrollViewer { Content = rows, MaxHeight = 250, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -98,6 +90,35 @@ internal static class ModDownloadDependencies {
         panel.Children.Add(prompt);
         return panel;
     }
+    private static Border Card(ResourceProjectModelData project, string title, string version, string status, bool warning) {
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        content.ColumnDefinitions.Add(new ColumnDefinition());
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        string fallback = ModBase.PathImage + "Icons/NoIcon.png";
+        var icon = new MyImage { Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center,
+            LoadingSource = fallback, FallbackSource = fallback, Source = project?.LogoUrl ?? fallback,
+            Stretch = Stretch.Uniform, Clip = new RectangleGeometry(new Rect(0, 0, 40, 40), 5, 5) };
+        content.Children.Add(icon);
+        var description = new StackPanel { Margin = new Thickness(12, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+        var name = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
+        name.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush1"); description.Children.Add(name);
+        var detail = Label(version, 4, 0); detail.FontSize = 12; description.Children.Add(detail);
+        Grid.SetColumn(description, 1); content.Children.Add(description);
+        var state = Label(status, 0, 0); state.VerticalAlignment = VerticalAlignment.Center;
+        state.SetResourceReference(TextBlock.ForegroundProperty, warning ? "ColorBrushRedLight" : "ColorBrush3");
+        Grid.SetColumn(state, 2); content.Children.Add(state);
+        var card = new Border { Child = content, Padding = new Thickness(12), Margin = new Thickness(0, 0, 4, 10),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6) };
+        card.SetResourceReference(Border.BackgroundProperty, "ColorBrushWhite");
+        card.SetResourceReference(Border.BorderBrushProperty, warning ? "ColorBrushRedLight" : "ColorBrush5");
+        return card;
+    }
+    private static string Summary(ModDownloadDependencyPlan<ResourceVersion> plan) => !plan.CanInstall
+        ? "部分必需前置无法自动安装，可取消后手动核对，或仅下载当前模组。"
+        : plan.Dependencies.Count == 0 ? "此版本未声明必需前置，可以直接下载。"
+        : plan.Dependencies.All(item => item.Installed) ? "必需前置均已安装，只需下载当前模组。"
+        : "此模组需要以下前置。确认后会补齐缺失项，已安装的前置会保留。";
     private static TextBlock Label(string text, double top, double bottom) {
         var label = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, top, 0, bottom) };
         label.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray3"); return label;

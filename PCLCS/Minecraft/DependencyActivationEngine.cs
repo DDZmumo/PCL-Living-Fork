@@ -63,6 +63,7 @@ public sealed partial class ModDependencyAutoFillEngine<TContext, TMod, TDepende
             if (!origin.Complete) return plan;
         }
         HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, TReport> verified = new(StringComparer.OrdinalIgnoreCase);
         List<string> roots = report.Mods.Where(item => !item.Enabled && (origin is null || origin.IsPersonal(item.RootPath))).Select(item => item.RootPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         TReport current = report;
         for (int round = 0; round <= 63; round++) {
@@ -74,13 +75,44 @@ public sealed partial class ModDependencyAutoFillEngine<TContext, TMod, TDepende
                 if (matches.Count != 1) continue;
                 selected.Add(matches[0]); changed = true;
             }
+            // Platform project IDs are not loader Mod IDs. Only a content-exact
+            // mapping to one disabled archive can propose an activation.
+            if (report.Context.LoaderKnown && !string.IsNullOrEmpty(report.Context.MinecraftVersion))
+                foreach (var relation in PlatformRequired(report, selected)) {
+                    if (origin is not null && !origin.IsPersonal(relation.File.FullPath)) continue;
+                    if (relation.Dependency.EnabledPaths.Count > 0 || relation.Dependency.MatchedPaths.Any(selected.Contains)) continue;
+                    var matches = roots.Where(path => relation.Dependency.MatchedPaths.Any(value => SameFilePath(value, path))).ToArray();
+                    if (matches.Length != 1) continue;
+                    string source = matches[0];
+                    try {
+                        host.EnsureWithin(plan.Root, source);
+                        TOnlineFile? evidence = report.OnlineFiles.FirstOrDefault(file => !file.Enabled && SameFilePath(file.FullPath, source) &&
+                            file.Matches.Any(match => match.IsExact && SameText(match.Platform, relation.Dependency.Platform) &&
+                                SameText(match.ProjectId, relation.Dependency.ProjectId) && (string.IsNullOrEmpty(relation.Dependency.VersionId) || SameText(match.VersionId, relation.Dependency.VersionId))));
+                        if (evidence is null || !string.Equals(evidence.Sha1, host.FileHash(source, false), StringComparison.OrdinalIgnoreCase) ||
+                            !string.Equals(relation.File.Sha1, host.FileHash(relation.File.FullPath, false), StringComparison.OrdinalIgnoreCase)) continue;
+                        TReport metadata = ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.ReadSingleArchive(source, report.Context, token);
+                        if (metadata.MetadataIncomplete || !metadata.Mods.Any(mod => !mod.IsNested && !mod.IsMetadataOnly && !mod.IsCandidate && !mod.IncompatibleLoader && !string.IsNullOrWhiteSpace(mod.Id))) continue;
+                        verified[source] = metadata;
+                        selected.Add(source); changed = true;
+                    } catch (Exception error) when (error is IOException || error is UnauthorizedAccessException) { }
+                }
             if (!changed) break;
             current = WithEnabledFiles(report, selected, token);
+            foreach (var entry in verified) {
+                current.Mods.RemoveAll(mod => SameFilePath(mod.RootPath, entry.Key));
+                current.Mods.AddRange(entry.Value.Mods.Select(mod => mod.CopyWithEnabled(true)));
+            }
+            if (verified.Count > 0) BuildReport(current, token);
         }
         if (selected.Count == 0) return plan;
         HashSet<string> originalErrors = new(report.Issues.Where(issue => issue.IsError).Select(IssueKey), StringComparer.Ordinal);
         if (current.Issues.Any(issue => issue.IsError && !originalErrors.Contains(IssueKey(issue))) ||
-            current.Edges.Any(edge => selected.Contains(edge.Owner.RootPath) && edge.Evaluated && edge.Requirement.KindValue == ModDependencyKind.Required && edge.StateValue != ModDependencyMatchState.Satisfied)) {
+            current.Edges.Any(edge => selected.Contains(edge.Owner.RootPath) && edge.Requirement.KindValue == ModDependencyKind.Required &&
+                (edge.Requirement.IsUnknown || edge.Evaluated && edge.StateValue != ModDependencyMatchState.Satisfied)) ||
+            PlatformRequired(report, selected).Any(relation => selected.Contains(relation.File.FullPath) && relation.Dependency.EnabledPaths.Count == 0 && !relation.Dependency.MatchedPaths.Any(selected.Contains)) ||
+            report.OnlineFiles.Where(file => file.Enabled || selected.Contains(file.FullPath)).Any(file => file.Matches.Where(match => match.IsExact).SelectMany(match => match.Dependencies)
+                .Any(dependency => dependency.Kind == "incompatible" && (dependency.MatchedPaths.Any(selected.Contains) || selected.Contains(file.FullPath) && dependency.EnabledPaths.Count > 0)))) {
             plan.Notes.Add("已禁用的前置还存在版本冲突或未满足的依赖，请在模组管理中处理后启用。"); return plan;
         }
         foreach (string source in selected) {
@@ -99,11 +131,24 @@ public sealed partial class ModDependencyAutoFillEngine<TContext, TMod, TDepende
                     if (!entry.Requirements.Contains(issue.Requirement.Display)) entry.Requirements.Add(issue.Requirement.Display);
                     entry.ResolvedIssues.Add(IssueKey(issue));
                 }
+                foreach (var relation in PlatformRequired(report, selected).Where(relation => relation.Dependency.MatchedPaths.Any(path => SameFilePath(path, source)))) {
+                    string referrer = report.Mods.FirstOrDefault(mod => !mod.IsNested && SameFilePath(mod.RootPath, relation.File.FullPath))?.Name ?? Path.GetFileName(relation.File.FullPath);
+                    if (!entry.RequiredBy.Contains(referrer)) entry.RequiredBy.Add(referrer);
+                    if (!entry.Requirements.Contains(relation.Dependency.DisplayName)) entry.Requirements.Add(relation.Dependency.DisplayName);
+                }
                 plan.Enables.Add(entry);
             } catch (Exception error) when (error is IOException || error is UnauthorizedAccessException) {
                 plan.Notes.Add("无法确认已禁用文件，未自动启用：" + Path.GetFileName(source)); plan.Enables.Clear(); return plan;
             }
         }
         return plan;
+    }
+
+    private static IEnumerable<(TOnlineFile File, TOnlineDependency Dependency)> PlatformRequired(TReport report, HashSet<string> selected) {
+        foreach (TOnlineFile file in report.OnlineFiles.Where(file => file.Enabled || selected.Contains(file.FullPath)))
+            foreach (TOnlineProject project in file.Matches.Where(project => project.IsExact))
+                foreach (TOnlineDependency dependency in project.Dependencies.Where(dependency => dependency.Kind == "required"))
+                    if (ModDependencyInspection<TContext,TMod,TDependency,TEdge,TIssue,TImpact,TReport,TOnlineProject,TOnlineDependency,TOnlineFile>.RuntimeProvidersForPlatformDependency(report, file.FullPath, dependency).Count == 0)
+                        yield return (file, dependency);
     }
 }

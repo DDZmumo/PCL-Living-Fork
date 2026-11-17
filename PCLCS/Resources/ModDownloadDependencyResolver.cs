@@ -25,8 +25,9 @@ public sealed class ModDownloadDependencyPlan<TVersion> where TVersion : Resourc
     public List<string> Problems { get; } = new();
     public string MinecraftVersion = "";
     public ModLoaders Loader;
+    public ResourceProjectModelData? PrimaryProject;
+    public TVersion? PrimaryVersion;
     public bool CanInstall => Problems.Count == 0 && Dependencies.All(value => value.Failure is null);
-    public bool NeedsPrompt => !CanInstall || Dependencies.Any(value => !value.Installed);
 }
 
 /// <summary>Build a bounded, dependency-first proposal. No download or install is performed here.</summary>
@@ -38,7 +39,7 @@ public sealed class ModDownloadDependencyResolver<TVersion> where TVersion : Res
 
     public ModDownloadDependencyPlan<TVersion> Resolve(ResourceProjectModelData project, TVersion selected,
         string minecraft, ModLoaders loader, CancellationToken token) {
-        var plan = new ModDownloadDependencyPlan<TVersion> { MinecraftVersion = minecraft, Loader = loader };
+        var plan = new ModDownloadDependencyPlan<TVersion> { MinecraftVersion = minecraft, Loader = loader, PrimaryProject = project, PrimaryVersion = selected };
         var chosen = new Dictionary<string, ModDownloadDependency<TVersion>>(StringComparer.Ordinal);
         var visiting = new HashSet<string>(StringComparer.Ordinal);
         var forcedPins = new Dictionary<string, TVersion>(StringComparer.Ordinal);

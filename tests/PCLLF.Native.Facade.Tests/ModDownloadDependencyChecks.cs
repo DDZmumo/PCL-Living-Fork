@@ -25,7 +25,8 @@ internal static class ModDownloadDependencyChecks {
     private static ResourceProject Project(string id, ResourcePlatforms platform = ResourcePlatforms.Modrinth) => new(new JObject {
         ["Platform"] = (int)platform, ["Types"] = (int)ResourceTypes.Mod, ["Id"] = id, ["Slug"] = id,
         ["RawName"] = "Fixture " + id, ["Description"] = "fixture", ["Website"] = "https://example.invalid/" + id,
-        ["LastUpdate"] = DateTime.UtcNow, ["DownloadCount"] = 0, ["Tags"] = new JArray()
+        ["LastUpdate"] = DateTime.UtcNow, ["DownloadCount"] = 0, ["Tags"] = new JArray(),
+        ["LogoUrl"] = ModBase.PathImage + (id == "root" ? "Blocks/Fabric.png" : "Blocks/Grass.png")
     });
     private static ResourceVersion Version(string project, string id, params ModDownloadDependencyReference[] dependencies) => new() {
         Id = id, ProjectId = project, Display = id, ResourceType = ResourceTypes.Mod, ModLoaders = ModLoaders.Fabric,
@@ -144,6 +145,12 @@ internal static class ModDownloadDependencyChecks {
             var plan = (ModDownloadDependencyPlan<ResourceVersion>)Native.Call(host, "Prepare", null, Project("root"), primary, Path.Combine(mods, "root.jar"), null, CancellationToken.None)!;
             Native.Check(plan.CanInstall && plan.Dependencies.Single().Version == dependency, "Actual Main preparation did not resolve the required version.");
             var panel = (StackPanel)Native.Call(host, "CreateView", null, plan)!;
+            var cards = ((StackPanel)panel.Children.OfType<MyScrollViewer>().Single().Content).Children.OfType<Border>().ToArray();
+            Native.Check(cards.Length == 2 && cards.All(card => card.BorderThickness.Left == 1 && card.CornerRadius.TopLeft > 0),
+                "The selected mod and required dependency are not displayed in bordered cards.");
+            Native.Check(((Grid)cards[0].Child).Children.OfType<MyImage>().Single().Source == plan.PrimaryProject!.LogoUrl &&
+                ((Grid)cards[1].Child).Children.OfType<MyImage>().Single().Source == plan.Dependencies.Single().Project!.LogoUrl,
+                "Download cards do not use each mod's own project icon.");
             var prompt = panel.Children.OfType<MyCheckBox>().Single();
             prompt.Checked = false; Native.Call(typeof(MyCheckBox), "OnChange", prompt, true);
             Native.Check(!Settings.Get<bool>("ToolDownloadModDependencies"), "Native modal prompt switch did not persist.");
@@ -153,7 +160,7 @@ internal static class ModDownloadDependencyChecks {
                 Directory.CreateDirectory(preview); panel.Measure(new Size(490, 500)); panel.Arrange(new Rect(0, 0, 490, panel.DesiredSize.Height)); panel.UpdateLayout();
                 var image = new RenderTargetBitmap(490, (int)Math.Ceiling(panel.ActualHeight), 96, 96, PixelFormats.Pbgra32); image.Render(panel);
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image)); using var file = File.Create(Path.Combine(preview, "dependency-content.png")); png.Save(file);
-                var modal = new MyMsgText(new ModMain.MyMsgBoxConverter { Title = "安装必需前置", Text = "此模组需要以下前置。确认后会一起下载并安装。",
+                var modal = new MyMsgText(new ModMain.MyMsgBoxConverter { Title = "下载 Mod 与必需前置", Text = "此模组需要以下前置。确认后会补齐缺失项，已安装的前置会保留。",
                     Button1 = "安装并补全", Button2 = "取消", Button3 = "仅下载此模组", ContentFactory = () => (FrameworkElement)Native.Call(host, "CreateView", null, plan)! });
                 Native.Check(modal.Width == 590, "Dependency modal did not retain its bounded native width.");
                 modal.Opacity = 1; modal.RenderTransform = Transform.Identity;
@@ -165,10 +172,23 @@ internal static class ModDownloadDependencyChecks {
             }
             var invoke = fields[3].FieldType.GetMethod("Invoke")!;
             var parameter = Expression.Parameter(typeof(ModDownloadDependencyPlan<ResourceVersion>));
-            fields[3].SetValue(null, Expression.Lambda(fields[3].FieldType, Expression.Constant(Enum.Parse(invoke.ReturnType, "Cancel"), invoke.ReturnType), parameter).Compile());
+            int confirmations = 0;
+            Action<ModDownloadDependencyPlan<ResourceVersion>> observe = _ => confirmations++;
+            fields[3].SetValue(null, Expression.Lambda(fields[3].FieldType, Expression.Block(
+                Expression.Invoke(Expression.Constant(observe), parameter),
+                Expression.Constant(Enum.Parse(invoke.ReturnType, "Cancel"), invoke.ReturnType)), parameter).Compile());
             Task canceled = Task.Run(() => Native.Call(installer, "PrepareAndStart", null, Project("root"), primary, Path.Combine(mods, "root.jar"), ResourceDownloadReason.Standalone, null));
             VisualAssetChecks.Pump(() => canceled.IsCompleted, "Canceled download proposal did not return.", 10000); canceled.GetAwaiter().GetResult();
             Native.Check(!Directory.EnumerateFileSystemEntries(mods).Any() && !Directory.Exists(cache) && server.Requests == 0, "Canceling the actual proposal downloaded or installed files.");
+            File.WriteAllBytes(Path.Combine(mods, "lib.jar"), server.Files["/lib.jar"]);
+            canceled = Task.Run(() => Native.Call(installer, "PrepareAndStart", null, Project("root"), primary, Path.Combine(mods, "root.jar"), ResourceDownloadReason.Standalone, null));
+            VisualAssetChecks.Pump(() => canceled.IsCompleted, "Installed dependency confirmation did not return.", 10000); canceled.GetAwaiter().GetResult();
+            Native.Check(confirmations == 2 && server.Requests == 0 && !Directory.Exists(cache), "A download with all required dependencies installed bypassed confirmation.");
+            File.Delete(Path.Combine(mods, "lib.jar"));
+            var independent = Version("root", "independent-v");
+            canceled = Task.Run(() => Native.Call(installer, "PrepareAndStart", null, Project("root"), independent, Path.Combine(mods, "root.jar"), ResourceDownloadReason.Standalone, null));
+            VisualAssetChecks.Pump(() => canceled.IsCompleted, "No-dependency confirmation did not return.", 10000); canceled.GetAwaiter().GetResult();
+            Native.Check(confirmations == 3 && server.Requests == 0 && !Directory.Exists(cache), "A version with no required dependencies bypassed the download summary.");
             File.WriteAllBytes(Path.Combine(mods, "lib.jar.disabled"), server.Files["/lib.jar"]);
             File.WriteAllBytes(Path.Combine(mods, "unrelated.jar"), Jar("fixture_other"));
             var loader = (ModLoader.LoaderBase)Native.Call(installer, "StartPrepared", null, Project("root"), primary, Path.Combine(mods, "root.jar"), ResourceDownloadReason.Standalone, null, plan)!;
@@ -179,7 +199,7 @@ internal static class ModDownloadDependencyChecks {
                 File.ReadAllBytes(Path.Combine(mods, "lib.jar")).SequenceEqual(server.Files["/lib.jar"]) && !File.Exists(Path.Combine(mods, "lib.jar.disabled")) &&
                 File.Exists(Path.Combine(mods, "unrelated.jar")), "Confirmed dependency installation lost bytes, kept the required library disabled or altered unrelated mods.");
             plan = (ModDownloadDependencyPlan<ResourceVersion>)Native.Call(host, "Prepare", null, Project("root"), primary, Path.Combine(mods, "root.jar"), null, CancellationToken.None)!;
-            Native.Check(!plan.NeedsPrompt && plan.Dependencies.Single().Installed, "A verified enabled renamed/installed dependency was not recognized.");
+            Native.Check(plan.Dependencies.Single().Installed, "A verified enabled renamed/installed dependency was not recognized.");
             string off = Path.Combine(root, "off"); Directory.CreateDirectory(off); int before = reads;
             Settings.Set("ToolDownloadModDependencies", false);
             Native.Call(installer, "Start", null, Project("root"), primary, Path.Combine(off, "root.jar"), ResourceDownloadReason.Standalone, null);

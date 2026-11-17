@@ -86,6 +86,7 @@ internal static class ModDownloadInstaller {
         if (!ModModpackMode.ConfirmModAction("安装 Mod")) return;
         var owner = Owner(target, preferred);
         if (!Settings.Get<bool>("ToolDownloadModDependencies")) { StartPrepared(project, version, target, reason, owner); return; }
+        ModMain.Hint("正在检查模组必需前置……");
         ModBase.RunInNewThread(() => {
             try { PrepareAndStart(project, version, target, reason, owner); }
             catch (Exception error) { Logger.Error(error, "检查模组前置失败", LogBehavior.Toast); }
@@ -94,7 +95,7 @@ internal static class ModDownloadInstaller {
     internal static void PrepareAndStart(ResourceProjectModelData project, ResourceVersion version, string target,
         ResourceDownloadReason reason, ModMinecraft.McInstance owner) {
         var plan = ModDownloadDependencies.Prepare(project, version, target, owner, CancellationToken.None);
-        var choice = plan.NeedsPrompt ? ModBase.RunInUiWait(() => ModDownloadDependencies.Confirm(plan)) : ModDependencyDownloadChoice.WithDependencies;
+        var choice = ModBase.RunInUiWait(() => ModDownloadDependencies.Confirm(plan));
         if (choice == ModDependencyDownloadChoice.Cancel) return;
         ModBase.RunInUi(() => StartPrepared(project, version, target, reason, owner,
             choice == ModDependencyDownloadChoice.WithDependencies ? plan : null));

@@ -50,7 +50,10 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
         if (plan.Items.Count > 0) actions.Add(plan.Items.Count + " 个必需前置待补全");
         if (report.PackOrigin?.NeedsAttention == true) actions.Add("整合包作者文件需要核对");
         if (report.PackOrigin?.IsPack == true && report.MetadataIncomplete) actions.Add("部分模组声明尚未确认");
-        List<string> platformNotes = report.PlatformReviewNotes();
+        List<string> platformNotes = report.PlatformReviewNotes((_, dependency) =>
+            dependency.MatchedPaths.Any(path => plan.Enables.Any(item => SameFilePath(item.Source, path))) ||
+            plan.Items.Any(item => item.Platform == dependency.Platform && item.ProjectId == dependency.ProjectId &&
+                (string.IsNullOrEmpty(dependency.VersionId) || (string?)item.Raw?["id"] == dependency.VersionId)));
         if (platformNotes.Count > 0) actions.Add(platformNotes.Count + " 项平台声明需要核对");
         if (actions.Count == 0) {
             int environmentCount = report.Issues.Where(item => item.IsError && item.Requirement is not null).Select(item => RuntimeOwnerId(item.Requirement!.Id, report.Context)).Where(id => id != "").Distinct().Count();
@@ -141,6 +144,7 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
     }
 
     private static string RuntimeOwnerId(string? id, TContext context) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.RuntimeOwnerId(id!, context);
+    private static bool SameFilePath(string first, string second) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.SameFilePath(first, second);
     private static string RuntimeDisplayName(string id) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.RuntimeDisplayName(id);
     private static bool IsInternalLoaderId(string? id) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.IsInternalLoaderId(id!);
     private static string RequirementDisplay(TDependency requirement, TContext context) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.RequirementDisplay(requirement, context);
