@@ -17,12 +17,12 @@ internal static class BackupPreferenceChecks {
     private static object? Preference(string name, params object?[] args) => Native.Static("PCL.BackupPreferences", name, args);
     internal static void Run(FixtureEnvironment environment) {
         using Scope scope = new(environment);
-        string[] globals = ["LaunchWorldBackupAutoEnabled", "LaunchWorldBackupRetention", "LaunchEnvironmentHistoryAutoCleanup", "LaunchEnvironmentHistoryRetention"];
+        string[] globals = ["LaunchWorldBackupAutoEnabled", "LaunchWorldBackupRetention", "LaunchEnvironmentHistoryAutoCleanup", "LaunchEnvironmentHistoryRetention", "LaunchWorldBackupKeepAll"];
         object[] previous = globals.Select(key => Settings.Get(key)).ToArray();
         var first = Instance(Path.Combine(scope.Root, "policy/minecraft/versions/first"));
         var second = Instance(Path.Combine(scope.Root, "policy/minecraft/versions/second"));
         try {
-            Settings.Set(globals[0], false); Settings.Set(globals[1], 8); Settings.Set(globals[2], true); Settings.Set(globals[3], 3);
+            Settings.Set(globals[0], false); Settings.Set(globals[1], 8); Settings.Set(globals[2], true); Settings.Set(globals[3], 3); Settings.Set(globals[4], false);
             Native.Check((int)Preference("WorldMode", first)! == 0 && !(bool)Preference("WorldAutoEnabled", first)! && (int)Preference("WorldRetention", first)! == 8,
                 "A fresh instance did not inherit both global world-backup defaults.");
             var settings = (FrameworkElement)New("PCL.WorldBackupSettings");
@@ -42,6 +42,15 @@ internal static class BackupPreferenceChecks {
             Native.Check((bool)Native.Call(settings.GetType(), "CommitPending", settings)! && (bool)Preference("WorldAutoEnabled", first)! &&
                 (int)Preference("WorldRetention", first)! == 7 && !(bool)Preference("WorldAutoEnabled", second)!,
                 "Independent backup preferences did not override global defaults or leaked to another instance.");
+            var worldPolicy = Part<MyComboBox>(settings, "ComboRetentionPolicy");
+            worldPolicy.SelectedIndex = 0;
+            Native.Check(Part<FrameworkElement>(settings, "PanRetentionCount").Visibility == Visibility.Collapsed &&
+                (int)Preference("WorldRetention", first)! == 0 && (int)Cache(first, "VersionWorldBackupRetention")! == 7,
+                "Keeping all world backups did not hide the count or lost the previous limit.");
+            Capture(settings, "world-keep-all.png");
+            worldPolicy.SelectedIndex = 1;
+            Native.Check(Part<FrameworkElement>(settings, "PanRetentionCount").Visibility == Visibility.Visible && retention.Text == "7",
+                "Returning to limited world backups lost the previous count.");
             Capture(settings, "world-independent.png");
             mode.SelectedIndex = 0; Settings.Set(globals[1], 12);
             Native.Check(independent.Visibility == Visibility.Collapsed && !(bool)Preference("WorldAutoEnabled", first)! &&
@@ -60,15 +69,20 @@ internal static class BackupPreferenceChecks {
                 "Restore-point preferences did not follow global defaults.");
             Capture(Part<MyCard>(history, "CardRetention"), "history-follow-global.png");
             historyMode.SelectedIndex = 1;
-            var cleanup = Part<MyCheckBox>(history, "CheckAutoCleanup");
+            var cleanup = Part<MyComboBox>(history, "ComboHistoryRetentionPolicy");
             var historyCount = Part<MyTextBox>(history, "TextRetention");
-            Native.Check(historyIndependent.Visibility == Visibility.Visible && cleanup.Checked && historyCount.Text == "3",
+            Native.Check(historyIndependent.Visibility == Visibility.Visible && cleanup.SelectedIndex == 1 && historyCount.Text == "3",
                 "Independent restore-point controls did not initialize from the global defaults.");
-            cleanup.Checked = false; Native.Call(typeof(PageInstanceRestorePoints), "AutoCleanupChanged", history, cleanup, true);
             historyCount.Text = "4"; controller.RetentionDirty = true;
-            Native.Check(controller.CommitRetention() && !(bool)Preference("HistoryAutoCleanup", second)! &&
+            Native.Check(controller.CommitRetention() && (bool)Preference("HistoryAutoCleanup", second)! &&
                 (int)Preference("HistoryRetention", second)! == 4 && Part<FrameworkElement>(history, "PanRetention").Visibility == Visibility.Visible,
                 "Independent restore-point cleanup/count did not remain editable and owner-scoped.");
+            cleanup.SelectedIndex = 0;
+            Native.Check(!(bool)Preference("HistoryAutoCleanup", second)! && Part<FrameworkElement>(history, "PanRetention").Visibility == Visibility.Collapsed &&
+                (int)Cache(second, "VersionEnvironmentHistoryRetention")! == 4, "Keeping every restore point did not hide and preserve its count.");
+            Capture(Part<MyCard>(history, "CardRetention"), "history-keep-all.png");
+            cleanup.SelectedIndex = 1;
+            Native.Check(historyCount.Text == "4" && Part<FrameworkElement>(history, "PanRetention").Visibility == Visibility.Visible, "Limited restore points did not restore their count.");
             Capture(Part<MyCard>(history, "CardRetention"), "history-independent.png");
             historyMode.SelectedIndex = 0;
             Native.Check(historyIndependent.Visibility == Visibility.Collapsed && (bool)Preference("HistoryAutoCleanup", second)! &&
@@ -76,6 +90,15 @@ internal static class BackupPreferenceChecks {
                 "Restore-point mode switching did not preserve independent preferences.");
 
             var globalPage = new PageSetupSystem();
+            Native.Call(typeof(PageSetupSystem), "RefreshBackupRetention", globalPage);
+            var globalWorldPolicy = Part<MyComboBox>(globalPage, "ComboWorldBackupRetention");
+            var globalHistoryPolicy = Part<MyComboBox>(globalPage, "ComboHistoryRetention");
+            globalWorldPolicy.SelectedIndex = 0; globalHistoryPolicy.SelectedIndex = 0;
+            Native.Check(Part<FrameworkElement>(globalPage, "PanWorldBackupRetentionCount").Visibility == Visibility.Collapsed &&
+                Part<FrameworkElement>(globalPage, "PanHistoryRetentionCount").Visibility == Visibility.Collapsed &&
+                (int)Preference("WorldRetention", second)! == 0 && !(bool)Preference("HistoryAutoCleanup", second)!, "Global keep-all policies did not propagate or hide count inputs.");
+            globalWorldPolicy.SelectedIndex = 1; globalHistoryPolicy.SelectedIndex = 1;
+            Native.Check(Settings.Get<int>(globals[1]) == 12 && Settings.Get<int>(globals[3]) == 3, "Global policy switching reset saved counts.");
             foreach (var item in new[] { ("TextWorldBackupRetention", globals[1]), ("TextHistoryRetention", globals[3]) }) {
                 var box = Part<MyTextBox>(globalPage, item.Item1);
                 Native.Check(SettingService.GetKey(box) == item.Item2, "Global retention control is not bound to its own setting.");

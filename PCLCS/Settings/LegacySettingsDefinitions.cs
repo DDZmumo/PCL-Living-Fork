@@ -123,6 +123,7 @@ public static class LegacySettingsDefinitions {
         Add("LaunchArgumentRam", false, LegacySettingSource.Registry);
         Add("LaunchWorldBackupAutoEnabled", true);
         Add("LaunchWorldBackupRetention", 5);
+        Add("LaunchWorldBackupKeepAll", false);
         Add("LaunchEnvironmentHistoryAutoCleanup", false);
         Add("LaunchEnvironmentHistoryRetention", 10);
         Add("LaunchModDependencyCheck", true);
@@ -222,6 +223,7 @@ public static class LegacySettingsDefinitions {
         Add("VersionWorldBackupAutoEnabled", true, LegacySettingSource.Instance);
         Add("VersionWorldBackupMode", -1, LegacySettingSource.Instance);
         Add("VersionWorldBackupRetention", 5, LegacySettingSource.Instance);
+        Add("VersionWorldBackupKeepAll", false, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryAutoCleanup", false, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryMode", -1, LegacySettingSource.Instance);
         Add("VersionEnvironmentHistoryRetention", 10, LegacySettingSource.Instance);

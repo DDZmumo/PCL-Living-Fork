@@ -27,7 +27,9 @@ internal static class LegacySettingsTests {
         // LF main50 adds source/channel/color-mode/panel-opacity; no baseline key is removed.
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
-        Equal(221, fixture.Entries.Count);
+        Equal(223, fixture.Entries.Count);
+        Equal(false, fixture.Entries["LaunchWorldBackupKeepAll"].DefaultValue);
+        Equal(false, fixture.Entries["VersionWorldBackupKeepAll"].DefaultValue);
         Equal(5, fixture.Entries["LaunchWorldBackupRetention"].DefaultValue);
         Equal(false, fixture.Entries["LaunchEnvironmentHistoryAutoCleanup"].DefaultValue);
         Equal(10, fixture.Entries["LaunchEnvironmentHistoryRetention"].DefaultValue);

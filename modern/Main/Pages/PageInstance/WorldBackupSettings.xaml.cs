@@ -37,6 +37,8 @@ namespace PCL
                 if (Value is null)
                 {
                     ComboMode.SelectedIndex = 0;
+                    ComboRetentionPolicy.SelectedIndex = 1;
+                    PanRetentionCount.Visibility = Visibility.Visible;
                     PanIndependent.Visibility = Visibility.Collapsed;
                     LabGlobal.Visibility = Visibility.Visible;
                     this.CheckAuto.Checked = false;
@@ -49,6 +51,9 @@ namespace PCL
                 PanIndependent.Visibility = independent ? Visibility.Visible : Visibility.Collapsed;
                 LabGlobal.Visibility = independent ? Visibility.Collapsed : Visibility.Visible;
                 this.CheckAuto.Checked = Settings.Get<bool>("VersionWorldBackupAutoEnabled", Instance: Value);
+                bool keepAll = Settings.Get<bool>("VersionWorldBackupKeepAll", Value);
+                ComboRetentionPolicy.SelectedIndex = keepAll ? 0 : 1;
+                PanRetentionCount.Visibility = keepAll ? Visibility.Collapsed : Visibility.Visible;
                 if (!PreserveInput)
                 {
                     this.TextRetention.Text = Settings.Get<int>("VersionWorldBackupRetention", Instance: Value).ToString();
@@ -71,7 +76,7 @@ namespace PCL
 
         private void RetentionEdited()
         {
-            if (!BindingOwner && Owner is not null && ComboMode.SelectedIndex == 1 && this.TextRetention.IsKeyboardFocusWithin)
+            if (!BindingOwner && Owner is not null && ComboMode.SelectedIndex == 1 && ComboRetentionPolicy.SelectedIndex == 1 && this.TextRetention.IsKeyboardFocusWithin)
                 RetentionDirty = true;
         }
         private void ModeChanged(object sender, SelectionChangedEventArgs args) {
@@ -80,6 +85,12 @@ namespace PCL
             BackupPreferences.SetWorldMode(Owner, ComboMode.SelectedIndex == 1 ? 1 : 0);
             BindOwner(Owner);
             CardSettings.TriggerForceResize();
+        }
+        private void RetentionPolicyChanged(object sender, SelectionChangedEventArgs args) {
+            if (BindingOwner || Owner is null || ComboMode.SelectedIndex != 1 || ComboRetentionPolicy.SelectedIndex < 0) return;
+            RetentionDirty = false;
+            Settings.Set("VersionWorldBackupKeepAll", ComboRetentionPolicy.SelectedIndex == 0, Owner);
+            BindOwner(Owner); CardSettings.TriggerForceResize();
         }
 
         private void RetentionLostFocus()
@@ -100,6 +111,7 @@ namespace PCL
             if (BindingOwner || Owner is null || !RetentionDirty)
                 return true;
             if (BackupPreferences.WorldMode(Owner) != 1) { RetentionDirty = false; BindOwner(Owner); return true; }
+            if (Settings.Get<bool>("VersionWorldBackupKeepAll", Owner)) { RetentionDirty = false; BindOwner(Owner); return true; }
             RetentionDirty = false;
             int Count;
             bool Valid = int.TryParse(this.TextRetention.Text, out Count) && Count >= 1 && Count <= 50;

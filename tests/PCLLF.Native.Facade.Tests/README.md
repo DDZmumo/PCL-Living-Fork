@@ -90,3 +90,6 @@ The explicit `mmc-launch-java` group requires `PCLLF_MMC_TEST_JAVA8` and
 `--groups mmc-launch-java`; it does not run in the default registry or CI group list.
 `--list-explicit-groups` lists these local prerequisite groups. Missing prerequisites
 fail clearly. The checks probe real Java without installing it or changing the catalog.
+
+
+The backup preference group also checks keep-all versus count-limited retention in global and independent views, count-input hiding, unchanged stored limits and inheritance. World-backup pipeline tests exercise unlimited capture and restore safety points; selecting keep-all never disables automatic creation.

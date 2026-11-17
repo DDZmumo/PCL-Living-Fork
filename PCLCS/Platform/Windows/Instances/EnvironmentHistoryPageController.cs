@@ -118,7 +118,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
             if (view.PanIndependent is not null) view.PanIndependent.Visibility = independent ? Visibility.Visible : Visibility.Collapsed;
             if (view.GlobalRetentionNotice is not null) view.GlobalRetentionNotice.Visibility = independent ? Visibility.Collapsed : Visibility.Visible;
             view.SetAutoCleanup(Owner is not null && host.AutoCleanup(Owner));
-            view.PanRetention.Visibility = view.PanIndependent is not null || view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
+            view.PanRetention.Visibility = view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
             if (!RetentionDirty || !view.RetentionHasFocus()) {
                 view.SetRetentionText((Owner is null ? 10 : host.Retention(Owner)).ToString());
                 RetentionDirty = false;
@@ -127,7 +127,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
     }
     public void AutoCleanupChanged(bool user) {
         if (BindingRetention) return;
-        view.PanRetention.Visibility = view.PanIndependent is not null || view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
+        view.PanRetention.Visibility = view.AutoCleanup() ? Visibility.Visible : Visibility.Collapsed;
         view.ForceRetentionResize();
         if (user && Owner is not null && (host.PreferenceMode?.Invoke(Owner) ?? 1) == 1) host.SetAutoCleanup(Owner, view.AutoCleanup());
     }
@@ -147,6 +147,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
     public bool CommitRetention() {
         if (BindingRetention || Owner is null || !RetentionDirty) return true;
         if ((host.PreferenceMode?.Invoke(Owner) ?? 1) != 1) { RetentionDirty = false; BindRetention(); return true; }
+        if (!view.AutoCleanup()) { RetentionDirty = false; BindRetention(); return true; }
         RetentionDirty = false;
         bool valid = int.TryParse(view.RetentionText(), out int count) && count >= 1 && count <= 100;
         int previous = host.Retention(Owner);

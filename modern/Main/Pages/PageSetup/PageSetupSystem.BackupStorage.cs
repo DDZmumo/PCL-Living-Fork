@@ -8,12 +8,35 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Controls;
 using MeloongCore;
 using MeloongCore.Wpf;
 
 namespace PCL;
 
 public partial class PageSetupSystem {
+    private bool BindingBackupRetention;
+    private void RefreshBackupRetention() {
+        BindingBackupRetention = true;
+        try {
+            ComboWorldBackupRetention.SelectedIndex = Settings.Get<bool>("LaunchWorldBackupKeepAll") ? 0 : 1;
+            ComboHistoryRetention.SelectedIndex = Settings.Get<bool>("LaunchEnvironmentHistoryAutoCleanup") ? 1 : 0;
+            PanWorldBackupRetentionCount.Visibility = ComboWorldBackupRetention.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+            PanHistoryRetentionCount.Visibility = ComboHistoryRetention.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        } finally { BindingBackupRetention = false; }
+    }
+    private void WorldBackupRetentionChanged(object sender, SelectionChangedEventArgs args) {
+        if (ComboWorldBackupRetention is null || PanWorldBackupRetentionCount is null || ComboWorldBackupRetention.SelectedIndex < 0) return;
+        bool keepAll = ComboWorldBackupRetention.SelectedIndex == 0;
+        PanWorldBackupRetentionCount.Visibility = keepAll ? Visibility.Collapsed : Visibility.Visible;
+        if (!BindingBackupRetention) Settings.Set("LaunchWorldBackupKeepAll", keepAll);
+    }
+    private void HistoryRetentionChanged(object sender, SelectionChangedEventArgs args) {
+        if (ComboHistoryRetention is null || PanHistoryRetentionCount is null || ComboHistoryRetention.SelectedIndex < 0) return;
+        bool limited = ComboHistoryRetention.SelectedIndex == 1;
+        PanHistoryRetentionCount.Visibility = limited ? Visibility.Visible : Visibility.Collapsed;
+        if (!BindingBackupRetention) Settings.Set("LaunchEnvironmentHistoryAutoCleanup", limited);
+    }
     internal Func<string> SelectBackupFolder = () => Dialogs.SelectFolder("选择备份与还原点存储位置（空文件夹）", false, BackupStorage.Root).FirstOrDefault();
     internal Func<string, string, bool> ConfirmBackupMove = (oldRoot, newRoot) => ModMain.MyMsgBox(
         "将世界备份和环境还原点从：\r\n" + oldRoot + "\r\n\r\n迁移到：\r\n" + newRoot +

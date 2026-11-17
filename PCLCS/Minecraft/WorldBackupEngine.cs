@@ -95,7 +95,7 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
     private string PointFolder(string gameFolder, string id) { PointId(id); return Safe(Store(gameFolder), "points/" + id); }
     private string WorldFolder(string gameFolder, string identifier) { WorldName(identifier); return Safe(Full(gameFolder), "saves/" + identifier); }
     private static int Retain(int value) {
-        if (value < 1 || value > 50) throw new IOException("每个世界保留的备份份数必须为 1 到 50。");
+        if (value < 0 || value > 50) throw new IOException("每个世界保留的备份份数必须为 1 到 50，或选择全部保留。");
         return value;
     }
 
@@ -302,6 +302,7 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
     }
 
     private void Prune(string gameFolder, string identifier, int count) {
+        if (count == 0) return; // Unlimited retention still performs capture/restore validation.
         foreach (JObject point in Points(gameFolder).Where(item => string.Equals(item["world"]!.ToString(), identifier, StringComparison.OrdinalIgnoreCase) && !IsManualPoint(item)).Skip(Retain(count))) {
             try { DeleteTree(Store(gameFolder), PointFolder(gameFolder, point["id"]!.ToString())); }
             catch (Exception ex) { host.Warn(ex, "新备份已保存，但清理旧存档备份失败"); }

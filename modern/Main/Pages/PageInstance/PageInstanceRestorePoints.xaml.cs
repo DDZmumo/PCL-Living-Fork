@@ -68,8 +68,8 @@ namespace PCL
                 SetRetentionText = new Action<string>(Value => this.TextRetention.Text = Value),
                 SetAllText = new Action<string>(Value => this.FilterAll.Text = Value),
                 SetHealthyText = new Action<string>(Value => this.FilterHealthy.Text = Value),
-                AutoCleanup = new Func<bool>(() => this.CheckAutoCleanup.Checked),
-                SetAutoCleanup = new Action<bool>(Value => this.CheckAutoCleanup.Checked = Value),
+                AutoCleanup = new Func<bool>(() => this.ComboHistoryRetentionPolicy.SelectedIndex == 1),
+                SetAutoCleanup = new Action<bool>(Value => this.ComboHistoryRetentionPolicy.SelectedIndex = Value ? 1 : 0),
                 RetentionHasFocus = new Func<bool>(() => this.TextRetention.IsKeyboardFocusWithin),
                 SearchHasFocus = new Func<bool>(() => this.SearchBox.IsKeyboardFocusWithin),
                 CheckAll = new Action(() => this.FilterAll.Checked = true),
@@ -361,6 +361,7 @@ namespace PCL
             Controller?.AutoCleanupChanged(User);
         }
         private void RetentionModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.PreferenceModeChanged();
+        private void HistoryRetentionPolicyChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs args) => Controller?.AutoCleanupChanged(true);
 
         private void RetentionEdited()
         {

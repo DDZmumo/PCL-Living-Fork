@@ -6,25 +6,29 @@
 namespace PCL;
 
 internal static class BackupPreferences {
-    internal static int WorldMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionWorldBackupMode", "VersionWorldBackupAutoEnabled", "VersionWorldBackupRetention");
+    internal static int WorldMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionWorldBackupMode", "VersionWorldBackupAutoEnabled", "VersionWorldBackupRetention", "VersionWorldBackupKeepAll");
     internal static int HistoryMode(ModMinecraft.McInstance instance) => Mode(instance, "VersionEnvironmentHistoryMode", "VersionEnvironmentHistoryAutoCleanup", "VersionEnvironmentHistoryRetention");
-    private static int Mode(ModMinecraft.McInstance instance, string mode, string enabled, string retention) {
+    private static int Mode(ModMinecraft.McInstance instance, string mode, string enabled, string retention, string keepAll = null) {
         int value = Settings.Get<int>(mode, instance);
         if (value >= 0) return value == 1 ? 1 : 0;
         // Existing explicit per-instance choices remain independent; fresh
         // instances follow the global defaults. Reads never migrate user files.
-        return Settings.HasSaved(enabled, instance) || Settings.HasSaved(retention, instance) ? 1 : 0;
+        return Settings.HasSaved(enabled, instance) || Settings.HasSaved(retention, instance) || keepAll is not null && Settings.HasSaved(keepAll, instance) ? 1 : 0;
     }
     internal static bool WorldAutoEnabled(ModMinecraft.McInstance instance) => WorldMode(instance) == 0
         ? Settings.Get<bool>("LaunchWorldBackupAutoEnabled") : Settings.Get<bool>("VersionWorldBackupAutoEnabled", instance);
-    internal static int WorldRetention(ModMinecraft.McInstance instance) => WorldMode(instance) == 0
+    internal static bool WorldKeepAll(ModMinecraft.McInstance instance) => WorldMode(instance) == 0
+        ? Settings.Get<bool>("LaunchWorldBackupKeepAll") : Settings.Get<bool>("VersionWorldBackupKeepAll", instance);
+    internal static int WorldRetention(ModMinecraft.McInstance instance) => WorldKeepAll(instance) ? 0 : WorldRetentionCount(instance);
+    internal static int WorldRetentionCount(ModMinecraft.McInstance instance) => WorldMode(instance) == 0
         ? Settings.Get<int>("LaunchWorldBackupRetention") : Settings.Get<int>("VersionWorldBackupRetention", instance);
     internal static bool HistoryAutoCleanup(ModMinecraft.McInstance instance) => HistoryMode(instance) == 0
         ? Settings.Get<bool>("LaunchEnvironmentHistoryAutoCleanup") : Settings.Get<bool>("VersionEnvironmentHistoryAutoCleanup", instance);
     internal static int HistoryRetention(ModMinecraft.McInstance instance) => HistoryMode(instance) == 0
         ? Settings.Get<int>("LaunchEnvironmentHistoryRetention") : Settings.Get<int>("VersionEnvironmentHistoryRetention", instance);
     internal static void SetWorldMode(ModMinecraft.McInstance instance, int mode) {
-        bool enabled = WorldAutoEnabled(instance); int retention = WorldRetention(instance);
+        bool enabled = WorldAutoEnabled(instance); int retention = WorldRetentionCount(instance); bool keepAll = WorldKeepAll(instance);
+        if (mode == 1 && !Settings.HasSaved("VersionWorldBackupKeepAll", instance)) Settings.Set("VersionWorldBackupKeepAll", keepAll, instance);
         SetMode(instance, mode, "VersionWorldBackupMode", "VersionWorldBackupAutoEnabled", "VersionWorldBackupRetention", enabled, retention);
     }
     internal static void SetHistoryMode(ModMinecraft.McInstance instance, int mode) {

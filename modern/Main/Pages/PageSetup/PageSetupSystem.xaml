@@ -50,7 +50,11 @@
                 <StackPanel Margin="25,40,25,20">
                     <TextBlock Text="存档自动备份 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
                     <local:MyCheckBox x:Name="CheckWorldBackupAuto" Text="正常退出游戏或更新 Minecraft 前自动备份世界" local:SettingService.Key="LaunchWorldBackupAutoEnabled" Margin="0,0,0,12" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                    <local:MyComboBox x:Name="ComboWorldBackupRetention" Height="28" Margin="0,0,0,12" SelectionChanged="WorldBackupRetentionChanged">
+                        <local:MyComboBoxItem Content="全部保留" />
+                        <local:MyComboBoxItem Content="保留最近若干份" />
+                    </local:MyComboBox>
+                    <StackPanel x:Name="PanWorldBackupRetentionCount" Orientation="Horizontal" Margin="0,0,0,20">
                         <TextBlock Text="每个世界保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
                         <local:MyTextBox x:Name="TextWorldBackupRetention" Width="65" MaxLength="2" Text="5" ShowValidateResult="False" local:SettingService.Key="LaunchWorldBackupRetention">
                             <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
@@ -58,8 +62,11 @@
                         <TextBlock Text="份自动备份" VerticalAlignment="Center" Margin="10,0,0,0" />
                     </StackPanel>
                     <TextBlock Text="环境还原点 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
-                    <local:MyCheckBox x:Name="CheckHistoryAutoCleanup" Text="自动清理超过上限的旧还原点" local:SettingService.Key="LaunchEnvironmentHistoryAutoCleanup" Margin="0,0,0,12" />
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <local:MyComboBox x:Name="ComboHistoryRetention" Height="28" Margin="0,0,0,12" SelectionChanged="HistoryRetentionChanged">
+                        <local:MyComboBoxItem Content="全部保留" />
+                        <local:MyComboBoxItem Content="保留最近若干份" />
+                    </local:MyComboBox>
+                    <StackPanel x:Name="PanHistoryRetentionCount" Orientation="Horizontal" Margin="0,0,0,12">
                         <TextBlock Text="保留最近" VerticalAlignment="Center" Margin="0,0,10,0" />
                         <local:MyTextBox x:Name="TextHistoryRetention" Width="65" MaxLength="3" Text="10" ShowValidateResult="False" local:SettingService.Key="LaunchEnvironmentHistoryRetention">
                             <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>

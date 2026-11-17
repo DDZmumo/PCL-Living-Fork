@@ -79,7 +79,7 @@ internal static class BackupResourceWorldChecks
         Native.Check(before.SequenceEqual(Points(game).Select(p => (string)p["id"]!)), "Failed/canceled capture pruned existing backups.");
         Reject(() => Capture(game, "../escape", "traversal"), "world path traversal");
         Reject(() => Restore(game, "../escape"), "backup ID traversal");
-        Reject(() => Capture(game, "World A", "invalid retention", 0), "invalid retention");
+        Reject(() => Capture(game, "World A", "invalid retention", -1), "invalid retention");
         Junction(scope, game);
         string corrupt = Capture(game, "World A", "corrupt-fixture"); Put(Path.Combine(store, "points", corrupt, "world.zip"), "broken zip");
         count = Points(game).Count; Reject(() => Restore(game, corrupt), "corrupt ZIP restore");
