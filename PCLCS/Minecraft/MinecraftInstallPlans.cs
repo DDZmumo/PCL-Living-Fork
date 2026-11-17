@@ -36,7 +36,9 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
         if (FileUtils.Exists(versionFolder + request.NewInstanceName + ".json")) { Hint("版本 " + request.NewInstanceName + " 已经存在！", 1); throw new OperationCanceledException(); }
         List<TLoader> loaders = new();
         Dictionary<string, string> managedSources = new();
-        loaders.Add(Task<int, int>("添加忽略标识", _ => FileUtils.Write(versionFolder + ".pclignore", "用于临时地在 PCL 的版本列表中屏蔽此版本。"), show: false));
+        TLoader ignore = Task<int, int>("添加忽略标识", task => OrdinaryInstallCleanupProof.WriteMarker(task.Native, versionFolder), show: false);
+        OrdinaryInstallCleanupProof.Register(ignore, versionFolder, request.NewInstanceName);
+        loaders.Add(ignore);
         if (request.Components.FabricApiVersion is not null) {
             TNetFile file = host.ResourceNetFile(request.FabricApi!, modsTemp, request.Components.MinecraftVersion, ModLoaders.Fabric);
             managedSources.Add("FabricApi", host.LocalPath(file)); loaders.Add(Download("下载 Fabric API", new() { file }, 3, true, false));

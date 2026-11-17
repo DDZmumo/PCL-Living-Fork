@@ -104,13 +104,16 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
         host.RunInThread(() => {
             try {
                 Thread.Sleep(1000);
-                MmcInstanceInspection management = MmcInstanceInspector.Read(host.CleanupInput(loader));
-                if (!management.IsLegacy || !management.Management.CanUseLegacyBackend) {
-                    Logger.Warn("保留 MMC 或尚未确认归属的安装现场，等待其专用恢复流程：" + host.CleanupInput(loader));
+                string folder = host.CleanupInput(loader);
+                MmcInstanceInspection management = MmcInstanceInspector.Read(folder);
+                bool known = OrdinaryInstallCleanupProof.TryAuthorize(host.CleanupTasks(loader), folder, out bool hasProof, out string? refusal);
+                if (hasProof ? !known : !management.IsLegacy || !management.Management.CanUseLegacyBackend) {
+                    Logger.Warn("保留 MMC 或尚未确认归属的安装现场，等待其专用恢复流程：" + folder);
+                    if (refusal is not null) Logger.Warn(refusal);
                     return;
                 }
-                if (DirectoryUtils.Exists(host.CleanupInput(loader) + "saves\\") || DirectoryUtils.Exists(host.CleanupInput(loader) + "versions\\")) Logger.Warn("由于版本已被独立启动，不清理版本文件夹：" + host.CleanupInput(loader));
-                else { Logger.Warn("由于下载失败或取消，清理版本文件夹：" + host.CleanupInput(loader)); DirectoryUtils.Delete(host.CleanupInput(loader)); }
+                if (DirectoryUtils.Exists(Path.Combine(folder, "saves")) || DirectoryUtils.Exists(Path.Combine(folder, "versions"))) Logger.Warn("由于版本已被独立启动，不清理版本文件夹：" + folder);
+                else { Logger.Warn("由于下载失败或取消，清理版本文件夹：" + folder); DirectoryUtils.Delete(folder); }
             } catch (Exception error) { Logger.Warn(error, "下载失败或取消后清理版本文件夹失败"); }
         });
     }
