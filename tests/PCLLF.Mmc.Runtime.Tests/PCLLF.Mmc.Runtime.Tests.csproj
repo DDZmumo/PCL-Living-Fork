@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>13.0</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Exercise the genuine host dependency graph, never a second linked production copy. -->
+    <ProjectReference Include="../../modern/PCLCS/PCLCS.Modern.csproj" />
+  </ItemGroup>
+</Project>

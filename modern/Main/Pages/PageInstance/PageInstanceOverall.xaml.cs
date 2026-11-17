@@ -94,6 +94,11 @@ namespace PCL
                 RefreshInstanceList = new Action(() => global::PCL.ModLoader.LoaderFolderRun(global::PCL.ModMinecraft.McInstanceListLoader, global::PCL.ModMinecraft.McFolderSelected, global::PCL.ModLoader.LoaderFolderRunType.ForceRun, MaxDepth: 1, ExtraPath: @"versions\")),
                 LoadInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name).Load()),
                 Rename = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::PCL.ModMinecraft.McInstance>((Target, Name) => Target.Rename(Name)),
+                BeginManagedRename = Target => MmcLifecycleUi.PromptRename(Target, renamed => {
+                    if (!ReferenceEquals(PageInstanceLeft.Instance, Target)) return;
+                    PageInstanceLeft.Instance = renamed; Controller.Reload();
+                }),
+                BeginManagedRepair = MmcRepairUi.Prompt,
                 ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((Path, Key, DefaultValue) => global::PCL.ModBase.ReadIni(Path, Key, DefaultValue)),
                 WriteIni = new Action<global::System.String, global::System.String, global::System.String>((Path, Key, Value) => global::PCL.ModBase.WriteIni(Path, Key, Value)),
                 ReadLogo = Path => global::PCL.MinecraftLogoCompatibility.ReadVersionLogo(Path),
@@ -128,6 +133,7 @@ namespace PCL
                 ErrorAlert = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text, global::MeloongCore.LogBehavior.Alert)),
                 Warn = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Warn(Err, Text)),
                 DeleteConfirmed = PageSelectRight.DeleteInstanceInBackground,
+                BeginManagedDelete = MmcDeleteUi.PromptDelete,
                 IsCurrentPage = () => ReferenceEquals(ModMain.FrmMain?.PageRight, this)
             };
         }
@@ -135,16 +141,19 @@ namespace PCL
         private void PageSetupLaunch_Loaded(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
         {
             this.Controller.Loaded();
+            RefreshMmcActions();
         }
 
         internal void RefreshModpackVisibility()
         {
             this.Controller.RefreshModpackVisibility();
+            RefreshMmcActions();
         }
 
         private void Reload()
         {
             this.Controller.Reload();
+            RefreshMmcActions();
         }
 
         private void ComboDisplayType_SelectionChanged(global::System.Object sender, global::System.Windows.Controls.SelectionChangedEventArgs e)

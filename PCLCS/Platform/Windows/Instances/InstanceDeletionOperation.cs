@@ -72,6 +72,8 @@ public static class InstanceFolderDeletion
         if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) path = @"\\" + path.Substring(8);
         else if (path.StartsWith(@"\\?\", StringComparison.Ordinal)) path = path.Substring(4);
         string target = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        MmcInstanceCapabilities.RequireLegacy(target, "删除");
+        MmcInstanceCapabilities.RequireLegacyContainingInstance(target, "删除");
         string disk = (Path.GetPathRoot(target) ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (target.Length == 0 || string.Equals(target, disk, StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Cannot delete a volume root.");
         foreach (string critical in new[] { AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

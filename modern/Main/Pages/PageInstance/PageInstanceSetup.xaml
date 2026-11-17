@@ -39,6 +39,7 @@
                             <RowDefinition Height="9" />
                             <RowDefinition Height="28" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock x:Name="LabArgumentIndie" Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="版本隔离" Margin="0,0,25,0" />
                         <local:MyComboBox x:Name="ComboArgumentIndieV2" Grid.Row="0" Grid.ColumnSpan="2" Grid.Column="1">
@@ -81,7 +82,7 @@
                                              Grid.Column="1" Margin="7,0,0,0" Width="200"
                                              ToolTip="输入允许的 Java 版本区间，例如 [17.0.1, 25.0)。&#xa;方括号代表包含，圆括号代表不包含。不写其中一侧代表不限制。&#xa;&#xa;例如：&#xa;[21.0, ) 代表至少需要 Java 21。&#xa;(, 18.0) 代表允许 Java 17-，但不允许 Java 18+（圆括号代表不包含）。&#xa;[8.0.81, 8.0.141] 则代表仅允许 Java 8u81 ~ 8u141。&#xa;&#xa;你可以在左侧选择 “使用指定的 Java” 来查看你电脑中已有的 Java 的版本号。" HintText="版本区间…" MaxLength="100" />
                         </Grid>
-                        <local:MyHint Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="HintArgumentJava" Margin="0,8,0,0" Visibility="Collapsed" />
+                        <local:MyHint Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="HintArgumentJava" Margin="0,8,0,0" Visibility="Collapsed" />
                         <Grid x:Name="PanArgumentJavaSelect" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" Visibility="Collapsed"
                               Height="28" Margin="0,9,0,0">
                             <Grid.ColumnDefinitions>

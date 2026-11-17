@@ -58,6 +58,12 @@ public sealed class EnvironmentHistoryPageHost<TInstance> where TInstance : clas
     public Action<bool> BindChanged = null!;
     public Action<TInstance?, bool, string?, IEnumerable<string>?> Start = null!;
     public Action<string, string> ShowDetails = null!;
+    // Optional presentation/capability adapters for managed environments. The legacy
+    // page keeps its original defaults and its state remains in this controller.
+    public Func<JObject, List<EnvironmentHistoryPageIcon>>? PointButtons;
+    public Func<bool>? CanRestoreSelection;
+    public Func<bool, string>? EmptyText;
+    public Func<int, string>? SelectionText;
 }
 
 /// <summary>LF 还原点页面的加载、保留设置、搜索、选择、键盘及命令编排。</summary>
@@ -158,7 +164,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         List<JObject> visible = matching.Where(item => !HealthyOnly || (bool)item["healthy"]!).ToList();
         SelectedIds.IntersectWith(visible.Select(item => item["id"]!.ToString()));
         view.Empty.Visibility = visible.Any() ? Visibility.Collapsed : Visibility.Visible;
-        view.Empty.Text = Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。更新前会自动保存，也可以手动创建。";
+        view.Empty.Text = host.EmptyText?.Invoke(Entries.Any()) ?? (Entries.Any() ? "没有找到符合条件的还原点。" : "暂无还原点。更新前会自动保存，也可以手动创建。");
         foreach (JObject point in visible) {
             IEnvironmentHistoryPageRow item = view.CreateRow();
             item.Bind(point);
@@ -171,6 +177,7 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         RefreshSelection();
     }
     public List<EnvironmentHistoryPageIcon> PointButtons(JObject point) {
+        if (host.PointButtons is not null) return host.PointButtons(point);
         EnvironmentHistoryPageIcon restore = view.CreateIcon(view.RestoreLogo, 0.85, "恢复此还原点");
         EnvironmentHistoryPageIcon details = view.CreateIcon(view.DetailsLogo, null, "详情");
         EnvironmentHistoryPageIcon open = view.CreateIcon(view.OpenLogo, 1.05, "打开还原点文件夹");
@@ -191,8 +198,8 @@ public sealed class EnvironmentHistoryPageController<TInstance> where TInstance 
         RefreshSelection();
     }
     public void RefreshSelection() {
-        view.RestoreButton.IsEnabled = SelectedIds.Count == 1;
-        view.Select.Text = $"已选择 {SelectedIds.Count} 个还原点";
+        view.RestoreButton.IsEnabled = SelectedIds.Count == 1 && (host.CanRestoreSelection?.Invoke() ?? true);
+        view.Select.Text = host.SelectionText?.Invoke(SelectedIds.Count) ?? $"已选择 {SelectedIds.Count} 个还原点";
         view.CardList.Margin = new Thickness(0, 0, 0, SelectedIds.Count > 0 ? 95 : 14);
         BarCount = view.RefreshSelectionBar(SelectedIds.Count, BarCount, view.Root.IsLoaded && host.AnimationEnabled());
     }

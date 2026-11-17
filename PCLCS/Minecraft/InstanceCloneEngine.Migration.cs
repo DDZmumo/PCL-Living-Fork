@@ -75,10 +75,12 @@ public sealed partial class InstanceCloneEngine<TInstance, TOptions, TResult, TC
         return result;
     }
     public TPlan PreviewMigration(string cloneFolder, string sourceGameRoot, CancellationToken token) {
+        MmcInstanceCapabilities.RequireLegacy(cloneFolder, "测试副本迁回");
         AssertStopped(cloneFolder);
         cloneFolder = NormalizeRoot(cloneFolder);
         JObject origin = ReadOrigin(cloneFolder);
         string source = NormalizeRoot(origin["sourceVersionFolder"]!.ToString());
+        MmcInstanceCapabilities.RequireLegacy(source, "测试副本迁回");
         sourceGameRoot = NormalizeRoot(sourceGameRoot);
         if (!host.SamePath(sourceGameRoot, origin["sourceGameRoot"]!.ToString())) throw new IOException("原版本的隔离设置已改变，请手动检查游戏目录。");
         if (host.HasPending(source) || host.HasPending(cloneFolder)) throw new IOException("版本有未完成的环境修改，请先恢复。");
@@ -114,6 +116,8 @@ public sealed partial class InstanceCloneEngine<TInstance, TOptions, TResult, TC
     public string? ApplyMigration(TPlan? plan, CancellationToken token, Func<string>? captureBefore = null,
         Action<string, string>? beforeMinecraftChange = null, Action<int>? beforeApply = null) {
         if (plan is null) throw new ArgumentNullException("Plan");
+        MmcInstanceCapabilities.RequireLegacy(plan.SourceVersionFolder!, "测试副本迁回");
+        MmcInstanceCapabilities.RequireLegacy(plan.CloneVersionFolder!, "测试副本迁回");
         lock (Gate) {
             AssertStopped(plan.SourceGameRoot!, plan.CloneVersionFolder!);
             TPlan fresh = PreviewMigration(plan.CloneVersionFolder!, plan.SourceGameRoot!, token);

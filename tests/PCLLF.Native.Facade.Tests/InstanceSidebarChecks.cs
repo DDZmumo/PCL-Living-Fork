@@ -39,9 +39,12 @@ internal static class InstanceSidebarChecks
             var host = (Host)Native.Get(controller, "host")!;
             var panel = Part<StackPanel>(page, "PanItem");
             var items = panel.Children.OfType<MyListItem>().ToArray();
-            string[] order = ["0", "1", "2", "11", "16", "15", "5", "12", "14", "6", "7", "3", "4", "8", "9", "10"];
+            string[] order = ["0", "1", "2", "11", "16", "15", "5", "12", "14", "18", "6", "7", "3", "4", "8", "9", "10"];
+            string[] ordinaryRoutes = ["0", "1", "2", "11", "16", "15", "5", "12", "14", "6", "7", "3", "4", "8", "9", "10"];
+
             Native.Check(items.Select(item => item.Tag.ToString()).SequenceEqual(order), "Actual sidebar order/tag identity changed.");
             Native.Check(items.All(item => ReferenceEquals(item.Parent, panel)), "Radio items no longer share their native parent.");
+            Native.Check(Part<MyListItem>(page, "ItemMmcMove").Visibility == Visibility.Collapsed && page.FindName("ItemMmcPlatformOrigin") is null, "MMC-only sidebar entries leaked onto ordinary version.");
             Native.Check(panel.Children.OfType<TextBlock>().Select(label => label.Text).SequenceEqual(new[] { "版本配置", "版本工具", "游戏资源" }), "Native sidebar group order differs.");
             CheckIcons(page);
             // Run the production initializer again: it must retain BAML glyphs
@@ -61,11 +64,12 @@ internal static class InstanceSidebarChecks
             window.Show();
             VisualAssetChecks.Pump(() => page.IsLoaded && loaded == 1, "Real sidebar Loaded did not reach its owned host.");
             CheckIcons(page);
-            foreach (int tag in order.Select(int.Parse))
+            foreach (int tag in ordinaryRoutes.Select(int.Parse))
             {
                 controller.SyncSelection((FormMain.PageSubType)tag);
                 Native.Check(page.PageID == (FormMain.PageSubType)tag && Item(controller, tag).Checked && items.Count(item => item.Checked) == 1, "Tag lookup/single selection changed: " + tag);
             }
+            Native.Check(ReferenceEquals(Item(controller, 18), Part<MyListItem>(page, "ItemOverall")) && ReferenceEquals(Item(controller, 17), Part<MyListItem>(page, "ItemOverall")), "Ordinary navigation did not normalize MMC-only routes to Overview.");
             CheckRefreshAndLock(page, controller, host, environment);
             CheckGroups(page, controller);
             CheckMode(page, controller);
@@ -140,9 +144,14 @@ internal static class InstanceSidebarChecks
 
     private static void CheckGroups(PageInstanceLeft page, Controller controller)
     {
-        foreach (var (name, tags) in new[] { ("LabVersionConfiguration", new[] { 1, 2, 11, 16 }), ("LabVersionTools", new[] { 15, 5, 12, 14 }), ("LabGameResources", new[] { 6, 7, 3, 4, 8, 9, 10 }) })
+        foreach (var (name, itemNames) in new[] {
+            ("LabVersionConfiguration", new[] { "ItemSetup", "ItemModify", "ItemKeybindings", "ItemPersonal" }),
+            ("LabVersionTools", new[] { "ItemPackUpdate", "ItemExport", "ItemRestorePoints", "ItemClone", "ItemMmcMove" }),
+            ("LabGameResources", new[] { "ItemSaves", "ItemScreenshots", "ItemMod", "ItemModDisabled", "ItemResourcePacks", "ItemShaderPacks", "ItemSchematics" })
+        })
+
         {
-            var label = Part<TextBlock>(page, name); var values = tags.Select(tag => (Item: Item(controller, tag), Visibility: Item(controller, tag).Visibility)).ToArray();
+            var label = Part<TextBlock>(page, name); var values = itemNames.Select(itemName => { var el = Part<MyListItem>(page, itemName); return (Item: el, Visibility: el.Visibility); }).ToArray();
             var binding = BindingOperations.GetMultiBindingExpression(label, UIElement.VisibilityProperty) ?? throw new InvalidOperationException("Header is not bound to actual item visibility.");
             foreach (var pair in values) pair.Item.Visibility = Visibility.Collapsed;
             binding.UpdateTarget(); Native.Check(label.Visibility == Visibility.Collapsed, "Empty native group left a floating heading: " + name);

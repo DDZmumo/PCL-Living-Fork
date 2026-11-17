@@ -261,6 +261,7 @@ public sealed partial class InstanceCloneEngine<TInstance, TOptions, TResult, TC
         CloneWithProgress(versionFolder, gameRoot, newName, options, token, null, afterFileCopied);
 
     public TResult CloneWithProgress(string versionFolder, string gameRoot, string newName, TOptions? options, CancellationToken token, Action<double>? progress, Action<int>? afterFileCopied = null) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "克隆");
         lock (Gate) {
             AssertStopped(gameRoot);
             token.ThrowIfCancellationRequested();
@@ -297,6 +298,7 @@ public sealed partial class InstanceCloneEngine<TInstance, TOptions, TResult, TC
                 Verify(before, Fingerprints(Inventory(versionFolder, gameRoot, options, token), token, FileTaskProgress.Slice(progress, 0.85, 0.99)));
                 token.ThrowIfCancellationRequested();
                 EnsureNoLinks(parent); EnsureNoLinks(stage); EnsureNoLinks(destination);
+                MmcInstanceCapabilities.RequireLegacy(versionFolder, "克隆");
                 if (File.Exists(destination) || Directory.Exists(destination)) throw new IOException("目标名称已被其他操作占用。");
                 Directory.Move(stage, destination);
                 progress?.Invoke(1);

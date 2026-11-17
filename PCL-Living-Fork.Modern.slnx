@@ -3,13 +3,16 @@
   <Folder Name="/Product/">
     <Project Path="modern/PCLCS/PCLCS.Modern.csproj" />
     <Project Path="modern/Presentation/PCLLF.Presentation.Modern.csproj" />
+    <Project Path="PCLLF.MMCC.Core/PCLLF.MMCC.Core.csproj" />
   </Folder>
   <Folder Name="/Dependencies/">
     <Project Path="MeloongCore/Shared/MeloongCore.csproj" />
   </Folder>
   <Folder Name="/Tests/Native/">
     <Project Path="tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj" />
+    <Project Path="tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj" />
   </Folder>
+  <Folder Name="/Tests/" />
   <Folder Name="/Tests/Components/">
     <Project Path="tests/PCLLF.Modern.Wpf.Tests/PCLLF.Modern.Wpf.Tests.csproj" />
   </Folder>

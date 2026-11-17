@@ -63,6 +63,7 @@
     <Compile Include="../../PCLCS/Resources/ResourceFavorites.cs" Link="Production/Resources/ResourceFavorites.cs" />
     <Compile Include="../../PCLCS/Resources/ResourceProjectKey.cs" Link="Production/Resources/ResourceProjectKey.cs" />
     <Compile Include="../../PCLCS/Resources/ResourceDescriptionTranslation.cs" Link="Production/Resources/ResourceDescriptionTranslation.cs" />
+    <Compile Include="../../PCLCS/Resources/MmcPlatformOriginCatalog.cs" Link="Production/Resources/MmcPlatformOriginCatalog.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupContracts.cs" Link="Production/WorldBackupContracts.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupEngine.cs" Link="Production/WorldBackupEngine.cs" />
     <Compile Include="../../PCLCS/Minecraft/WorldBackupEngine.Restore.cs" Link="Production/WorldBackupEngine.Restore.cs" />
@@ -112,6 +113,28 @@
     <Compile Include="../../PCLCS/Minecraft/LegacyPackMetadataNumberParser.cs" Link="Production/LegacyPackMetadataNumberParser.cs" />
     <Compile Include="../../PCLCS/Minecraft/LegacyPackMetadataNumberFormatting.cs" Link="Production/LegacyPackMetadataNumberFormatting.cs" />
     <ProjectReference Include="../../MeloongCore/Shared/MeloongCore.csproj" />
+    <!-- Exercise the actual MPL Core assembly, never a linked second copy. -->
+    <ProjectReference Include="../../PCLLF.MMCC.Core/PCLLF.MMCC.Core.csproj" />
+    <Compile Include="../../PCLCS/Minecraft/MmcManagement*.cs" Link="Production/%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcLegacyAdoption*.cs" Link="Production/%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcInstanceCapabilities.cs" Link="Production/MmcInstanceCapabilities.cs" />
+    <Compile Include="../../PCLCS/Minecraft/MmcInstancePaths*.cs" Link="Production/%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcMetadata/**/*.cs" Link="Production/MmcMetadata/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcTransactions/**/*.cs" Link="Production/MmcTransactions/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcArtifacts/**/*.cs" Link="Production/MmcArtifacts/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcConfiguration/**/*.cs" Link="Production/MmcConfiguration/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Minecraft/MmcArchive/**/*.cs" Link="Production/MmcArchive/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Export exercises the genuine host dependency graph in PCLLF.Mmc.Export.Tests;
+         its launcher RAM policy depends on the instance model absent from this rule-only host. -->
+    <Compile Include="../../PCLCS/Minecraft/MmcInstances/**/*.cs" Exclude="../../PCLCS/Minecraft/MmcInstances/MmcInstanceExport*.cs" Link="Production/MmcInstances/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../../PCLCS/Launch/MmcJavaPinStore.cs" Link="Production/MmcJavaPinStore.cs" />
+    <!-- The managed-process environment boundary is exercised as real production source, never a copy. -->
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeEnvironmentOverlay.cs" Link="Production/MmcRuntimeEnvironmentOverlay.cs" />
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeLaunchException.cs" Link="Production/MmcRuntimeLaunchException.cs" />
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeWindowsCommandLine.cs" Link="Production/MmcRuntimeWindowsCommandLine.cs" />
+    <!-- The package command stage boundary is exercised as real production source; the launcher's own
+         process entry stays a host dependency and is replaced by the controlled test surface. -->
+    <Compile Include="../../PCLCS/Launch/MmcRuntimeCommandExecution.cs" Link="Production/MmcRuntimeCommandExecution.cs" />
     <!-- Match modern/PCLCS exactly: the .NET 10 product uses this fixed modern
          asset. The original LF DLL stays the independent CLR4 oracle input. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />

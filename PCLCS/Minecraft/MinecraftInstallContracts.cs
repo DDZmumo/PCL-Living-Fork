@@ -102,4 +102,5 @@ public sealed class MinecraftInstallHost<TLoader, TNetFile, TInstance, TForge, T
     // The original untyped public cleanup API accepts the same native loaders.
     public Func<object, int> CleanupState = null!;
     public Func<object, string> CleanupInput = null!;
+    public Func<object, IEnumerable<object>> CleanupTasks = _ => Array.Empty<object>();
 }

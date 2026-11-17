@@ -22,7 +22,9 @@ internal static class ModpackUpdateFlowChecks
     private static void TraceStage(string stage)
     {
         Volatile.Write(ref lastStage, stage);
-        if (Interlocked.Increment(ref traceCount) > 128) return;
+        int count = Interlocked.Increment(ref traceCount);
+        if (count > 128 && (stage.StartsWith("progress-",StringComparison.Ordinal) ||
+            stage.StartsWith("uiwait-",StringComparison.Ordinal))) return;
         Console.WriteLine("DIAG native modpack FLOW stage=" + stage + "; thread=" + Environment.CurrentManagedThreadId + "; elapsedMs=" + TraceClock.ElapsedMilliseconds);
         Console.Out.Flush();
     }
@@ -55,7 +57,22 @@ internal static class ModpackUpdateFlowChecks
             timer.Dispose();
         }
     }
-    internal static void Run(FixtureEnvironment environment, string fixtureRoot)
+    internal static void Run(FixtureEnvironment environment, string fixtureRoot) =>
+        RunIsolated(environment,fixtureRoot,"flow",FlowScenarios);
+
+    internal static void RunOrigins(FixtureEnvironment environment, string fixtureRoot) =>
+        RunOriginsBatch(environment, fixtureRoot, false);
+    internal static void RunOriginsMore(FixtureEnvironment environment, string fixtureRoot) =>
+        RunOriginsBatch(environment, fixtureRoot, true);
+    private static void RunOriginsBatch(FixtureEnvironment environment, string fixtureRoot, bool more) =>
+        RunIsolated(environment,fixtureRoot,"origins",(flow,root,minecraft) => {
+            string old = Pack(root,"flow-old",new(){["config/author.txt"]="old-author",["config/personal.txt"]="old-default"},fabric:false);
+            string next = Pack(root,"flow-next",new(){["config/author.txt"]="new-author",["config/personal.txt"]="new-default"},fabric:false);
+            AutomaticOrigins(flow,minecraft,root,old,next,more);
+            Console.WriteLine("PASS native modpack-update origins " + (more ? "6-10" : "1-5") + ": five original exact-source scenarios, actual archive/parser, account reload and fixed transaction checks; the two bounded groups retain all ten original cases.");
+        });
+
+    private static void RunIsolated(FixtureEnvironment environment,string fixtureRoot,string leaf,Action<LiveFlow,string,string> scenarios)
     {
         ModpackUpdateCleanup.VerifyIsolatedChild();
         TraceClock.Restart(); traceCount = 0; TraceStage("run-enter");
@@ -63,13 +80,23 @@ internal static class ModpackUpdateFlowChecks
         // reload callback has finished before the account primitive/cache restores.
         using ReloadAccountStore accounts = new(environment); TraceStage("account-scope-installed");
         using FileTaskScope scope = new(environment); TraceStage("file-task-scope-installed");
-        string root = Path.Combine(fixtureRoot, "flow"); Directory.CreateDirectory(root);
-        string minecraft = Path.Combine(root, "minecraft"); scope.SelectMinecraft(minecraft);
+        string root = Path.Combine(fixtureRoot, leaf); Directory.CreateDirectory(root);
+        string minecraft = Path.Combine(root, "minecraft"); Directory.CreateDirectory(minecraft); scope.SelectMinecraft(minecraft);
         _ = FileTaskShell.Install();
         // Match the second real update: TaskManager already exists before Add.
         ModMain.FrmSpeedLeft = new PageSpeedLeft(); ModMain.FrmSpeedRight = new PageSpeedRight();
         using LiveFlow flow = new(root);
         TraceStage("fixtures-installed");
+        scenarios(flow,root,minecraft);
+        TraceStage("common-barrier-enter");
+        using (DeadlineGuard deadlineGuard = new(DateTime.UtcNow.AddSeconds(10), "common actual-task completion barrier")) scope.FinishActualTasks();
+        TraceStage("common-barrier-return");
+        accounts.AssertUsed(); TraceStage("account-read-contract-return");
+        environment.AssertNoForbiddenIo();
+    }
+
+    private static void FlowScenarios(LiveFlow flow,string root,string minecraft)
+    {
         ModMinecraft.McInstance blocked = Instance(minecraft, "guard-1.20.1");
         string next = Pack(root, "flow-next", new() { ["config/author.txt"] = "new-author", ["config/personal.txt"] = "new-default" }, fabric: false);
         flow.Archives.Enqueue(next);
@@ -246,24 +273,21 @@ internal static class ModpackUpdateFlowChecks
         flow.Archives.Enqueue(next); flow.Start(PageInstanceLeft.Instance!); flow.WaitStopped();
         Check(!ReferenceEquals(finishedStep, flow.Step) && Stages(flow.Step!).Single(stage => stage.Stage == PackUpdateStage.ConfirmPreview).State == PackUpdateStageState.Canceled,
             "FLOW-retry-completed", "Retry after success failed to retain its independent presentation stages.");
-        AutomaticOrigins(flow, minecraft, root, old, next);
-        TraceStage("common-barrier-enter");
-        using (DeadlineGuard deadlineGuard = new(DateTime.UtcNow.AddSeconds(10), "common actual-task completion barrier")) scope.FinishActualTasks();
-        TraceStage("common-barrier-return");
-        accounts.AssertUsed(); TraceStage("account-read-contract-return");
-        environment.AssertNoForbiddenIo();
-        Console.WriteLine("PASS native modpack-update workflow: FLOW-01..11 and automatic schema-1 origins (exact Modrinth/CurseForge versions, primary archive, hash/project/origin guards, cancellation, personal preservation, transactional schema-2 commit).");
+        Console.WriteLine("PASS native modpack-update workflow: FLOW-01..11, queued confirmation cancellation, personal preservation, actual selected/page profile reload and transactional schema-2 commit.");
     }
 
     private static PackUpdateStageSnapshot[] Stages(ModLoader.LoaderBase task) =>
         (PackUpdateStageSnapshot[])Native.Static("PCL.ModpackUpdateFlow", "GetStageSnapshot", new List<ModLoader.LoaderBase> { task })!;
 
-    private static void AutomaticOrigins(LiveFlow flow, string minecraft, string root, string old, string next)
+    private static void AutomaticOrigins(LiveFlow flow, string minecraft, string root, string old, string next, bool more)
     {
         string wrongFolder = Path.Combine(root, "auto-wrong-original"); Directory.CreateDirectory(wrongFolder);
         string wrong = Pack(wrongFolder, "flow-old", new() { ["config/author.txt"] = "wrong-author", ["config/personal.txt"] = "old-default" }, fabric: false);
-        foreach (string platform in new[] { "Modrinth", "CurseForge" })
-        foreach (string scenario in platform == "Modrinth" ? new[] { "accept", "preview-cancel", "foreign", "corrupt", "wrong-original", "cancel", "changed-origin", "schema2" } : new[] { "accept", "foreign" })
+        (string Platform, string Scenario)[] cases = [
+            ("Modrinth", "accept"), ("Modrinth", "preview-cancel"), ("Modrinth", "foreign"), ("Modrinth", "corrupt"), ("Modrinth", "wrong-original"),
+            ("Modrinth", "cancel"), ("Modrinth", "changed-origin"), ("Modrinth", "schema2"), ("CurseForge", "accept"), ("CurseForge", "foreign")
+        ];
+        foreach (var (platform, scenario) in cases.Skip(more ? 5 : 0).Take(5))
         {
             string label = "AUTO-" + platform + "-" + scenario;
             ModMinecraft.McInstance instance = Instance(minecraft, "auto-" + platform + "-" + scenario + "-1.20.1");
@@ -272,6 +296,8 @@ internal static class ModpackUpdateFlowChecks
             Put(Path.Combine(instance.PathIndie, "config/author.txt"), "old-author");
             Put(Path.Combine(instance.PathIndie, "config/personal.txt"), "my-edit");
             string originPath = Path.Combine(instance.PathVersion, "PCL", "ModpackOrigin.json");
+            string versionRoot = instance.PathVersion, gameRoot = instance.PathIndie;
+            var attached = instance.Config.ContextStamp;
             JObject recorded = JObject.Parse(File.ReadAllText(originPath));
             string project = platform == "Modrinth" ? "pack-project" : "7001", version = platform == "Modrinth" ? "old-version" : "511111";
             recorded["source"] = new JObject { ["platform"] = platform, ["project"] = project, ["version"] = version };
@@ -324,15 +350,28 @@ internal static class ModpackUpdateFlowChecks
                 Check(File.ReadAllText(originPath) == originBefore, label, "repaired origin was written before preview approval");
                 return scenario == "preview-cancel" ? 2 : 1;
             };
-            flow.Start(instance); flow.WaitStopped();
+            // Each independently scheduled half must exercise the genuine selected/page
+            // setter and encrypted account-read contract through its accepted source.
+            bool selectedProfile = scenario == "accept";
+            if (selectedProfile) {
+                // This independently scheduled group must exercise the same real selected/page
+                // setter and encrypted account-read contract instead of borrowing prior group state.
+                PageInstanceLeft.Instance = instance;
+                Native.Field(typeof(ModMinecraft),"_McInstanceSelected").SetValue(null,instance);
+            }
+            TraceStage(label + "-start"); flow.Start(instance); flow.WaitStopped(); TraceStage(label + "-stopped");
             Check(flow.PickerCalls == pickers + 1 && flow.Archives.Count == 0, label, "automatic source unexpectedly opened another picker");
             Check(requests == (scenario == "schema2" ? 0 : 1), label, "schema/version lookup count is wrong");
             Check(downloads == (scenario is "foreign" or "schema2" ? 0 : 1), label, "unverified or already-complete origin downloaded an archive");
             if (scenario is "accept" or "schema2") {
                 JObject committed = JObject.Parse(File.ReadAllText(originPath));
                 Check(flow.Worker!.LastSucceeded && previews == 1 && flow.Messages.Count == 0 && committed["schema"]?.Value<int>() == 2 && committed["complete"]?.Value<bool>() == true,
-                    label, "automatic baseline did not reach the genuine schema-2 update transaction: state=" + flow.Step!.State + "; success=" + flow.Worker.LastSucceeded + "; previews=" + previews + "; messages=" + string.Join(",", flow.Messages) + "; info=" + string.Join(" / ", flow.Infos.TakeLast(2)) + "; error=" + flow.Step.Error);
+                    label, "automatic baseline did not reach the genuine schema-2 update transaction: state=" + flow.Step!.State + "; success=" + flow.Worker.LastSucceeded + "; previews=" + previews + "; messages=" + string.Join(",", flow.Messages) + "; info=" + string.Join(" / ", flow.Infos.TakeLast(2)) + "; error=" + flow.Step.Error +
+                    "; versionRoot=" + versionRoot + " (length=" + versionRoot.Length + ", exists=" + Directory.Exists(versionRoot) + ", context=" + attached + "); gameRoot=" + gameRoot + " (length=" + gameRoot.Length + ", exists=" + Directory.Exists(gameRoot) + ")");
                 Check(File.ReadAllText(Path.Combine(instance.PathIndie, "config/author.txt")) == "new-author", label, "author update was not applied");
+                if (selectedProfile) Check(PageInstanceLeft.Instance is not null && !ReferenceEquals(PageInstanceLeft.Instance,instance) &&
+                    Native.Full(PageInstanceLeft.Instance.PathVersion)==Native.Full(instance.PathVersion) && ReferenceEquals(PageInstanceLeft.Instance,ModMinecraft.McInstanceSelected),
+                    label+"-profile","Actual selected/page profile reload was skipped in the independent source group.");
             } else {
                 Check(!flow.Worker!.LastSucceeded && previews == (scenario == "preview-cancel" ? 1 : 0), label, "rejected/canceled origin reached an update preview or commit");
                 Check(flow.Step!.State == (scenario == "changed-origin" ? ModBase.LoadState.Failed : ModBase.LoadState.Canceled), label, "failure/cancellation state is wrong: " + flow.Step.Error);
@@ -343,7 +382,7 @@ internal static class ModpackUpdateFlowChecks
             Check(File.ReadAllText(Path.Combine(instance.PathIndie, "config/personal.txt")) == "my-edit", label, "personal edit was replaced");
             Check(!flow.Updating && !ModMinecraft.McInstanceLock.IsLocked(instance), label, "original download left an update reservation active");
         }
-        Console.WriteLine("PASS automatic schema-1 origins: 10 genuine native workflow cases; exact source/project/version and primary archive, existing-hash verification, personal edits, transaction/cancellation and schema-2 no-repeat.");
+        Console.WriteLine("PASS automatic origins " + (more ? "6-10" : "1-5") + ": five genuine native workflow cases; exact source/project/version and primary archive, existing-hash verification, personal edits, transaction/cancellation and schema-2 no-repeat.");
     }
 
     // The real SelectInstance evaluates CacheNideServer/CacheAuthServerServer

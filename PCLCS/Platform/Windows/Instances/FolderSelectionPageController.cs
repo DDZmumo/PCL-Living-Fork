@@ -135,6 +135,8 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
                 DirectoryInfo mods = DirectoryUtils.GetInfo(folderPath + "mods\\"); if (!(mods.Exists && mods.EnumerateFiles().Count() >= 3)) return;
                 DirectoryInfo versions = DirectoryUtils.GetInfo(folderPath + "versions\\"); if (!(versions.Exists && versions.EnumerateDirectories().Count() <= 3)) return;
                 foreach (DirectoryInfo folder in versions.EnumerateDirectories()) {
+                    var capability = MmcInstanceCapabilities.LegacyOperation(folder.FullName,"自动切换版本隔离");
+                    if (!capability.Allowed) { Logger.Warn(capability.RefusalReason!); continue; }
                     TInstance instance = host.NewInstance(folder.FullName); instance.Load(); if (!instance.Modable) continue;
                     DirectoryInfo indieMods = DirectoryUtils.GetInfo(instance.PathVersion + "mods\\"); if (indieMods.Exists && indieMods.EnumerateFiles().Any()) return;
                     host.WriteInstanceInteger("VersionArgumentIndie", 2, instance); host.WriteInstanceBoolean("VersionArgumentIndieV2", false, instance); Logger.Warn($"已自动关闭单版本隔离：{instance.Name}");
@@ -158,7 +160,14 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
             if (Kind(target) == 2) {
                 if (host.AnyLocked() || host.Downloading(false)) { host.Hint("请在其他任务完成后，再移除游戏文件夹！", SelectionPageHint.Red); return; }
                 switch (host.Message(new SelectionPageMessage { Text = "是否需要清理 PCL 在该文件夹中的配置文件？\r\n这包括各个版本的独立设置（如自定义图标、第三方登录配置）等，对游戏本身没有影响。", Title = "配置文件清理", Button1 = "删除", Button2 = "保留", Button3 = "取消" })) {
-                    case 1: FileUtils.Delete(target.Location + "PCL.ini"); foreach (string instance in DirectoryUtils.EnumerateDirectories(target.Location + "versions\\")) DirectoryUtils.Delete(Path.Combine(instance, "PCL"), true); break;
+                    case 1:
+                        MmcInstanceCapabilities.RequireLegacyGameFolder(target.Location,"清理启动器管理记录");
+                        FileUtils.Delete(target.Location + "PCL.ini");
+                        foreach (string instance in DirectoryUtils.EnumerateDirectories(target.Location + "versions\\")) {
+                            MmcInstanceCapabilities.RequireLegacy(instance,"清理启动器管理记录");
+                            DirectoryUtils.Delete(Path.Combine(instance, "PCL"), true);
+                        }
+                        break;
                     case 2: break; case 3: return;
                 }
             }
@@ -169,12 +178,14 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
         if (host.ModpackEnabled()) return;
         if (host.AnyLocked() || host.Downloading(false)) { host.Hint("请在其他任务完成后，再删除游戏文件夹！", SelectionPageHint.Red); return; }
         TFolder target = (TFolder)host.MenuRow(sender).Tag;
+        try { MmcInstanceCapabilities.RequireLegacyGameFolder(target.Location,"删除或清空游戏文件夹"); }
+        catch (Exception error) { host.Hint(error.Message,SelectionPageHint.Red); return; }
         string text = (Kind(target) == 0 || Kind(target) == 1) && Same(target.Location, host.BaseFolder() + ".minecraft\\") && host.Folders().IsSingle() ? "清空" : "删除";
         if (host.Message(new SelectionPageMessage { Text = "你确定要" + text + "这个文件夹吗？\r\n目标文件夹：" + target.Location + "\r\n\r\n该文件夹中的游戏存档、游戏版本，以及 MC 之外的其他文件，都会永久丢失，不可恢复！", Title = "警告", Button1 = "取消", Button2 = "确认", Button3 = "取消" }) != 2) return;
         if (host.Input(new SelectionPageInput { Title = "删除确认", Caption = "该文件夹中的游戏存档、游戏版本，以及 MC 之外的其他文件，都会永久丢失，不可恢复！\r\n目标文件夹：" + target.Location + "\r\n\r\n如果确实要删除，请在下面输入【Potato】这个单词以继续。", DeleteConfirmation = true, Button1 = "永久删除文件夹", Button2 = "取消", IsWarn = true }) is null) return;
         RemoveFromSetup(target, host);
         host.RunNewThread(() => {
-            try { host.Hint("正在" + text + "文件夹 " + target.Name + "！", SelectionPageHint.Blue); DirectoryUtils.Delete(target.Location); if (Same(text, "清空")) DirectoryUtils.Create(target.Location); host.Hint("已" + text + "文件夹 " + target.Name + "！", SelectionPageHint.Green); }
+            try { MmcInstanceCapabilities.RequireLegacyGameFolder(target.Location,"删除或清空游戏文件夹"); host.Hint("正在" + text + "文件夹 " + target.Name + "！", SelectionPageHint.Blue); DirectoryUtils.Delete(target.Location); if (Same(text, "清空")) DirectoryUtils.Create(target.Location); host.Hint("已" + text + "文件夹 " + target.Name + "！", SelectionPageHint.Green); }
             catch (Exception error) { Logger.Error(error, $"{text}文件夹 {target.Name} 失败", LogBehavior.Toast); }
             finally { host.RefreshFolders(); }
         }, "Folder Delete " + host.NextUuid(), ThreadPriority.BelowNormal);

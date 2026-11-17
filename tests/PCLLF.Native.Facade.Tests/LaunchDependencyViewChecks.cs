@@ -53,7 +53,13 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         Native.Cache("LaunchModDependencyCheck", false); Native.Call(page.GetType(), "RefreshDependencyOptions", page);
         LD(170, LaunchPart<FrameworkElement>(page, "CheckAutoFillDependencies").Visibility == Visibility.Collapsed);
         Native.Static("PCL.ModLaunch", "McLaunchDependencyCheck", (object?)null); // Disabled check must not dereference loader/authentication.
-        ModMinecraft.McInstance owner = new(Path.Combine(f.Root, "versions/fixture"));
+        string ownerRoot = Path.Combine(f.Root, "versions", "fixture");
+        // Instance construction attaches its configuration provider immediately. Create the
+        // owned ordinary directory first; a missing root correctly attaches as Unresolved.
+        Directory.CreateDirectory(ownerRoot);
+        ModMinecraft.McInstance owner = new(ownerRoot);
+        Native.Check(owner.Config.ContextStamp.Kind == PCLCS.MmcConfigurationContextKind.Unmanaged,
+            "The dependency view fixture did not attach an established ordinary instance root.");
         object emptyPlan = LaunchNew("PCL.ModDependencyAutoFill+Plan"); Native.Set(emptyPlan, "Root", Path.Combine(owner.PathIndie, "mods"));
         Native.Static("PCL.ModLaunch", "InstallLaunchDependencies", owner, emptyPlan, CancellationToken.None); LD(173, true);
         LD(174, !ModMinecraft.McInstanceLock.IsLocked(owner)); Native.Cache("LaunchModDependencyCheck", true);

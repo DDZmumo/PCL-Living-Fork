@@ -41,6 +41,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="../../MeloongCore/Shared/MeloongCore.csproj" />
+    <ProjectReference Include="../../PCLLF.MMCC.Core/PCLLF.MMCC.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

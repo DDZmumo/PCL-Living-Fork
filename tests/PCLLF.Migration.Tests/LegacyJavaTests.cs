@@ -19,6 +19,9 @@ internal static class LegacyJavaTests {
         yield return ("java refresh uses the real worker wait cancellation and manual invalidation boundaries", () => RunChild("worker"));
         yield return ("java Mojang parsing download plans and canceled waits retain cleanup semantics", () => RunChild("download"));
         yield return ("java cache reads historical Version objects without changing current JSON or failure recovery", () => RunChild("cache-format"));
+        yield return ("managed java retires only the proven Minecraft or Forge inference", () => RunChild("managed-retirement"));
+        yield return ("managed java retains account user and unrelated loader bounds", () => RunChild("managed-hard-bounds"));
+        yield return ("managed java keeps conflicting bounds empty while ordinary fallback stays unchanged", () => RunChild("managed-conflicts"));
     }
 
     // Program forwards only this exact protocol before any group touches Configs.
@@ -36,6 +39,9 @@ internal static class LegacyJavaTests {
                     case "worker": Worker(fixture); break;
                     case "download": Download(fixture); break;
                     case "cache-format": CacheFormat(fixture); break;
+                    case "managed-retirement": ManagedRetirement(fixture); break;
+                    case "managed-hard-bounds": ManagedHardBounds(fixture); break;
+                    case "managed-conflicts": ManagedConflicts(fixture); break;
                     default: throw new ArgumentException("Unknown Java child case: " + args[1]);
                 }
             }
@@ -168,6 +174,50 @@ internal static class LegacyJavaTests {
         f.Mode = 0; f.Game("1.5.2"); f.Owner.Version.ReleaseTime = new DateTime(2013, 5, 1); f.Nide = true;
         ValueRange<Version> nide = f.Engine.GetJavaRequirement(f.Owner).Range;
         Require(!nide.Contains(new Version(8, 0, 140)) && nide.Contains(new Version(8, 0, 141)) && !nide.Contains(new Version(9, 0)), "LF Nide 8u141 and old-game upper bound changed.");
+    }
+
+    private static void ManagedRetirement(Fixture f) {
+        f.Game("1.7.10"); f.Owner.Version.ModLoaderVersions[ModLoaders.Forge] = "10.13.4.1614";
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, false, false).Range.Contains(new Version(21, 0)), "Missing proof retired ordinary Forge's Java8 bound.");
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, true, false).Range.Contains(new Version(21, 0)), "Minecraft-only retirement retired Forge as well.");
+        Require(f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range.Contains(new Version(21, 0)), "Proven replacement retained the retired Forge upper bound.");
+        f.Game("1.20.5"); f.Owner.Json["javaVersion"] = new JObject { ["majorVersion"] = 25, ["component"] = "future" };
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, false, true).Range.Contains(new Version(21, 0)), "Forge-only retirement retired Mojang metadata.");
+        var minecraft = f.Engine.GetManagedJavaRequirement(f.Owner, true, false);
+        Require(minecraft.Range.Contains(new Version(8, 0)) && minecraft.RecommendedComponent is null, "Minecraft retirement retained release/version/metadata inference.");
+    }
+
+    private static void ManagedHardBounds(Fixture f) {
+        f.Game("1.7.10"); f.Nide = true; f.Mode = 1; f.Range = "[8, 9)";
+        var account = f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range;
+        Require(!account.Contains(new Version(8, 0, 140, 0)) && account.Contains(new Version(8, 0, 141, 0)) && !account.Contains(new Version(9, 0, 0, 0)), "User range early-return lost the account bound or the user's range.");
+        var oldAccountReader = f.Host.IsNideLogin;
+        f.Host.IsNideLogin = () => throw new Exception("Managed validation attempted live account IO instead of its snapshot.");
+        try {
+            Require(f.Engine.GetManagedJavaRequirement(f.Owner, true, true, nideLogin: false).Range.Contains(new Version(8, 0, 140, 0)), "A captured non-Nide account did not remain independent of live account state.");
+            Require(!f.Engine.GetManagedJavaRequirement(f.Owner, true, true, nideLogin: true).Range.Contains(new Version(8, 0, 140, 0)), "A captured Nide account lost its retained minimum.");
+        } finally { f.Host.IsNideLogin = oldAccountReader; }
+        f.Nide = false; f.Mode = 0; f.Game("1.10.2"); f.Owner.Version.OptiFine = "H1";
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range.Contains(new Version(21, 0)), "Retirement removed an unrelated OptiFine bound.");
+        f.Game("1.20.5"); f.Owner.Version.ModLoaderVersions[ModLoaders.Fabric] = "0.16.14";
+        var fabric = f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range;
+        Require(!fabric.Contains(new Version(16, 0)) && fabric.Contains(new Version(21, 0)) && !fabric.Contains(new Version(25, 0)), "Retirement removed Fabric's actual interval.");
+        f.Game("1.20.2"); f.Owner.Version.ModLoaderVersions[ModLoaders.NeoForge] = "20.2.62-beta";
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range.Contains(new Version(22, 0)), "Retirement removed NeoForge's bound.");
+        f.Game("1.12.2"); f.Owner.Version.ModLoaderVersions[ModLoaders.LiteLoader] = "1";
+        Require(!f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range.Contains(new Version(9, 0)), "Retirement removed LiteLoader's bound.");
+    }
+
+    private static void ManagedConflicts(Fixture f) {
+        f.Game("1.20.1"); f.Owner.Version.ModLoaderVersions[ModLoaders.Forge] = "47.4.8";
+        f.Owner.Json["javaVersion"] = new JObject { ["majorVersion"] = 25 };
+        Require(f.Engine.GetManagedJavaRequirement(f.Owner, false, false).Range.IsEmpty(), "Managed metadata/Forge conflict was replaced with the last bound.");
+        Require(f.Engine.GetManagedJavaRequirement(f.Owner, true, false).Range.Contains(new Version(21, 0)), "Minecraft-only retirement failed to preserve the remaining Forge interval.");
+        Require(f.Engine.GetManagedJavaRequirement(f.Owner, false, true).Range.Contains(new Version(25, 0)), "Forge-only retirement lost the remaining Minecraft interval.");
+        Require(f.Engine.GetJavaRequirement(f.Owner).Range.Contains(new Version(8, 0)), "Ordinary conflict replacement changed.");
+        f.Game("1.7.10"); f.Nide = true; f.Mode = 1; f.Range = "[7, 8)";
+        Require(f.Engine.GetManagedJavaRequirement(f.Owner, true, true).Range.IsEmpty(), "A conflicting user/account interval became satisfiable.");
+        Require(f.Engine.GetJavaRequirement(f.Owner).Range.Contains(new Version(7, 0, 0, 0)), "Ordinary explicit user range changed.");
     }
 
     private static void Migration(Fixture f) {

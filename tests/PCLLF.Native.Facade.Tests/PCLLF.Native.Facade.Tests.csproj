@@ -28,6 +28,10 @@
       <HintPath>$(LauncherMainOutputDirectory)/PCLCS.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="PCLLF.MMCC.Core">
+      <HintPath>$(LauncherMainOutputDirectory)/PCLLF.MMCC.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="PCLLF.Presentation">
       <HintPath>$(LauncherMainOutputDirectory)/PCLLF.Presentation.dll</HintPath>
       <Private>true</Private>
@@ -39,6 +43,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Prebuilt Main references do not carry its transitive runtime-target graph.
+         Keep the same Windows caching asset as the actual product metadata client. -->
+    <PackageReference Include="System.Runtime.Caching" Version="10.0.0" Condition="'$(LauncherMainAssembly)'!=''" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.IO" />

@@ -21,7 +21,7 @@ public static partial class LegacyBaseOperations {
         return Path.GetFullPath(Path.IsPathRooted(fileName) || fileName.Contains(@":\") ? fileName : $@"{Paths.Base}PCL\{fileName}.ini");
     }
     private static object IniLock(string fileName) => iniFileLocks.GetOrAdd(fileName, _ => new object());
-    private static string ReadLegacyText(string fileName) {
+    internal static string ReadLegacyText(string fileName) {
 #if NETFRAMEWORK
         return FileUtils.ReadAsString(fileName);
 #else
@@ -30,7 +30,7 @@ public static partial class LegacyBaseOperations {
         return DecodeLegacyText(FileUtils.ReadAsBytes(fileName));
 #endif
     }
-    private static string DecodeLegacyText(byte[] bytes) {
+    internal static string DecodeLegacyText(byte[] bytes) {
 #if NETFRAMEWORK
         return bytes.GetString();
 #else
@@ -48,6 +48,7 @@ public static partial class LegacyBaseOperations {
     public static ConcurrentDictionary<string, string>? IniGetContent(string fileName, ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
         try {
             fileName = IniPath(fileName);
+            if (MmcIniConfiguration.TryContent(fileName, cache, out var managedContent)) return managedContent;
             lock (IniLock(fileName)) {
                 if (cache.TryGetValue(fileName, out ConcurrentDictionary<string, string>? content)) return content;
                 if (!FileUtils.Exists(fileName)) return null;
@@ -68,7 +69,9 @@ public static partial class LegacyBaseOperations {
     }
     public static void WriteIni(string fileName, string key, string? value, ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
         try {
-            UpdateIniValue(fileName, key, _ => value, cache);
+            string normalized = IniPath(fileName);
+            if (MmcIniConfiguration.QueueOrAdmit(normalized, key, value, cache, out var admission)) return;
+            using (admission) UpdateIniValueCore(normalized, key, _ => value, cache);
         } catch (Exception ex) { Logger.Error(ex, $"写入文件失败（{fileName} → {key}:{value}）", LogBehavior.Toast); }
     }
 
@@ -78,6 +81,12 @@ public static partial class LegacyBaseOperations {
     /// state on failure. The updater must not display UI while this file lock is held.
     /// </summary>
     public static string? UpdateIniValue(string fileName, string key, Func<string?, string?> update,
+        ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
+        fileName = IniPath(fileName);
+        using var admission = MmcIniConfiguration.AdmitSynchronousUpdate(fileName, key);
+        return UpdateIniValueCore(fileName, key, update, cache);
+    }
+    private static string? UpdateIniValueCore(string fileName, string key, Func<string?, string?> update,
         ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
         if (key.Contains(":")) throw new ArgumentException("ini 键名中不能包含冒号", nameof(key));
         key = key.ReplaceLineEndings("");
@@ -90,6 +99,7 @@ public static partial class LegacyBaseOperations {
             string? value = update(previous)?.ReplaceLineEndings("");
             if (string.Equals(previous, value, StringComparison.Ordinal)) {
                 cache[fileName] = content;
+                MmcIniConfiguration.PublishedOrdinary(fileName, text);
                 return value;
             }
             string replacement = ReplaceIniValue(text, key, value);
@@ -103,6 +113,7 @@ public static partial class LegacyBaseOperations {
                 replaced = true;
                 if (!FileUtils.ReadAsBytes(fileName).SequenceEqual(expected)) throw new IOException("ini 写入后读回不一致");
                 cache[fileName] = ParseIni(replacement);
+                MmcIniConfiguration.PublishedOrdinary(fileName, replacement);
                 return value;
             } catch {
                 try {
@@ -117,7 +128,7 @@ public static partial class LegacyBaseOperations {
             }
         }
     }
-    private static ConcurrentDictionary<string, string> ParseIni(string text) {
+    internal static ConcurrentDictionary<string, string> ParseIni(string text) {
         ConcurrentDictionary<string, string> content = new();
         foreach (string line in text.SplitLines(true)) {
             int index = line.IndexOf(':');
@@ -125,7 +136,7 @@ public static partial class LegacyBaseOperations {
         }
         return content;
     }
-    private static string ReplaceIniValue(string text, string key, string? value) {
+    internal static string ReplaceIniValue(string text, string key, string? value) {
         string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         StringBuilder result = new();
         bool written = false;

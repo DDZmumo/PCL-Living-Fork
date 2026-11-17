@@ -98,7 +98,8 @@ namespace PCL
                 BindClick = new Action<global::System.Windows.FrameworkElement, global::System.Action<global::System.Windows.FrameworkElement, global::System.EventArgs>>((Row, Click) => ((global::PCL.MyListItem)Row).Click += (Sender, Args) => Click((global::System.Windows.FrameworkElement)Sender, Args)),
                 BindRightClick = new Action<global::System.Windows.FrameworkElement, global::System.Action>((Row, Click) => Row.MouseRightButtonUp += (_, __) => Click()),
                 WriteIni = new Action<global::System.String, global::System.String, global::System.Object>((File, Key, Value) => global::PCL.ModBase.WriteIni(File, Key, Conversions.ToString(Value))),
-                DeleteConfirmed = DeleteInstanceInBackground
+                DeleteConfirmed = DeleteInstanceInBackground,
+                BeginManagedDelete = MmcDeleteUi.PromptDelete
             };
         }
 
@@ -287,6 +288,7 @@ namespace PCL
         {
             this.Service.OpenDownload();
         }
+
 
         public static void DeleteInstance(global::PCL.MyListItem Item, global::PCL.ModMinecraft.McInstance Instance)
         {

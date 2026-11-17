@@ -27,6 +27,7 @@ internal static partial class PackRootInstallChecks
             checkedIds.Clear();
             retainedScope = new(environment);
             PackRootInstallChecksCounter.Run(environment.Data);
+            OrdinaryInstallCleanupChecks.Run(environment.Data);
             Scenarios(retainedScope);
             retainedScope.Finish();
             Check("producer-barrier", true);

@@ -133,19 +133,23 @@ internal static class PackRootInstallChecksCounter
         Case("finish-versus-cancel",context=>{
             for(int i=0;i<32;i++){File file=context.NewFile();Download owner=context.Owner(file);context.Initial.Start(owner);Race(()=>file.Finish(),owner.Cancel);Context.Check(context.Initial.FileRemain==0&&file.State is NetState.Finished or NetState.Error,"finish/cancel race released other than once");}
         });
-        if(OperatingSystem.IsWindows())Case("old-reset-tail-new-registration",context=>{
+        if(OperatingSystem.IsWindows())Case("old-reset-tail-fresh-registration",context=>{
             File file=context.NewFile();Download old=context.Owner(file);context.Initial.Start(old);Manager receiver=new(context.Runtime);Thread? cancel=null;
             Monitor.Enter(file.LockChain);
             try{
                 cancel=new Thread(old.Cancel);cancel.Start();context.Wait(()=>file.State==NetState.Error,"old cancellation reached original Reset with its captured count");
-                Context.Check(context.Initial.FileRemain==1,"old cancellation released before its original Reset");context.Selected=receiver;Download next=context.Owner(file);next.Start();
-                context.Wait(()=>receiver.FileRemain==1&&file.State==NetState.Waiting,"actual new initialization reuses and registers terminal file");
+                Context.Check(context.Initial.FileRemain==1,"old cancellation released before its original Reset");context.Selected=receiver;
+                // NetFile is a single-operation input. A later operation creates a
+                // fresh file for this same target while the old Reset tail is held.
+                File fresh=context.NewFile(file.LocalPath);Download next=context.Owner(fresh);next.Start();
+                context.Wait(()=>receiver.FileRemain==1&&fresh.State==NetState.Waiting,"actual new initialization registers a fresh same-path file");
+                Context.Check(!ReferenceEquals(file,fresh)&&ReferenceEquals(next.CoreFiles.Single(),fresh)&&file.State==NetState.Error,"new registration revived the sealed old NetFile");
                 Monitor.Exit(file.LockChain);
                 try{Context.Check(cancel.Join(2000),"old cancellation tail did not return");Context.Check(context.Initial.FileRemain==0&&receiver.FileRemain==1,"old Reset tail released later registration");next.Cancel();Context.Check(receiver.FileRemain==0,"new registration failed its own cancellation");}
                 finally{Monitor.Enter(file.LockChain);}
             }finally{Monitor.Exit(file.LockChain);if(cancel is not null)Context.Check(cancel.Join(2000),"old cancel still alive after release");}
         });
-        else Console.WriteLine("PENDING actual Core old-reset-tail-new-registration: genuine initializer requires Windows path semantics; not counted as Linux pass.");
+        else Console.WriteLine("PENDING actual Core old-reset-tail-fresh-registration: genuine initializer requires Windows path semantics; not counted as Linux pass.");
         Console.WriteLine("PASS actual Core count ownership contracts: "+passed+". Separate real HMCL Main/game/HTTP cases and exact zero/26-ID receipt remain required.");
     }
     private static void Race(Action first,Action second)

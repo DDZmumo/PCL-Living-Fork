@@ -22,6 +22,11 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
     public string PathVersion { get; }
     public string PathIndie {
         get {
+            MmcInstanceInspection managed = MmcInstanceInspector.Read(PathVersion);
+            if (!managed.IsLegacy || !managed.Management.ObservationComplete) {
+                if (!managed.IsConsistent) throw new IOException(managed.Error ?? "实例管理状态尚未确认，不能推导为公共游戏目录。");
+                return PathUtils.AddSlashSuffix(managed.Paths!.GameRoot);
+            }
             if (!host.HasSaved("VersionArgumentIndieV2", Self)) {
                 if (!IsLoaded) Load();
                 bool ShouldBeIndie() {
@@ -232,7 +237,7 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
         }
     }
     private string? inheritName;
-    public JsonConfigProvider Config;
+    public IInstanceConfigProvider Config;
     public void ResetSettingsCache() {
         host.ClearIniCache(PathIndie + "options.txt");
         host.ClearIniCache(PathVersion + "PCL\\Setup.ini");
@@ -246,7 +251,7 @@ public partial class LegacyMcInstance<TSelf, TState, TCard>
         nameOrFullPath = PathUtils.RemoveExtendedPrefix(nameOrFullPath);
         // A full path did not initialize ModMinecraft's module/loader fields in LF. Keep its platform host lazy.
         PathVersion = PathUtils.AddSlashSuffix((nameOrFullPath.Contains(":") ? "" : host.SelectedFolder() + "versions\\") + nameOrFullPath);
-        Config = new JsonConfigProvider(Path.Combine(PathVersion, "PCL\\config.json"));
+        Config = new InstanceConfigProvider(PathVersion);
     }
     public override bool Equals(object? obj) => obj is TSelf instance && PathUtils.IsSame(PathVersion, instance.PathVersion);
     public override int GetHashCode() => base.GetHashCode();

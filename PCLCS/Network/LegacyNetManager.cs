@@ -246,6 +246,7 @@ public abstract class LegacyNetManager<TSource, TThread, TFile, TDownload, TMana
     }
 
     private object DownloadCacheLock = new object ();
+    private readonly object RegistrationLock = new();
     private bool IsDownloadCacheCleared = false;
     public List<TFile> Start(TDownload Task)
     {
@@ -280,31 +281,32 @@ public abstract class LegacyNetManager<TSource, TThread, TFile, TDownload, TMana
                     return new List<TFile>();
                 // 添加每个文件
                 var NewFiles = new List<TFile>();
-                var NewFilesList = new List<TFile>();
-                foreach (var inputFile in Task.CoreFiles)
+                TFile[] inputs = Task.CoreFiles.ToArray();
+                Task.CoreFiles = new ConcurrentQueue<TFile>();
+                lock (RegistrationLock)
+                foreach (var inputFile in inputs)
                 {
                     TFile File = inputFile;
                     TFile? OngoingFile = null;
-                    if (AllFiles.TryGetValue(File.LocalPath, out OngoingFile) && N(OngoingFile.State) < 5)
-                    {
-                        // 该文件正在被另一个任务下载
-                        Logger.Trace(() => $"{File.LocalName}：无需开始，该文件已在下载中，目标 {File.LocalPath}");
-                        File = OngoingFile; // 将列表中的文件替换成下载中的文件，即两个任务指向同一个文件；抛弃现在的 File 对象
+                    bool attached = false;
+                    if (AllFiles.TryGetValue(File.LocalPath, out OngoingFile)) {
+                        lock (OngoingFile.LockState) {
+                            if (N(OngoingFile.State) < 5 && !OngoingFile.IoWork.IsSealed) {
+                                if (!OngoingFile.CanShareWith(File)) throw new InvalidOperationException("An active download at this target has incompatible size, credential or checker constraints.");
+                                OngoingFile.Tasks.Add(Task); File = OngoingFile; attached = true;
+                            } else if (OngoingFile.IoWork.Active != 0) throw new InvalidOperationException("The previous target writer is still draining; retry after its completion barrier.");
+                        }
                     }
-                    else
+                    if (!attached)
                     {
-                        // 常规情况（该文件可能已在其他任务中下载完成，但这并不影响）
-                        Logger.Trace(() => $"{File.LocalName}：开始，目标 {File.LocalPath}");
-                        AllFiles[File.LocalPath] = File;
-                        NewFiles.Add(File);
-                        File.RegisterManagerCount((TManager)this);
+                        lock (File.LockState) {
+                            if (File.IoWork.IsSealed) throw new InvalidOperationException("NetFile cannot be reused across terminal operations.");
+                            AllFiles[File.LocalPath] = File;
+                            NewFiles.Add(File); File.RegisterManagerCount((TManager)this); File.Tasks.Add(Task);
+                        }
                     }
-
-                    NewFilesList.Add(File);
-                    File.Tasks.Add(Task);
+                    Task.CoreFiles.Enqueue(File);
                 }
-
-                Task.CoreFiles = new ConcurrentQueue<TFile>(NewFilesList);
                 Tasks.Add(Task);
                 return NewFiles;
             }

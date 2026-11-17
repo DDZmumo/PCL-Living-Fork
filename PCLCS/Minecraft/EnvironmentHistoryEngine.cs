@@ -123,6 +123,7 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
 
     public string CaptureWithProgress(string versionFolder, string gameRoot, string label, CancellationToken token, Action<double>? progress,
         Dictionary<string, string>? dependencies = null, string description = "") {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "创建旧格式环境还原点");
         token.ThrowIfCancellationRequested();
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
@@ -178,6 +179,7 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
     public string CaptureInstance(TInstance instance, string label, CancellationToken token) => CaptureInstanceWithProgress(instance, label, token, null);
 
     public string CaptureInstanceWithProgress(TInstance instance, string label, CancellationToken token, Action<double>? progress) {
+        MmcInstanceCapabilities.RequireLegacy(host.VersionPath(instance), "创建旧格式环境还原点");
         string mcRoot = Path.GetDirectoryName(Path.GetDirectoryName(host.VersionPath(instance).TrimEnd('\\'))) + "\\";
         Dictionary<string, string> dependencies = new(StringComparer.OrdinalIgnoreCase);
         foreach (string libraryPath in host.LibraryPaths(instance)) {
@@ -250,6 +252,7 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
         }
     }
     public int PruneAutomatic(string versionFolder, int count, string? newestId, CancellationToken token) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "清理旧格式环境还原点");
         if (count < 1 || count > 100) throw new IOException("自动还原点保留数量必须为 1 到 100。");
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
@@ -278,6 +281,7 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
     }
     public void MarkHealthy(string versionFolder, string? id, bool healthy) {
         if (string.IsNullOrEmpty(id) || !healthy) return;
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "修改旧格式环境还原点");
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
                 if (!Regex.IsMatch(id!, @"\A[a-f0-9]{32}\z")) throw new IOException("还原点编号无效。");
@@ -325,6 +329,7 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
     }
     public string? DeletePoints(string versionFolder, IEnumerable<string> ids) => DeletePointsWithCancellation(versionFolder, ids, CancellationToken.None);
     public string? DeletePointsWithCancellation(string versionFolder, IEnumerable<string> ids, CancellationToken token) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "删除旧格式环境还原点");
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
                 if (RestoringCount > 0) throw new IOException("正在恢复环境，请等待恢复任务结束后再删除还原点。");

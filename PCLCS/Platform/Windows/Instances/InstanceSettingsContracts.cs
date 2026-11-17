@@ -6,6 +6,9 @@ using MeloongCore;
 
 namespace PCLCS;
 
+public enum InstanceJavaPreviewState { NotStarted, Searching, Selected, VariantRequired, Rejected, Failed, Canceled }
+public sealed record InstanceJavaPreview(InstanceJavaPreviewState State, string Message, int Theme = 0);
+
 public sealed class InstanceSettingsView<TItem,TButton> where TItem : FrameworkElement where TButton : FrameworkElement {
     public ComboBox Isolation = null!, Login = null!, JavaKind = null!, JavaSelect = null!;
     public TextBox ServerEnter = null!, AuthServer = null!, AuthRegister = null!, AuthName = null!, JavaRange = null!, AdvanceRun = null!;
@@ -33,6 +36,7 @@ public sealed class InstanceSettingsHost<TInstance> where TInstance : class {
     public Func<string,TInstance,bool> Boolean = null!, HasSaved = null!;
     public Action<string,object,TInstance> Set = null!;
     public Action<string,TInstance> Reset = null!;
+    public Action<TInstance,Java?>? SetForcedJava;
     public Action ApplyVisibility = null!, RefreshSettings = null!, ResetSettings = null!;
     public Func<int> Animation = null!;
     public Action<int> AddAnimation = null!;
@@ -40,6 +44,9 @@ public sealed class InstanceSettingsHost<TInstance> where TInstance : class {
     public Func<RedoableWorker<Java>> JavaWorker = null!;
     public Func<RedoableWorker> JavaRefresh = null!;
     public Func<TInstance,ValueRange<Version>> JavaRequirement = null!;
+    public Func<TInstance,RedoableWorker<Java>,InstanceJavaPreview?>? ManagedJavaPreview;
+    public Action<TInstance,RedoableWorker<Java>>? StartJavaPreview;
+    public Func<TInstance,RedoableWorker<Java>,bool>? JavaPreviewIsCurrent;
     public Action ReloadCurrentJava = null!, ImportJava = null!, SearchJava = null!;
     public Action<Java> RemoveJava = null!;
     public Action<TInstance> OpenInstanceFolder = null!;

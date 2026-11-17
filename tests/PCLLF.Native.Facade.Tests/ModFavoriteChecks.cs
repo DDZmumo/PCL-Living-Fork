@@ -33,9 +33,11 @@ internal static partial class ModFavoriteChecks {
         Console.WriteLine("PASS native resource favorites: original PageResource search/result/paging BAML, default online-controller host contract, native search/Enter/reset/source/tag/exact-version/loader/category combinations and last-item pagination; zero remote request callbacks and an unstarted favorites search loader; project identity, online/detail/local stars, cache metadata, writer heartbeat/failure/corruption and minimum-window/theme policies. Hosted component, not product cold entry.");
     }
     private static void LocalRows(Scope s) {
-        var owner = new ModMinecraft.McInstance(Path.Combine(s.Root, "instance-a")); PageInstanceLeft.Instance = owner;
-        s.Legacy = Path.Combine(owner.PathVersion, "PCL", "Setup.ini"); Directory.CreateDirectory(Path.GetDirectoryName(s.Legacy)!);
+        string firstRoot = Path.Combine(s.Root, "instance-a");
+        s.Legacy = Path.Combine(firstRoot, "PCL", "Setup.ini"); Directory.CreateDirectory(Path.GetDirectoryName(s.Legacy)!);
         File.WriteAllText(s.Legacy, "UiModFavorite:Alpha.jar|Beta.jar\r\nKeep:保留\r\n"); s.LegacyBytes = File.ReadAllBytes(s.Legacy);
+        var owner = new ModMinecraft.McInstance(firstRoot); PageInstanceLeft.Instance = owner;
+        Native.Check(owner.Config.ContextStamp.Kind == MmcConfigurationContextKind.Unmanaged, "The ordinary favorite fixture must exist before its provider attaches.");
         LocalResourceFile a = s.Mod("Alpha-v1.jar"), b = s.Mod("Alpha-v2.jar.disabled"), unknown = s.Mod("Unknown.jar");
         a.Project = Project("AbCd1234"); b.Project = Project("AbCd1234");
         var page = new PageInstanceMod(); ModMain.FrmInstanceMod = page;
@@ -58,7 +60,8 @@ internal static partial class ModFavoriteChecks {
         SaveLocalActionProof(first, "local-mod-favorite-saved.png");
         var snapshot = s.Store.Snapshot;
         for (int i = 0; i < 5000; i++) Native.Check(s.Store.Contains(snapshot[0].Identity) && ReferenceEquals(snapshot, s.Store.Snapshot), "Read reparsed the store");
-        PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(s.Root, "instance-b")); second.Refresh();
+        string secondRoot = Path.Combine(s.Root, "instance-b"); Directory.CreateDirectory(secondRoot);
+        PageInstanceLeft.Instance = new ModMinecraft.McInstance(secondRoot); second.Refresh();
         Native.Check(s.OtherStar.Logo == s.LocalStar.Logo, "Favorites were instance-scoped"); PageInstanceLeft.Instance = owner;
         unknown.Project = RichProject("Other123", ResourcePlatforms.Modrinth, "Local cache fixture", "fixture", Array.Empty<string>(), ModLoaders.None);
         unknown.ProjectVersion = Version("LocalFileVersion"); unknown.ProjectVersion.GameVersions = new List<string> { "1.20.1" };

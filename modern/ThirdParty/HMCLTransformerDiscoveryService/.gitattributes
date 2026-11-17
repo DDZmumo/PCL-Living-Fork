@@ -1,0 +1,3 @@
+# Preserve the fixed upstream source bytes, including its original EOF choices.
+* text eol=lf
+upstream-build/settings.gradle whitespace=-blank-at-eof

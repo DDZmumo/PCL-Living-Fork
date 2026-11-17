@@ -22,10 +22,11 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
         if (McLaunchLoader.State == LegacyLaunchState.Loading) { Hint("已有游戏正在启动中！", LegacyLaunchHint.Red); return false; }
         if (CurrentLaunchOptions.Instance != null && (McInstanceSelected == null || !PathUtils.IsSame(McInstanceSelected.PathVersion, CurrentLaunchOptions.Instance.PathVersion))) {
             McLaunchLog("在启动前切换到版本 " + CurrentLaunchOptions.Instance.Name);
-            try { CurrentLaunchOptions.Instance.GetJsonPath(); }
+            bool managedSelection = !MmcInstanceInspector.Read(CurrentLaunchOptions.Instance.PathVersion).IsLegacy;
+            try { if (!managedSelection) CurrentLaunchOptions.Instance.GetJsonPath(); }
             catch { Hint($"无法启动 {CurrentLaunchOptions.Instance.Name}：当前 Minecraft 文件夹中尚未安装该版本！", LegacyLaunchHint.Red); return false; }
             CurrentLaunchOptions.Instance.Load();
-            if (Convert.ToInt32(CurrentLaunchOptions.Instance.State) == 0) {
+            if (!managedSelection && Convert.ToInt32(CurrentLaunchOptions.Instance.State) == 0) {
                 Hint($"无法启动 {CurrentLaunchOptions.Instance.Name}：{CurrentLaunchOptions.Instance.Info}", LegacyLaunchHint.Red); return false;
             }
             McInstanceSelected = CurrentLaunchOptions.Instance;
@@ -63,15 +64,17 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
 
     public void McLaunchStart(LegacyLaunchTask<TOptions, object> loader) {
         host.DispatchWait(host.LaunchingPage);
+        bool managed = !MmcInstanceInspector.Read(McInstanceSelected.PathVersion).IsLegacy;
         try { McLaunchPrecheck(); McLaunchLog("预检测已通过"); }
         catch (Exception ex) { if (!ex.IsCanceled()) Hint(ex.Message, LegacyLaunchHint.Red); throw; }
         bool isSavingBatch = CurrentLaunchOptions?.SaveBatch != null;
         try {
-            LegacyLaunchStep clientFix = host.ClientFix(McInstanceSelected); clientFix.ProgressWeight = 15; clientFix.Show = false;
-            List<LegacyLaunchStep> loaders = [
+            LegacyLaunchStep? clientFix = managed ? null : host.ClientFix(McInstanceSelected);
+            if (clientFix is not null) { clientFix.ProgressWeight = 15; clientFix.Show = false; }
+            List<LegacyLaunchStep> loaders = managed ? [new LegacyLaunchExistingStep { Task = McLoginLoader }] : [
                 new LegacyLaunchIntStep { Name = "获取 Java", Work = McLaunchJava, ProgressWeight = 4, Block = false },
                 new LegacyLaunchExistingStep { Task = McLoginLoader },
-                clientFix,
+                clientFix!,
                 new LegacyLaunchIntStep { Name = "恢复未完成的存档操作", Work = task => host.RecoverWorlds(McInstanceSelected.PathIndie, task.CreateCancellationToken()), ProgressWeight = 1 },
                 new LegacyLaunchIntStep { Name = "检查模组依赖", Work = McLaunchDependencyCheck, ProgressWeight = 1, InterruptOnCancel = false },
                 new LegacyLaunchStringStep { Name = "获取启动参数", Work = McLaunchArgumentMain, ProgressWeight = 2 },
@@ -82,10 +85,16 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
                 new LegacyLaunchWaitStep { Name = "等待游戏窗口出现", Work = McLaunchWait, ProgressWeight = 1 },
                 new LegacyLaunchIntStep { Name = "结束处理", Work = _ => McLaunchEnd(), ProgressWeight = 1 }
             ];
+            if (managed) {
+                var steps = host.ManagedMmcSteps?.Invoke(McInstanceSelected, CurrentLaunchOptions ?? throw new IOException("MMC 启动选项尚未建立。"))
+                    ?? throw new IOException("MMC 受管理实例缺少启动适配器，不能回退普通补全或启动流程。");
+                loaders.AddRange(steps);
+                loaders.Add(new LegacyLaunchIntStep { Name = "结束处理", Work = _ => McLaunchEnd() });
+            }
             int optimize = Setting<int>("VersionRamOptimize", McInstanceSelected);
             if ((optimize == 0 && Setting<bool>("LaunchArgumentRam")) || optimize == 1) {
-                loaders[2].Block = false;
-                loaders.Insert(3, new LegacyLaunchIntStep { Name = "内存优化", Work = McLaunchMemoryOptimize, ProgressWeight = 30 });
+                if (!managed) loaders[2].Block = false;
+                loaders.Insert(managed ? 1 : 3, new LegacyLaunchIntStep { Name = "内存优化", Work = McLaunchMemoryOptimize, ProgressWeight = 30 });
             }
             LegacyLaunchOperation launch = host.CreateCombo("Minecraft 启动", loaders);
             if (McLoginLoader.State == LegacyLaunchState.Finished) McLoginLoader.State = LegacyLaunchState.Waiting;
@@ -130,7 +139,8 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
         if (McInstanceSelected.PathVersion.Contains("!") || McInstanceSelected.PathVersion.Contains(";")) throw new Exception("游戏路径中不可包含 ! 或 ;（" + McInstanceSelected.PathVersion + "）");
         if (McInstanceSelected == null) throw new Exception("未选择 Minecraft 版本！");
         McInstanceSelected.Load();
-        if (Convert.ToInt32(McInstanceSelected.State) == 0) throw new Exception("Minecraft 存在问题：" + McInstanceSelected.Info);
+        if (MmcInstanceInspector.Read(McInstanceSelected.PathVersion).IsLegacy && Convert.ToInt32(McInstanceSelected.State) == 0)
+            throw new Exception("Minecraft 存在问题：" + McInstanceSelected.Info);
         string result = ""; host.DispatchWait(() => result = McLoginAble(McLoginInput()));
         if (!string.IsNullOrEmpty(result)) throw new ArgumentException(result);
         if (host.ReleaseBuild() && CurrentLaunchOptions?.SaveBatch == null) host.NewThread(() => {

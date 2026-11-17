@@ -21,6 +21,10 @@ public sealed class InstanceCloneWorkflow<TInstance, TOptions, TResult, TChange,
     public Action<TInstance, string, string, CancellationToken>? BeforeMinecraftChangeHandler;
     public InstanceCloneWorkflow(InstanceCloneEngine<TInstance, TOptions, TResult, TChange, TPlan> engine, InstanceCloneWorkflowHost<TInstance> host) { this.engine = engine; this.host = host; }
     public bool CanStart(TInstance? instance) {
+        if (instance is not null) {
+            var capability = MmcInstanceCapabilities.LegacyOperation(host.VersionPath(instance), "克隆或测试副本迁回");
+            if (!capability.Allowed) { host.Hint(capability.RefusalReason!, false); return false; }
+        }
         if (instance is null || host.HasRunningGame() || host.HasRunningSessions() || host.LaunchLoading() || host.WorldBackupBusy() || host.HasActiveGame(engine.GameRootForInstance(instance)) || host.EnvironmentBusy() || host.Updating() || host.AnyLocked() || host.UpdatingModFolders()) {
             host.Hint("请先关闭游戏并等待版本任务完成。", false); return false;
         }

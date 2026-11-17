@@ -45,6 +45,14 @@ namespace PCL
         private global::PCL.PageInstanceClone ClonePage;
         private PageInstancePackUpdate PackUpdatePage;
         private PageSetupPersonal PersonalPage;
+        private readonly global::System.Collections.Generic.Dictionary<(global::PCL.ModMinecraft.McInstance Owner, string PathVersion, int Route), MyPageRight> _mmcToolPages = new();
+        private readonly string _ordinaryModifyLogo;
+        private readonly double _ordinaryModifyLogoScale;
+        private global::PCLCS.InstanceSidebarState _currentSidebarState = new(global::PCLCS.InstanceSidebarFamily.Legacy, null);
+        private global::PCL.ModMinecraft.McInstance _contextOwner;
+        private string _contextPathVersion = "";
+        private MmcConfigurationContextStamp _contextStamp;
+        private int _syncingContext;
         private readonly global::PCLCS.InstanceNavigationView<global::PCL.MyListItem> NavigationView;
         private global::PCLCS.InstanceNavigationController<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> PageController;
         private global::PCLCS.InstanceNavigationController<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> Controller
@@ -93,10 +101,15 @@ namespace PCL
             this.ResourcePages = new global::System.Collections.Generic.Dictionary<global::PCL.FormMain.PageSubType, global::PCL.PageInstanceResources>();
             this.NavigationView = new global::PCLCS.InstanceNavigationView<global::PCL.MyListItem>();
             this.InitializeComponent();
+            this._ordinaryModifyLogo = this.ItemModify.Logo;
+            this._ordinaryModifyLogoScale = this.ItemModify.LogoScale;
             this.ItemPackUpdate.Logo = ModBase.Logo.IconButtonRefresh;
             this.ItemPackUpdate.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
             this.ItemPersonal.Logo = ModBase.Logo.IconButtonPersonalSettings;
             this.ItemPersonal.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
+            this.ItemMmcMove.Logo = LegacyBaseIcons.IconButtonOpen;
+            this.ItemMmcMove.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
+            this.SyncInstanceContext();
         }
 
         private global::PCLCS.InstanceNavigationHost<global::PCL.ModMinecraft.McInstance, global::PCL.FormMain.PageSubType, global::PCL.MyListItem, global::PCL.MyIconButton, global::PCL.MyPageRight, global::PCL.PageInstanceResources> CreateHost()
@@ -107,11 +120,196 @@ namespace PCL
             result.WritePage[15] = page => PackUpdatePage = (PageInstancePackUpdate)page;
             result.CreatePage[15] = () => new PageInstancePackUpdate();
             result.RefreshSpecial[15] = page => ((PageInstancePackUpdate)page).Refresh();
-            result.ReadPage[16] = () => PersonalPage;
-            result.WritePage[16] = page => PersonalPage = (PageSetupPersonal)page;
-            result.CreatePage[16] = () => new PageSetupPersonal { IsInstanceContext = true };
-            result.RefreshSpecial[16] = page => ((PageSetupPersonal)page).RefreshPage();
+            result.ReadPage[(int)FormMain.PageSubType.InstancePersonal] = () => PersonalPage;
+            result.WritePage[(int)FormMain.PageSubType.InstancePersonal] = page => PersonalPage = (PageSetupPersonal)page;
+            result.CreatePage[(int)FormMain.PageSubType.InstancePersonal] = () => new PageSetupPersonal { IsInstanceContext = true };
+            result.RefreshSpecial[(int)FormMain.PageSubType.InstancePersonal] = page => ((PageSetupPersonal)page).RefreshPage();
+            result.SyncContext = EnsureInstanceContext;
+            result.IsMmcContext = () => { EnsureInstanceContext(); return _currentSidebarState.IsMmcFamily; };
+            result.NormalizeForContext = code => { EnsureInstanceContext(); return global::PCLCS.InstanceSidebarContext.NormalizeRoute(code, _currentSidebarState.IsMmcFamily); };
+            result.ResolveContextPage = code => {
+                EnsureInstanceContext();
+                if (!_currentSidebarState.IsMmcFamily || !global::PCLCS.InstanceSidebarContext.IsMmcToolRoute(code) || Instance is null)
+                    return null;
+                return GetOrCreateMmcToolPage((FormMain.PageSubType)code, Instance);
+            };
+            result.RefreshContextPage = code => {
+                SyncInstanceContext();
+                if (!_currentSidebarState.IsMmcFamily || !global::PCLCS.InstanceSidebarContext.IsMmcToolRoute(code) || Instance is null)
+                    return false;
+                var page = GetOrCreateMmcToolPage((FormMain.PageSubType)code, Instance);
+                RefreshManagedPage(page);
+                return true;
+            };
             return result;
+        }
+
+        internal static void SyncInstanceContextIfLoaded() => ModMain.FrmInstanceLeft?.SyncInstanceContext();
+
+        // A prior managed snapshot can only keep an unreadable instance protected;
+        // no writable operation is authorized by this presentation hint.
+        internal static global::PCLCS.InstanceSidebarState ObserveInstanceContext(ModMinecraft.McInstance owner, bool preserveMmcFamily = false) =>
+            global::PCLCS.InstanceSidebarContext.Observe(owner?.PathVersion,
+                preserveMmcFamily || owner?.UsesMmcBackend == true ||
+                owner?.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed);
+
+        internal static bool IsMmcNavigationContext
+        {
+            get
+            {
+                if (ModMain.FrmInstanceLeft is not { } left) return ObserveInstanceContext(Instance).IsMmcFamily;
+                left.EnsureInstanceContext();
+                return left._currentSidebarState.IsMmcFamily;
+            }
+        }
+
+        // Reuse the display snapshot within a navigation dispatch. It grants no
+        // write authority: tool pages and their backends re-read before actions.
+        private void EnsureInstanceContext()
+        {
+            if (!ReferenceEquals(_contextOwner, Instance) ||
+                !PathUtils.IsSame(_contextPathVersion, Instance?.PathVersion ?? "") ||
+                _contextStamp != Instance?.Config.ContextStamp)
+                SyncInstanceContext();
+        }
+
+        internal global::PCLCS.InstanceSidebarState CurrentSidebarState
+        {
+            get
+            {
+                EnsureInstanceContext();
+                return _currentSidebarState;
+            }
+        }
+
+        private MyPageRight GetOrCreateMmcToolPage(FormMain.PageSubType route, ModMinecraft.McInstance owner)
+        {
+            route = (FormMain.PageSubType)global::PCLCS.InstanceSidebarContext.NormalizeRoute((int)route, true);
+            string root = owner.PathVersion ?? "";
+            var key = (owner, root, (int)route);
+            Guid identity = owner.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed
+                ? owner.Config.ContextStamp.InstanceId : _currentSidebarState.InstanceId;
+            if (!_mmcToolPages.TryGetValue(key, out var page) || !ManagedPageMatches(page, owner, identity))
+            {
+                page = (int)route switch {
+                    2 => new PageInstanceMmcComponents(owner, identity),
+                    5 => new PageInstanceExport(owner, identity),
+                    12 => new PageInstanceRestorePoints(owner, identity),
+                    15 => new PageInstancePackUpdate(owner, identity),
+                    _ => new PageInstanceMmcTool(route, owner)
+                };
+                _mmcToolPages[key] = page;
+            }
+            else if (page is PageInstanceMmcTool tool) tool.RefreshState(updateBaselineIdentity: false);
+            return page;
+        }
+
+        private static bool ManagedPageMatches(MyPageRight page, ModMinecraft.McInstance owner, Guid identity) => page switch {
+            PageInstanceMmcComponents components => components.IsManagedOwner(owner, identity),
+            PageInstanceExport export => export.IsManagedOwner(owner, identity),
+            PageInstanceRestorePoints history => history.IsMmcHistory && ReferenceEquals(history.CapturedInstance, owner),
+            PageInstancePackUpdate update => update.IsManagedOwner(owner, identity),
+            PageInstanceMmcTool tool => ReferenceEquals(tool.CapturedInstance, owner),
+            _ => false
+        };
+
+        private static void RefreshManagedPage(MyPageRight page) {
+            switch (page) {
+                case PageInstanceMmcComponents components: components.Refresh(); break;
+                case PageInstanceExport export: export.RefreshAll(); break;
+                case PageInstanceRestorePoints history: history.Refresh(); break;
+                case PageInstancePackUpdate update: update.Refresh(); break;
+                case PageInstanceMmcTool tool: tool.Refresh(); break;
+            }
+        }
+
+        internal void SyncInstanceContext()
+        {
+            if (Interlocked.Exchange(ref _syncingContext, 1) != 0) return;
+            try
+            {
+                var owner = Instance;
+                string root = owner?.PathVersion ?? "";
+                bool sameOwner = ReferenceEquals(_contextOwner, owner) && PathUtils.IsSame(_contextPathVersion, root);
+                var nextState = ObserveInstanceContext(owner, sameOwner && _currentSidebarState.Inspection is { IsLegacy: false });
+                bool wasMmc = _currentSidebarState.IsMmcFamily;
+                bool isMmc = nextState.IsMmcFamily;
+                bool ownerChanged = !ReferenceEquals(_contextOwner, owner) || !PathUtils.IsSame(_contextPathVersion, root);
+                bool familyChanged = wasMmc != isMmc || _currentSidebarState.Family != nextState.Family;
+                bool displayedManaged = ModMain.FrmMain is { } existingMain && _mmcToolPages.Values.Contains(existingMain.PageRight);
+
+                if (ownerChanged || wasMmc != isMmc)
+                {
+                    _mmcToolPages.Clear();
+                    ModMain.FrmDownloadModify = null;
+                    ModMain.FrmInstanceExport = null;
+                    this.RestorePointsPage = null;
+                    this.ClonePage = null;
+                    this.PackUpdatePage = null;
+                }
+
+                _currentSidebarState = nextState;
+                _contextOwner = owner;
+                _contextPathVersion = root;
+                _contextStamp = owner?.Config.ContextStamp;
+
+                LabVersionConfiguration.Text = nextState.ConfigSectionTitle;
+                LabVersionTools.Text = nextState.ToolsSectionTitle;
+                ItemModify.Title = nextState.ModifyTitle;
+                ItemRestorePoints.Title = nextState.HistoryTitle;
+                ItemMmcMove.Visibility = isMmc ? Visibility.Visible : Visibility.Collapsed;
+
+                if (isMmc)
+                {
+                    ItemModify.Logo = LegacyBaseIcons.IconButtonList;
+                    ItemModify.LogoScale = 0.88;
+                    ItemModify.Visibility = Visibility.Visible;
+                    ItemExport.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    ItemModify.Logo = _ordinaryModifyLogo;
+                    ItemModify.LogoScale = _ordinaryModifyLogoScale;
+                    if (wasMmc)
+                    {
+                        bool hideModify = !PageSetupUI.HiddenForceShow && Settings.Get<bool>("UiHiddenFunctionInstanceModify");
+                        ItemModify.Visibility = hideModify ? Visibility.Collapsed : Visibility.Visible;
+                    }
+                    ItemExport.Visibility = ModModpackMode.Enabled ? Visibility.Collapsed : Visibility.Visible;
+                }
+
+                if (!isMmc && global::PCLCS.InstanceSidebarContext.IsMmcOnlyRoute((int)PageID))
+                    Controller.SyncSelection(FormMain.PageSubType.InstanceOverall);
+                else if ((int)PageID == 17) Controller.SyncSelection(FormMain.PageSubType.InstancePackUpdate);
+
+                if (ModMain.FrmMain is { } main && main.PageCurrent.Page == FormMain.PageType.InstanceSetup && ReferenceEquals(main.PageLeft, this))
+                {
+                    if (ownerChanged || familyChanged) main.PageNameRefresh();
+                    Guid identity = owner?.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed
+                        ? owner.Config.ContextStamp.InstanceId : nextState.InstanceId;
+                    bool wrongRightPage =
+                        (isMmc && global::PCLCS.InstanceSidebarContext.IsMmcToolRoute((int)PageID) &&
+                            !ManagedPageMatches(main.PageRight, owner, identity)) ||
+                        (!isMmc && (displayedManaged || main.PageRight is PageInstanceMmcTool)) ||
+                        (ownerChanged && main.PageRight is PageInstanceExport or PageInstanceRestorePoints or PageInstancePackUpdate);
+                    if (wrongRightPage)
+                    {
+                        var replacement = Controller.PageGet(PageID);
+                        if (main.IsLoaded) Controller.PageChangeRun(replacement);
+                        else
+                        {
+                            main.PageRight = replacement;
+                            main.PanMainRight.Child = replacement;
+                        }
+                    }
+                    else if (familyChanged && isMmc && global::PCLCS.InstanceSidebarContext.IsMmcToolRoute((int)PageID))
+                        RefreshManagedPage(main.PageRight);
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _syncingContext, 0);
+            }
         }
 
         private static global::PCLCS.InstanceNavigationTransitionHost<global::PCL.MyPageRight> CreateTransitions()
@@ -173,7 +371,7 @@ namespace PCL
 
         public void Refresh_Click(global::System.Object sender, global::System.EventArgs e)
         {
-            this.Controller.RefreshTag(((dynamic)sender).Tag);
+            if (sender is FrameworkElement { Tag: { } tag }) this.Controller.RefreshTag(tag);
         }
 
         public void Refresh()
@@ -199,10 +397,11 @@ namespace PCL
         {
             return global::PCLCS.InstanceNavigationRules.IsEditingPage((int)Id);
         }
-        public static global::MeloongCore.RedoableWorker<global::PCLCS.Java> CurrentJavaWorker = new global::MeloongCore.RedoableWorker<global::PCLCS.Java>((c, p) => global::PCL.ModJava.SelectOrDownloadJava(global::PCL.PageInstanceLeft.Instance, false, (global::System.Threading.CancellationToken)c, p));
+        public static global::MeloongCore.RedoableWorker<global::PCLCS.Java> CurrentJavaWorker = MmcJavaDiscovery.CreateWorker(() => global::PCL.PageInstanceLeft.Instance);
         public static void ReloadCurrentJava()
         {
-            global::PCLCS.InstanceNavigationRules.ReloadJava(() => global::PCL.ModAnimation.AniControlEnabled, () => global::PCL.PageInstanceLeft.Instance, global::PCL.PageInstanceLeft.CurrentJavaWorker);
+            if (global::PCL.ModAnimation.AniControlEnabled != 0 || global::PCL.PageInstanceLeft.Instance is null) return;
+            MmcJavaDiscovery.Start(global::PCL.PageInstanceLeft.Instance, global::PCL.PageInstanceLeft.CurrentJavaWorker);
         }
     }
 

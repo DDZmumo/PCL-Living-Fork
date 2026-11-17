@@ -1,0 +1,19 @@
+Java Launch Wrapper 1.4.4
+Copyright (c) 2022 00ll00
+Licensed under the MIT License. The complete text is in LICENSE.txt and is
+embedded in PCL Living Fork's About page.
+
+The unmodified runtime binary is PCLCS/Launch/JavaWrapper.jar.
+SHA-256: 88eb3ee58854e916437831697ef6a2fd493da9bc4ffb018f620cd88f090952aa
+
+Upstream: https://github.com/00ll00/java_launch_wrapper
+Release: https://github.com/00ll00/java_launch_wrapper/releases/tag/v1.4.4
+Asset: https://github.com/00ll00/java_launch_wrapper/releases/download/v1.4.4/java_launch_wrapper-1.4.4.jar
+The official GitHub release asset digest is identical to the runtime SHA-256.
+Tag v1.4.4 resolves to commit da6121dcf3c5d0f1f02be402b1fbbfdd9e07e095.
+License: https://github.com/00ll00/java_launch_wrapper/blob/da6121dcf3c5d0f1f02be402b1fbbfdd9e07e095/LICENCE
+License Git blob: 8b46bd13880507e4a9c4b5085fbc41ed90c23817
+
+Verified against the upstream release API and fixed license on 2026-11-08.
+This record identifies the shipped artifact; it does not claim a reproducible
+build or a legal audit of the whole launcher.

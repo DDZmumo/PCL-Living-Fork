@@ -193,12 +193,16 @@ namespace PCL
         {
             Changed?.Invoke();
         }
+        internal static void ManagedChanged() => PublishChanged();
         private static global::System.Boolean CanStart(global::PCL.ModMinecraft.McInstance Instance)
         {
             return global::PCL.InstanceClonerUi.Service.CanStart(Instance);
         }
         internal static void Start(global::PCL.ModMinecraft.McInstance Instance, global::System.String NewName, global::PCL.InstanceCloneOptions Options)
         {
+            if (Instance is not null && !MmcInstanceInspector.Read(Instance.PathVersion).IsLegacy) {
+                MmcCloneUi.Start(Instance, NewName, Options); return;
+            }
             global::PCL.InstanceClonerUi.Service.Start(Instance, NewName, Options);
         }
         internal static void Migrate(global::PCL.ModMinecraft.McInstance CloneInstance)
