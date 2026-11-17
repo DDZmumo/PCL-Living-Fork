@@ -43,8 +43,7 @@ internal static class MmcExportUi {
                             options = view.ReadOptions();
                         }
                         if (options is null) return;
-                        string output = SelectOutput is not null ? SelectOutput(instance.Name) :
-                            MeloongCore.Wpf.Dialogs.SaveFile("导出 MMC 整合包（已有文件不会覆盖）", instance.Name + ".zip", filter: new[] { ("zip", "MMC / Prism 整合包") });
+                        string output = ChooseOutput(instance.Name);
                         if (string.IsNullOrWhiteSpace(output)) return;
                         Start(new(source.Paths.InstanceRoot, output, instance.Name, source.Definition.InstanceId,
                             source.Definition.Generation, source.PrimarySha256, options));
@@ -53,6 +52,9 @@ internal static class MmcExportUi {
             } catch (Exception error) { Report(error, "无法读取 MMC 导出来源"); }
         }, "Preview MMC export");
     }
+
+    internal static string ChooseOutput(string defaultName) => SelectOutput is not null ? SelectOutput(defaultName) :
+        MeloongCore.Wpf.Dialogs.SaveFile("导出 MMC 整合包（已有文件不会覆盖）", defaultName + ".zip", filter: new[] { ("zip", "MMC / Prism 整合包") });
 
     internal static ModLoader.LoaderCombo<string> Start(MmcInstanceExportRequest request) {
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) throw new IOException("另一项 MMC 导出任务尚未完成。");
@@ -108,7 +110,7 @@ internal static class MmcExportUi {
         "A declared PermGen size is not portable and was omitted; it was not converted into a Metaspace option." => "整合包声明的 PermGen 大小无法随包导出，已移除；未换算为 Metaspace 参数。",
         _ => value
     };
-    private static void Report(Exception error, string text) {
+    internal static void Report(Exception error, string text) {
         if (ErrorObserved is not null) ErrorObserved(error, text);
         else MeloongCore.Logger.Error(error, text, MeloongCore.LogBehavior.Alert);
     }

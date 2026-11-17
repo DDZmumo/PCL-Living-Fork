@@ -26,7 +26,7 @@ public sealed partial class MmcArtifactMaterializer {
         Dictionary<string, PreparedInput> inputs, Dictionary<string, MmcArtifactLock> locks, MmcArtifactIntent intent,
         MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io, MmcArtifactSourceAccess access,
         Dictionary<string, MmcArtifactStagedMutation> mutations, IProgress<MmcArtifactProgress>? progress,
-        CancellationToken token) {
+        CancellationToken token, Action<MmcArtifactLock>? originalProduced = null, Action<string>? directoryProduced = null) {
         var indexes = artifacts.Where(x => x.Role == MmcArtifactRole.AssetIndex).ToArray();
         if (indexes.Length == 0) return null;
         if (indexes.Length != 1) throw new IOException("Exactly one effective asset index is required.");
@@ -101,7 +101,8 @@ public sealed partial class MmcArtifactMaterializer {
             token.ThrowIfCancellationRequested();
             var job = jobs[i];
             if (job.Artifact.Size > limits.MaxCopiedBytes - adoptedBytes) throw new IOException("Aggregate asset object byte budget exceeded.");
-            var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, token).ConfigureAwait(false);
+            var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, token, originalProduced, directoryProduced).ConfigureAwait(false);
+            if (fastOriginals[i] is not null) originalProduced?.Invoke(prepared.Lock);
             adoptedBytes = checked(adoptedBytes + prepared.Lock.SizeBytes);
             if (adoptedBytes > limits.MaxCopiedBytes) throw new IOException("Aggregate asset object actual byte budget exceeded.");
             inputs.Add(job.Artifact.Key, prepared);

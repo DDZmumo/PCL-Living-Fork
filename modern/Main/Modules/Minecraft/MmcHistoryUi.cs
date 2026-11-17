@@ -17,6 +17,25 @@ internal static class MmcHistoryUi {
     internal static Action<MmcInstanceHistoryCheckpoint> CaptureCheckpointObserved { get; set; }
     internal static Action<MmcTransactionCheckpoint, int> CheckpointObserved { get; set; }
     internal static Action<Exception, string> ErrorObserved { get; set; }
+    internal static Func<string> CaptureLabel { get; set; }
+    internal static Func<MmcInstanceHistoryPoint, bool, bool> ConfirmRestore { get; set; }
+    internal static Action<string, string> ShowDetails { get; set; }
+    internal static event Action<string> Changed;
+    internal static event Action<string, MmcInstanceHistoryCaptureResult> CaptureCompleted;
+    internal static event Action<string, MmcInstanceHistoryRestoreResult> RestoreCompleted;
+
+    internal static string RequestCaptureLabel() => CaptureLabel is not null ? CaptureLabel()
+        : ModMain.MyMsgBoxInput("新建 MMC 环境记录", "为当前环境填写备注。", DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+
+    internal static bool RequestRestoreConfirmation(MmcInstanceHistoryPoint point, bool undo = false) => ConfirmRestore is not null
+        ? ConfirmRestore(point, undo)
+        : ModMain.MyMsgBox((undo ? "撤回上次还原，恢复环境记录“" : "还原环境记录“") + point.Label + "”？\n当前存档、截图、地图标记和实例偏好会保留。\n操作前会自动保存当前环境，供以后撤回。",
+            undo ? "撤回上次 MMC 环境还原" : "确认还原 MMC 环境", undo ? "撤回还原" : "还原环境", "取消", IsWarn: true) == 1;
+
+    internal static void DisplayDetails(string text, string title) {
+        if (ShowDetails is not null) ShowDetails(text, title);
+        else ModMain.MyMsgBox(text, title);
+    }
 
     internal static void Prompt(ModMinecraft.McInstance instance) {
         ArgumentNullException.ThrowIfNull(instance);
@@ -29,7 +48,7 @@ internal static class MmcHistoryUi {
                         int choice = ModMain.MyMsgBox("环境记录保存组件、补丁、运行库和环境文件。还原会先自动保存当前环境；当前存档、截图及实例偏好会保留。",
                             "MMC 环境记录", "新建记录", "查看与还原", "取消", IsWarn: false);
                         if (choice == 1) {
-                            string label = ModMain.MyMsgBoxInput("新建 MMC 环境记录", "为当前环境填写备注。", DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+                            string label = RequestCaptureLabel();
                             if (label is null) return;
                             StartCapture(new(source.Paths.InstanceRoot, source.Definition.InstanceId, source.Definition.Generation, source.PrimarySha256, label));
                         } else if (choice == 2) SelectRestore(source, points);
@@ -47,8 +66,7 @@ internal static class MmcHistoryUi {
         }), "选择 MMC 环境记录", "下一步", "取消");
         if (selected is null || selected < 0 || selected >= points.Length) return;
         var chosen = points[selected.Value];
-        if (ModMain.MyMsgBox("还原环境记录“" + chosen.Label + "”？\n当前存档、截图、地图标记和启动偏好会保留。\n还原前会自动创建当前环境记录，供以后撤回。",
-            "确认还原 MMC 环境", "还原环境", "取消", IsWarn: true) != 1) return;
+        if (!RequestRestoreConfirmation(chosen)) return;
         StartRestore(new(source.Paths.InstanceRoot, source.Definition.InstanceId, source.Definition.Generation, source.PrimarySha256,
             chosen.PointId, chosen.ManifestSha256));
     }
@@ -58,6 +76,7 @@ internal static class MmcHistoryUi {
             CaptureCheckpointObserved?.Invoke(phase); request.Checkpoint?.Invoke(phase);
             if (phase == MmcInstanceHistoryCheckpoint.SourcesCaptured) fence.EnterDecision(token);
         } }, token).GetAwaiter().GetResult(); task.Output = result;
+        ModBase.RunInUi(() => CaptureCompleted?.Invoke(request.VersionRoot, result));
         if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(token);
         if (result.Status != MmcInstanceBackendStatus.Succeeded) throw new IOException("环境记录未完成：" + result.Failure);
         if (Captured is not null) Captured(result);
@@ -71,6 +90,7 @@ internal static class MmcHistoryUi {
                 if (phase == MmcTransactionCheckpoint.BeforeDecision) fence.EnterDecision(token);
             }
         }, token).GetAwaiter().GetResult(); task.Output = result;
+        ModBase.RunInUi(() => RestoreCompleted?.Invoke(request.VersionRoot, result));
         if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(token);
         if (result.Status != MmcInstanceBackendStatus.Succeeded)
             throw new IOException("环境还原尚未完成，内容已保留：" + result.Failure);
@@ -85,7 +105,10 @@ internal static class MmcHistoryUi {
     private static ModLoader.LoaderCombo<string> Start(string name, string root,
         Action<ModLoader.LoaderTask<string, object>, CancellationToken, MmcOperationCancellationFence> work) {
         if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) throw new IOException("另一项 MMC 环境操作尚未完成。");
-        var fence = new MmcOperationCancellationFence(() => Interlocked.Exchange(ref busy, 0));
+        var fence = new MmcOperationCancellationFence(() => {
+            Interlocked.Exchange(ref busy, 0);
+            ModBase.RunInUi(() => Changed?.Invoke(root));
+        });
         var worker = new MmcOperationWorker<string, object>(fence, name, task => {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(task.CreateCancellationToken(), fence.Token);
             work(task, linked.Token, fence);
@@ -104,7 +127,7 @@ internal static class MmcHistoryUi {
             throw new IOException(source.Error ?? "实例状态已变化，请重新打开版本页面。");
         return source;
     }
-    private static void Report(Exception error, string text) {
+    internal static void Report(Exception error, string text) {
         if (ErrorObserved is not null) ErrorObserved(error, text);
         else MeloongCore.Logger.Error(error, text, MeloongCore.LogBehavior.Alert);
     }

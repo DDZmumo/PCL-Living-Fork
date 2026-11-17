@@ -68,6 +68,8 @@ public static partial class MmcConfigurationCoordinator {
             state.AssertContext(context);
         }
         WritePreferenceConfig(state.Root, disk); MmcIniConfiguration.WriteIni(state.Root, ini);
+        owner.ProducedFile("PCL/config.json", MmcDurableFiles.Hash(ConfigBytes(disk)));
+        owner.ProducedFile("PCL/Setup.ini", MmcDurableFiles.Hash(new System.Text.UTF8Encoding(false).GetBytes(ini)));
         owner.RequirePrimary(lease.VersionRoot);
         state.PublishObserved(disk, context, reattach: true); state.PublishIni(ini, notify: false); state.NotifyPendingInvalidations();
     }

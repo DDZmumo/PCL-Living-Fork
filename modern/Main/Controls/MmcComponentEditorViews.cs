@@ -25,9 +25,10 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
         this.model = model;
         AddFilter("当前组件 · " + model.Saved.Resolved.Resolution.Profile.Components.Length, 0, true, Show);
         AddFilter("本次修改", 1, true, Show);
-        AddFilter("本地运行库与 Java", 2, true, Show);
+        AddFilter("本地运行库", 2, true, Show);
         Header.Children.Add(Label("当前已发布环境：" + EnvironmentText(model.PublishedEnvironment), 12, margin: new Thickness(0, 8, 0, 0)));
         Header.Children.Add(StatusHint("新增直接组件需通过整合包来源更新；自动依赖由组件声明解析。", (int)MyHint.Themes.Blue));
+        Header.Children.Add(StatusHint("Java 统一使用“实例设置 → Java”中的选择。预览会检查目标组件的实际兼容要求；需要更换 Java 时请在实例设置中调整。", (int)MyHint.Themes.Blue));
         if (previous is not null) {
             SelectComponent(previous.Edit.Uid);
             var edit = previous.Edit;
@@ -155,19 +156,6 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
             locals.RemoveAll(value => value.FileName.Equals(target, StringComparison.OrdinalIgnoreCase)); locals.Add(new(target, Path.GetFullPath(path))); newLocalName = ""; Render();
         });
         body.Children.Add(add); Rows.Children.Add(Section("显式选择本地运行库", body));
-        var java = new StackPanel();
-        java.Children.Add(Label(string.IsNullOrWhiteSpace(javaPath) ? "沿用已发布环境：" + EnvironmentText(model.PublishedEnvironment) : "本次显式选择：" + javaPath, 12));
-        java.Children.Add(Label("如预览提示新组件需要其他 Java，请选择已安装的 java.exe 后重新预览。会执行真实版本与架构检查，成功后由同一组件事务发布新环境。", 12, margin: new Thickness(0, 8, 0, 0)));
-        var choose = new MyButton { Text = "选择本机 Java…", Width = 150, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0) };
-        choose.Click += (_, _) => Pick(() => {
-            string path = MeloongCore.Wpf.Dialogs.SelectFile("选择实际的 java.exe", false, filter: new[] { (new[] { "exe" }, "Java 程序") }).FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(path)) { javaPath = Path.GetFullPath(path); Render(); }
-        }); java.Children.Add(choose);
-        if (!string.IsNullOrWhiteSpace(javaPath)) {
-            var reset = new MyButton { Text = "沿用已发布环境", Width = 150, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
-            reset.Click += (_, _) => { javaPath = null; Render(); }; java.Children.Add(reset);
-        }
-        Rows.Children.Add(Section("Java 与平台环境", java));
     }
     private void AddPaging(int count) {
         if (count <= PageSize) return;

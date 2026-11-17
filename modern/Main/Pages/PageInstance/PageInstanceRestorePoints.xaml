@@ -6,12 +6,14 @@
   <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
    <StackPanel Margin="25,10">
     <local:MySearchBox x:Name="SearchBox" Margin="0,15" HintText="搜索还原点 / 版本 / 时间" />
+    <local:MyHint x:Name="HintMmcHistory" Visibility="Collapsed" Margin="0,0,0,15" />
     <local:MyCard Margin="0,0,0,15">
      <Grid Margin="15,15,0,15" Height="35" Grid.IsSharedSizeScope="True">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/></Grid.ColumnDefinitions>
       <local:MyButton x:Name="BtnFolder" Text="打开文件夹" ColorType="Highlight" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
       <local:MyButton x:Name="BtnCreate" Text="创建还原点" Grid.Column="1" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
       <local:MyButton x:Name="BtnSelectAll" Text="全选" Grid.Column="2" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
+      <local:MyButton x:Name="BtnMmcUndo" Text="撤回上次还原" Grid.Column="3" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" Visibility="Collapsed" IsEnabled="False" />
  </Grid>
     </local:MyCard>
     <local:MyCard x:Name="CardRetention" Title="保留设置" Margin="0,0,0,15" IsEnabled="False">

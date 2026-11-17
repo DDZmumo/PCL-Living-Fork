@@ -13,6 +13,7 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     where TInstance : LegacyMcInstance<TInstance,TState,TCard> where TState : struct,Enum where TCard : struct,Enum where TItem : FrameworkElement where TButton : FrameworkElement {
     private readonly InstanceSettingsView<TItem,TButton> view; private readonly InstanceSettingsHost<TInstance> host; private readonly InstanceRamDisplayController ram;
     private bool isReverting;
+    private long javaListRevision;
     public InstanceSettingsController(InstanceSettingsView<TItem,TButton> view, InstanceSettingsHost<TInstance> host, InstanceRamDisplayController ram) { this.view=view; this.host=host; this.ram=ram; }
     public void Loaded() {
         host.ApplyVisibility(); view.ScrollHome(); ram.Refresh(false); host.AddAnimation(1); Reload(); host.AddAnimation(-1);
@@ -110,14 +111,34 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     public void UpdateJavaList() {
         if (view.JavaSelect is null || view.JavaLabel is null || !view.JavaSelect.IsLoaded) return;
         view.JavaSelect.Items.Clear();
+        long revision = ++javaListRevision;
+        TInstance owner = host.Instance();
+        var ownerStamp = owner.Config.ContextStamp;
         if (host.JavaRefresh().Running) { view.JavaSearch.IsEnabled=false; view.JavaSelect.IsEnabled=false; view.JavaLabel.Text="搜索中 …"; return; }
         view.JavaSearch.IsEnabled=true; view.JavaSelect.IsEnabled=true;
-        Java? selected=Configs.JavaForced.Get(host.Instance().Config);
+        Java? selected=Configs.JavaForced.Get(owner.Config);
+        view.JavaLabel.ToolTip = selected?.JavaExePath;
         view.JavaLabel.Text=!Configs.JavaList.Get()!.Any() ? "未找到 Java，点击以导入已有的 Java" : selected is null ? "点击选择 Java …" : selected.ToString();
         try {
             foreach (Java entry in Configs.JavaList.Get()!) {
                 TItem item=view.CreateJavaItem(entry,entry.ToString()); item.MouseLeftButtonUp+=(_,e)=>e.Handled=true;
-                view.OnJavaClick(item,()=> { if (host.SetForcedJava is not null) host.SetForcedJava(host.Instance(),entry); else Configs.JavaForced.Set(entry,host.Instance().Config); if (host.ManagedJavaPreview?.Invoke(host.Instance(),host.JavaWorker()) is not null) host.ReloadCurrentJava(); UpdateJavaList(); view.JavaSelect.IsDropDownOpen=false; }); view.JavaSelect.Items.Add(item);
+                view.OnJavaClick(item,()=> {
+                    if (revision != javaListRevision || !ReferenceEquals(host.Instance(), owner) || owner.Config.ContextStamp != ownerStamp) {
+                        view.JavaSelect.IsDropDownOpen=false;
+                        return;
+                    }
+                    var current = MmcInstanceInspector.Read(owner.PathVersion);
+                    if (ownerStamp.Kind == MmcConfigurationContextKind.Managed
+                        ? !current.IsConsistent || current.Definition?.InstanceId != ownerStamp.InstanceId
+                        : !current.Management.CanUseLegacyBackend) {
+                        Hint("实例管理状态已变化，请重新打开实例设置后再选择 Java。",1);
+                        view.JavaSelect.IsDropDownOpen=false;
+                        return;
+                    }
+                    if (host.SetForcedJava is not null) host.SetForcedJava(owner,entry); else Configs.JavaForced.Set(entry,owner.Config);
+                    if (host.ManagedJavaPreview?.Invoke(owner,host.JavaWorker()) is not null) host.ReloadCurrentJava();
+                    UpdateJavaList(); view.JavaSelect.IsDropDownOpen=false;
+                }); view.JavaSelect.Items.Add(item);
                 bool official=PathUtils.IsParentOf($@"{Paths.AppData}.minecraft\runtime\",entry.Folder);
                 TButton delete=view.CreateJavaButton(false); delete.IsEnabled=!official; delete.ToolTip=delete.IsEnabled ? "从列表中移除" : "无法移除官方 Java"; view.OnButtonClick(delete,()=>host.RemoveJava(entry)); ToolTipService.SetShowOnDisabled(delete,true);
                 TButton open=view.CreateJavaButton(true); open.ToolTip="打开文件夹"; view.OnButtonClick(open,()=>host.Explorer(entry.JavaExePath)); view.SetButtons(item,new List<TButton>{delete,open});

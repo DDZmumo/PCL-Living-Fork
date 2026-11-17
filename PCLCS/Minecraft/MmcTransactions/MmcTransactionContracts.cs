@@ -9,7 +9,11 @@ namespace PCLCS;
 /// <param name="NewSourceRelativePath">Owned instance-relative PCL/MmcRuntime/.staging/GUID-N/... source, copied as a stream. Both new-source fields null means recoverable deletion.</param>
 public sealed record MmcFileMutation(string RelativePath, string? ExpectedOldSha256, byte[]? NewContent, string? ExpectedNewSha256,
     string? NewSourceRelativePath = null);
-public sealed record MmcFileTransactionRequest(Guid InstanceId, long ExpectedGeneration, long NewGeneration, IReadOnlyList<MmcFileMutation> Mutations);
+public sealed record MmcFileTransactionRequest(Guid InstanceId, long ExpectedGeneration, long NewGeneration, IReadOnlyList<MmcFileMutation> Mutations) {
+    internal Action<MmcTransactionProducedFile>? ProducedRecoveryFile { get; init; }
+}
+internal sealed record MmcTransactionProducedFile(Guid TransactionId, Guid InstanceId, string CanonicalRoot,
+    long ExpectedGeneration, long NewGeneration, int MutationIndex, string RelativePath, string Sha256);
 public enum MmcTransactionOutcome { Committed, Aborted, RecoveryRequired, Interrupted }
 public enum MmcTransactionCheckpoint { Prepared, BeforeMutation, AfterMutation, BeforeDecision, CommitDecided, BeforeFinalize, Finalized }
 public sealed record MmcTransactionResult(MmcTransactionOutcome Outcome, Guid TransactionId, string? Diagnostic = null);

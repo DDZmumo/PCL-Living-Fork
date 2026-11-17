@@ -54,6 +54,7 @@ public static class MmcImportRecovery {
         var owner = operation.Owner;
         if (Path.GetDirectoryName(operation.DirectoryPath) != Path.Combine(root, "PCL", MmcImportOperation.StoreName)) throw new IOException("导入记录不属于当前游戏文件夹。");
         if (owner.Purpose == MmcImportReservationPurpose.Clone) return Entry(MmcImportRecoveryState.CloneOnly, "这是克隆预留记录，个人快照不能按作者初始载荷发布。");
+        if (operation.RolledBack()) return Entry(MmcImportRecoveryState.Completed, "本次未提交导入已自动回退，临时实例已清理；事务证据保留。此记录不授权恢复或重试当前路径。");
         if (operation.Completed() && !HasOwnedMarker(owner.TemporaryRoot, owner.MarkerSha256) && !HasOwnedMarker(owner.FinalRoot, owner.MarkerSha256))
             return Entry(MmcImportRecoveryState.Completed, "原导入已完成；此记录仅作历史查看，不授权恢复或重试当前路径。实例后续修复、更新或移动不改变该历史结果。");
         bool acquiredUse = false;
@@ -86,6 +87,40 @@ public static class MmcImportRecovery {
         catch (Exception error) when (Expected(error)) { return false; }
     }
     public static Task<MmcImportRecoveryResult> RecoverAsync(MmcImportRecoveryEntry preview) => Task.Run(() => Recover(preview), CancellationToken.None);
+    internal static MmcImportRecoveryResult CompleteProducerFailure(MmcOwnedImportReservation producer, Action<MmcInstancePurgeCheckpoint, string?>? checkpoint = null) {
+        var operation = producer.CurrentOperation;
+        try {
+            operation.VerifySameOwner();
+            bool forward = false;
+            using (var reserved = MmcOwnedImportReservation.Reopen(operation))
+            using (var access = new Access(operation)) {
+                if (!Directory.Exists(operation.Owner.TemporaryRoot)) forward = true;
+                else {
+                    var lease = access.Leases[operation.Owner.TemporaryRoot]; reserved.VerifyRecoveryMarker(lease.VersionRoot, false);
+                    using var permit = reserved.EnterPending(lease); MmcSessions.AssertNoActive(lease);
+                    var transactions = InitialTransactions(operation, lease.VersionRoot);
+                    if (transactions.Count > 1) throw new IOException("Multiple initial transactions cannot be automatically settled.");
+                    forward = transactions.Any(transaction => transaction.Decided);
+                    if (!forward) {
+                        foreach (var transaction in transactions.Where(transaction => transaction.Pending)) {
+                            var rolled = MmcFileTransactions.RecoverProducer(lease, transaction.Id, producer.RecordRecoveryProduct);
+                            if (rolled.Outcome != MmcTransactionOutcome.Aborted) throw new IOException(rolled.Diagnostic ?? "Uncommitted import did not roll back.");
+                        }
+                        MmcFileTransactions.AssertNoPending(lease);
+                        foreach (var transaction in transactions) producer.RecordRolledBackProducts(MmcInstancePaths.Resolve(lease.VersionRoot), transaction.Id);
+                    }
+                }
+            }
+            if (forward) {
+                var entry = Inspect(Root(Path.GetDirectoryName(Path.GetDirectoryName(operation.Owner.FinalRoot)!)!), operation);
+                if (!entry.CanRecover) throw new IOException(entry.Description);
+                return Recover(entry);
+            }
+            producer.DiscardProducerTemporary(checkpoint);
+            return new(MmcInstanceBackendStatus.Succeeded, OperationDirectory: operation.DirectoryPath, FreshImportRequired: true, Diagnostic: "Uncommitted import automatically rolled back; owned temporary instance discarded.");
+        } catch (Exception error) when (Expected(error)) { return new(MmcInstanceBackendStatus.NeedsRecovery, OperationDirectory: operation.DirectoryPath,
+            Diagnostic: error.Message + MmcProducerCleanup.PreserveFailure(operation.DirectoryPath, error)); }
+    }
     private static MmcImportRecoveryResult Recover(MmcImportRecoveryEntry preview) {
         try {
             if (!preview.CanRecover || string.IsNullOrEmpty(preview.OperationDirectory) || preview.PreviewFingerprint is null) throw new IOException("此残留没有可重放的生产者证明。");
@@ -184,7 +219,7 @@ public static class MmcImportRecovery {
         if (bound.HasErrors || bound.Plan?.BoundFingerprint != definition.InstalledProjection.BoundFingerprint) throw new IOException("恢复字节不符合原输入锁和绑定计划。");
     }
     internal static string Fingerprint(MmcImportOperation operation) => MmcDurableFiles.Hash(Encoding.UTF8.GetBytes(string.Join("\n", "mmc-import-recovery-v1", operation.OwnerHash,
-        operation.Publication()?.Hash, operation.Completed(), Observed(operation.Owner.TemporaryRoot), Observed(operation.Owner.FinalRoot))));
+        operation.Publication()?.Hash, operation.Completed(), operation.RolledBack(), Observed(operation.Owner.TemporaryRoot), Observed(operation.Owner.FinalRoot))));
     private static string Observed(string root) {
         if (MmcInstancePaths.Attributes(root) is null) return "missing";
         var paths = MmcInstancePaths.Resolve(root); List<string?> facts = [root];
@@ -216,5 +251,5 @@ public static class MmcImportRecovery {
         }
     }
     private static string Root(string value) { string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(value)); MmcInstancePaths.EnsureNoLinks(root); return root; }
-    internal static bool Expected(Exception error) => error is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException or OverflowException;
+    internal static bool Expected(Exception error) => error is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException or OverflowException or PlatformNotSupportedException;
 }

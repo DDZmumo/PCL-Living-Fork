@@ -20,6 +20,26 @@ public sealed partial class MmcOwnedImportReservation : IDisposable {
         operation.VerifySameOwner();
     }
     private readonly byte[] marker, ignore;
+    private readonly Dictionary<string, string> cleanupFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> cleanupDirectories = new(StringComparer.OrdinalIgnoreCase) { "", "PCL" };
+    internal MmcImportOperation CurrentOperation => operation ?? throw new IOException("Import producer has no operation owner.");
+    private Guid producerTransactionId;
+    internal void RecordProducerTransaction(Guid transactionId) { producerTransactionId = transactionId; RecordCreatedDirectory("PCL/MmcTransactions"); }
+    internal void PrepareWorkspaceParent() {
+        AssertProducerUse(); MmcArtifactIo.Directory(MmcInstancePaths.Resolve(TemporaryRoot).ResolveRelative(MmcPathRole.Runtime, ".staging"));
+        RecordCreatedDirectory("PCL/MmcRuntime/.staging");
+    }
+    internal void RecordCreatedDirectory(string relative) {
+        if (relative.Length != 0) _ = MmcInstancePaths.Resolve(TemporaryRoot).ResolveRelative(MmcPathRole.Instance, relative);
+        cleanupDirectories.Add(relative);
+        for (int index = relative.LastIndexOf('/'); index > 0; index = relative.LastIndexOf('/', index - 1)) cleanupDirectories.Add(relative[..index]);
+    }
+    internal void RecordArtifactProduct(MmcArtifactLock artifact) {
+        if (!MmcDurableFiles.IsHash(artifact.AdoptedSha256) || artifact.RecoveryObjectRelativePath != "PCL/MmcArtifacts/sha256/" + artifact.AdoptedSha256)
+            throw new IOException("An original artifact cleanup fact needs its verified producer digest and object path.");
+        cleanupFiles[artifact.RecoveryObjectRelativePath] = artifact.AdoptedSha256;
+        RecordCreatedDirectory("PCL/MmcArtifacts/sha256");
+    }
     public string FinalRoot { get; }
     public string TemporaryRoot { get; }
     public Guid InstanceId { get; }
@@ -36,6 +56,8 @@ public sealed partial class MmcOwnedImportReservation : IDisposable {
     private readonly string packageSha256;
     private MmcOwnedImportReservation(string finalRoot, string temporaryRoot, Guid id, string packageSha256, byte[] marker, byte[] ignore) {
         FinalRoot = finalRoot; TemporaryRoot = temporaryRoot; InstanceId = id; this.packageSha256 = packageSha256; this.marker = marker; this.ignore = ignore;
+        cleanupFiles.Add("PCL/MmcImportPending.json", MmcDurableFiles.Hash(marker));
+        cleanupFiles.Add(".pclignore", MmcDurableFiles.Hash(ignore));
     }
     public static MmcOwnedImportReservation Create(string finalRoot, Guid instanceId, string packageSha256, MmcImportReservationPurpose purpose = MmcImportReservationPurpose.InitialImport) {
         if (instanceId == Guid.Empty || !MmcDurableFiles.IsHash(packageSha256)) throw new ArgumentException("New import needs an identity and package digest.");

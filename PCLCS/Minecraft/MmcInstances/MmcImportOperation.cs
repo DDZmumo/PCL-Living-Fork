@@ -9,6 +9,7 @@ internal sealed record MmcImportOwnerRecord(int SchemaVersion, Guid OperationId,
 internal sealed record MmcImportPublicationRecord(int SchemaVersion, Guid OperationId, string OwnerSha256, string PrimarySha256,
     string PayloadSha256, string GameRootLeaf);
 internal sealed record MmcImportCompletedRecord(int SchemaVersion, Guid OperationId, string OwnerSha256, string PublicationSha256);
+internal sealed record MmcImportRollbackRecord(int SchemaVersion, Guid OperationId, string OwnerSha256);
 
 internal sealed class MmcImportOperation {
     internal const string StoreName = "MmcImportOperations";
@@ -79,6 +80,15 @@ internal sealed class MmcImportOperation {
     internal void Complete() {
         if (Completed()) return; var publication = Publication() ?? throw new IOException("Import publication was not sealed.");
         MmcDurableFiles.WriteRecord(Path.Combine(DirectoryPath, "completed.record"), new MmcImportCompletedRecord(1, Owner.OperationId, OwnerHash, publication.Hash));
+    }
+    internal bool RolledBack() {
+        string path = Path.Combine(DirectoryPath, "rolled-back.record"); if (!File.Exists(path)) return false;
+        if (ReadSmall<MmcImportRollbackRecord>(path).Value != new MmcImportRollbackRecord(1, Owner.OperationId, OwnerHash)) throw new IOException("Import rollback record changed.");
+        return true;
+    }
+    internal void RecordRolledBack() {
+        VerifySameOwner(); if (Publication() is not null || Completed()) throw new IOException("A sealed import cannot be marked rolled back.");
+        if (!RolledBack()) MmcDurableFiles.WriteRecord(Path.Combine(DirectoryPath, "rolled-back.record"), new MmcImportRollbackRecord(1, Owner.OperationId, OwnerHash));
     }
     internal static (T Value, string Hash) ReadSmall<T>(string path) {
         MmcInstancePaths.EnsureNoLinks(path); if (new FileInfo(path).Length > 64 * 1024) throw new IOException("Import recovery record exceeds its budget.");

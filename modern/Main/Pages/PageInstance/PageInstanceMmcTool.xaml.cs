@@ -141,32 +141,6 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
     {
         switch (_route)
         {
-            case FormMain.PageSubType.InstanceModify:
-                CardAction.Title = "MMC 组件与补丁";
-                BtnPrimaryAction.Text = "管理组件与补丁";
-                HintStatus.Visibility = Visibility.Collapsed;
-                break;
-            case FormMain.PageSubType.InstancePackUpdate:
-                CardAction.Title = "从 MMC 整合包更新";
-                BtnPrimaryAction.Text = "选择新整合包更新";
-                HintStatus.Theme = MyHint.Themes.Blue;
-                HintStatus.Text = "更新前将对比新版整合包与当前环境差异，你的存档、截图及个人偏好设置会自动保留。";
-                HintStatus.Visibility = Visibility.Visible;
-                break;
-            case FormMain.PageSubType.InstanceExport:
-                CardAction.Title = "导出 MMC 整合包";
-                BtnPrimaryAction.Text = "配置并导出整合包";
-                HintStatus.Theme = MyHint.Themes.Blue;
-                HintStatus.Text = "按 MMC / Prism 格式打包组件、模组与配置文件。存档、截图和服务器列表默认不打包。";
-                HintStatus.Visibility = Visibility.Visible;
-                break;
-            case FormMain.PageSubType.InstanceRestorePoints:
-                CardAction.Title = "MMC 环境记录";
-                BtnPrimaryAction.Text = "查看或创建环境记录";
-                HintStatus.Theme = MyHint.Themes.Blue;
-                HintStatus.Text = "环境记录会保存当前组件、补丁与配置文件快照；还原前会自动备份当前环境，不影响存档与截图。";
-                HintStatus.Visibility = Visibility.Visible;
-                break;
             case FormMain.PageSubType.InstanceClone:
                 CardAction.Title = "克隆 MMC 实例";
                 BtnPrimaryAction.Text = "创建独立副本";
@@ -179,13 +153,6 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
                 BtnPrimaryAction.Text = "移动实例目录";
                 HintStatus.Theme = MyHint.Themes.Blue;
                 HintStatus.Text = "将实例移动到同一磁盘卷中已添加的游戏文件夹，保留实例名称、组件配置与存档。";
-                HintStatus.Visibility = Visibility.Visible;
-                break;
-            case FormMain.PageSubType.InstanceMmcPlatformOrigin:
-                CardAction.Title = "MMC 平台来源与更新";
-                BtnPrimaryAction.Text = "检查来源与在线更新";
-                HintStatus.Theme = MyHint.Themes.Blue;
-                HintStatus.Text = "核实最初导入的原整合包来源平台后，可在线检测并选择同一项目的发布版本更新。";
                 HintStatus.Visibility = Visibility.Visible;
                 break;
             default:
@@ -228,25 +195,6 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
     {
         switch (_route)
         {
-            case FormMain.PageSubType.InstanceModify:
-                int overrideCount = state.Inspection?.Definition?.ComponentOverrides.Length ?? 0;
-                LabToolDescription.Text = overrideCount > 0
-                    ? $"当前已有 {overrideCount} 项托管组件覆盖或自定义补丁。点击下方按钮查看、调整组件版本或管理补丁。"
-                    : "点击下方按钮打开 MMC 组件与补丁管理器，查看完整组件栈并调整支持的版本、加载器或补丁。";
-                break;
-            case FormMain.PageSubType.InstancePackUpdate:
-                string originName = state.Inspection?.Definition?.Origin?.OriginalName;
-                LabToolDescription.Text = string.IsNullOrWhiteSpace(originName)
-                    ? "选择新的 MMC / Prism 整合包 ZIP，预览文件与组件变更并安全更新当前实例。"
-                    : $"当前记录的原整合包名称：{originName}。选择新版 MMC / Prism 整合包 ZIP 后可预览差异并升级。";
-                break;
-            case FormMain.PageSubType.InstanceExport:
-                LabToolDescription.Text = "可自定义需要携带的目录与可选内容，并生成标准 MMC / Prism 格式 ZIP 整合包。";
-                break;
-            case FormMain.PageSubType.InstanceRestorePoints:
-                LabToolDescription.Text = "正在读取当前实例的环境记录摘要……";
-                LoadHistorySummaryAsync(revision, _capturedOwner, _capturedRoot, _capturedInstanceId, _capturedGeneration, _capturedPrimarySha256);
-                break;
             case FormMain.PageSubType.InstanceClone:
                 LabToolDescription.Text = "请输入新实例名称并选择需要一并复制的用户数据目录。";
                 if (string.IsNullOrWhiteSpace(TextCloneName.Text))
@@ -256,110 +204,7 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
             case FormMain.PageSubType.InstanceMmcMove:
                 LabToolDescription.Text = "当前目录位置：" + _capturedRoot;
                 break;
-            case FormMain.PageSubType.InstanceMmcPlatformOrigin:
-                LabToolDescription.Text = "正在读取平台来源核实信息……";
-                LoadPlatformOriginSummaryAsync(revision, state, _capturedOwner, _capturedRoot);
-                break;
         }
-    }
-
-    private void LoadHistorySummaryAsync(int revision, ModMinecraft.McInstance owner, string root, Guid instanceId, long generation, string primarySha256)
-    {
-        ModBase.RunInNewThread(() =>
-        {
-            string message;
-            try
-            {
-                var inspection = MmcInstanceInspector.Read(root);
-                if (!inspection.IsConsistent || inspection.Paths is null || inspection.Definition is null ||
-                    inspection.Definition.InstanceId != instanceId ||
-                    inspection.Definition.Generation != generation ||
-                    !string.Equals(inspection.PrimarySha256, primarySha256, StringComparison.OrdinalIgnoreCase))
-                {
-                    message = "实例状态发生变化，点击“刷新状态”后即可查看最新环境记录。";
-                }
-                else
-                {
-                    var points = new MmcInstanceHistoryBackend().ListAsync(inspection.Paths.InstanceRoot).GetAwaiter().GetResult();
-                    if (points.IsEmpty)
-                        message = "目前还没有保存任何 MMC 环境记录。点击下方按钮可以立即创建当前环境快照。";
-                    else
-                    {
-                        var latest = points.OrderByDescending(p => p.CreatedUtc).First();
-                        message = $"已保存 {points.Length} 个环境记录。最近一次记录：{latest.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm} · {latest.Label}";
-                    }
-                }
-            }
-            catch
-            {
-                message = "暂时无法读取环境记录详情，点击下方按钮仍可尝试管理环境记录。";
-            }
-
-            ModBase.RunInUi(() =>
-            {
-                if (!IsCurrentAsyncTarget(revision, owner, root)) return;
-                LabToolDescription.Text = message;
-            });
-        }, "Load MMC Tool History Summary");
-    }
-
-    private void LoadPlatformOriginSummaryAsync(int revision, InstanceSidebarState state, ModMinecraft.McInstance owner, string root)
-    {
-        Guid capturedId = state.InstanceId;
-        long capturedGeneration = state.Generation;
-        string capturedPrimarySha256 = state.Inspection?.PrimarySha256 ?? "";
-        string instanceRoot = state.Inspection?.Paths?.InstanceRoot ?? "";
-
-        ModBase.RunInNewThread(() =>
-        {
-            string message;
-            try
-            {
-                if (string.IsNullOrEmpty(instanceRoot) || capturedId == Guid.Empty || string.IsNullOrEmpty(capturedPrimarySha256))
-                {
-                    message = "尚未核实当前实例的平台来源信息。";
-                }
-                else
-                {
-                    var verified = MmcInstancePlatformOriginBackend.ReadVerified(new(instanceRoot, capturedId, capturedGeneration, capturedPrimarySha256));
-                    if (verified is not null)
-                    {
-                        message = $"已核实来源平台：{verified.Identity.Platform} · 文件 {verified.SelectedFile.FileName}。可直接检查同一项目的在线更新。";
-                    }
-                    else if (state.Inspection?.Definition?.Origin?.PlatformProjectIdentity is { } recorded)
-                    {
-                        message = $"已记录平台信息：{recorded.Platform}（尚未完成原整合包核实）。点击下方按钮可核对原整合包。";
-                    }
-                    else if (!string.IsNullOrWhiteSpace(state.Inspection?.Definition?.Origin?.OriginalName))
-                    {
-                        message = $"原整合包名称：{state.Inspection.Definition.Origin.OriginalName}（尚未绑定平台来源）。点击下方按钮进行来源核实。";
-                    }
-                    else
-                    {
-                        message = "尚未关联平台来源。提供原始整合包与平台项目信息并核实后，即可启用在线更新检测。";
-                    }
-                }
-            }
-            catch
-            {
-                message = "暂时无法读取平台来源信息，点击下方按钮以查看详情或重新核实。";
-            }
-
-            ModBase.RunInUi(() =>
-            {
-                if (!IsCurrentAsyncTarget(revision, owner, root)) return;
-                LabToolDescription.Text = message;
-            });
-        }, "Load MMC Tool Platform Origin Summary");
-    }
-
-    private bool IsCurrentAsyncTarget(int revision, ModMinecraft.McInstance owner, string root)
-    {
-        return _refreshRevision == revision
-            && PageInstanceLeft.Instance is { } active
-            && ReferenceEquals(active, owner)
-            && ReferenceEquals(_capturedOwner, owner)
-            && PathUtils.IsSame(active.PathVersion, root);
     }
 
     private bool ValidateCloneNameInput(bool showWhenEmpty)
@@ -470,18 +315,6 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
         {
             switch (_route)
             {
-                case FormMain.PageSubType.InstanceModify:
-                    MmcComponentEditorUi.Prompt(owner);
-                    return true;
-                case FormMain.PageSubType.InstancePackUpdate:
-                    MmcPackageUpdateUi.Prompt(owner);
-                    return true;
-                case FormMain.PageSubType.InstanceExport:
-                    MmcExportUi.Prompt(owner);
-                    return true;
-                case FormMain.PageSubType.InstanceRestorePoints:
-                    MmcHistoryUi.Prompt(owner);
-                    return true;
                 case FormMain.PageSubType.InstanceClone:
                     if (!ValidateCloneNameInput(showWhenEmpty: true)) return false;
                     string targetName = TextCloneName.Text.Trim();
@@ -498,9 +331,6 @@ public partial class PageInstanceMmcTool : MyPageRight, IRefreshable
                         if (ReferenceEquals(PageInstanceLeft.Instance, owner) && ReferenceEquals(ModMain.FrmMain?.PageRight, this))
                             ModMain.FrmMain.PageBack();
                     });
-                    return true;
-                case FormMain.PageSubType.InstanceMmcPlatformOrigin:
-                    MmcPlatformOriginUi.Prompt(owner, ModNet.CreateMmcPlatformOriginCatalog());
                     return true;
                 default:
                     return false;

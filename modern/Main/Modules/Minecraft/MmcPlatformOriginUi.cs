@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using PCLCS;
+using PCLLF.MMCC.Core;
 
 namespace PCL;
 
@@ -15,6 +16,7 @@ internal static class MmcPlatformOriginUi {
     internal static Action<MmcPlatformOriginResult> Published { get; set; }
     internal static Action<MmcTransactionCheckpoint, int> TransactionObserved { get; set; }
     internal static Action<Exception, string> ErrorObserved { get; set; }
+    internal static Func<MmcInstanceOrigin, MmcPlatformOriginInput> ReadOriginInput { get; set; }
 
     internal static void Prompt(ModMinecraft.McInstance instance, MmcPlatformOriginCatalog catalog) {
         ArgumentNullException.ThrowIfNull(instance); ArgumentNullException.ThrowIfNull(catalog);
@@ -37,17 +39,32 @@ internal static class MmcPlatformOriginUi {
             } catch (Exception error) { Report(error, "无法读取 MMC 平台来源"); }
         }, "Read MMC platform origin");
     }
-    internal static void PromptBinding(ModMinecraft.McInstance instance, MmcPlatformOriginCatalog catalog) {
+    internal static void PromptBinding(ModMinecraft.McInstance instance, MmcPlatformOriginCatalog catalog) => PromptBindingCaptured(instance, catalog, null);
+    internal static ModLoader.LoaderCombo<string> PromptBindingCaptured(ModMinecraft.McInstance instance, MmcPlatformOriginCatalog catalog, MmcPlatformInstanceSelection expected, Func<bool> isCurrent = null) {
         try {
-            var source = MmcPackageUpdateUi.ReadManagedSource(instance);
-            var view = new MmcPlatformOriginInputView(source.Definition.Origin);
-            if (ModMain.MyMsgBoxConfirmContent("选择原 ZIP，并填写明确的平台项目和精确发布 ID。", "核实 MMC 平台来源", "读取发布文件", () => view, IsWarn: false) != 1) return;
-            var input = view.ReadInput(); StartBinding(instance, input.OriginalZip, input.Platform, input.ProjectId, input.VersionId, catalog);
+            if (isCurrent is not null && !isCurrent()) throw new IOException("当前页面对应的实例已变更，请重新进入实例设置。");
+            var source = MmcPackageUpdateUi.ReadCapturedSource(instance, expected);
+            expected ??= MmcPackageUpdateUi.Selection(source);
+            MmcPlatformOriginInput input;
+            if (ReadOriginInput is not null) input = ReadOriginInput(source.Definition.Origin);
+            else {
+                var view = new MmcPlatformOriginInputView(source.Definition.Origin);
+                if (ModMain.MyMsgBoxConfirmContent("选择原 ZIP，并填写明确的平台项目和精确发布 ID。", "核实 MMC 平台来源", "读取发布文件", () => view, IsWarn: false) != 1) return null;
+                input = view.ReadInput();
+            }
+            if (input is not null) {
+                if (isCurrent is not null && !isCurrent()) throw new IOException("当前页面对应的实例已变更，请重新进入实例设置。");
+                return StartBindingCaptured(instance, input.OriginalZip, input.Platform, input.ProjectId, input.VersionId, catalog, expected);
+            }
         } catch (Exception error) { Report(error, "无法开始核实 MMC 平台来源"); }
+        return null;
     }
     internal static ModLoader.LoaderCombo<string> StartBinding(ModMinecraft.McInstance instance, string originalZip,
-        ResourcePlatforms platform, string projectId, string versionId, MmcPlatformOriginCatalog catalog) {
-        ArgumentNullException.ThrowIfNull(catalog); var source = MmcPackageUpdateUi.ReadManagedSource(instance);
+        ResourcePlatforms platform, string projectId, string versionId, MmcPlatformOriginCatalog catalog) =>
+        StartBindingCaptured(instance, originalZip, platform, projectId, versionId, catalog, null);
+    internal static ModLoader.LoaderCombo<string> StartBindingCaptured(ModMinecraft.McInstance instance, string originalZip,
+        ResourcePlatforms platform, string projectId, string versionId, MmcPlatformOriginCatalog catalog, MmcPlatformInstanceSelection expected) {
+        ArgumentNullException.ThrowIfNull(catalog); var source = MmcPackageUpdateUi.ReadCapturedSource(instance, expected);
         if (ModMinecraft.McInstanceLock.IsLocked(instance)) throw new IOException("该实例正在被修改，请稍后再核实来源。");
         string archive = Path.GetFullPath(originalZip); if (!File.Exists(archive)) throw new IOException("所选原整合包文件不存在。");
         var selection = new MmcPlatformInstanceSelection(source.Paths.InstanceRoot, source.Definition.InstanceId, source.Definition.Generation, source.PrimarySha256);

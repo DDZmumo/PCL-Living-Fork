@@ -17,7 +17,7 @@ public sealed class MmcLegacyAdoptionUiServices {
     public Func<ModMinecraft.McInstance, string> SelectArchive { get; init; }
     public Func<string, string, string> SelectName { get; init; }
     public Func<MmcLegacyAdoptionPreview, string, MmcLegacyAdoptionIntent?> ConfirmPreview { get; init; }
-    public Func<MmcLegacyAdoptionRecoveryCatalog, int?> SelectRecovery { get; init; }
+    public Action<MmcLegacyAdoptionCheckpoint, string> CheckpointObserved { get; init; }
     public Action<ModLoader.LoaderCombo<string>> RegisterTask { get; init; }
     public Action<MmcLegacyAdoptionResult> Published { get; init; }
     public Action<MmcLegacyAdoptionProgress> ProgressObserved { get; init; }
@@ -76,9 +76,13 @@ internal static class MmcLegacyAdoptionUi {
             });
             if (intent is null) throw new OperationCanceledException(token);
             token.ThrowIfCancellationRequested(); string target = Path.Combine(minecraft, "versions", name);
-            var result = await service.CreateManagedCopyAsync(preview, new(target, name, preview.ConfirmationFingerprint(target, name, intent.Value), intent.Value) {
-                Checkpoint = (phase, _) => { if (phase == MmcLegacyAdoptionCheckpoint.BeforeDecision) fence.EnterDecision(token); }
+            var result = await service.CreateManagedCopyAutomaticallyAsync(preview, new(target, name, preview.ConfirmationFingerprint(target, name, intent.Value), intent.Value) {
+                Checkpoint = (phase, directory) => {
+                    if (phase == MmcLegacyAdoptionCheckpoint.BeforeDecision) fence.EnterDecision(token);
+                    services.CheckpointObserved?.Invoke(phase, directory);
+                }
             }, token, progress).ConfigureAwait(false);
+            task.Output = result;
             CheckResult(result, token); Publish(result, minecraft, services); return result;
         } finally { preview?.Dispose(); source?.Dispose(); }
     }
@@ -90,37 +94,6 @@ internal static class MmcLegacyAdoptionUi {
         if (choice != 3) return null;
         if (ModMain.MyMsgBox("明确以你本次选择的原 MMC ZIP 作为新来源创建管理副本？\n旧实例和当前数据保留；当前文件只作为个人快照。\n此操作不声称验证旧历史来源或运行兼容性。", "确认新来源重绑定", "确认按新来源创建副本", "取消", IsWarn: true) != 1) return null;
         return MmcLegacyAdoptionIntent.CreateCopyWithExplicitSourceRebinding;
-    }
-    internal static void PromptRecovery(string minecraftRoot) {
-        var services = ServicesFactory?.Invoke(minecraftRoot) ?? Services(minecraftRoot);
-        ModBase.RunInNewThread(() => {
-            try {
-                var catalog = MmcLegacyAdoptionCatalog.Read(minecraftRoot);
-                ModBase.RunInUi(() => {
-                    try {
-                        if (catalog.Entries.IsEmpty) { ModMain.MyMsgBox("没有旧 MMC 转换副本的恢复记录。", "管理副本恢复"); return; }
-                        if (catalog.Truncated) ModMain.Hint("恢复记录较多，本次仅显示有界范围内的记录；其余记录仍被保留。", ModMain.HintType.Blue);
-                        int? selected = services.SelectRecovery is not null ? services.SelectRecovery(catalog) : ModMain.MyMsgBoxSelect(catalog.Entries.Select(entry => (IMyRadio)new MyRadioBox { Text = entry.Name, ToolTip = entry.Description }), "旧 MMC 管理副本恢复", "下一步", "取消");
-                        if (selected is null || selected < 0 || selected >= catalog.Entries.Length) return;
-                        var entry = catalog.Entries[selected.Value];
-                        if (!entry.CanRecover) { ModMain.MyMsgBox(entry.Description, entry.Name); return; }
-                        if (ModMain.MyMsgBox(entry.Description + "\n继续完成已有发布决定？不会覆盖同名内容。", "管理副本恢复确认", "恢复", "取消", IsWarn: true) == 1) StartRecovery(entry, minecraftRoot, services);
-                    } catch (Exception error) { Logger.Error(error, "无法开始管理副本恢复", LogBehavior.Alert); }
-                });
-            } catch (Exception error) { Logger.Error(error, "读取管理副本恢复列表失败", LogBehavior.Alert); }
-        }, "Read MMC legacy copy recovery");
-    }
-    internal static ModLoader.LoaderCombo<string> StartRecovery(MmcLegacyAdoptionRecoveryEntry entry, string minecraft,
-        MmcLegacyAdoptionUiServices services) {
-        if (!entry.CanRecover || entry.IntentSha256 is null) throw new IOException("不能恢复无法验证的转换记录。");
-        EnterBusy(); var fence = new MmcOperationCancellationFence(() => Interlocked.Exchange(ref busy, 0));
-        var worker = new MmcOperationWorker<string, MmcLegacyAdoptionResult>(fence, "恢复管理副本发布", task => {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(task.CreateCancellationToken(), fence.Token);
-            fence.EnterDecision(linked.Token);
-            var result = Backend(services, task, null).RecoverAsync(entry.OperationDirectory, entry.IntentSha256).GetAwaiter().GetResult();
-            CheckResult(result, CancellationToken.None); task.Output = result; Publish(result, minecraft, services);
-        }) { InterruptOnCancel = false };
-        var combo = new MmcOperationCombo<string>(fence, "恢复 MMC 管理副本：" + entry.Name, [worker]); return Register(combo, entry.OperationDirectory, services, fence);
     }
     private static MmcLegacyAdoptionService<ModNet.NetFile> Backend(MmcLegacyAdoptionUiServices services, ModLoader.LoaderTask<string, MmcLegacyAdoptionResult> worker, string sourceRoot, IWorker sourceWorker = null) => new(services.Metadata, services.CacheRoots,
         MmcDownloads.BuildFile, (files, token) => MmcDownloads.RunBatchAsync(files, token, worker.CreateSyncProgressProvider(), services.DownloadCreated), new() {
@@ -134,8 +107,8 @@ internal static class MmcLegacyAdoptionUi {
         catch { fence.AbandonUnstarted(); throw; }
     }
     private static void CheckResult(MmcLegacyAdoptionResult result, CancellationToken token) {
-        if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(token);
-        if (result.Status != MmcInstanceBackendStatus.Succeeded || result.Paths is null) throw new IOException("管理副本未完成，旧实例与恢复数据保留：" + result.Failure + (result.OperationDirectory is null ? "" : "\n恢复目录：" + result.OperationDirectory));
+        if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(result.Failure, token);
+        if (result.Status != MmcInstanceBackendStatus.Succeeded || result.Paths is null) throw new IOException("管理副本未完成，旧实例保持原样：" + result.Failure + (result.OperationDirectory is null ? "" : "\n内部操作证据：" + result.OperationDirectory));
     }
     private static void Publish(MmcLegacyAdoptionResult result, string minecraft, MmcLegacyAdoptionUiServices services) {
         if (services.Published is not null) { services.Published(result); return; }

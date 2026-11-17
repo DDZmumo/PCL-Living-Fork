@@ -21,6 +21,7 @@ public sealed record MmcLegacyAdoptionPreviewRequest(string SourceRoot, string G
 public sealed record MmcLegacyAdoptionCopyRequest(string TargetRoot, string InstanceName, string ConfirmedPreviewFingerprint,
     MmcLegacyAdoptionIntent Intent = MmcLegacyAdoptionIntent.StrictVerified) {
     public Action<MmcLegacyAdoptionCheckpoint, string>? Checkpoint { get; init; }
+    public Action<MmcInstancePurgeCheckpoint, string?>? AutomaticCleanupCheckpoint { get; init; }
 }
 public sealed record MmcLegacyAdoptionProgress(string Phase, long CompletedBytes = 0, long TotalBytes = 0);
 public sealed record MmcLegacyAdoptionResult(MmcInstanceBackendStatus Status, MmcInstanceDefinition? Definition = null,

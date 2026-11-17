@@ -64,7 +64,7 @@ public static class MmcFileTransactions {
             // Caller changes to mutable request buffers after this point cannot change staged bytes.
             for (int i = 0; i < journal.Mutations.Length; i++) {
                 cancellationToken.ThrowIfCancellationRequested();
-                Apply(paths, directory, journal.Mutations[i], i, forward: true, checkpoint);
+                Apply(paths, directory, journal, i, forward: true, checkpoint, request.ProducedRecoveryFile);
                 checkpoint?.Invoke(MmcTransactionCheckpoint.AfterMutation, i);
             }
             ValidateTargets(paths, journal, forward: true);
@@ -82,7 +82,7 @@ public static class MmcFileTransactions {
                 try { Archive(paths, directory, id); return new(MmcTransactionOutcome.Aborted, id, ex.Message); }
                 catch (Exception archiveFailure) when (IsFailure(archiveFailure)) { return new(MmcTransactionOutcome.RecoveryRequired, id, ex.Message + " " + archiveFailure.Message); }
             }
-            MmcTransactionResult recovered = RecoverCore(lease, id);
+            MmcTransactionResult recovered = RecoverCore(lease, id, request.ProducedRecoveryFile);
             return recovered.Outcome == MmcTransactionOutcome.RecoveryRequired ? recovered :
                 new(decided || recovered.Outcome == MmcTransactionOutcome.Committed ? MmcTransactionOutcome.Committed : MmcTransactionOutcome.Aborted, id, ex.Message);
         }
@@ -93,6 +93,11 @@ public static class MmcFileTransactions {
         MmcOperationPendingGuard.AssertNoForeignPending(lease);
         AssertNoSessions(MmcInstancePaths.Resolve(lease.VersionRoot));
         return RecoverCore(lease, transactionId);
+    }
+    internal static MmcTransactionResult RecoverProducer(MmcAdmissionLease lease, Guid transactionId, Action<MmcTransactionProducedFile> produced) {
+        lease.AssertHeld(); if (transactionId == Guid.Empty) throw new ArgumentException("事务 ID 不能为空。");
+        MmcOperationPendingGuard.AssertNoForeignPending(lease); AssertNoSessions(MmcInstancePaths.Resolve(lease.VersionRoot));
+        return RecoverCore(lease, transactionId, produced);
     }
 
     public static IReadOnlyList<MmcTransactionResult> RecoverPending(MmcAdmissionLease lease) {
@@ -123,7 +128,7 @@ public static class MmcFileTransactions {
             throw new IOException("存在待恢复 MMC 事务。");
     }
 
-    private static MmcTransactionResult RecoverCore(MmcAdmissionLease lease, Guid id) {
+    private static MmcTransactionResult RecoverCore(MmcAdmissionLease lease, Guid id, Action<MmcTransactionProducedFile>? produced = null) {
         MmcInstancePaths paths = MmcInstancePaths.Resolve(lease.VersionRoot);
         string directory = TransactionDirectory(paths, id);
         try {
@@ -145,9 +150,9 @@ public static class MmcFileTransactions {
                 if ((final.Phase == "FinalizedCommitted") != decided) throw new IOException("事务完成状态与提交决定冲突。");
             }
             if (decided) {
-                for (int i = 0; i < journal.Mutations.Length; i++) Apply(paths, directory, journal.Mutations[i], i, true, null);
+                for (int i = 0; i < journal.Mutations.Length; i++) Apply(paths, directory, journal, i, true, null, produced);
             } else {
-                for (int i = journal.Mutations.Length - 1; i >= 0; i--) Apply(paths, directory, journal.Mutations[i], i, false, null);
+                for (int i = journal.Mutations.Length - 1; i >= 0; i--) Apply(paths, directory, journal, i, false, null, produced);
             }
             ValidateTargets(paths, journal, decided);
             return Finish(paths, directory, journal, preparedHash, decided, null);
@@ -224,8 +229,9 @@ public static class MmcFileTransactions {
         }
     }
 
-    private static void Apply(MmcInstancePaths paths, string directory, MmcJournalMutation mutation, int index, bool forward,
-        Action<MmcTransactionCheckpoint, int>? checkpoint) {
+    private static void Apply(MmcInstancePaths paths, string directory, MmcPreparedJournal journal, int index, bool forward,
+        Action<MmcTransactionCheckpoint, int>? checkpoint, Action<MmcTransactionProducedFile>? produced = null) {
+        var mutation = journal.Mutations[index];
         string target = Target(paths, mutation.RelativePath);
         string? wanted = forward ? mutation.NewSha256 : mutation.OldSha256;
         string? other = forward ? mutation.OldSha256 : mutation.NewSha256;
@@ -251,6 +257,8 @@ public static class MmcFileTransactions {
             if (install is null) File.Move(target, backup, false);
             else File.Replace(install, target, backup, false);
             if (MmcDurableFiles.Observe(backup) != actual) throw new IOException("替换时换出了第三方内容，已保留备份并停止。");
+            produced?.Invoke(new(journal.TransactionId, journal.InstanceId, journal.CanonicalRoot, journal.ExpectedGeneration, journal.NewGeneration, index,
+                Path.GetRelativePath(paths.InstanceRoot, backup).Replace('\\', '/'), actual));
         } else {
             if (install is null) return;
             File.Move(install, target, false);

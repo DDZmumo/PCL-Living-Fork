@@ -34,8 +34,12 @@ public sealed class MmcPlatformApiPolicy {
     }
 }
 
+// Presentation never grants origin authority and is omitted from transaction fingerprints.
+public sealed record MmcPlatformReleaseDisplay(string Name, string Version, ImmutableArray<string> GameVersions,
+    int ReleaseTypeCode, DateTime Published);
 public sealed record MmcPlatformReleaseDescriptor(ResourcePlatforms Platform, string CanonicalProjectKey, string ProjectId,
-    string VersionId, MmcPlatformReleaseFile File, string MetadataSha256);
+    string VersionId, MmcPlatformReleaseFile File, string MetadataSha256,
+    [property: System.Text.Json.Serialization.JsonIgnore, Newtonsoft.Json.JsonIgnore] MmcPlatformReleaseDisplay? Display = null);
 
 /// <summary>Exact-file adapter over ResourceCatalog's existing metadata request. No HTTP client, credentials, UI or downloader.</summary>
 public sealed class MmcPlatformOriginCatalog {
@@ -72,7 +76,22 @@ public sealed class MmcPlatformOriginCatalog {
         return result;
     }
     internal static MmcPlatformReleaseDescriptor Describe(ResourcePlatforms platform, MmcPlatformRelease release, MmcPlatformReleaseFile file) =>
-        new(platform, ResourceProjectKey.Get(platform, release.Identity.ProjectId), release.Identity.ProjectId, release.Identity.VersionId!, file, Fingerprint(release));
+        new(platform, ResourceProjectKey.Get(platform, release.Identity.ProjectId), release.Identity.ProjectId, release.Identity.VersionId!, file, Fingerprint(release), Display(platform, release));
+    private static MmcPlatformReleaseDisplay Display(ResourcePlatforms platform, MmcPlatformRelease release) {
+        var data = JObject.Parse(release.VersionJson);
+        bool modrinth = platform == ResourcePlatforms.Modrinth;
+        string Clean(JToken? value, int maximum = 200) => value?.Type == JTokenType.String
+            ? new string(value.ToString().Where(character => !char.IsControl(character)).Take(maximum).ToArray()).Trim() : "";
+        string name = Clean(data[modrinth ? "name" : "displayName"]);
+        string version = Clean(data[modrinth ? "version_number" : "displayName"]);
+        var games = data[modrinth ? "game_versions" : "gameVersions"] is JArray array
+            ? array.Take(128).Select(value => Clean(value, 64)).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToImmutableArray() : [];
+        int type = modrinth ? Clean(data["version_type"]) switch { "release" => 1, "beta" => 2, "alpha" => 3, _ => 0 }
+            : data["releaseType"]?.Type == JTokenType.Integer && int.TryParse(data["releaseType"]!.ToString(), out int code) && code is 1 or 2 or 3 ? code : 0;
+        _ = DateTime.TryParse(data[modrinth ? "date_published" : "fileDate"]?.ToString(), CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var date);
+        return new(name, version, games, type, date);
+    }
     internal static string Fingerprint(MmcPlatformRelease value) => MmcDurableFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(new {
         Protocol = "PCLLF.MmcPlatformRelease/v1", value.Identity, value.ProjectSource, value.VersionSource, value.Files
     }));
@@ -80,7 +99,7 @@ public sealed class MmcPlatformOriginCatalog {
         ArgumentNullException.ThrowIfNull(selected);
         var release = await FetchAsync(selected.Platform, selected.ProjectId, selected.VersionId, token).ConfigureAwait(false);
         var actual = Describe(selected.Platform, release, MmcPlatformOriginCodec.SelectFile(release, selected.File));
-        if (actual != selected) throw new IOException("The selected project/version/file metadata changed; refresh the selection.");
+        if (actual with { Display = null } != selected with { Display = null }) throw new IOException("The selected project/version/file metadata changed; refresh the selection.");
         return release;
     }
     internal async Task<ImmutableArray<MmcPlatformReleaseDescriptor>> ListAsync(MmcPlatformOriginEvidence verified, CancellationToken token) {

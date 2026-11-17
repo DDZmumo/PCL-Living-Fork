@@ -19,6 +19,7 @@ public static class MmcLegacyAdoptionCatalog {
                     if (!Guid.TryParseExact(Path.GetFileName(path), "N", out _)) throw new IOException("不是受支持的操作目录。");
                     var operation = MmcLegacyAdoptionJournal.Read(path); name = operation.Intent.TargetName;
                     if (Path.GetDirectoryName(operation.DirectoryPath) != store) throw new IOException("操作目录不属于当前游戏文件夹。");
+                    if (operation.RolledBack()) { entries.Add(new(path, name, "未发布的副本已自动回退；旧实例及私有备份保留。", false, operation.IntentHash)); continue; }
                     if (!operation.HasDecision()) { entries.Add(new(path, name, "尚未决定发布，旧实例保留。私有备份/半成品仅供恢复查看；请重新预览创建副本。", false, operation.IntentHash)); continue; }
                     using var driver = operation.AcquireDriver(create: false);
                     bool ownPrivate = operation.Owns(operation.PrivateRoot), ownFinal = operation.Owns(operation.FinalRoot);

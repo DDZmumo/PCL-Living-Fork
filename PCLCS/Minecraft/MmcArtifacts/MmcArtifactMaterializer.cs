@@ -28,7 +28,8 @@ public sealed partial class MmcArtifactMaterializer {
     }
 
     public async Task<MmcPreparedArtifacts> PrepareAsync(MmcArtifactRequest request, MmcArtifactSourceAccess? access = null,
-        CancellationToken cancellationToken = default, IProgress<MmcArtifactProgress>? progress = null) {
+        CancellationToken cancellationToken = default, IProgress<MmcArtifactProgress>? progress = null,
+        Action<MmcArtifactLock>? originalProduced = null, Action<string>? directoryProduced = null) {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrEmpty(request.LogicalContext) || request.LogicalContext.Length > 4096) throw new ArgumentException("A bounded logical compiler/runtime context is required.");
         cancellationToken.ThrowIfCancellationRequested();
@@ -82,13 +83,14 @@ public sealed partial class MmcArtifactMaterializer {
                 var job = inputJobs[i];
                 long? declaredBytes = job.Adopted?.SizeBytes ?? job.Artifact.Size;
                 if (declaredBytes is not null && declaredBytes > limits.MaxCopiedBytes - adoptedBytes) throw new IOException("Aggregate artifact byte budget exceeded.");
-                var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, cancellationToken).ConfigureAwait(false);
+                var prepared = fastOriginals[i] ?? await PrepareInputAsync(job.Artifact, job.Adopted, paths, workspace, io, access, mutations, progress, cancellationToken, originalProduced, directoryProduced).ConfigureAwait(false);
+                if (fastOriginals[i] is not null) originalProduced?.Invoke(prepared.Lock);
                 adoptedBytes = checked(adoptedBytes + prepared.Lock.SizeBytes);
                 if (adoptedBytes > limits.MaxCopiedBytes) throw new IOException("Aggregate artifact actual byte budget exceeded.");
                 inputs.Add(job.Artifact.Key, prepared);
             }
             var assetPlan = await PrepareAssetInputsAsync(request.Assets, artifacts, inputs, locks, request.Intent,
-                paths, workspace, io, access, mutations, progress, cancellationToken).ConfigureAwait(false);
+                paths, workspace, io, access, mutations, progress, cancellationToken, originalProduced, directoryProduced).ConfigureAwait(false);
             string viewKey = ViewKey(request.LogicalContext, artifacts.Select(x => inputs[x.Key]).Concat(
                 assetPlan is null ? [] : assetPlan.Objects.Select(x => inputs[x.Key])));
             progress?.Report(new("runtime-view-materialization", viewKey, 0));
@@ -192,7 +194,7 @@ public sealed partial class MmcArtifactMaterializer {
     private async Task<PreparedInput> PrepareInputAsync(MmcArtifactReference artifact, MmcArtifactLock? adopted,
         MmcInstancePaths paths, MmcArtifactWorkspace workspace, MmcArtifactIo io, MmcArtifactSourceAccess access,
         Dictionary<string, MmcArtifactStagedMutation> mutations, IProgress<MmcArtifactProgress>? progress,
-        CancellationToken token) {
+        CancellationToken token, Action<MmcArtifactLock>? originalProduced = null, Action<string>? directoryProduced = null) {
         string? expected = adopted?.AdoptedSha256 ?? artifact.Sha256;
         long? expectedSize = adopted?.SizeBytes ?? artifact.Size;
         long maximum = artifact.Role == MmcArtifactRole.AssetIndex ? Math.Min(limits.MaxAssetIndexBytes, limits.MaxArtifactBytes) : limits.MaxArtifactBytes;
@@ -257,6 +259,7 @@ public sealed partial class MmcArtifactMaterializer {
             }
         } else {
             MmcArtifactIo.Directory(Path.GetDirectoryName(originalTarget)!);
+            directoryProduced?.Invoke(Path.GetRelativePath(paths.InstanceRoot, Path.GetDirectoryName(originalTarget)!).Replace('\\', '/'));
             string publish = working;
             MmcInstancePaths.EnsureNoLinks(publish);
             MmcInstancePaths.EnsureNoLinks(originalTarget);
@@ -268,6 +271,7 @@ public sealed partial class MmcArtifactMaterializer {
             originalInput = originalTarget;
         }
         var locked = new MmcArtifactLock(artifact.Key, artifact.SourceRevision, observed.Sha256, observed.Size, originalRelative);
+        originalProduced?.Invoke(locked);
         return new(artifact, locked, originalInput, observed.Sha1);
     }
 

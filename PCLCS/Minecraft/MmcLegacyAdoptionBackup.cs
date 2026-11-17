@@ -57,7 +57,7 @@ internal static class MmcLegacyAdoptionBackup {
     }
     internal static void CopyPersonalFiles(string directory, MmcLegacyAdoptionBackupSeal seal, MmcLegacyAdoptionInventory inventory,
         MmcInstancePaths target, IReadOnlyDictionary<string, string> derivedGameFiles, IReadOnlyDictionary<string, string> originalLocalLibraries,
-        CancellationToken token, IProgress<MmcLegacyAdoptionProgress>? progress) {
+        CancellationToken token, IProgress<MmcLegacyAdoptionProgress>? progress, Action<string, string>? producedFile = null, Action<string>? producedDirectory = null) {
         string backup = Path.Combine(directory, "backup.zip"); MmcInstancePaths.EnsureNoLinks(backup);
         using var input = new FileStream(backup, FileMode.Open, FileAccess.Read, FileShare.Read);
         var zipHash = MmcLegacyAdoptionSnapshot.Measure(input, null, seal.BackupBytes, token, seal.BackupBytes, seal.BackupSha256); input.Position = 0;
@@ -80,7 +80,7 @@ internal static class MmcLegacyAdoptionBackup {
             string relative = TargetRelative(file, target);
             if (file.Role == MmcLegacyAdoptionFileRole.Game && string.IsNullOrEmpty(file.GameRelativePath)) continue;
             string destination = target.ResolveRelative(MmcPathRole.Instance, relative);
-            if (file.IsDirectory) { MmcArtifactIo.Directory(destination); continue; }
+            if (file.IsDirectory) { MmcArtifactIo.Directory(destination); producedDirectory?.Invoke(relative); continue; }
             string? existing = MmcDurableFiles.Observe(destination);
             if (derivedGameFiles.TryGetValue(relative, out string? derived)) {
                 if (file.Sha256 != derived || existing != derived) throw new IOException("旧个人资源与新受锁派生资源冲突；原实例及备份已保留。");
@@ -98,6 +98,7 @@ internal static class MmcLegacyAdoptionBackup {
                 output.Flush(); // Durable backup.zip is the recovery authority for this unpublished personal payload.
             }
             File.SetLastWriteTimeUtc(destination, new DateTime(file.LastWriteUtcTicks, DateTimeKind.Utc));
+            producedFile?.Invoke(relative, file.Sha256!);
             copied = checked(copied + file.SizeBytes); progress?.Report(new("copy-personal-snapshot", copied));
         }
         VerifyPersonalFiles(inventory, target, derivedGameFiles, token);

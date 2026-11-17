@@ -16,10 +16,12 @@ internal sealed class MmcPurgeHandle : IDisposable {
     internal long Size { get; }
     internal bool TransactedWriter { get; }
     private readonly bool encrypted;
+    private readonly SafeFileHandle? transaction;
     private MmcPurgeHandle(string path, bool directory, bool delete, bool outerAncestor, bool allowDeleteSharing, SafeFileHandle? transaction = null) {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Permanent quarantine cleanup requires verified Windows handles.");
         Path = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path)); Directory = directory;
         TransactedWriter = transaction is not null;
+        this.transaction = transaction;
         uint access = transaction is null ? 0x80u | (directory ? 0u : 0x80000000u) | (delete ? 0x10000u : 0u) : 0xc0010080u;
         // Ancestors outside the owned namespace only deny renames. Owned directories and files
         // also deny writers, including a writer which was opened before this handle.
@@ -76,10 +78,39 @@ internal sealed class MmcPurgeHandle : IDisposable {
         // created or changed after this check, including after this file handle is closed.
         AssertDefaultDataStreamOnly();
         if (!SamePath(MmcCanonicalPaths.ForHandle(Handle), Path)) throw new IOException("Pinned purge object moved before disposition.");
-        if (Directory && System.IO.Directory.EnumerateFileSystemEntries(Path).Any()) throw new IOException("Unknown content remains in a planned empty-directory deletion.");
+        if (Directory) AssertTransactedDirectoryEmpty();
         byte disposition = 1;
         if (!SetFileInformationByHandle(Handle, 4, ref disposition, 1)) throw Error("Exact purge object could not be deleted; remaining content was preserved.");
     }
+    // The same transaction must observe children which it already staged for deletion.
+    // An outside enumeration still sees those children until CommitTransaction.
+    private void AssertTransactedDirectoryEmpty() {
+        if (transaction is null) throw new IOException("A directory deletion requires its verified NTFS transaction.");
+        IntPtr search = FindFirstFileTransactedW(NativeLocalPath(Path) + "\\*", 1, out var data, 0, IntPtr.Zero, 0, transaction);
+        if (search == new IntPtr(-1)) {
+            int error = Marshal.GetLastWin32Error();
+            if (error == 2) return; // ERROR_FILE_NOT_FOUND: the directory has no visible children.
+            throw new IOException("Cannot verify the directory's complete transactional namespace.", new Win32Exception(error));
+        }
+        try {
+            do {
+                if (data.Name is not ("." or "..")) throw new IOException("Unplanned content remains in a transactionally approved directory.");
+            } while (FindNextFileW(search, out data));
+            if (Marshal.GetLastWin32Error() != 18) throw Error("The transactional directory enumeration was incomplete.");
+        } finally { _ = FindClose(search); }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct FindData {
+        public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh, SizeHigh, SizeLow, Reserved0, Reserved1;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string Name;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateName;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr FindFirstFileTransactedW(
+        string name, int informationLevel, out FindData data, int searchOperation, IntPtr filter, uint flags, SafeFileHandle transaction);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FindNextFileW(IntPtr search, out FindData data);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool FindClose(IntPtr search);
     internal void AssertDefaultDataStreamOnly() {
         if (encrypted) throw new PlatformNotSupportedException("EFS objects cannot participate in verified transactional quarantine cleanup.");
         var streams = MmcPurgeNtfsTransaction.ReadDataStreams(Handle, Directory);

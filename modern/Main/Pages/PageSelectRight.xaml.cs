@@ -289,9 +289,6 @@ namespace PCL
             this.Service.OpenDownload();
         }
 
-        private void BtnMmcRecovery_Click(object sender, MouseButtonEventArgs e) => MmcDeleteUi.PromptCatalog(ModMinecraft.McFolderSelected);
-        private void BtnMmcLegacyRecovery_Click(object sender, MouseButtonEventArgs e) => MmcLegacyAdoptionUi.PromptRecovery(ModMinecraft.McFolderSelected);
-        private void BtnMmcImportRecovery_Click(object sender, MouseButtonEventArgs e) => MmcImportRecoveryUi.PromptCatalog(ModMinecraft.McFolderSelected);
 
         public static void DeleteInstance(global::PCL.MyListItem Item, global::PCL.ModMinecraft.McInstance Instance)
         {

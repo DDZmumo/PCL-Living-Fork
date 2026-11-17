@@ -56,12 +56,9 @@
 <Compile Include="Modules/Minecraft/MmcCloneUi.cs" />
 <Compile Include="Modules/Minecraft/MmcLifecycleUi.cs" />
 <Compile Include="Modules/Minecraft/MmcDeleteUi.cs" />
-<Compile Include="Modules/Minecraft/MmcPurgeUi.cs" />
-<Compile Include="Controls/MmcLifecycleCatalogView.cs" />
 <Compile Include="Modules/Minecraft/MmcExportUi.cs" />
 <Compile Include="Modules/Minecraft/MmcHistoryUi.cs" />
 <Compile Include="Modules/Minecraft/MmcRepairUi.cs" />
-<Compile Include="Modules/Minecraft/MmcImportRecoveryUi.cs" />
 <Compile Include="Modules/Minecraft/MmcImportProgress.cs" />
 <Compile Include="Pages/PageSpeedLeft.MmcStages.cs" />
 <Compile Include="Modules/Minecraft/MmcPackageUpdateUi.cs" />
@@ -165,6 +162,10 @@
 <Compile Include="Pages/PageLink/PageLinkMain.xaml.cs" Condition="'$(EnableLegacyLink)' == 'true'" />
 <Compile Include="Pages/PageOther/PageOtherHelpDetail.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceExport.xaml.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceExport.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstancePackUpdate.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceRestorePoints.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceMmcComponents.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceLeft.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMmcTool.xaml.cs" />
 <Compile Include="Pages/PageInstance/LocalModPageRuntime.cs" />

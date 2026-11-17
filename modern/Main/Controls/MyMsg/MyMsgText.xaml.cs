@@ -52,8 +52,6 @@ internal static class MessageDialogPlatform {
         VersionSelection = VersionSelection, Radio = Radio
     };
     private static ModalSelectionPort VersionSelection(object body) {
-        if (body is MmcLifecycleCatalogView catalog)
-            return new(() => catalog.CanConfirm, handler => catalog.ConfirmationChanged += (_, _) => handler());
         if (body is MmcPlatformOriginInputView platformInput)
             return new(() => platformInput.CanConfirm, handler => platformInput.ConfirmationChanged += (_, _) => handler());
         if (body is MmcPlatformReleaseSelectView release)

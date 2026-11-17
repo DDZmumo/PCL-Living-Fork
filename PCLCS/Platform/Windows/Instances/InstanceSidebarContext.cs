@@ -53,5 +53,5 @@ public static class InstanceSidebarContext {
     public static bool IsMmcOnlyRoute(int route) => route is 16 or 17;
 
     public static int NormalizeRoute(int route, bool isMmcFamily) =>
-        !isMmcFamily && IsMmcOnlyRoute(route) ? 0 : route;
+        route == 17 ? (isMmcFamily ? 15 : 0) : !isMmcFamily && IsMmcOnlyRoute(route) ? 0 : route;
 }

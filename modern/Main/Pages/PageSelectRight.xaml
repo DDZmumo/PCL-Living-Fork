@@ -9,14 +9,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <WrapPanel Grid.Row="0" HorizontalAlignment="Right" Margin="25,15,25,0">
-            <local:MyButton x:Name="BtnMmcImportRecovery" Height="30" Margin="0,0,10,0" Padding="13,0"
-                            Text="MMC 导入恢复" ToolTip="恢复未完成的 MMC 导入；原版本列表为空时仍可使用。" Click="BtnMmcImportRecovery_Click" />
-            <local:MyButton x:Name="BtnMmcLegacyRecovery" Height="30" Margin="0,0,10,0" Padding="13,0"
-                            Text="转换副本恢复" ToolTip="查看旧 MMC 管理副本的恢复记录；旧实例已删除或版本列表为空时也可使用。" Click="BtnMmcLegacyRecovery_Click" />
-            <local:MyButton x:Name="BtnMmcRecovery" Height="30" Padding="13,0"
-                            Text="MMC 隔离区与恢复" ToolTip="查看可恢复删除及未完成的改名、移动和恢复操作。" Click="BtnMmcRecovery_Click" />
-        </WrapPanel>
         <Grid x:Name="PanAllBack" Grid.Row="1">
             <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
                 <StackPanel Name="PanMain" Margin="25,25,25,10" Grid.IsSharedSizeScope="True" />

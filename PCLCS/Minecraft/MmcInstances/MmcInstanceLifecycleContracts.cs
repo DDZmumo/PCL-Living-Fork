@@ -20,3 +20,13 @@ public sealed record MmcInstanceLifecycleResult(MmcInstanceBackendStatus Status,
     public bool Purged { get; init; }
 }
 public sealed class MmcLifecycleInterruptionException(string message) : Exception(message);
+
+/// <summary>Fixed authority observed while the original relocation producer still owns its operation.</summary>
+public sealed class MmcInstanceRelocationRecovery {
+    public string OperationDirectory { get; }
+    public string IntentSha256 { get; }
+    internal MmcInstanceRelocationRequest Selection { get; }
+    internal MmcInstanceRelocationRecovery(string directory, string hash, MmcInstanceRelocationRequest selection) {
+        OperationDirectory = directory; IntentSha256 = hash; Selection = selection with { Checkpoint = null };
+    }
+}

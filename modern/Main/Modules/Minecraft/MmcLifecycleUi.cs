@@ -18,6 +18,7 @@ internal static class MmcLifecycleUi {
     internal static Func<string, string, bool> ConfirmMove { get; set; }
     internal static Action<Exception, string> ErrorObserved { get; set; }
     internal static Action<MmcLifecycleCheckpoint> CheckpointObserved { get; set; }
+    internal static Action<string> AutomaticRecoveryObserved { get; set; }
 
     internal static void PromptRename(ModMinecraft.McInstance instance, Action<ModMinecraft.McInstance> completed) {
         var source = ReadSource(instance);
@@ -97,13 +98,32 @@ internal static class MmcLifecycleUi {
         var fence = new MmcOperationCancellationFence(() => Interlocked.Exchange(ref busy, 0));
         var worker = new MmcOperationWorker<string, MmcInstanceLifecycleResult>(fence, action + " MMC 实例", task => {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(task.CreateCancellationToken(), fence.Token);
-            var result = new MmcInstanceLifecycleBackend().RelocateAsync(request with {
-                Checkpoint = (phase, _) => { CheckpointObserved?.Invoke(phase); if (phase == MmcLifecycleCheckpoint.BeforeDecision) fence.EnterDecision(linked.Token); }
+            MmcInstanceRelocationRecovery recovery = null;
+            var backend = new MmcInstanceLifecycleBackend();
+            var result = backend.RelocateAsync(request with {
+                Checkpoint = (phase, directory) => {
+                    if (phase == MmcLifecycleCheckpoint.IntentPrepared) recovery = MmcInstanceLifecycleBackend.CaptureRelocationRecovery(request, directory);
+                    CheckpointObserved?.Invoke(phase);
+                    if (phase == MmcLifecycleCheckpoint.BeforeDecision) fence.EnterDecision(linked.Token);
+                }
             }, linked.Token).GetAwaiter().GetResult();
+            // RelocateAsync has returned: every artifact producer, admission lease and
+            // configuration pause from that invocation is gone before any replay starts.
+            if (result.Status == MmcInstanceBackendStatus.NeedsRecovery && recovery is not null &&
+                string.Equals(result.OperationDirectory, recovery.OperationDirectory, StringComparison.OrdinalIgnoreCase) &&
+                MeloongCore.PathUtils.IsSame(instance.PathVersion, request.SourceRoot) &&
+                instance.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed && instance.Config.ContextStamp.InstanceId == request.ExpectedInstanceId) {
+                AutomaticRecoveryObserved?.Invoke(recovery.OperationDirectory);
+                var recovered = backend.CompleteRelocationFailureAsync(recovery).GetAwaiter().GetResult();
+                result = recovered.Status == MmcInstanceBackendStatus.Cancelled ? recovered with { Failure = result.Failure } : recovered;
+            }
             task.Output = result;
-            if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(linked.Token);
+            if (result.Status == MmcInstanceBackendStatus.Cancelled) {
+                if (!linked.IsCancellationRequested && result.Failure is not null) throw new IOException(action + "未提交，已自动撤回，原实例已保留：" + result.Failure);
+                throw new OperationCanceledException(linked.Token);
+            }
             if (result.Status != MmcInstanceBackendStatus.Succeeded || result.CurrentRoot is null)
-                throw new IOException(action + "未完成，现场已保留以便恢复：" + result.Failure);
+                throw new IOException(action + "未完成，自动收尾未能核实安全状态，现场已保留：" + result.Failure);
             if (Published is not null) Published(result);
             else ModBase.RunInUi(() => {
                 var renamed = new ModMinecraft.McInstance(result.CurrentRoot).Load();

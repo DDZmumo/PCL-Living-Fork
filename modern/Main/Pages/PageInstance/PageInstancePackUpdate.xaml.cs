@@ -22,10 +22,11 @@ public partial class PageInstancePackUpdate : IRefreshable {
     internal Func<JObject, List<ResourceVersion>> ReadVersions = ModpackUpdateFlow.GetAvailableVersions;
     public PageInstancePackUpdate() {
         InitializeComponent();
-        Loaded += (_, _) => Refresh(); Unloaded += (_, _) => revision++;
+        Loaded += (_, _) => Refresh(); Unloaded += (_, _) => { revision++; CancelMmcRead(); };
         BtnOnline.Click += (_, _) => Refresh();
         BtnLocal.Click += (_, _) => UpdatePack(false);
-        BtnBackups.Click += (_, _) => { if (Current()) ModpackUpdateFlow.OpenBackups(displayed); };
+        BtnBackups.Click += (_, _) => { if (mmcCaptured) OpenMmcHistory(); else if (Current()) ModpackUpdateFlow.OpenBackups(displayed); };
+        BtnOrigin.Click += (_, _) => BindMmcOrigin();
         TextSearchVersion.TextChanged += (_, _) => RenderVersions();
         foreach (var button in PanReleaseTypes.Children.OfType<MyRadioButton>()) {
             button.LabText.Margin = new Thickness(-2, 0, 10, 0);
@@ -35,15 +36,23 @@ public partial class PageInstancePackUpdate : IRefreshable {
             };
         }
     }
-    private bool Current() => displayed is not null && ReferenceEquals(displayed, PageInstanceLeft.Instance);
-    private void UpdatePack(bool online) { if (Current()) ModpackUpdateFlow.Start(displayed, online); }
+    private bool Current() => mmcCaptured ? MmcOwnerCurrent() : displayed is not null && ReferenceEquals(displayed, PageInstanceLeft.Instance);
+    private void UpdatePack(bool online) { if (mmcCaptured) UpdateMmcLocal(); else if (Current()) ModpackUpdateFlow.Start(displayed, online); }
     public async void Refresh() {
         int current = ++revision;
+        CancelMmcRead();
+        if (mmcCaptured) { mmcRefreshCompletion = RefreshMmcAsync(current); await mmcRefreshCompletion; return; }
         displayed = PageInstanceLeft.Instance;
         var owner = displayed;
         record = null; catalog.Clear(); catalogError = null; catalogLoading = false; RenderVersions();
         BtnOnline.IsEnabled = BtnLocal.IsEnabled = BtnBackups.IsEnabled = false;
         if (owner is null) { LabVersion.Text = "未选择版本"; return; }
+        var state = PCLCS.InstanceSidebarContext.Observe(owner.PathVersion,
+            owner.Config.ContextStamp.Kind == PCLCS.MmcConfigurationContextKind.Managed);
+        if (state.IsMmcFamily) {
+            CaptureMmcOwner(owner, state.InstanceId);
+            mmcRefreshCompletion = RefreshMmcAsync(current); await mmcRefreshCompletion; return;
+        }
         LabName.Text = owner.Name; LabVersion.Text = "正在读取…"; LabSource.Text = "";
         try {
             string logo = owner.Logo;
@@ -94,6 +103,7 @@ public partial class PageInstancePackUpdate : IRefreshable {
         }
     }
     private bool IsCurrent(ResourceVersion version) {
+        if (mmcCaptured) return IsCurrentMmcRelease(version);
         string id = record?["source"]?["version"]?.ToString();
         return !string.IsNullOrEmpty(id) ? version.Id == id : version.Version == record?["version"]?.ToString();
     }
@@ -102,9 +112,11 @@ public partial class PageInstancePackUpdate : IRefreshable {
         PanVersions.Children.Clear();
         string query = TextSearchVersion.Text.Trim();
         bool Match(string text) => string.IsNullOrEmpty(query) || (text ?? "").Contains(query, StringComparison.OrdinalIgnoreCase);
-        var matches = catalog.Where(version => Match((version.Display ?? version.Version ?? version.Id) + " " + version.Version + " " + string.Join("、", version.GameVersions ?? new()))).ToList();
-        bool localRecord = record is not null && !catalog.Any(IsCurrent);
-        bool localMatch = localRecord && Match(record["version"]?.ToString() + " " + record["minecraft"]?.ToString());
+        var matches = catalog.Where(version => Match((version.Display ?? version.Version ?? version.Id) + " " + version.Version + " " + string.Join("、", version.GameVersions ?? new()) + MmcReleaseSearchText(version))).ToList();
+        bool localRecord = (mmcCaptured ? mmcReady : record is not null) && !catalog.Any(IsCurrent);
+        string currentVersion = mmcCaptured ? mmcVersion : record?["version"]?.ToString();
+        string currentMinecraft = mmcCaptured ? mmcMinecraft : record?["minecraft"]?.ToString();
+        bool localMatch = localRecord && Match(currentVersion + " " + currentMinecraft);
         RadioRelease.Text = "正式版（" + matches.Count(version => version.ReleaseTypeCode == 1) + "）";
         RadioBeta.Text = "测试版（" + matches.Count(version => version.ReleaseTypeCode == 2) + "）";
         RadioAlpha.Text = "早期测试版（" + matches.Count(version => version.ReleaseTypeCode == 3) + "）";
@@ -113,10 +125,12 @@ public partial class PageInstancePackUpdate : IRefreshable {
             string title = version.Display ?? version.Version ?? version.Id;
             string games = string.Join("、", version.GameVersions ?? new());
             bool current = IsCurrent(version);
-            var row = VersionRow(title, current ? "当前已安装版本" : version.ReleaseDate.ToString("yyyy-MM-dd") + " · Minecraft " + games, current);
+            var row = VersionRow(title, mmcCaptured ? MmcReleaseInfo(version, current) : current ? "当前已安装版本" : version.ReleaseDate.ToString("yyyy-MM-dd") + " · Minecraft " + games, current);
             string type = version.ReleaseTypeCode is 1 or 2 or 3 ? version.ReleaseTypeDisplay : "发布类型未知";
             Badge(row, type, false);
+            int rowRevision = revision;
             if (!current) row.Click += (_, _) => {
+                if (mmcCaptured) { ChooseMmcVersion(version, rowRevision); return; }
                 if (!Current()) return;
                 string info = "版本：" + title + "\r\nMinecraft：" + games + "\r\n发布类型：" + type;
                 if (!version.DownloadAvailable) { ModMain.MyMsgBox(info + "\r\n此版本没有可用的下载文件。", "整合包版本信息"); return; }
@@ -126,9 +140,9 @@ public partial class PageInstancePackUpdate : IRefreshable {
             PanVersions.Children.Add(row);
         }
         if (releaseType == 0 && localMatch)
-            PanVersions.Children.Add(VersionRow(record["version"]?.ToString() ?? "当前版本", "本地整合包记录 · 发布类型未记录", true));
+            PanVersions.Children.Add(VersionRow(currentVersion ?? "当前版本", (mmcCaptured ? "MMC 原整合包记录" : "本地整合包记录") + " · 发布类型未记录", true));
         string channel = releaseType switch { 1 => "正式版", 2 => "测试版", 3 => "早期测试版", _ => "全部版本" };
-        LabListStatus.Text = catalogLoading ? "正在读取发布平台的版本列表…" : catalogError is not null ? "读取失败：" + catalogError :
+        LabListStatus.Text = mmcCaptured ? MmcListStatus(channel) : catalogLoading ? "正在读取发布平台的版本列表…" : catalogError is not null ? "读取失败：" + catalogError :
             record?["source"] is null ? "没有在线来源记录，可从文件更新。" : "已获取 " + catalog.Count + " 个版本，" + channel + "显示 " + PanVersions.Children.Count + " 个；点击版本查看并选择更新。";
         if (!catalogLoading && localRecord && releaseType != 0)
             LabListStatus.Text += " 当前版本仅有本地记录，发布类型未记录，可在“全部”中查看。";

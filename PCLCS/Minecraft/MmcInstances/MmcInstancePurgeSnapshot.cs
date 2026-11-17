@@ -52,7 +52,8 @@ internal static class MmcInstancePurgeSnapshot {
         if (MmcInstancePaths.Attributes(staging) is not null && (!Directory.Exists(staging) || Directory.EnumerateFileSystemEntries(staging).Any()))
             throw new IOException("A prepared producer still owns a quarantine workspace.");
     }
-    internal static ImmutableArray<MmcInstancePurgeEntry> CaptureTree(MmcInstancePaths paths, MmcPurgeHandle root, CancellationToken token) {
+    internal static ImmutableArray<MmcInstancePurgeEntry> CaptureTree(MmcInstancePaths paths, MmcPurgeHandle root, CancellationToken token,
+        IReadOnlySet<string>? verifiedHistoryPrimaries = null) {
         var entries = ImmutableArray.CreateBuilder<MmcInstancePurgeEntry>();
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase); long bytes = 0, characters = 0;
         root.AssertDefaultDataStreamOnly(); Add("", root, null); Walk("", 0);
@@ -66,7 +67,7 @@ internal static class MmcInstancePurgeSnapshot {
                 bool isDirectory = (attributes & FileAttributes.Directory) != 0;
                 using var pin = MmcPurgeHandle.Open(checkedPath, isDirectory);
                 pin.AssertDefaultDataStreamOnly();
-                if (child != Primary && child.EndsWith("/" + Primary, StringComparison.OrdinalIgnoreCase) ||
+                if (child != Primary && child.EndsWith("/" + Primary, StringComparison.OrdinalIgnoreCase) && !(verifiedHistoryPrimaries?.Contains(child) ?? false) ||
                     child != MmcInstanceLifecycleJournal.MarkerRelative && child.EndsWith("/" + MmcInstanceLifecycleJournal.MarkerRelative, StringComparison.OrdinalIgnoreCase))
                     throw new IOException("A nested foreign instance owner was found; all of its bytes were preserved.");
                 Add(child, pin, isDirectory ? null : pin.Hash(token));

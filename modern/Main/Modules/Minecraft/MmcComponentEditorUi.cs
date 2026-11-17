@@ -51,11 +51,39 @@ internal static class MmcComponentEditorUi {
         try { Start(instance); }
         catch (Exception error) { Report(error, "无法开始修改 MMC 组件"); }
     }
-    internal static ModLoader.LoaderCombo<string> Start(ModMinecraft.McInstance instance) {
+    internal static Task<MmcComponentEditorModel> LoadModelAsync(ModMinecraft.McInstance instance,
+        MmcInstanceRepairSelection selection, CancellationToken token = default) => Task.Run(async () => {
+        token.ThrowIfCancellationRequested(); AssertSelected(instance, selection);
+        var source = ReadSource(instance);
+        var environment = await MmcInstanceRepairSelections.ResolvePublishedEnvironmentAsync(selection, token).ConfigureAwait(false);
+        var saved = await MmcSavedSourceStore.LoadAsync(source.Paths, source.Definition, token).ConfigureAwait(false);
+        var model = new MmcComponentEditorModel(source, saved, environment, PatchTexts(source, saved, token));
+        token.ThrowIfCancellationRequested(); AssertSelected(instance, selection);
+        return model;
+    }, token);
+
+    internal static ModLoader.LoaderCombo<string> Start(ModMinecraft.McInstance instance) => StartCore(instance, null, null, null);
+
+    internal static ModLoader.LoaderCombo<string> StartWithChoice(ModMinecraft.McInstance instance,
+        MmcComponentEditorModel model, MmcComponentEditorChoice choice) {
+        ArgumentNullException.ThrowIfNull(model); ArgumentNullException.ThrowIfNull(choice);
+        AssertSelected(instance, Selection(model.Source));
+        // Capture before any backend settings pause. There is one Java selector in
+        // the product: instance settings. Legacy Start/choice.JavaPath remain usable
+        // for the existing controlled API checks, but this page cannot override it.
+        var preference = MmcLaunchPreferences.CaptureJavaPreference(instance, model.Saved.PackageConfiguration);
+        return StartCore(instance, model, choice with { JavaPath = null }, preference);
+    }
+
+    private static MmcInstanceRepairSelection Selection(MmcInstanceInspection source) => new(source.Paths.InstanceRoot,
+        source.Definition.InstanceId, source.Definition.Generation, source.PrimarySha256);
+
+    private static ModLoader.LoaderCombo<string> StartCore(ModMinecraft.McInstance instance, MmcComponentEditorModel suppliedModel,
+        MmcComponentEditorChoice suppliedChoice, MmcLaunchJavaPreference pagePreference) {
         var source = ReadSource(instance);
         if (ModMinecraft.McInstanceLock.IsLocked(instance)) throw new IOException("该实例正在被修改，请稍后再编辑组件。");
-        var selected = new MmcInstanceRepairSelection(source.Paths.InstanceRoot, source.Definition.InstanceId,
-            source.Definition.Generation, source.PrimarySha256);
+        var selected = Selection(suppliedModel?.Source ?? source);
+        AssertSelected(instance, selected);
         var services = ServicesFactory?.Invoke(instance) ?? CreateServices(selected.VersionRoot);
         if (services.Metadata is null || services.CacheRoots is null) throw new IOException("MMC 组件编辑缺少下载和元数据服务。");
         // Read before the backend quiesces settings. The callback uses only its
@@ -66,9 +94,7 @@ internal static class MmcComponentEditorUi {
         var worker = new MmcOperationWorker<string, MmcInstanceDefinitionChangeResult>(fence, "读取 MMC 组件与个人覆盖", task => {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(task.CreateCancellationToken(), fence.Token);
             var token = linked.Token;
-            var environment = MmcInstanceRepairSelections.ResolvePublishedEnvironmentAsync(selected, token).GetAwaiter().GetResult();
-            var saved = MmcSavedSourceStore.LoadAsync(source.Paths, source.Definition, token).GetAwaiter().GetResult();
-            var model = new MmcComponentEditorModel(source, saved, environment, PatchTexts(source, saved, token));
+            var model = suppliedModel ?? LoadModelAsync(instance, selected, token).GetAwaiter().GetResult();
             var backend = new MmcInstanceDefinitionChangeBackend<ModNet.NetFile>(services.Metadata, services.CacheRoots, MmcDownloads.BuildFile,
                 (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, onLoaderCreated: services.DownloadCreated),
                 backupWorlds: (gameRoot, cancellation) => WorldBackups.CaptureFolder(gameRoot, "修改 Minecraft 组件前", retention, cancellation));
@@ -76,12 +102,13 @@ internal static class MmcComponentEditorUi {
             for (;;) {
                 token.ThrowIfCancellationRequested(); AssertSelected(instance, selected);
                 task.Name = "等待选择 MMC 组件修改";
-                var choice = ModBase.RunInUiWait(() => {
+                var choice = suppliedModel is not null ? suppliedChoice : ModBase.RunInUiWait(() => {
                     token.ThrowIfCancellationRequested();
                     return SelectEdit is not null ? SelectEdit(model, previous) : Choose(model, previous);
                 });
                 if (choice is null) { task.Cancel(); throw new OperationCanceledException(token); }
                 token.ThrowIfCancellationRequested(); AssertSelected(instance, selected);
+                if (pagePreference is not null) choice = ApplySettingsJava(instance, model, choice, pagePreference, token);
                 task.Name = "固定所选组件、补丁和本地文件";
                 var frozen = Freeze(model, choice, token);
                 task.Name = "计算 MMC 组件实际运行差异";
@@ -96,9 +123,14 @@ internal static class MmcComponentEditorUi {
                     return ConfirmPreview is not null ? ConfirmPreview(confirmation) : Confirm(confirmation);
                 });
                 token.ThrowIfCancellationRequested();
-                if (decision == 3) { previous = choice; continue; }
+                if (decision == 3) {
+                    if (suppliedModel is not null) { task.Cancel(); throw new OperationCanceledException(token); }
+                    previous = choice; continue;
+                }
                 if (decision != 1) { task.Cancel(); throw new OperationCanceledException(token); }
                 if (!confirmation.CanCommit) throw new IOException("组件预览仍有错误，无法提交：" + result.Failure);
+                if (pagePreference is not null && MmcLaunchPreferences.CaptureJavaPreference(instance, model.Saved.PackageConfiguration) != pagePreference)
+                    throw new IOException("实例设置中的 Java 选择已变化，请回到组件页重新预览。");
                 AssertSelected(instance, selected); VerifyInputs(frozen.Inputs, token);
                 if (frozen.JavaImage is not null) VerifyInputs([frozen.JavaImage], token);
                 var preview = result.Preview;
@@ -139,6 +171,27 @@ internal static class MmcComponentEditorUi {
             else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
             combo.Start(selected.VersionRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
+    }
+
+    private static MmcComponentEditorChoice ApplySettingsJava(ModMinecraft.McInstance instance, MmcComponentEditorModel model,
+        MmcComponentEditorChoice choice, MmcLaunchJavaPreference preference, CancellationToken token) {
+        if (preference.Force) {
+            if (string.IsNullOrWhiteSpace(preference.Path)) throw new IOException("实例设置缺少强制 Java 路径，请在“实例设置 → Java”中重新选择。");
+            string path = Path.GetFullPath(preference.Path);
+            if (!Path.GetFileName(path).Equals("java.exe", StringComparison.OrdinalIgnoreCase))
+                path = File.Exists(Path.Combine(path, "bin", "java.exe")) ? Path.Combine(path, "bin", "java.exe") : Path.Combine(path, "java.exe");
+            // Freeze performs the actual PE/version/bitness/hash probe and the
+            // target component preview validates that measured environment.
+            return choice with { JavaPath = path };
+        }
+        if (preference.VersionRange is not null || preference.InstanceFolderOnly) {
+            var selected = MmcLaunchJava.SelectAsync(instance, model.Source.Definition, model.Saved.Resolved.Resolution.Profile,
+                preference, token).GetAwaiter().GetResult();
+            return choice with { JavaPath = selected.Java.JavaExePath };
+        }
+        // Automatic/inherited selection retains the declared published environment;
+        // target component compatibility still has to pass the real backend preview.
+        return choice with { JavaPath = null };
     }
 
     private sealed record Frozen(MmcInstanceDefinitionChangeRequest Request, ImmutableArray<MmcComponentEditorFileFact> Inputs,
@@ -284,7 +337,7 @@ internal static class MmcComponentEditorUi {
         var view = new MmcComponentEditorPreviewView(confirmation);
         if (!confirmation.CanCommit) {
             view.SetCanConfirm(true); // This button can only return to editing.
-            return ModMain.MyMsgBoxConfirmContent("组件或 Java 要求尚不能满足，请查看诊断并修改选择。所选 Java 也必须通过实际检查。", "MMC 组件尚不能提交", "修改选择", () => view, IsWarn: false) == 1 ? 3 : 2;
+            return ModMain.MyMsgBoxConfirmContent("组件或 Java 要求尚不能满足，请查看诊断并修改选择。需要更换 Java 时，请在“实例设置 → Java”中调整。", "MMC 组件尚不能提交", "修改选择", () => view, IsWarn: false) == 1 ? 3 : 2;
         }
         return ModMain.MyMsgBoxConfirmContent("请确认实际解析后的入口、参数、Java 和运行库差异。提交前会保存可撤回的环境记录；Minecraft 版本变化时先备份当前存档。",
             "确认 MMC 组件修改", "按以上结果修改", () => view, ThirdText: "修改选择", IsWarn: true);
@@ -308,7 +361,7 @@ internal static class MmcComponentEditorUi {
             CacheRoots = new(Path.Combine(game, "libraries"), Path.Combine(game, "assets"), Path.Combine(cache, "sources"), Path.Combine(game, "versions")) };
     }
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
-    private static void Report(Exception error, string text) {
+    internal static void Report(Exception error, string text) {
         if (ErrorObserved is not null) ErrorObserved(error, text);
         else MeloongCore.Logger.Error(error, text, MeloongCore.LogBehavior.Alert);
     }

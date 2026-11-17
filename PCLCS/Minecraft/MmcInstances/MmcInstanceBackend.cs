@@ -30,10 +30,17 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
     }
 
     /// <summary>The caller owns the single read-locked/hash-bound source and keeps it alive through publication.</summary>
-    public async Task<MmcInstanceBackendResult> ImportPreparedAsync(MmcArchiveSource source, MmcInstanceImportRequest request,
+    public Task<MmcInstanceBackendResult> ImportPreparedAsync(MmcArchiveSource source, MmcInstanceImportRequest request,
         CancellationToken cancellationToken = default, IProgress<MmcInstanceBackendProgress>? progress = null,
-        MmcResolvedSourceBundle? preparedResolution = null) {
+        MmcResolvedSourceBundle? preparedResolution = null) => ImportPreparedCoreAsync(source, request, false, cancellationToken, progress, preparedResolution);
+    /// <summary>Player imports settle their own failed producer after its real workspaces and IO drain. Raw recovery primitives remain available for abandoned/crashed producers.</summary>
+    public Task<MmcInstanceBackendResult> ImportPreparedAutomaticallyAsync(MmcArchiveSource source, MmcInstanceImportRequest request,
+        CancellationToken cancellationToken = default, IProgress<MmcInstanceBackendProgress>? progress = null,
+        MmcResolvedSourceBundle? preparedResolution = null) => ImportPreparedCoreAsync(source, request, true, cancellationToken, progress, preparedResolution);
+    private async Task<MmcInstanceBackendResult> ImportPreparedCoreAsync(MmcArchiveSource source, MmcInstanceImportRequest request, bool automaticCompletion,
+        CancellationToken cancellationToken, IProgress<MmcInstanceBackendProgress>? progress, MmcResolvedSourceBundle? preparedResolution) {
         MmcOwnedImportReservation? reservation = null;
+        MmcBindingResult? bound = null;
         try {
             ArgumentNullException.ThrowIfNull(source); ArgumentNullException.ThrowIfNull(request); ValidateName(request.VersionRoot, request.InstanceName);
             if (!string.Equals(source.OriginalPath, Path.GetFullPath(request.ArchivePath), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
@@ -46,7 +53,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
             var compiled = Compile(resolved.Resolution, request.Environment);
             reservation = MmcOwnedImportReservation.Create(request.VersionRoot, Guid.NewGuid(), source.PackageSha256);
             var paths = MmcInstancePaths.Resolve(reservation.TemporaryRoot, source.Package.GameRootLeaf);
-            MmcBindingResult bound;
+            reservation.PrepareWorkspaceParent();
             {
                 progress?.Report(new("package-staging"));
                 using var packageFiles = await MmcPackageFileStager.PrepareInitialAsync(source, paths, cancellationToken, ArtifactProgress(progress)).ConfigureAwait(false);
@@ -63,7 +70,7 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 using var prepared = await materializer.PrepareAsync(artifactsRequest, fetched.CreateAccess((artifact, token) => {
                     token.ThrowIfCancellationRequested();
                     return ValueTask.FromResult(packageFiles.LocalLibrarySources.GetValueOrDefault(artifact.RelativePath));
-                }), cancellationToken, ArtifactProgress(progress)).ConfigureAwait(false);
+                }), cancellationToken, ArtifactProgress(progress), reservation.RecordArtifactProduct, reservation.RecordCreatedDirectory).ConfigureAwait(false);
                 var observations = MmcArtifactBindingAdapter.Create(artifactsRequest, compiled, prepared);
                 byte[] projection = RenderProjection(request.InstanceName, reservation.InstanceId, 1, compiled, prepared, paths);
                 MmcInstanceDefinition draft = new(1, "Mmc", compiled.FormatProfile, reservation.InstanceId, 1,
@@ -76,7 +83,6 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 // Move already flushed/CRC-checked bulk game data there once; only structural,
                 // source, library and definition publications need the recoverable file journal.
                 progress?.Report(new("installing-package"));
-                reservation.AdoptPreparedGameFiles(packageFiles, baseline, cancellationToken, progress, request.PrivatePayloadCheckpoint);
                 var mutations = new List<MmcFileMutation>();
                 var declaredLocal = DeclaredLocalTargets(compiled);
                 foreach (var file in packageFiles.Files.Where(file => file.Role == MmcPackageFileRole.LocalLibrary && !declaredLocal.Contains(file.TargetRelativePath!)))
@@ -84,6 +90,8 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 mutations.AddRange(sources.Mutations); mutations.AddRange(ArtifactMutations(prepared));
                 mutations.Add(new(request.InstanceName + ".json", null, projection, Hash(projection)));
                 mutations.Add(new("PCL/InstanceDefinition.json", null, definition, Hash(definition)));
+                reservation.RecordPreparedCleanupProducts(mutations, packageFiles.StageRoot, sources.StageRoot, prepared.StageRoot);
+                reservation.AdoptPreparedGameFiles(packageFiles, baseline, cancellationToken, progress, request.PrivatePayloadCheckpoint);
                 reservation.RecordRecoveryPreparation(packageFiles.StageRoot, sources.StageRoot, prepared.StageRoot);
                 progress?.Report(new("publishing-instance"));
                 using var quiet = MmcConfigurationCoordinator.Quiesce(paths.InstanceRoot, cancellationToken);
@@ -92,21 +100,51 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 using var settings = quiet.OpenStructuralWrite(gate, 0);
                 SetManifest(settings, resolved.Resolution.Profile!, compiled, reservation.InstanceId, 1);
                 SetInitialPreferences(settings, source.Package.Configuration);
-                MmcTransactionResult result = settings.Execute(new(reservation.InstanceId, 0, 1, MergeMutations(mutations)), cancellationToken, request.TransactionCheckpoint);
-                if (result.Outcome != MmcTransactionOutcome.Committed)
+                MmcTransactionResult result = settings.Execute(new(reservation.InstanceId, 0, 1, MergeMutations(mutations)) {
+                    ProducedRecoveryFile = reservation.RecordRecoveryProduct
+                }, cancellationToken, request.TransactionCheckpoint);
+                reservation.RecordProducerTransaction(result.TransactionId);
+                if (result.Outcome != MmcTransactionOutcome.Committed) {
+                    if (automaticCompletion) {
+                        if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(result.Diagnostic, cancellationToken);
+                        throw new IOException(result.Diagnostic ?? "The import transaction did not commit.");
+                    }
                     return new(cancellationToken.IsCancellationRequested ? MmcInstanceBackendStatus.Cancelled : MmcInstanceBackendStatus.NeedsRecovery,
                         WorkingRoot: reservation.TemporaryRoot, Failure: result.Diagnostic ?? "The import transaction did not commit.");
+                }
             }
             // Every source/runtime workspace has been consumed and disposed before its absolute root moves.
             var final = reservation.Publish(source.Package.GameRootLeaf, progress);
             progress?.Report(new("completed"));
             return new(MmcInstanceBackendStatus.Succeeded, bound.Definition, bound.Plan, final, source.Package.Configuration,
-                final.InstanceRoot, PreferenceDiagnostics(source.Package.Configuration));
-        } catch (OperationCanceledException error) { return new(MmcInstanceBackendStatus.Cancelled, WorkingRoot: WorkingRoot(reservation), Failure: error.Message); }
+                final.InstanceRoot, PreferenceDiagnostics(source.Package.Configuration)) {
+                ProducedFiles = reservation.CommittedProductProof(final, bound.Definition!)
+            };
+        } catch (OperationCanceledException error) {
+            var failed = new MmcInstanceBackendResult(MmcInstanceBackendStatus.Cancelled, WorkingRoot: WorkingRoot(reservation), Failure: error.Message);
+            return automaticCompletion ? CompleteFailedImport(reservation, bound, source, failed, request?.AutomaticCleanupCheckpoint) : failed;
+        }
         catch (Exception error) when (IsExpectedFailure(error)) {
-            return new(reservation is null ? MmcInstanceBackendStatus.Rejected : MmcInstanceBackendStatus.NeedsRecovery, WorkingRoot: WorkingRoot(reservation), Failure: error.Message);
+            var failed = new MmcInstanceBackendResult(reservation is null ? MmcInstanceBackendStatus.Rejected : MmcInstanceBackendStatus.NeedsRecovery, WorkingRoot: WorkingRoot(reservation), Failure: error.Message);
+            return automaticCompletion ? CompleteFailedImport(reservation, bound, source, failed, request?.AutomaticCleanupCheckpoint) : failed;
         }
         finally { reservation?.Dispose(); }
+    }
+
+    private static MmcInstanceBackendResult CompleteFailedImport(MmcOwnedImportReservation? reservation, MmcBindingResult? bound, MmcArchiveSource source, MmcInstanceBackendResult failed,
+        Action<MmcInstancePurgeCheckpoint, string?>? checkpoint) {
+        if (reservation is null) return failed;
+        // Every scoped producer/preparation has exited before this catch is entered.
+        reservation.Dispose();
+        var completed = MmcImportRecovery.CompleteProducerFailure(reservation, checkpoint);
+        if (completed.Status != MmcInstanceBackendStatus.Succeeded)
+            return failed with { Status = MmcInstanceBackendStatus.NeedsRecovery, Failure = failed.Failure + "\nAutomatic completion refused: " + completed.Diagnostic };
+        if (completed.Paths is null) return failed with { Status = failed.Status == MmcInstanceBackendStatus.Cancelled ? failed.Status : MmcInstanceBackendStatus.Rejected, WorkingRoot = null };
+        var primary = MmcSavedSourceStore.ReadPrimary(completed.Paths);
+        if (bound?.Definition?.InstanceId != primary.Definition.InstanceId || bound.Definition.InstalledProjection?.BoundFingerprint != primary.Definition.InstalledProjection?.BoundFingerprint)
+            return failed with { Status = MmcInstanceBackendStatus.NeedsRecovery, Failure = "Automatically completed import does not match its original bound producer." };
+        return new(MmcInstanceBackendStatus.Succeeded, primary.Definition, bound.Plan, completed.Paths, source.Package.Configuration,
+            completed.Paths.InstanceRoot, PreferenceDiagnostics(source.Package.Configuration)) { ProducedFiles = reservation.CommittedProductProof(completed.Paths, primary.Definition) };
     }
 
     private static MmcCompiledProfile Compile(MmcResolutionResult resolution, MmcRuntimeEnvironment environment) {

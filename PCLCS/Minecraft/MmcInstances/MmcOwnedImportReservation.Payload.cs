@@ -85,6 +85,12 @@ public sealed partial class MmcOwnedImportReservation {
         progress?.Report(new("private-payload-manifest", 0, bytes.Length) { CompletedFiles = 0, TotalFiles = manifest.Files.Length });
         MmcDurableFiles.WriteNew(manifestPath, bytes);
         payloadManifest = manifest; payloadManifestHash = MmcDurableFiles.Hash(bytes);
+        cleanupFiles[PayloadManifestPath] = payloadManifestHash;
+        foreach (var file in manifest.Files) cleanupFiles[file.TargetRelativePath] = file.Sha256;
+        foreach (var file in prepared.Files.Where(file => file.StagedPath is not null))
+            cleanupFiles[Path.GetRelativePath(TemporaryRoot, file.StagedPath!).Replace('\\', '/')] = file.Sha256;
+        cleanupFiles[Path.GetRelativePath(TemporaryRoot, Path.Combine(workspace, "owner.txt")).Replace('\\', '/')] =
+            MmcDurableFiles.Hash(Encoding.UTF8.GetBytes("PCLLF.MmcArtifactWorkspace/v1\n" + Path.GetFileName(workspace) + "\n" + TemporaryRoot));
         try {
             checkpoint?.Invoke(MmcInitialPayloadCheckpoint.Prepared, -1);
             long completed = 0; byte[] buffer = new byte[131072];

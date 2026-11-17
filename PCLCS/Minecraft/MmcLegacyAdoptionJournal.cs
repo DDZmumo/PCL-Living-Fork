@@ -12,6 +12,7 @@ internal sealed record MmcLegacyAdoptionPublication(int SchemaVersion, Guid Oper
     string PrimarySha256, string GameRootLeaf, string BackupSealSha256);
 internal sealed record MmcLegacyAdoptionDecision(int SchemaVersion, Guid OperationId, string IntentSha256, string PublicationSha256);
 internal sealed record MmcLegacyAdoptionCompletion(int SchemaVersion, Guid OperationId, string IntentSha256, string PublicationSha256);
+internal sealed record MmcLegacyAdoptionRollback(int SchemaVersion, Guid OperationId, string IntentSha256, string? PublicationSha256);
 internal sealed record MmcLegacyAdoptionMarker(int SchemaVersion, Guid OperationId, Guid InstanceId, string OperationDirectory, string IntentSha256, string PublicationSha256);
 
 internal sealed class MmcLegacyAdoptionJournal {
@@ -21,6 +22,39 @@ internal sealed class MmcLegacyAdoptionJournal {
     internal string IntentHash { get; }
     internal string PrivateRoot => Path.Combine(DirectoryPath, "private-minecraft", "versions", Intent.TargetName);
     internal string FinalRoot => Intent.TargetRoot;
+    private Dictionary<string, string>? producerCleanup;
+    private readonly HashSet<string> producerDirectories = new(StringComparer.OrdinalIgnoreCase);
+    internal void InitializeProducerCleanup(MmcProducerFileProof? proof) {
+        var primary = RequirePrimary(PrivateRoot);
+        if (producerCleanup is not null || proof is null || proof.Root != PrivateRoot || proof.InstanceId != primary.Definition.InstanceId || proof.PrimarySha256 != primary.Sha256 || HasDecision())
+            throw new IOException("Private cleanup needs the original importer's proven products, never a scan of existing files.");
+        producerCleanup = proof.Files.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        producerDirectories.UnionWith(proof.Directories);
+    }
+    internal void ProducedFile(string relative, string sha256) {
+        if (producerCleanup is null) return; // Raw abandoned-producer/recovery operations never acquire deletion permission.
+        _ = MmcInstancePaths.Resolve(PrivateRoot).ResolveRelative(MmcPathRole.Instance, relative);
+        if (!MmcDurableFiles.IsHash(sha256) || HasDecision()) throw new IOException("A produced cleanup fact needs exact bytes before publication.");
+        producerCleanup[relative] = sha256;
+    }
+    internal void ProducedDirectory(string relative) {
+        if (producerCleanup is null) return;
+        _ = MmcInstancePaths.Resolve(PrivateRoot).ResolveRelative(MmcPathRole.Instance, relative); producerDirectories.Add(relative);
+    }
+    internal void DiscardProducerPrivate(Action<MmcInstancePurgeCheckpoint, string?>? checkpoint = null) {
+        if (producerCleanup is null || HasDecision() || !Owns(PrivateRoot)) throw new IOException("Unpublished copy has no current-producer cleanup facts.");
+        _ = RequirePrimary(PrivateRoot);
+        MmcProducerCleanup.Discard(PrivateRoot, Publication()!.Value.Record.GameRootLeaf, producerCleanup, DirectoryPath, IntentHash, checkpoint, producerDirectories);
+    }
+    internal bool RolledBack() {
+        string path = Path.Combine(DirectoryPath, "rolled-back.record"); if (!File.Exists(path)) return false;
+        if (MmcDurableFiles.ReadRecord<MmcLegacyAdoptionRollback>(path).Value != new MmcLegacyAdoptionRollback(1, Intent.OperationId, IntentHash, Publication()?.Hash)) throw new IOException("Private copy rollback record changed.");
+        return true;
+    }
+    internal void RecordRolledBack() {
+        if (HasDecision() || Directory.Exists(PrivateRoot)) throw new IOException("Only a discarded undecided copy can be marked rolled back.");
+        if (!RolledBack()) MmcDurableFiles.WriteRecord(Path.Combine(DirectoryPath, "rolled-back.record"), new MmcLegacyAdoptionRollback(1, Intent.OperationId, IntentHash, Publication()?.Hash));
+    }
     internal FileStream AcquireDriver(bool create) {
         string path = Path.Combine(DirectoryPath, "use.lock"); MmcInstancePaths.EnsureNoLinks(path);
         var stream = new FileStream(path, create ? FileMode.CreateNew : FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
@@ -98,7 +132,10 @@ internal sealed class MmcLegacyAdoptionJournal {
         var publication = Publication() ?? throw new IOException("转换模板尚未完整发布。");
         return JsonSerializer.SerializeToUtf8Bytes(new MmcLegacyAdoptionMarker(1, Intent.OperationId, publication.Record.InstanceId, DirectoryPath, IntentHash, publication.Hash));
     }
-    internal void MarkPrivate() => MmcDurableFiles.WriteNew(MmcInstancePaths.Resolve(PrivateRoot).ResolveRelative(MmcPathRole.Instance, MarkerRelative), Marker());
+    internal void MarkPrivate() {
+        byte[] marker = Marker(); MmcDurableFiles.WriteNew(MmcInstancePaths.Resolve(PrivateRoot).ResolveRelative(MmcPathRole.Instance, MarkerRelative), marker);
+        ProducedFile(MarkerRelative, MmcDurableFiles.Hash(marker));
+    }
     internal bool Owns(string root) {
         if (!Directory.Exists(root) || Publication() is null) return false;
         try {

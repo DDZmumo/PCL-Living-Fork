@@ -29,11 +29,59 @@ public sealed partial class MmcOwnedImportReservation {
             var files = ImmutableArray.CreateBuilder<MmcImportStageFile>();
             foreach (string file in BoundedFiles(root)) {
                 if (++count > 100000) throw new IOException("Import stage manifest exceeds its entry budget.");
-                files.Add(new(Path.GetRelativePath(root, file).Replace('\\', '/'), MmcDurableFiles.Observe(file)!, new FileInfo(file).Length));
+                string hash = MmcDurableFiles.Observe(file)!;
+                files.Add(new(Path.GetRelativePath(root, file).Replace('\\', '/'), hash, new FileInfo(file).Length));
             }
             stages.Add(new(Path.GetRelativePath(TemporaryRoot, root).Replace('\\', '/'), MmcDurableFiles.Observe(owner)!, files.ToImmutable()));
         }
         MmcDurableFiles.WriteRecord(Path.Combine(operation.DirectoryPath, "preparation.record"), new MmcImportPreparation(1, operation.OwnerHash, stages.ToImmutable()));
+    }
+    internal void RecordPreparedCleanupProducts(IEnumerable<MmcFileMutation> mutations, params string[] stageRoots) {
+        AssertProducerUse(); var paths = MmcInstancePaths.Resolve(TemporaryRoot);
+        foreach (var mutation in mutations) {
+            _ = paths.ResolveRelative(MmcPathRole.Instance, mutation.RelativePath);
+            int separator = mutation.RelativePath.LastIndexOf('/'); if (separator > 0) RecordCreatedDirectory(mutation.RelativePath[..separator]);
+            if (mutation.NewSourceRelativePath is { } source) {
+                _ = paths.ResolveRelative(MmcPathRole.Instance, source);
+                if (!MmcDurableFiles.IsHash(mutation.ExpectedNewSha256)) throw new IOException("A prepared cleanup product needs its producer's expected digest.");
+                cleanupFiles[source] = mutation.ExpectedNewSha256!;
+            }
+        }
+        foreach (string root in stageRoots.Distinct(StringComparer.OrdinalIgnoreCase)) {
+            _ = VerifyPayloadWorkspace(paths, root); RecordCreatedDirectory(Path.GetRelativePath(TemporaryRoot, root).Replace('\\', '/'));
+            cleanupFiles[Path.GetRelativePath(TemporaryRoot, Path.Combine(root, "owner.txt")).Replace('\\', '/')] =
+                MmcDurableFiles.Hash(Encoding.UTF8.GetBytes("PCLLF.MmcArtifactWorkspace/v1\n" + Path.GetFileName(root) + "\n" + TemporaryRoot));
+        }
+    }
+    internal void RecordRecoveryProduct(MmcTransactionProducedFile product) {
+        CurrentOperation.VerifySameOwner();
+        string[] parts = product.RelativePath.Split('/');
+        string[] name = parts.Length == 4 && parts[3].EndsWith(".bin", StringComparison.Ordinal) ? parts[3][..^4].Split('-') : [];
+        if (product.InstanceId != InstanceId || product.CanonicalRoot != TemporaryRoot || product.ExpectedGeneration != 0 || product.NewGeneration != 1 ||
+            product.TransactionId == Guid.Empty || product.MutationIndex < 0 || !MmcDurableFiles.IsHash(product.Sha256) || parts.Length != 4 ||
+            parts[0] != "PCL" || parts[1] != "MmcTransactions" || parts[2] != product.TransactionId.ToString("N") || name.Length != 3 || name[0] != "backup" ||
+            name[1] != product.MutationIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) || !Guid.TryParseExact(name[2], "N", out Guid objectId) || objectId == Guid.Empty)
+            throw new IOException("A recovery product does not belong to this exact initial import producer.");
+        string relative = "PCL/MmcTransactionHistory/" + parts[2] + "/" + parts[3];
+        cleanupFiles[relative] = product.Sha256;
+        RecordCreatedDirectory("PCL/MmcTransactionHistory/" + parts[2]);
+    }
+    // Only the still-owned producer object has this in-memory list of bytes it prepared.
+    // Historical records never reconstruct permission to delete a user's directory.
+    internal void DiscardProducerTemporary(Action<MmcInstancePurgeCheckpoint, string?>? checkpoint = null) {
+        if (producerUse is not null) throw new IOException("The failed import producer has not drained.");
+        producerUse = CurrentOperation.AcquireUse(create: false);
+        try {
+            AssertProducerUse();
+            if (CurrentOperation.Publication() is not null || CurrentOperation.Completed()) throw new IOException("A sealed import must finish publication, never discard its instance.");
+            InstanceConfigProviders.FlushAndDisposeWithin(TemporaryRoot);
+            using var quiet = MmcConfigurationCoordinator.Quiesce(TemporaryRoot);
+            using var lease = MmcAdmissionGate.Acquire(TemporaryRoot, InstanceId, TimeSpan.Zero);
+            VerifyMarker(TemporaryRoot); using var permit = EnterPending(lease);
+            MmcFileTransactions.AssertNoPending(lease); MmcSessions.AssertNoActive(lease);
+            MmcProducerCleanup.Discard(TemporaryRoot, payloadManifest?.GameRootLeaf ?? "minecraft", cleanupFiles, CurrentOperation.DirectoryPath, CurrentOperation.OwnerHash, checkpoint, cleanupDirectories);
+            CurrentOperation.RecordRolledBack();
+        } finally { Dispose(); }
     }
     internal void RecoverRecordedStages(MmcAdmissionLease lease) {
         AssertProducerUse(); lease.AssertHeld();

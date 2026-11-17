@@ -19,6 +19,13 @@ namespace PCL
         internal new readonly StackPanel Rows;
         private readonly MyScrollViewer Scroll;
         private readonly string AnimationName;
+        internal MyScrollViewer PageScroller => Scroll;
+        internal void FitToPage()
+        {
+            Height = double.NaN;
+            HorizontalAlignment = HorizontalAlignment.Stretch;
+            VerticalAlignment = VerticalAlignment.Stretch;
+        }
         protected ModpackDialogView(string Title, string Subtitle, int FilterCount) : base(Title, Subtitle, FilterCount, new ModpackDialogHost<MyButton, MyScrollViewer>()
         {
             AnimationName = new Func<string>(() => "Modpack Dialog " + ModBase.GetUuid()),

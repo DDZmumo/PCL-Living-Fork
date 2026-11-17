@@ -29,18 +29,27 @@ internal static partial class MmcPackageUpdateUi {
     internal static Func<MmcInstancePackageUpdatePreview, int> ConfirmPreview { get; set; }
     internal static Action<Exception, string> ErrorObserved { get; set; }
 
-    internal static void Prompt(ModMinecraft.McInstance instance) {
+    internal static void Prompt(ModMinecraft.McInstance instance) => PromptCaptured(instance, null);
+    internal static ModLoader.LoaderCombo<string> PromptCaptured(ModMinecraft.McInstance instance, MmcPlatformInstanceSelection expected, Func<bool> isCurrent = null) {
         ArgumentNullException.ThrowIfNull(instance);
         try {
             if (HasActiveOperation) throw new IOException("另一项 MMC 整合包更新尚未完成。");
+            if (isCurrent is not null && !isCurrent()) throw new IOException("当前页面对应的实例已变更，请重新进入实例设置。");
+            var source = ReadCapturedSource(instance, expected);
+            expected ??= Selection(source);
             string archive = SelectArchive is not null ? SelectArchive() : MeloongCore.Wpf.Dialogs.SelectFile(
                 "选择新版 MMC / Prism 整合包", false, filter: new[] { (new[] { "zip" }, "MMC / Prism 整合包") }).FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(archive)) Start(instance, archive);
+            if (!string.IsNullOrWhiteSpace(archive)) {
+                if (isCurrent is not null && !isCurrent()) throw new IOException("当前页面对应的实例已变更，请重新进入实例设置。");
+                return StartCaptured(instance, archive, expected);
+            }
         } catch (Exception error) { Report(error, "无法开始 MMC 整合包更新"); }
+        return null;
     }
 
-    internal static ModLoader.LoaderCombo<string> Start(ModMinecraft.McInstance instance, string archivePath) {
-        var source = ReadSource(instance);
+    internal static ModLoader.LoaderCombo<string> Start(ModMinecraft.McInstance instance, string archivePath) => StartCaptured(instance, archivePath, null);
+    internal static ModLoader.LoaderCombo<string> StartCaptured(ModMinecraft.McInstance instance, string archivePath, MmcPlatformInstanceSelection expected) {
+        var source = ReadCapturedSource(instance, expected);
         if (ModMinecraft.McInstanceLock.IsLocked(instance)) throw new IOException("该实例正在被修改，请稍后再更新。");
         string archive = Path.GetFullPath(archivePath);
         if (!File.Exists(archive)) throw new IOException("所选整合包文件不存在。");
@@ -152,6 +161,15 @@ internal static partial class MmcPackageUpdateUi {
         return new(() => Interlocked.Exchange(ref busy, 0));
     }
     internal static MmcInstanceInspection ReadManagedSource(ModMinecraft.McInstance instance) => ReadSource(instance);
+    internal static MmcInstanceInspection ReadCapturedSource(ModMinecraft.McInstance instance, MmcPlatformInstanceSelection expected) {
+        var source = ReadSource(instance);
+        if (expected is not null && (!MeloongCore.PathUtils.IsSame(source.Paths.InstanceRoot, expected.VersionRoot) ||
+            source.Definition.InstanceId != expected.ExpectedInstanceId || source.Definition.Generation != expected.ExpectedGeneration || source.PrimarySha256 != expected.ExpectedPrimarySha256))
+            throw new IOException("实例状态已变化，请刷新整合包更新页面后重新选择。");
+        return source;
+    }
+    internal static MmcPlatformInstanceSelection Selection(MmcInstanceInspection source) =>
+        new(source.Paths.InstanceRoot, source.Definition.InstanceId, source.Definition.Generation, source.PrimarySha256);
 
     private static MmcRuntimeEnvironment ResolveEnvironment(string archive, MmcMetadataStore metadata,
         ModLoader.LoaderTask<string, MmcInstancePackageUpdateResult> task, CancellationToken token) {

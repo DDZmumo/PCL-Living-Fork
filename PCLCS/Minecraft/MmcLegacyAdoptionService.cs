@@ -58,8 +58,11 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
     }
     public Task<MmcLegacyAdoptionResult> CreateManagedCopyAsync(MmcLegacyAdoptionPreview preview, MmcLegacyAdoptionCopyRequest request,
         CancellationToken cancellationToken = default, IProgress<MmcLegacyAdoptionProgress>? progress = null) =>
-        Task.Run(() => Create(preview, request, cancellationToken, progress), CancellationToken.None);
-    private MmcLegacyAdoptionResult Create(MmcLegacyAdoptionPreview preview, MmcLegacyAdoptionCopyRequest request, CancellationToken external, IProgress<MmcLegacyAdoptionProgress>? progress) {
+        Task.Run(() => Create(preview, request, cancellationToken, progress, false), CancellationToken.None);
+    public Task<MmcLegacyAdoptionResult> CreateManagedCopyAutomaticallyAsync(MmcLegacyAdoptionPreview preview, MmcLegacyAdoptionCopyRequest request,
+        CancellationToken cancellationToken = default, IProgress<MmcLegacyAdoptionProgress>? progress = null) =>
+        Task.Run(() => Create(preview, request, cancellationToken, progress, true), CancellationToken.None);
+    private MmcLegacyAdoptionResult Create(MmcLegacyAdoptionPreview preview, MmcLegacyAdoptionCopyRequest request, CancellationToken external, IProgress<MmcLegacyAdoptionProgress>? progress, bool automaticCompletion) {
         MmcLegacyAdoptionJournal? operation = null; bool decided = false;
         using var fence = new MmcLifecycleCancellationFence(external); CancellationToken token = fence.Token;
         try {
@@ -81,14 +84,23 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
             }
             request.Checkpoint?.Invoke(MmcLegacyAdoptionCheckpoint.BackupDurable, operation.DirectoryPath); token.ThrowIfCancellationRequested();
             // No source quiescence/admission is retained during dependency/network preparation.
-            var imported = backend.ImportPreparedAsync(preview.Source, new(preview.Source.OriginalPath, operation.PrivateRoot, request.InstanceName, preview.Environment), token,
-                new ProgressAdapter(progress), preview.Resolved).GetAwaiter().GetResult();
-            if (imported.Status != MmcInstanceBackendStatus.Succeeded || imported.Definition is null || imported.Paths is null)
+            var importRequest = new MmcInstanceImportRequest(preview.Source.OriginalPath, operation.PrivateRoot, request.InstanceName, preview.Environment);
+            var importTask = automaticCompletion ? backend.ImportPreparedAutomaticallyAsync(preview.Source, importRequest, token, new ProgressAdapter(progress), preview.Resolved)
+                : backend.ImportPreparedAsync(preview.Source, importRequest, token, new ProgressAdapter(progress), preview.Resolved);
+            var imported = importTask.GetAwaiter().GetResult();
+            if (imported.Status != MmcInstanceBackendStatus.Succeeded || imported.Definition is null || imported.Paths is null) {
+                if (automaticCompletion) {
+                    if (imported.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(imported.Failure, token);
+                    throw new IOException(imported.Failure ?? "The private MMC import failed.");
+                }
                 return Result(imported.Status, operation, imported.Failure);
+            }
             var paths = imported.Paths; var primary = MmcSavedSourceStore.ReadPrimary(paths);
             using (var quiet = MmcConfigurationCoordinator.Quiesce(paths.InstanceRoot, CancellationToken.None))
             using (var gate = MmcAdmissionGate.Acquire(paths.InstanceRoot, primary.Definition.InstanceId, TimeSpan.Zero, CancellationToken.None)) {
-                operation.RecordPublication(primary); operation.MarkPrivate();
+                operation.RecordPublication(primary);
+                if (automaticCompletion) operation.InitializeProducerCleanup(imported.ProducedFiles);
+                operation.MarkPrivate();
                 using var permit = operation.Enter(gate);
                 MmcLegacyAdoptionConfiguration.AttachOwned(quiet, gate, operation);
                 request.Checkpoint?.Invoke(MmcLegacyAdoptionCheckpoint.PrivateImportComplete, operation.DirectoryPath); token.ThrowIfCancellationRequested();
@@ -97,7 +109,8 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
                 var local = saved.Baseline.Baseline.Files.Where(file => file.Role == PCLLF.MMCC.Core.MmcPackageFileRole.LocalLibrary && file.TargetRelativePath is not null)
                     .ToDictionary(file => file.TargetRelativePath!, file => file.Sha256, StringComparer.OrdinalIgnoreCase);
                 RemoveAuthorPersonalPayload(paths, saved.Baseline, derived, token);
-                MmcLegacyAdoptionBackup.CopyPersonalFiles(operation.DirectoryPath, operation.Backup(), preview.Inventory, paths, derived, local, token, progress);
+                MmcLegacyAdoptionBackup.CopyPersonalFiles(operation.DirectoryPath, operation.Backup(), preview.Inventory, paths, derived, local, token, progress,
+                    automaticCompletion ? operation.ProducedFile : null, automaticCompletion ? operation.ProducedDirectory : null);
                 var finalPaths = MmcInstancePaths.Resolve(operation.FinalRoot, paths.GameRootLeaf);
                 MmcLegacyAdoptionConfiguration.Copy(quiet, gate, operation, preview, finalPaths);
                 WriteReady(operation, paths, primary, derived);
@@ -116,8 +129,14 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
             fence.EnterDecision(); operation.Decide(); decided = true;
             request.Checkpoint?.Invoke(MmcLegacyAdoptionCheckpoint.CommitDecided, operation.DirectoryPath);
             return Forward(operation, access, request.Checkpoint);
-        } catch (OperationCanceledException error) { return Result(decided ? MmcInstanceBackendStatus.NeedsRecovery : MmcInstanceBackendStatus.Cancelled, operation, error.Message); }
-        catch (Exception error) when (Expected(error)) { return Result(operation is null ? MmcInstanceBackendStatus.Rejected : MmcInstanceBackendStatus.NeedsRecovery, operation, error.Message); }
+        } catch (OperationCanceledException error) {
+            var failed = Result(decided ? MmcInstanceBackendStatus.NeedsRecovery : MmcInstanceBackendStatus.Cancelled, operation, error.Message);
+            return automaticCompletion ? CompleteProducerFailure(operation, failed, request?.AutomaticCleanupCheckpoint) : failed;
+        }
+        catch (Exception error) when (Expected(error)) {
+            var failed = Result(operation is null ? MmcInstanceBackendStatus.Rejected : MmcInstanceBackendStatus.NeedsRecovery, operation, error.Message);
+            return automaticCompletion ? CompleteProducerFailure(operation, failed, request?.AutomaticCleanupCheckpoint) : failed;
+        }
     }
     public Task<MmcLegacyAdoptionResult> RecoverAsync(string operationDirectory, string? expectedIntentSha256 = null) => Task.Run(() => {
         MmcLegacyAdoptionJournal? operation = null;
@@ -130,6 +149,34 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
             return Forward(operation, access, null);
         } catch (Exception error) when (Expected(error)) { return Result(MmcInstanceBackendStatus.NeedsRecovery, operation, error.Message); }
     }, CancellationToken.None);
+    private MmcLegacyAdoptionResult CompleteProducerFailure(MmcLegacyAdoptionJournal? operation, MmcLegacyAdoptionResult failed, Action<MmcInstancePurgeCheckpoint, string?>? checkpoint) {
+        if (operation is null) return failed;
+        try {
+            var current = MmcLegacyAdoptionJournal.Read(operation.DirectoryPath);
+            if (current.IntentHash != operation.IntentHash) throw new IOException("Current producer's copy operation changed.");
+            // Create's path/driver/configuration leases have all left their scopes before its catch.
+            if (operation.HasDecision()) return RecoverAsync(operation.DirectoryPath, operation.IntentHash).GetAwaiter().GetResult();
+            using var driver = operation.AcquireDriver(create: false);
+            RequireIdle(operation.Intent.SourceRoot, operation.Intent.GameRoot);
+            if (Directory.Exists(operation.PrivateRoot)) {
+                InstanceConfigProviders.FlushAndDisposeWithin(operation.PrivateRoot);
+                using var access = new AdoptionAccess(operation, includeLegacy: false, CancellationToken.None);
+                var lease = access.Leases[operation.PrivateRoot]; using var permit = operation.Enter(lease);
+                MmcFileTransactions.AssertNoPending(lease); MmcSessions.AssertNoActive(lease);
+                operation.DiscardProducerPrivate(checkpoint);
+            } else {
+                string versions = Path.GetDirectoryName(operation.PrivateRoot)!;
+                MmcInstancePaths.EnsureNoLinks(versions);
+                if (Directory.Exists(versions) && Directory.EnumerateFileSystemEntries(versions).Any())
+                    throw new IOException("An inner import still has unresolved private data; preserving all evidence.");
+            }
+            operation.RecordRolledBack();
+            return failed with { Status = failed.Status == MmcInstanceBackendStatus.Cancelled ? failed.Status : MmcInstanceBackendStatus.Rejected,
+                Failure = failed.Failure + "\n本次未发布副本已自动回退；旧实例和私有备份保留。" };
+        } catch (Exception error) when (Expected(error)) {
+            return failed with { Status = MmcInstanceBackendStatus.NeedsRecovery, Failure = failed.Failure + "\n无法安全自动收尾，内部证据保留：" + error.Message + MmcProducerCleanup.PreserveFailure(operation.DirectoryPath, error) };
+        }
+    }
     private static MmcLegacyAdoptionResult Forward(MmcLegacyAdoptionJournal operation, AdoptionAccess access, Action<MmcLegacyAdoptionCheckpoint, string>? checkpoint) {
         if (!operation.HasDecision()) throw new IOException("管理副本缺少持久发布决定。");
         bool privateOwned = operation.Owns(operation.PrivateRoot), finalOwned = operation.Owns(operation.FinalRoot);
@@ -166,7 +213,7 @@ public sealed partial class MmcLegacyAdoptionService<TNetFile> where TNetFile : 
     private static MmcLegacyAdoptionResult Result(MmcInstanceBackendStatus status, MmcLegacyAdoptionJournal? operation, string? error) =>
         new(status, OperationDirectory: operation?.DirectoryPath, BackupPath: operation is not null && File.Exists(Path.Combine(operation.DirectoryPath, "backup.zip")) ? Path.Combine(operation.DirectoryPath, "backup.zip") : null, Failure: error);
     private static bool Expected(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or
-        System.Net.Http.HttpRequestException or AggregateException or System.Text.Json.JsonException or Newtonsoft.Json.JsonException or FormatException or OverflowException or System.ComponentModel.Win32Exception;
+        System.Net.Http.HttpRequestException or AggregateException or System.Text.Json.JsonException or Newtonsoft.Json.JsonException or FormatException or OverflowException or System.ComponentModel.Win32Exception or PlatformNotSupportedException;
     private sealed class ProgressAdapter(IProgress<MmcLegacyAdoptionProgress>? progress) : IProgress<MmcInstanceBackendProgress> { public void Report(MmcInstanceBackendProgress value) => progress?.Report(new(value.Phase, value.CompletedBytes, value.TotalBytes)); }
     private sealed class AdoptionAccess : IDisposable {
         internal readonly Dictionary<string, MmcConfigurationQuiescence> Quiet = new(StringComparer.OrdinalIgnoreCase);

@@ -84,7 +84,7 @@ public static class MmcInstances {
         string target = Path.Combine(request.MinecraftFolder, "versions", name);
         var backend = new MmcInstanceBackend<ModNet.NetFile>(services.Metadata, services.CacheRoots, MmcDownloads.BuildFile,
             (files, cancellation) => progress.DownloadAsync(files, cancellation, services.DownloadCreated));
-        var result = await backend.ImportPreparedAsync(source, new(request.ArchivePath, target, name, environment) {
+        var result = await backend.ImportPreparedAutomaticallyAsync(source, new(request.ArchivePath, target, name, environment) {
             TransactionCheckpoint = (phase, index) => {
                 if (phase == MmcTransactionCheckpoint.BeforeDecision) { cancellation.EnterDecision(token); progress.EnteredDecision(); }
                 services.TransactionObserved?.Invoke(phase, index);
@@ -97,7 +97,7 @@ public static class MmcInstances {
         if (result.Status == MmcInstanceBackendStatus.Cancelled) throw new OperationCanceledException(result.Failure, token);
         if (result.Status != MmcInstanceBackendStatus.Succeeded || result.Definition is null || result.Paths is null)
             throw new IOException("MMC 整合包未完成安装：" + result.Failure + (result.WorkingRoot is null ? "" :
-                "\n导入现场：" + result.WorkingRoot + "\n可在版本选择页的“MMC 导入恢复”中查看记录。"));
+                "\n当前数据无法安全自动收尾，内部证据已保留：" + result.WorkingRoot));
         ModMinecraft.McInstanceListForceRefresh = true;
         ModMinecraft.McInstanceListLoader.Start(request.MinecraftFolder, IsForceRestart: true);
         if (services.Published is not null) services.Published(result);
