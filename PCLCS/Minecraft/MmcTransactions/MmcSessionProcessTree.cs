@@ -475,9 +475,10 @@ internal sealed class MmcSessionProcessTree : IDisposable {
         }
     }
 
-    internal static SafeWaitHandle CreateConfiguredJobHandle(string? jobName = null) {
+    internal static SafeWaitHandle CreateConfiguredJobHandle(string? jobName = null, bool limitActiveProcesses = true) {
         SafeWaitHandle handle = CreateJobObjectW(0, jobName);
         if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法创建受管进程作业对象。");
+        if (!limitActiveProcesses) return handle;
         int size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         nint infoPtr = Marshal.AllocHGlobal(size);
         try {

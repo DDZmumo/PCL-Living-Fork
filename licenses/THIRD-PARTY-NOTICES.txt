@@ -641,6 +641,7 @@ PCLCS/Minecraft/PackUpdateFlowEngine.Execute.cs
 PCLCS/Minecraft/PackUpdateFlowEngine.cs
 PCLCS/Minecraft/PackUpdateModInspection.cs
 PCLCS/Minecraft/PackUpdateStages.cs
+PCLCS/Minecraft/LegacyJavaProcessGroup.cs
 PCLCS/Minecraft/PermanentResourceDeletion.cs
 PCLCS/Minecraft/PersonalOptionsCatalog.cs
 PCLCS/Minecraft/PersonalOptionsFiles.cs
