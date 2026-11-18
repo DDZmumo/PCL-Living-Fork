@@ -77,9 +77,10 @@ internal static partial class MmcRuntimeLaunchTests {
         var plan = MmcRuntimeLaunchBuilder.BuildAsync(request).GetAwaiter().GetResult();
         string support = Path.Combine(plan.MutableDirectories.SessionRoot, ModKeybindPatch.FileName);
         string options = Path.Combine(request.Paths.GameRoot, "options.txt").Replace('\\', '/');
+        string encodedOptions = Convert.ToBase64String(Encoding.UTF8.GetBytes(options));
         Require(plan.Inputs.Any(input => input.Identity == "support:mod-keybinds" &&
                 input.Sha256 == ModKeybindPatch.Sha256 && input.ActualPath == support) &&
-            ModKeybindPatch.CanUsePath(support) && plan.LogicalJvmArguments.Contains("-javaagent:" + support.Replace('\\', '/') + "=" + options),
+            ModKeybindPatch.CanUsePath(support) && plan.LogicalJvmArguments.Contains("-javaagent:" + support.Replace('\\', '/') + "=" + encodedOptions),
             "The verified patch did not survive into the JVM arguments and final input observations.");
         MmcRuntimeLaunchBuilder.RevalidateFilesAsync(plan).GetAwaiter().GetResult();
         File.AppendAllText(support, "changed after launch plan");

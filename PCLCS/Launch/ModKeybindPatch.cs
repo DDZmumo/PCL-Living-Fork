@@ -17,7 +17,7 @@ namespace PCLCS;
 /// <summary>Supplies startup keybind preservation for affected Forge and NeoForge clients.</summary>
 public static class ModKeybindPatch {
     public const string FileName = "ModKeybindPatch.jar";
-    public const string Sha256 = "fb398b2091b2d71b18861238631c482542d1e75a52cd00247aa73b64d54b3177";
+    public const string Sha256 = "01f9a18fdbe132d2e48bf1ff71407f7a1f0309bc72d8785f2994d42cdd6e5a67";
     private const string Resource = @"Launch\ModKeybindPatch.jar";
     private const int MaxJarBytes = 256 * 1024;
     private static readonly Version FirstFixedForge55 = new(55, 0, 20);
@@ -67,9 +67,12 @@ public static class ModKeybindPatch {
 
     public static ReadOnlyMemory<byte> SupportBytes() => Payload.Value.AsMemory();
 
-    internal static string Argument(string jar, string gameFolder) =>
-        "-javaagent:" + MmcRuntimeFiles.JavaPath(jar) + "=" +
-        MmcRuntimeFiles.JavaPath(Path.Combine(gameFolder, "options.txt"));
+    internal static string Argument(string jar, string gameFolder) {
+        string optionsPath = MmcRuntimeFiles.JavaPath(Path.Combine(gameFolder, "options.txt"));
+        // Windows' native agent options can lose characters outside the current encoding.
+        return "-javaagent:" + MmcRuntimeFiles.JavaPath(jar) + "=" +
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(optionsPath));
+    }
 
     public static bool CanUsePath(string path) => Path.IsPathFullyQualified(path) &&
         (!OperatingSystem.IsWindows() || Encoding.UTF8.GetByteCount(path) + 1 < 260) &&
