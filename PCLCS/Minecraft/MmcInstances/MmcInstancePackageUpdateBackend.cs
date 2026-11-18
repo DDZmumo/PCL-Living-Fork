@@ -95,7 +95,16 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
         engine.DownloadChanges(plan, stage, token); // Existing payload verification, ownership and collision analysis; no new queue.
         var byId = plan.Changes.Concat(plan.PreviewChanges).ToDictionary(MmcInstancePackageUpdatePlanning<TNetFile>.ChangeId, StringComparer.Ordinal);
         foreach (var choice in choices.Files) {
-            if (!byId.TryGetValue(choice.ChangeId, out var change) || !(change.CanChoose || change.AllowAuthor && !change.DisplayOnly && change.Ownership == PackUpdateOwnership.Disabled)) throw new IOException("The selected file choice is stale or not selectable.");
+            if (!byId.TryGetValue(choice.ChangeId, out var change)) throw new IOException("The selected file choice is stale.");
+            if (change.ConfigurationMerge is { } merge) {
+                if (merge.Conflicts.Count == 0 || choice.Choice != PackUpdateChoice.UseAuthor || !choice.KeepDisabled ||
+                    choice.AuthorConfigurationKeys.Any(key => !merge.Conflicts.Any(conflict => conflict.Key == key)))
+                    throw new IOException("The configuration conflict choice is stale or invalid.");
+                change.AuthorConfigurationKeys = new(choice.AuthorConfigurationKeys, StringComparer.Ordinal);
+                continue;
+            }
+            if (!choice.AuthorConfigurationKeys.IsEmpty || !(change.CanChoose || change.AllowAuthor && !change.DisplayOnly && change.Ownership == PackUpdateOwnership.Disabled))
+                throw new IOException("The selected file choice is not selectable.");
             change.Choice = choice.Choice; change.KeepDisabled = choice.KeepDisabled;
         }
         plan.AllowUnverifiedDependencies = choices.AllowUnverifiedDependencies;
@@ -120,8 +129,12 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
     private static MmcInstancePackageUpdateChoices Normalize(MmcInstancePackageUpdateChoices value) {
         if ((!value.Components.IsDefault && value.Components.Any(item => item is null)) || (!value.Files.IsDefault && value.Files.Any(item => item is null))) throw new IOException("Package-update choices contain null entries.");
         ImmutableArray<MmcPackageComponentDecision> components = value.Components.IsDefault ? [] : value.Components.OrderBy(item => item.Uid, StringComparer.Ordinal).ToImmutableArray();
-        ImmutableArray<MmcPackageFileDecision> files = value.Files.IsDefault ? [] : value.Files.OrderBy(item => item.ChangeId, StringComparer.Ordinal).ToImmutableArray();
-        if (components.Length > 4096 || files.Length > 100000 || files.Any(item => !MmcDurableFiles.IsHash(item.ChangeId) || !Enum.IsDefined(item.Choice)) ||
+        ImmutableArray<MmcPackageFileDecision> files = value.Files.IsDefault ? [] : value.Files.OrderBy(item => item.ChangeId, StringComparer.Ordinal)
+            .Select(item => item with { AuthorConfigurationKeys = item.AuthorConfigurationKeys.IsDefault ? [] :
+                item.AuthorConfigurationKeys.OrderBy(key => key, StringComparer.Ordinal).ToImmutableArray() }).ToImmutableArray();
+        if (components.Length > 4096 || files.Length > 100000 || files.Any(item => !MmcDurableFiles.IsHash(item.ChangeId) || !Enum.IsDefined(item.Choice) ||
+                item.AuthorConfigurationKeys.Length > 512 || item.AuthorConfigurationKeys.Any(string.IsNullOrEmpty) ||
+                item.AuthorConfigurationKeys.Distinct(StringComparer.Ordinal).Count() != item.AuthorConfigurationKeys.Length) ||
             components.Select(item => item.Uid).Distinct(StringComparer.Ordinal).Count() != components.Length || files.Select(item => item.ChangeId).Distinct(StringComparer.Ordinal).Count() != files.Length)
             throw new IOException("Package-update choices are invalid or duplicated.");
         return new(components, files, value.AllowUnverifiedDependencies);

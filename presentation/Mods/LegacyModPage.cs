@@ -144,21 +144,58 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
     public void OpenFolder(){try{DirectoryUtils.Create(host.GameFolder(host.Instance()!)+@"mods\");host.Explorer(host.GameFolder(host.Instance()!)+@"mods\");}catch(Exception error){Logger.Error(error,"打开 Mods 文件夹失败",LogBehavior.Alert);}}
     public void SelectAll()=>ChangeAllSelected(host.Selected().Count<view.List()!.Children.Count);
     public void InstallClick(){if(!host.ConfirmMode("从文件安装 Mod"))return;IEnumerable<string> files=host.SelectInstallFiles();if(!files.Any())return;Install(host,files,true);}
-    public static bool Install(LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDownload,TButton,TImpact> host,IEnumerable<string> files,bool modeConfirmed){
-        string extension=PathUtils.GetExtension(files.First());if(!new[]{"jar","litemod","disabled","old"}.Any(t=>t==extension))return false;
-        if(!AllowModWrite(host))return true;
-        if(!modeConfirmed&&!host.ConfirmMode("安装 Mod"))return true;Logger.Info("文件为 jar/litemod 格式，尝试作为 Mod 安装");
-        if(files.First().Contains(@":\$RECYCLE.BIN\")){host.Hint("请先将文件从回收站还原，再尝试安装！",1,true);return true;}
-        TInstance? instance=host.GlobalInstance();if(host.IsInstanceSetup())instance=host.Instance();
-        if(host.IsInstanceSelect()||instance is null||!host.Modable(instance))host.Hint("若要安装 Mod，请先选择一个可以安装 Mod 的版本！",0,true);
-        else if(!host.IsModPage()){if(host.Message($"是否要将这{(files.IsSingle()?"个":"些")}文件作为 Mod 安装到 {host.InstanceName(instance)}？","Mod 安装确认","确定","取消",false)==1)InstallNow();}
-        else InstallNow();
+    public static bool Install(LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDownload,TButton,TImpact> host,
+        IEnumerable<string> files, bool modeConfirmed) {
+        var paths = files.ToArray();
+        if (paths.Length == 0 || PathUtils.GetExtension(paths[0]) is not ("jar" or "litemod" or "disabled" or "old")) return false;
+        // Explorer drops are handled on a worker. Reading the current route can
+        // refresh the WPF instance sidebar, so admit the install on its dispatcher.
+        (TInstance Instance, string GameFolder)? installation = null;
+        host.DispatchWait(ConfirmInstall);
+        if (installation is { } accepted) CopyMods(accepted.Instance, accepted.GameFolder);
         return true;
-        void InstallNow(){try{
-            foreach(string file in files){string target=host.NewMod(file).EnabledName;if(!target.Contains("."))target+=".jar";target=host.GameFolder(instance!)+@"mods\"+target;if(PathUtils.IsSame(file,target))continue;FileUtils.Delete(target,true);FileUtils.Copy(file,target);}
-            if(files.IsSingle())host.Hint($"已安装 {host.NewMod(files.First()).EnabledName}！",2,true);else host.Hint($"已安装 {files.Count()} 个 Mod！",2,true);
-            if(host.IsModPage())host.ForceFolderLoader(host.GameFolder(instance!)+@"mods\");
-        }catch(Exception error){Logger.Error(error,"复制 Mod 文件失败",LogBehavior.Alert);}}
+
+        void ConfirmInstall() {
+            if (!AllowModWrite(host) || (!modeConfirmed && !host.ConfirmMode("安装 Mod"))) return;
+            Logger.Info("文件为 jar/litemod 格式，尝试作为 Mod 安装");
+            if (paths.Any(path => path.Contains(@":\$RECYCLE.BIN\", StringComparison.OrdinalIgnoreCase))) {
+                host.Hint("请先将文件从回收站还原，再尝试安装！", 1, true);
+                return;
+            }
+            TInstance? instance = host.IsInstanceSetup() ? host.Instance() : host.GlobalInstance();
+            if (host.IsInstanceSelect() || instance is null || !host.Modable(instance)) {
+                host.Hint("若要安装 Mod，请先选择一个可以安装 Mod 的版本！", 0, true);
+                return;
+            }
+            string gameFolder = host.GameFolder(instance);
+            if (!host.IsModPage() && host.Message($"是否要将这{(paths.Length == 1 ? "个" : "些")}文件作为 Mod 安装到 {host.InstanceName(instance)}？",
+                "Mod 安装确认", "确定", "取消", false) != 1) return;
+            installation = (instance, gameFolder);
+        }
+
+        void CopyMods(TInstance instance, string gameFolder) {
+            if (!AllowModWrite(host)) return;
+            try {
+                string modsFolder = Path.Combine(gameFolder, "mods") + Path.DirectorySeparatorChar;
+                foreach (string path in paths) {
+                    if (!FileUtils.Exists(path)) throw new FileNotFoundException("要安装的 Mod 文件不存在。", path);
+                }
+                foreach (string path in paths) {
+                    string name = host.NewMod(path).EnabledName;
+                    if (!name.Contains('.')) name += ".jar";
+                    string target = Path.Combine(modsFolder, name);
+                    if (PathUtils.IsSame(path, target)) continue;
+                    FileUtils.Delete(target, true);
+                    FileUtils.Copy(path, target);
+                }
+                string hint = paths.Length == 1 ? $"已安装 {host.NewMod(paths[0]).EnabledName}！" : $"已安装 {paths.Length} 个 Mod！";
+                host.Dispatch(() => {
+                    host.Hint(hint, 2, true);
+                    if (ReferenceEquals(host.Instance(), instance) && host.IsModPage() && PathUtils.IsSame(host.GameFolder(instance), gameFolder))
+                        host.ForceFolderLoader(modsFolder);
+                });
+            } catch (Exception error) { Logger.Error(error, "复制 Mod 文件失败", LogBehavior.Alert); }
+        }
     }
     public void Download(){if(host.ModpackMode())return;host.NavigateDownload(host.Instance()!,view.Search());}
     public void CheckChanged(TItem item){if(host.AnimationControl()!=0)return;string key=host.Entry(item).StorageKey;if(host.Checked(item)){if(!host.Selected().Contains(key))host.Selected().Add(key);}else host.Selected().Remove(key);RefreshBars();}

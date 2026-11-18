@@ -63,6 +63,8 @@ public class PackUpdateChangeData<TFile> where TFile : PackUpdateFileData {
     public PackUpdateOwnership Ownership;
     public bool DisplayOnly, AllowAuthor = true;
     public PackUpdateChoice Choice;
+    public PackConfigMerge? ConfigurationMerge;
+    public HashSet<string>? AuthorConfigurationKeys;
     public List<string> Candidates = new();
     public bool CanChoose => !DisplayOnly && AllowAuthor && Ownership != PackUpdateOwnership.Ambiguous && (Conflict || AllowPreserveAuthor);
     public bool ApplyAuthor => !DisplayOnly && AllowAuthor && (!DisableAfterUpdate || Ownership is not (PackUpdateOwnership.Ambiguous or PackUpdateOwnership.Unknown)) && (!PreviewOnly || DisableAfterUpdate || Ownership == PackUpdateOwnership.Disabled && !KeepDisabled) &&
@@ -71,11 +73,15 @@ public class PackUpdateChangeData<TFile> where TFile : PackUpdateFileData {
     public string DestinationRelative => Operation == PackUpdateOperation.DisablePersonal ? DisabledDestination! :
         (Relative ?? "") + (Incoming is not null && (DisableAfterUpdate || Ownership == PackUpdateOwnership.Disabled && KeepDisabled) ? ".disabled" : "");
     public PackUpdateChangeData<TFile> SnapshotForPreview() {
-        var copy = (PackUpdateChangeData<TFile>)MemberwiseClone(); copy.Candidates = new(Candidates); return copy;
+        var copy = (PackUpdateChangeData<TFile>)MemberwiseClone();
+        copy.Candidates = new(Candidates);
+        if (AuthorConfigurationKeys is not null) copy.AuthorConfigurationKeys = new(AuthorConfigurationKeys, StringComparer.Ordinal);
+        return copy;
     }
 }
 public class PackUpdatePlanData<TPackage, TChange> where TPackage : class where TChange : class {
     public string? Root;
+    internal string? ConfigurationStage;
     public TPackage? Package;
     public List<TChange> Changes = new();
     // Unchanged author files remain outside the normal delta, but can be enabled/disabled explicitly in the preview.

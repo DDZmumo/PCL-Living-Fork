@@ -628,6 +628,9 @@ PCLCS/Minecraft/ModDependencyVersions.cs
 PCLCS/Minecraft/PackUpdateContracts.cs
 PCLCS/Minecraft/PackUpdateDependencySupplement.cs
 PCLCS/Minecraft/PackUpdateEngine.Baseline.cs
+PCLCS/Minecraft/PackConfigMerge.cs
+PCLCS/Minecraft/PackLineConfig.cs
+PCLCS/Minecraft/PackUpdateEngine.Configuration.cs
 PCLCS/Minecraft/PackUpdateEngine.Package.cs
 PCLCS/Minecraft/PackUpdateEngine.Personal.cs
 PCLCS/Minecraft/PackUpdateEngine.Plan.cs
@@ -638,6 +641,7 @@ PCLCS/Minecraft/PackUpdateFlowEngine.Execute.cs
 PCLCS/Minecraft/PackUpdateFlowEngine.cs
 PCLCS/Minecraft/PackUpdateModInspection.cs
 PCLCS/Minecraft/PackUpdateStages.cs
+PCLCS/Minecraft/LegacyJavaProcessGroup.cs
 PCLCS/Minecraft/PermanentResourceDeletion.cs
 PCLCS/Minecraft/PersonalOptionsCatalog.cs
 PCLCS/Minecraft/PersonalOptionsFiles.cs
@@ -786,6 +790,12 @@ modern/Main/Modules/Minecraft/ModDownloadDependencies.cs
 tests/PCLLF.Native.Facade.Tests/ModDownloadDependencyChecks.cs
 tests/PCLLF.Native.Facade.Tests/BackupPreferenceChecks.cs
 tests/PCLLF.Native.Facade.Tests/InstanceListScanChecks.cs
+PCLCS/Launch/ModKeybindPatch.cs
+modern/Java/ModKeybindPatch/Build.ps1
+modern/Java/ModKeybindPatch/src/Agent.java
+modern/Java/ModKeybindPatch/src/SaveTransformer.java
+modern/Java/ModKeybindPatch/src/KeybindWriter.java
+modern/Java/ModKeybindPatch/tests/KeybindWriterTest.java
 
 
 ========================================================================

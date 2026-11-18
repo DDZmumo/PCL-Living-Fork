@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using Newtonsoft.Json.Linq;
 using PCL;
 using PCLCS;
+using PCLLF.Presentation.Windowing;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -68,6 +69,7 @@ internal static class NativeModDownloadChecks {
             Native.Check(rejected&&File.Exists(failedOld)&&!File.Exists(Path.Combine(taskRoot,"missing-target.jar")),"A failed post-download task removed an existing mod or published a partial file.");
         } finally {LocalResourceLoaders.LocalResourceLoader.Output=before;PageInstanceLeft.Instance=previousInstance;}
         SelectedDeletion(environment);
+        DragInstall(environment);
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS native mod downloads: actual Main JAR parser and explicit version replacement, duplicate native rows/selection/filter and current-byte project proof; no live HTTP/game/account.");
     }
@@ -117,5 +119,79 @@ internal static class NativeModDownloadChecks {
             }
         } finally {LocalResourceLoaders.LocalResourceLoader.Output=previousOutput;PageInstanceLeft.Instance=previousInstance;}
         Console.WriteLine("PASS selected mod deletion: actual permanent delete of disabled-only, old-only, enabled-only and mixed selections; unselected bytes and exact inspection scope preserved.");
+    }
+
+    private static void DragInstall(FixtureEnvironment environment)
+    {
+        using var scope = new FileTaskScope(environment);
+        string root = Path.Combine(scope.Root, "drag-install");
+        var owner = BackupResourceChecks.Instance(Path.Combine(root, "game", "versions", "fixture"));
+        owner.Version = new McVersion("1.20.1", true);
+        owner.Version.ModLoaderVersions[ModLoaders.Fabric] = "0.16.1";
+        string mods = Path.Combine(owner.PathIndie, "mods");
+        string Jar(string name, string id) {
+            string path = Path.Combine(root, name);
+            using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+            using var writer = new StreamWriter(zip.CreateEntry("fabric.mod.json").Open());
+            writer.Write(new JObject { ["schemaVersion"] = 1, ["id"] = id, ["version"] = "1.0.0" }.ToString());
+            return path;
+        }
+        string incoming = Jar("drag.fixture.jar", "drag_fixture");
+        string disabled = Jar("drag.second.jar.disabled", "drag_second");
+
+        FormMain main = FileTaskShell.Install();
+        PageInstanceLeft.Instance = owner;
+        ModMain.FrmInstanceLeft = new PageInstanceLeft { PageID = FormMain.PageSubType.InstanceMod };
+        main.PageCurrent = FormMain.PageType.InstanceSetup;
+        Native.Check(main.PageCurrentSub == FormMain.PageSubType.InstanceMod, "The real WPF fixture did not select Mod management.");
+        var page = new PageInstanceMod();
+        object modPage = Native.Get(page, "Native")!;
+        object modHost = Native.Get(modPage, "host")!;
+        Task? drop = null;
+        int refreshes = 0, confirmations = 0;
+        bool expectConfirmation = false;
+        int uiThread = Environment.CurrentManagedThreadId;
+        Native.Set(modHost, "ConfirmMode", new Func<string, bool>(_ => {
+            Native.Check(Environment.CurrentManagedThreadId == uiThread, "Install confirmation policy ran off-thread.");
+            return true;
+        }));
+        var createMod = (Func<string, LocalResourceFile>)Native.Get(modHost, "NewMod")!;
+        Native.Set(modHost, "NewMod", new Func<string, LocalResourceFile>(path => {
+            Native.Check(Environment.CurrentManagedThreadId != uiThread, "The UI thread ran the Mod copy.");
+            return createMod(path);
+        }));
+        Native.Set(modHost, "ForceFolderLoader", new Action<string>(folder => {
+            Native.Check(Environment.CurrentManagedThreadId == uiThread && Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar) == mods,
+                "The post-install refresh ran off-thread or targeted a different instance.");
+            refreshes++;
+        }));
+        Native.Set(modHost, "Message", new Func<string, string, string, string, bool, int>((body, title, _, _, _) => {
+            Native.Check(expectConfirmation && Environment.CurrentManagedThreadId == uiThread && title == "Mod 安装确认" &&
+                body.Contains(owner.Name, StringComparison.Ordinal), "The drop confirmation used the wrong window thread or instance.");
+            confirmations++;
+            return 2;
+        }));
+        var host = (LegacyMainWindowHost<FormMain.PageStackData, ModMinecraft.McInstance, ModAnimation.AniData>)Native.Call(typeof(FormMain), "CreateWindowHost", main)!;
+        host.NewThread = (work, _, _) => drop = Task.Run(work);
+        host.InstallMods = files => (bool)Native.Call(modPage.GetType(), "Install", null, modHost, files, false)!;
+        host.CreateCrashAnalyzer = () => throw new InvalidOperationException("The recognized Mod fell through to crash-report import.");
+        var controller = new LegacyMainWindowController<FormMain.PageStackData, ModMinecraft.McInstance, ModAnimation.AniData>(new LegacyMainWindowView(), host);
+        void Drop(params string[] paths) {
+            controller.FileDrag(paths);
+            VisualAssetChecks.Pump(() => drop?.IsCompleted == true, "The background drag handler did not return.");
+            drop!.GetAwaiter().GetResult();
+        }
+        Drop(incoming, disabled);
+        VisualAssetChecks.Pump(() => refreshes == 1, "The Mod installation did not refresh its list.");
+        foreach (var (source, name) in new[] { (incoming, "drag.fixture.jar"), (disabled, "drag.second.jar") }) {
+            Native.Check(File.ReadAllBytes(Path.Combine(mods, name)).SequenceEqual(File.ReadAllBytes(source)),
+                "Dragged Mod bytes were not installed into the captured instance.");
+        }
+        expectConfirmation = true;
+        ModMain.FrmInstanceLeft.PageID = FormMain.PageSubType.InstanceOverall;
+        Drop(Jar("canceled.jar", "drag_canceled"));
+        Native.Check(confirmations == 1 && !File.Exists(Path.Combine(mods, "canceled.jar")) && refreshes == 1,
+            "Canceling a drop outside the Mod page installed a file or refreshed the loader.");
+        Console.WriteLine("PASS native Mod drag: real background FileDrag, owning STA sidebar, batch byte-for-byte installation, UI refresh and cancellation.");
     }
 }

@@ -8,6 +8,6 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
     /// common admission/configuration/file transaction, never the old execution boundary.</summary>
     internal IReadOnlyList<Tuple<string, string?, string?>> ManagedFileOperations(TPlan plan, CancellationToken token) {
         ValidateChoices(plan, token);
-        return BuildFileOperations(plan, token).ToArray();
+        return BuildFileOperations(plan, token, stageMergedConfigurations: true).ToArray();
     }
 }

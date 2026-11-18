@@ -47,7 +47,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
                 throw new IOException("普通内容不支持按相同字节跨路径替换：" + original + " / " + change.Relative);
         }
     }
-    private List<Tuple<string, string?, string?>> BuildFileOperations(TPlan plan, CancellationToken token) {
+    private List<Tuple<string, string?, string?>> BuildFileOperations(TPlan plan, CancellationToken token, bool stageMergedConfigurations = false) {
         List<Tuple<string, string?, string?>> operations = new();
         foreach (TChange change in PlanChanges(plan).Where(item => item.ApplyAuthor)) {
             token.ThrowIfCancellationRequested();
@@ -72,7 +72,9 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
             string fileName = Target(plan.Root!, change.DestinationRelative);
             string? targetBefore = plan.Snapshot.TryGetValue(change.DestinationRelative, out string? observed) ? observed : change.TargetBefore;
             if (!Same(Digest(fileName, token: token), targetBefore)) throw new IOException("文件已被其他程序修改，请重新检查更新：" + change.DestinationRelative);
-            operations.Add(Tuple.Create(fileName, change.Incoming.Payload, targetBefore));
+            string? payload = change.ConfigurationMerge is not null && stageMergedConfigurations
+                ? PrepareConfigurationPayload(plan, change) : change.Incoming.Payload;
+            operations.Add(Tuple.Create(fileName, payload, targetBefore));
             if (local is not null && !local.Equals(change.DestinationRelative, StringComparison.OrdinalIgnoreCase))
                 operations.Add(Tuple.Create(Target(plan.Root!, local), (string?)null, change.Before));
         }
@@ -98,14 +100,14 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         MmcInstanceCapabilities.RequireLegacy(versionFolder, "旧整合包更新");
         token.ThrowIfCancellationRequested();
         ValidateChoices(plan, token);
-        var operations = BuildFileOperations(plan, token);
+        var operations = BuildFileOperations(plan, token, stageMergedConfigurations: true);
         if (extraFiles is not null) foreach (var pair in extraFiles)
             operations.Add(Tuple.Create(Target(versionFolder, pair.Key), (string?)pair.Value, Digest(Target(versionFolder, pair.Key))));
         string box = Target(versionFolder, "PCL/PackUpdateBackups/" + Guid.NewGuid().ToString("N") + "/transaction.json");
         Directory.CreateDirectory(Path.GetDirectoryName(box)!);
         string statePayload = Path.Combine(Path.GetDirectoryName(box)!, "next-manifest.json");
         JObject nextManifest = BuildNextManifest(plan, token);
-        File.WriteAllText(statePayload, nextManifest.ToString());
+        File.WriteAllBytes(statePayload, SerializeManifest(nextManifest));
         string statePath = Target(versionFolder, ManifestName);
         operations.Add(Tuple.Create(statePath, (string?)statePayload, Digest(statePath)));
         return ApplyTransactionWithProgress(plan.Root!, versionFolder, operations, token, progress, beforeApply, box);

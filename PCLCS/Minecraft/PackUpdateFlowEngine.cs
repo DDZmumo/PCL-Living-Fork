@@ -55,8 +55,8 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
         return result!;
     }
     private TPackage? DownloadRecordedOriginal(JObject baseline, string stage, CancellationToken token, TProgress progress) {
-        // A filtered schema-1 inventory is rebuilt only from its exact recorded original.
-        if (baseline["schema"]?.Type != JTokenType.Integer || baseline["schema"]!.ToString() != "1" ||
+        // Recover only the exact package file recorded for this instance.
+        if (baseline["schema"]?.Type != JTokenType.Integer || baseline["schema"]!.ToString() is not ("1" or "2") ||
             baseline["source"] is not JObject source || !Enum.TryParse(source["platform"]?.ToString(), out ResourcePlatforms platform) ||
             platform is not (ResourcePlatforms.Modrinth or ResourcePlatforms.CurseForge)) return null;
         string projectId = source["project"]?.ToString() ?? "", versionId = source["version"]?.ToString() ?? "";

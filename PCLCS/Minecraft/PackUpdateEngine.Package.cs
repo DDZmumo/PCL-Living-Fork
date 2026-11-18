@@ -22,6 +22,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
     where TFile : PackUpdateFileData where TPackage : PackUpdatePackageData<TFile>
     where TChange : PackUpdateChangeData<TFile> where TPlan : PackUpdatePlanData<TPackage, TChange> {
     public const string ManifestName = "PCL/ModpackOrigin.json";
+    private const int MaximumManifestBytes = 16 * 1024 * 1024;
     private readonly PackUpdateHost<TFile, TPackage, TChange, TPlan, TNetFile> host;
     public PackUpdateEngine(PackUpdateHost<TFile, TPackage, TChange, TPlan, TNetFile> host) { this.host = host; }
     private static bool Same(string? left, string? right) => (left ?? "") == (right ?? "");
@@ -45,7 +46,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         algorithm = HashAlgorithmName(algorithm);
         if (!File.Exists(fileName)) return null;
         using (Stream input = File.OpenRead(fileName))
-        using (HashAlgorithm hasher = algorithm switch { "md5" => MD5.Create(), "sha1" => SHA1.Create(), "sha256" => SHA256.Create(), "sha512" => SHA512.Create(), _ => throw new IOException("不支持的整合包校验算法。") }) {
+        using (HashAlgorithm hasher = CreateHashAlgorithm(algorithm)) {
             byte[] buffer = new byte[64 * 1024];
             while (true) {
                 token.ThrowIfCancellationRequested();
@@ -60,6 +61,10 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
             return algorithm + ":" + BitConverter.ToString(hasher.Hash!).Replace("-", "").ToLowerInvariant();
         }
     }
+    private static HashAlgorithm CreateHashAlgorithm(string algorithm) => algorithm switch {
+        "md5" => MD5.Create(), "sha1" => SHA1.Create(), "sha256" => SHA256.Create(), "sha512" => SHA512.Create(),
+        _ => throw new IOException("不支持的整合包校验算法。")
+    };
     private static string HashAlgorithmName(string algorithm) {
         string value = algorithm.ToLowerInvariant();
         if (!new[] { "md5", "sha1", "sha256", "sha512" }.Contains(value)) throw new IOException("不支持的整合包校验算法：" + algorithm);
@@ -215,17 +220,27 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         if (package.Files.ContainsKey(value.Relative!)) throw new IOException("整合包包含重复路径：" + value.Relative);
         package.Files.Add(value.Relative!, value);
     }
-    public static JObject Manifest(TPackage package) {
+    public static JObject Manifest(TPackage package, Func<TFile, string?>? installed = null) {
         JObject files = new();
         foreach (TFile item in package.Files.Values) files[RelativePath(item.Relative!)] = new JObject(new JProperty("hash", NormalizeHash(item.Hash ?? "")), new JProperty("identity", item.Identity),
             new JProperty("fileIdentity", item.FileIdentity), new JProperty("optional", item.OptionalFile), new JProperty("state", "declared"));
+        CaptureOriginalConfigurations(package, files, installed);
         return new JObject(new JProperty("schema", 2), new JProperty("complete", true), new JProperty("associationPolicyVersion", 2), new JProperty("name", package.Name), new JProperty("version", package.Version), new JProperty("minecraft", package.Minecraft),
             new JProperty("loaders", JObject.FromObject(package.Loaders)), new JProperty("files", files), new JProperty("source", package.Source));
+    }
+    internal static byte[] SerializeManifest(JObject manifest) {
+        byte[] bytes = Encoding.UTF8.GetBytes(manifest.ToString());
+        if (bytes.Length <= MaximumManifestBytes) return bytes;
+        foreach (var file in ((JObject)manifest["files"]!).Properties())
+            ((JObject)file.Value).Remove(OriginalConfiguration);
+        bytes = Encoding.UTF8.GetBytes(manifest.ToString());
+        if (bytes.Length > MaximumManifestBytes) throw new IOException("整合包作者清单过大。");
+        return bytes;
     }
     public JObject? ReadManifest(string versionFolder) {
         string fileName = Target(versionFolder, ManifestName);
         if (!File.Exists(fileName)) return null;
-        if (new FileInfo(fileName).Length > 16 * 1024 * 1024) throw new IOException("整合包作者清单过大。");
+        if (new FileInfo(fileName).Length > MaximumManifestBytes) throw new IOException("整合包作者清单过大。");
         JObject result = JObject.Parse(File.ReadAllText(fileName));
         string? schema = result["schema"]?.Type == JTokenType.Integer ? result["schema"]!.ToString() : null;
         if ((schema != "1" && schema != "2") || result["files"] is not JObject files) throw new IOException("不支持此版本的整合包作者清单。");
@@ -312,9 +327,9 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         try {
             TPackage package = ReadPackage(archivePath, stage, CancellationToken.None); package.Source = source;
             string root = host.InstanceGameRoot(versionFolder);
-            JObject manifest = Manifest(package);
+            JObject manifest = Manifest(package, file => Target(root, file.Relative!));
             foreach (JProperty entry in ((JObject)manifest["files"]!).Properties()) ObserveInstalledFile(root, entry.Name, (JObject)entry.Value);
-            host.AtomicWrite(Target(versionFolder, ManifestName), Encoding.UTF8.GetBytes(manifest.ToString()));
+            host.AtomicWrite(Target(versionFolder, ManifestName), SerializeManifest(manifest));
         } catch (Exception ex) { host.Warn(ex, "整合包已安装，但记录作者文件清单失败；更新时可重新提供原始整合包"); }
     }
 }
