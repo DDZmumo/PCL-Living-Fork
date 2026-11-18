@@ -57,11 +57,18 @@ NeoForge 的规则依据[旧声明格式](https://docs.neoforged.net/docs/1.20.4
 
 模组文件保持只读，检查结果写入本机索引缓存。检查不执行 JAR 中的代码，不自动切换加载器或删除模组。本地扫描与回归通过不能代替实际游戏启动验证。
 
-## NeoForge 1.21.1 模组键位保护
+## Minecraft 1.21 系列模组键位保护
 
-PCL 启动 Minecraft 1.21.1 与 NeoForge 21.1.x 时会应用内置键位保护。若游戏在加载完玩家键位前保存 `options.txt`，修补会把原有键位保留到 NeoForge 重读键位为止，随后恢复正常保存。玩家直接通过 PCL 启动即可，实例的 `mods` 目录无须另外安装文件。
+如果游戏在读入玩家键位前保存 `options.txt`，PCL 会保留原有键位，等加载器重读键位后恢复正常保存。若旧测试版留下了重复的键位行，启动时会保留每个键位最后一条记录。玩家通过 PCL 启动即可，无须安装额外 Mod。
 
-修补以 NeoForge 提供的 ASM 为编译和运行依赖，发布的 JAR 只包含 PCLLF 的修补代码。源码和使用 Java 21 重建 JAR 的脚本在 `modern/Java/NeoForgeKeybindPatch`。Minecraft 1.21.5 的相关加载顺序已由 [NeoForge #2049](https://github.com/neoforged/NeoForge/pull/2049) 调整。
+| 加载器 | 自动保护范围 |
+| --- | --- |
+| NeoForge | Minecraft 1.21 到 1.21.4 的 21.0.x–21.4.x |
+| Forge | Minecraft 1.21、1.21.1、1.21.3、1.21.4 的对应 Forge 分支，以及 Minecraft 1.21.5 中早于 55.0.20 的 Forge |
+
+NeoForge 在 Minecraft 1.21.5 调整了加载顺序，Forge 55.0.20 已包含该启动问题的上游修复。[NeoForge #2049](https://github.com/neoforged/NeoForge/pull/2049) · [Forge #10531](https://github.com/MinecraftForge/MinecraftForge/issues/10531)。
+
+补丁使用加载器提供的 ASM。源码和 Java 21 重建脚本位于 `modern/Java/ModKeybindPatch`。
 
 ## 验证
 

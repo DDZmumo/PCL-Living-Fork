@@ -25,7 +25,7 @@
       Link="%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../PCLCS/Launch/JavaWrapper.jar" LogicalName="Launch\JavaWrapper.jar" />
     <EmbeddedResource Include="../../PCLCS/Launch/LwjglUnsafeAgent.jar" LogicalName="Launch\LwjglUnsafeAgent.jar" />
-    <EmbeddedResource Include="../../PCLCS/Launch/NeoForgeKeybindPatch.jar" LogicalName="Launch\NeoForgeKeybindPatch.jar" />
+    <EmbeddedResource Include="../../PCLCS/Launch/ModKeybindPatch.jar" LogicalName="Launch\ModKeybindPatch.jar" />
     <EmbeddedResource Include="../../PCLCS/Resource/WikiEntries.txt" LogicalName="Resource\WikiEntries.txt" />
     <EmbeddedResource Include="../../PCLCS/Minecraft/OptifineHashes.json" LogicalName="Minecraft\OptiFineHashes.json" />
   </ItemGroup>

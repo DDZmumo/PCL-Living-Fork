@@ -62,11 +62,11 @@ public static partial class MmcRuntimeLaunchBuilder {
         var mutable = DescribeMutablePaths(currentPaths, request);
         // The native JVM agent opener needs a short path. Use the owned session
         // directory that already accommodates the native loaders.
-        string keybindPath = Path.Combine(mutable.SessionRoot, NeoForgeKeybindPatch.FileName);
+        string keybindPath = Path.Combine(mutable.SessionRoot, ModKeybindPatch.FileName);
         ReadOnlyMemory<byte> keybindPatch = default;
-        if (NeoForgeKeybindPatch.Applies(compiled, request.Java.Major) && NeoForgeKeybindPatch.CanUsePath(keybindPath)) {
-            try { keybindPatch = NeoForgeKeybindPatch.SupportBytes(); }
-            catch (IOException error) { Logger.Warn(error, "未能读取 NeoForge 1.21.1 模组键位保护"); }
+        if (ModKeybindPatch.Applies(compiled, request.Java.Major) && ModKeybindPatch.CanUsePath(keybindPath)) {
+            try { keybindPatch = ModKeybindPatch.SupportBytes(); }
+            catch (IOException error) { Logger.Warn(error, "未能读取模组键位保护"); }
         }
         ImmutableArray<string> classpath = compiled.Classpath.Select(a => targets[a.Key].ActualPath).ToImmutableArray();
         // Targets/observations stay absolute. Only the Java representation is relative
@@ -86,7 +86,7 @@ public static partial class MmcRuntimeLaunchBuilder {
         var authentication = await AuthenticationArgumentsAsync(request, view, mutable, inputs, logicalJvm.Select(a => a.Actual).ToArray(), cancellationToken).ConfigureAwait(false);
         logicalJvm.AddRange(authentication.Arguments);
         if (!keybindPatch.IsEmpty) {
-            string argument = "-javaagent:" + MmcRuntimeFiles.JavaPath(keybindPath);
+            string argument = ModKeybindPatch.Argument(keybindPath, currentPaths.GameRoot);
             logicalJvm.Add(new(argument, argument));
         }
         foreach (var property in new[] {
@@ -137,8 +137,8 @@ public static partial class MmcRuntimeLaunchBuilder {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateMutableOwner(request, mutable);
                 MmcDurableFiles.WriteNew(keybindPath, keybindPatch.Span);
-                inputs.Add(MmcRuntimeFiles.Observe("support:neoforge-keybinds", keybindPath,
-                    NeoForgeKeybindPatch.Sha256, keybindPatch.Length, cancellationToken));
+                inputs.Add(MmcRuntimeFiles.Observe("support:mod-keybinds", keybindPath,
+                    ModKeybindPatch.Sha256, keybindPatch.Length, cancellationToken));
             }
         }
         catch {

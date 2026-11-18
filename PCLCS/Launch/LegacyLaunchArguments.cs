@@ -195,17 +195,17 @@ public List<string> McLaunchArgumentsJVM()
 
         var gameVersion = McInstanceSelected.Version;
         if (CurrentLaunchOptions?.SaveBatch is null && gameVersion.Reliable &&
-            gameVersion.ModLoaderVersions.TryGetValue(ModLoaders.NeoForge, out var neoForgeVersion) &&
-            NeoForgeKeybindPatch.Applies(gameVersion.VanillaName, neoForgeVersion, McLaunchJavaSelected.Version.Major))
+            gameVersion.ModLoaderVersions.Any(loader =>
+                ModKeybindPatch.Applies(loader.Key, gameVersion.VanillaName, loader.Value, McLaunchJavaSelected.Version.Major)))
         {
             try
             {
-                string agent = NeoForgeKeybindPatch.StageLegacy(host.PureFolder());
-                Args.Add($"\"-javaagent:{agent}\"");
+                string agent = ModKeybindPatch.StageLegacy(host.PureFolder());
+                Args.Add($"\"{ModKeybindPatch.Argument(agent, McInstanceSelected.PathIndie)}\"");
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                Logger.Warn(error, "未能应用 NeoForge 1.21.1 模组键位保护");
+                Logger.Warn(error, "未能应用模组键位保护");
             }
         }
 

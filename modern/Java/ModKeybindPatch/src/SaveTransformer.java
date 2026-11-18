@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-package org.pcllf.neoforgekeys;
+package org.pcllf.keybinds;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
@@ -31,7 +31,7 @@ final class SaveTransformer implements ClassFileTransformer {
     private static final String PRINT_WRITER = "java/io/PrintWriter";
     private static final String STREAM_WRITER = "java/io/OutputStreamWriter";
     private static final String FILE_STREAM = "java/io/FileOutputStream";
-    private static final String WRITER = "org/pcllf/neoforgekeys/io/KeybindWriter";
+    private static final String WRITER = "org/pcllf/keybinds/io/KeybindWriter";
     private final Instrumentation instrumentation;
     Module writerModule;
 
@@ -49,12 +49,12 @@ final class SaveTransformer implements ClassFileTransformer {
         try {
             byte[] changed = rewrite(original);
             if (changed == null) {
-                System.err.println("[PCLLF-KEYBINDS] Unrecognized Options.save writer; compatibility patch skipped.");
+                System.err.println("[PCLLF-KEYBINDS] No supported early-save pattern detected.");
                 return null;
             }
             if (!module.canRead(writerModule))
                 instrumentation.redefineModule(module, Set.of(writerModule), Map.of(), Map.of(), Set.of(), Map.of());
-            System.out.println("[PCLLF-KEYBINDS] NeoForge 1.21.1 keybind preservation enabled.");
+            System.out.println("[PCLLF-KEYBINDS] Startup keybind preservation enabled.");
             return changed;
         } catch (RuntimeException | LinkageError error) {
             System.err.println("[PCLLF-KEYBINDS] Compatibility patch skipped: " + error.getClass().getSimpleName());
@@ -67,6 +67,9 @@ final class SaveTransformer implements ClassFileTransformer {
         var type = new ClassNode(Opcodes.ASM9);
         input.accept(type, 0);
         if (!OPTIONS.equals(type.name)) return null;
+        // Forge's upstream fix keeps the unmapped keys through startup.
+        if (type.fields.stream().anyMatch(field -> "unknownKeys".equals(field.name) &&
+                "Ljava/util/Map;".equals(field.desc))) return null;
         MethodNode lateLoad = type.methods.stream().filter(method -> "load".equals(method.name) && "(Z)V".equals(method.desc) &&
             (method.access & (Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0).findFirst().orElse(null);
         if (lateLoad == null || lateLoad.instructions.size() == 0) return null;

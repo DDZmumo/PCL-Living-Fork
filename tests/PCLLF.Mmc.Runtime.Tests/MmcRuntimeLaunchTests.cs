@@ -24,7 +24,7 @@ internal static partial class MmcRuntimeLaunchTests {
         yield return ("MMC launch plan applies the package environment mapping at the real process boundary", EnvironmentBoundary);
         yield return ("MMC package wrapper composes with each Java wrapper mode at the real process boundary", WrapperCommandBoundary);
         yield return ("MMC wrapped launch places the inner Java session nonce after innerEntry and enforces the Windows 32767 budget", WrapperNonceBudget);
-        yield return ("NeoForge 1.21.1 keybind patch is included only as verified, owned JVM support", KeybindPatchSupport);
+        yield return ("Affected Forge and NeoForge clients receive verified, owned keybind patch support", KeybindPatchSupport);
     }
     private static void BridgeIdentity() {
         byte[] bytes = MmcRuntimeBridgeTransport.CreateJarBytes();
@@ -32,26 +32,54 @@ internal static partial class MmcRuntimeLaunchTests {
         if (digest != MmcRuntimeBridgeTransport.JarSha256() || !MmcRuntimeBridgeTransport.JavaSource.Contains("getSystemClassLoader", StringComparison.Ordinal)) throw new Exception("Bridge identity/source missing.");
     }
     private static void KeybindPatchSupport() {
-        Require(NeoForgeKeybindPatch.Applies("1.21.1", "21.1.243", 21) &&
-            !NeoForgeKeybindPatch.Applies("1.21.5", "21.5.1", 21) &&
-            !NeoForgeKeybindPatch.Applies("1.21.1", "21.1.243", 17) &&
-            !NeoForgeKeybindPatch.Applies("1.21.1", "47.4.0", 21), "The ordinary launch version gate is too broad.");
+        var versions = new (ModLoaders Loader, string Minecraft, string LoaderVersion, int Java, bool Enabled)[] {
+            (ModLoaders.NeoForge, "1.21", "21.0.167", 21, true),
+            (ModLoaders.NeoForge, "1.21.1", "21.1.243", 21, true),
+            (ModLoaders.NeoForge, "1.21.2", "21.2.1-beta", 21, true),
+            (ModLoaders.NeoForge, "1.21.3", "21.3.100", 21, true),
+            (ModLoaders.NeoForge, "1.21.4", "21.4.161", 21, true),
+            (ModLoaders.NeoForge, "1.21.5", "21.5.101", 21, false),
+            (ModLoaders.NeoForge, "1.21.1", "21.1.243", 17, false),
+            (ModLoaders.NeoForge, "1.21.3", "21.4.161", 21, false),
+            (ModLoaders.Forge, "1.21", "51.0.33", 21, true),
+            (ModLoaders.Forge, "1.21.1", "52.1.16", 21, true),
+            (ModLoaders.Forge, "1.21.3", "53.1.16", 21, true),
+            (ModLoaders.Forge, "1.21.4", "54.1.22", 21, true),
+            (ModLoaders.Forge, "1.21.5", "55.0.19", 21, true),
+            (ModLoaders.Forge, "1.21.5", "55.0.20", 21, false),
+            (ModLoaders.Forge, "1.20.1", "47.4.0", 21, false),
+            (ModLoaders.Fabric, "1.21.1", "21.1.243", 21, false)
+        };
+        foreach (var version in versions) {
+            Require(ModKeybindPatch.Applies(version.Loader, version.Minecraft, version.LoaderVersion, version.Java) == version.Enabled,
+                "Unexpected keybind protection for " + version.Loader + " " + version.Minecraft + "/" + version.LoaderVersion + ".");
+        }
         using var fixture = new Fixture(21, loader: false, wrapperMode: MmcRuntimeWrapperMode.DirectMain, neoForgeProfile: true);
         var request = fixture.Request;
-        Require(NeoForgeKeybindPatch.Applies(request.BoundPlan.CompiledProfile, request.Java.Major), "The bound NeoForge profile was not recognized.");
-        string legacy = NeoForgeKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache"));
-        Require(Hash(File.ReadAllBytes(legacy)) == NeoForgeKeybindPatch.Sha256, "Legacy staged bytes did not match the embedded patch.");
+        var profile = request.BoundPlan.CompiledProfile;
+        Require(ModKeybindPatch.Applies(profile, request.Java.Major), "The bound NeoForge profile was not recognized.");
+        var forge = profile with { MinecraftVersion = "1.21.5", MainClass = "net.minecraftforge.bootstrap.ForgeBootstrap" };
+        var artifact = profile.Classpath[0];
+        Require(ModKeybindPatch.Applies(forge with { Classpath = [artifact with {
+                Coordinate = new("net.minecraftforge", "forge", "1.21.5-55.0.3", "universal", "jar")
+            }] }, request.Java.Major) &&
+            !ModKeybindPatch.Applies(forge with { Classpath = [artifact with {
+                Coordinate = new("net.minecraftforge", "forge", "1.21.5-55.0.20", "universal", "jar")
+            }] }, request.Java.Major), "Forge Bootstrap must match the installed loader artifact and respect its fixed release.");
+        string legacy = ModKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache"));
+        Require(Hash(File.ReadAllBytes(legacy)) == ModKeybindPatch.Sha256, "Legacy staged bytes did not match the embedded patch.");
         File.WriteAllText(legacy, "damaged cache");
-        Require(NeoForgeKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache")) == legacy &&
-            Hash(File.ReadAllBytes(legacy)) == NeoForgeKeybindPatch.Sha256, "A stale cache could be loaded as a Java agent.");
-        Require(NeoForgeKeybindPatch.CanUsePath(legacy) && !NeoForgeKeybindPatch.CanUsePath(legacy + "=suffix"),
+        Require(ModKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache")) == legacy &&
+            Hash(File.ReadAllBytes(legacy)) == ModKeybindPatch.Sha256, "A stale cache could be loaded as a Java agent.");
+        Require(ModKeybindPatch.CanUsePath(legacy) && !ModKeybindPatch.CanUsePath(legacy + "=suffix"),
             "A path with the agent options separator was admitted.");
 
         var plan = MmcRuntimeLaunchBuilder.BuildAsync(request).GetAwaiter().GetResult();
-        string support = Path.Combine(plan.MutableDirectories.SessionRoot, NeoForgeKeybindPatch.FileName);
-        Require(plan.Inputs.Any(input => input.Identity == "support:neoforge-keybinds" &&
-                input.Sha256 == NeoForgeKeybindPatch.Sha256 && input.ActualPath == support) &&
-            NeoForgeKeybindPatch.CanUsePath(support) && plan.LogicalJvmArguments.Contains("-javaagent:" + support.Replace('\\', '/')),
+        string support = Path.Combine(plan.MutableDirectories.SessionRoot, ModKeybindPatch.FileName);
+        string options = Path.Combine(request.Paths.GameRoot, "options.txt").Replace('\\', '/');
+        Require(plan.Inputs.Any(input => input.Identity == "support:mod-keybinds" &&
+                input.Sha256 == ModKeybindPatch.Sha256 && input.ActualPath == support) &&
+            ModKeybindPatch.CanUsePath(support) && plan.LogicalJvmArguments.Contains("-javaagent:" + support.Replace('\\', '/') + "=" + options),
             "The verified patch did not survive into the JVM arguments and final input observations.");
         MmcRuntimeLaunchBuilder.RevalidateFilesAsync(plan).GetAwaiter().GetResult();
         File.AppendAllText(support, "changed after launch plan");
