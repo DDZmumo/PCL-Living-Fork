@@ -94,6 +94,7 @@ namespace PCL
                 InspectImpacts = global::PCL.LocalModPageRuntime.InspectImpacts,
                 InspectDetails = global::PCL.LocalModPageRuntime.InspectDetails,
                 Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
+                DispatchWait = ModBase.RunInUiWait,
                 Background = new Action<global::System.Action, global::System.String, global::System.Threading.ThreadPriority>((Work, Name, Priority) => global::PCL.ModBase.RunInNewThread(Work, Name, Priority)),
                 NewItem = new Func<global::PCL.LocalResourceFile, global::System.Boolean, global::PCL.MyLocalModItem>((Entry, Selected) => Owner.CreateItem(Entry, Selected)),
                 BindUpdate = global::PCL.LocalModPageRuntime.BindUpdate,
