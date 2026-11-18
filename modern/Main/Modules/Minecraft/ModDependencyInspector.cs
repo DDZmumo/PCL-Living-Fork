@@ -167,6 +167,43 @@ namespace PCL
         {
             return InspectionCore.Inspect(ModsFolder, Context, Token);
         }
+
+        internal static IReadOnlyList<ModUpdateDependencyFinding> FindNewUpdateProblems(string modsFolder, InspectionContext context,
+            IReadOnlyDictionary<string, string> replacements, CancellationToken token)
+        {
+            var before = Inspect(modsFolder, context, token);
+            var replaced = replacements.Keys.Select(FilePathKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var originalByStagedPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var after = new InspectionReport {
+                Context = context, Builtins = before.Builtins, MetadataIncomplete = before.MetadataIncomplete
+            };
+            after.Mods.AddRange(before.Mods.Where(mod => !replaced.Contains(FilePathKey(mod.RootPath)))
+                .Select(mod => mod.CopyWithEnabled(mod.Enabled)));
+            foreach (var (original, staged) in replacements) {
+                token.ThrowIfCancellationRequested();
+                var stagedReport = ReadSingleArchive(staged, context, token);
+                originalByStagedPath.Add(FilePathKey(staged), FilePathKey(original));
+                after.Mods.AddRange(stagedReport.Mods);
+                after.MetadataIncomplete |= stagedReport.MetadataIncomplete;
+            }
+            BuildReport(after, token);
+
+            static bool IsRequiredProblem(InspectionIssue issue) => issue.Requirement?.KindValue == ModDependencyKind.Required &&
+                issue.KindValue is ModDependencyIssueKind.MissingRequired or ModDependencyIssueKind.VersionMismatch;
+            var previous = before.Issues.Where(IsRequiredProblem).Select(issue => Key(issue, false)).ToHashSet();
+            return after.Issues.Where(issue => IsRequiredProblem(issue) && !previous.Contains(Key(issue, true)))
+                // With incomplete metadata, only surface a new requirement on
+                // an updated top-level mod. A partially read peer may provide it.
+                .Where(issue => issue.IsError || !issue.Owner.IsNested && originalByStagedPath.ContainsKey(FilePathKey(issue.Owner.RootPath)))
+                .Select(issue => new ModUpdateDependencyFinding(issue.Message, issue.IsError)).Distinct().ToList();
+
+            (string Path, string ModId, ModDependencyIssueKind Kind, string Requirement) Key(InspectionIssue issue, bool staged)
+            {
+                string path = FilePathKey(issue.Owner.RootPath);
+                if (staged && originalByStagedPath.TryGetValue(path, out string original)) path = original;
+                return (path.ToUpperInvariant(), issue.Owner.Id, issue.KindValue, issue.Requirement.Display);
+            }
+        }
         internal static Dictionary<string, string> Identities(ModInfo Item)
         {
             return InspectionCore.Identities(Item);

@@ -91,7 +91,8 @@ public sealed class LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDo
     public Action<TInstance,string> NavigateDownload = null!;
     public Action<TProject> NavigateDetails = null!;
     public Func<TVersion,string,TDownload> ToNetFile = null!;
-    public Func<Func<string>,List<TDownload>,double,Action,LegacyModUpdateJob> CreateUpdateJob = null!;
+    public Func<Func<string>,List<TDownload>,double,Action<CancellationToken>,LegacyModUpdateJob> CreateUpdateJob = null!;
+    public Func<TInstance,IReadOnlyDictionary<string,string>,CancellationToken,IReadOnlyList<ModUpdateDependencyFinding>> CheckUpdateDependencies = null!;
     public Action<TInstance,string,CancellationToken> CaptureHistory = null!;
     public Action RefreshDownloadButton = null!, RibbleDownloadButton = null!;
     public Func<long,string> FormatSize = null!;

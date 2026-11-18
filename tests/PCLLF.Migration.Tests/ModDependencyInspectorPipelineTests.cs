@@ -16,6 +16,7 @@ internal static class ModDependencyInspectorPipelineTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("mod inspector pipeline parses real Fabric aliases sides and disabled files into reversible dependency impacts", FabricGraph);
         yield return ("mod inspector pipeline preserves Forge manifest TOML optional checks and Quilt compound declarations", TextDeclarations);
+        yield return ("mod inspector reads modern FML library bundles and auxiliary dependency tables without marking known declarations incomplete", FmlLibraries);
         yield return ("mod inspector pipeline tracks real nested providers external alternatives and cyclic removal chains", NestedAndCycles);
         yield return ("mod inspector pipeline distinguishes unknown predicates from required mismatches and hard or soft conflicts", VersionsAndConflicts);
         yield return ("mod inspector pipeline keeps partial metadata conservative without hiding definite versions or changing files", ReliabilityAndReadOnly);
@@ -26,6 +27,64 @@ internal static class ModDependencyInspectorPipelineTests {
         Context context = new() { MinecraftVersion = "1.20.1", JavaVersion = "17.0.9", LoaderKnown = true };
         context.LoaderVersions[loader] = version;
         return context;
+    }
+
+    private static void FmlLibraries() {
+        using var fixture = new Fixture();
+        string mods = fixture.Folder("fml-libraries");
+        var context = EnvironmentFor("neoforge", "21.1.265");
+        context.MinecraftVersion = "1.21.1";
+        context.AdditionalBuiltins["javafml"] = "4.0";
+        string metadata = """
+            modLoader="javafml"
+            loaderVersion="[4,)"
+            [[mods]]
+            modId="consumer"
+            version="2.0.0"
+            [[dependencies.consumer]]
+            modId="required_lib"
+            type="required"
+            versionRange="[1.1,2)"
+            [dependencies.consumer.distribution]
+            "example.source"="publisher metadata"
+            [[dependencies.consumer.channels]]
+            modId="not_a_dependency"
+            """;
+        byte[] Jar(IReadOnlyDictionary<string, byte[]> entries) {
+            using var stream = new MemoryStream();
+            WriteArchive(stream, entries);
+            return stream.ToArray();
+        }
+        var plainLibrary = Jar(new Dictionary<string, byte[]> { ["META-INF/MANIFEST.MF"] = Utf8.GetBytes("Manifest-Version: 1.0\r\n\r\n") });
+        fixture.Jar(mods, "consumer.jar", new Dictionary<string, byte[]> {
+            ["META-INF/neoforge.mods.toml"] = Utf8.GetBytes(metadata),
+            ["META-INF/jarjar/metadata.json"] = Utf8.GetBytes("""{"jars":[{"path":"META-INF/jarjar/plain.jar"}]}"""),
+            ["META-INF/jarjar/plain.jar"] = plainLibrary
+        });
+        Report missing = Inspector.Inspect(mods, context);
+        Equal(false, missing.MetadataIncomplete);
+        var issue = Issues(missing, ModDependencyIssueKind.MissingRequired).Single();
+        Equal("required_lib", issue.Requirement.Id);
+        Equal(true, issue.IsError);
+
+        byte[] embedded = Jar(new Dictionary<string, byte[]> {
+            ["META-INF/neoforge.mods.toml"] = Utf8.GetBytes("modLoader=\"javafml\"\nloaderVersion=\"[4,)\"\n[[mods]]\nmodId=\"required_lib\"\nversion=\"1.2.0\"\n")
+        });
+        fixture.Jar(mods, "library-bundle.jar", new Dictionary<string, byte[]> {
+            ["META-INF/MANIFEST.MF"] = Utf8.GetBytes("Manifest-Version: 1.0\r\nFMLModType: LIBRARY\r\n\r\n"),
+            ["META-INF/jarjar/metadata.json"] = Utf8.GetBytes("""{"jars":[{"path":"META-INF/jarjar/provider.jar"}]}"""),
+            ["META-INF/jarjar/provider.jar"] = embedded
+        });
+        Report supplied = Inspector.Inspect(mods, context);
+        Equal(false, supplied.MetadataIncomplete);
+        Equal(false, supplied.HasErrors);
+        Equal(true, supplied.Mods.Single(mod => mod.Id == "required_lib").IsNested);
+
+        fixture.Jar(mods, "damaged-bundle.jar", new Dictionary<string, byte[]> {
+            ["META-INF/MANIFEST.MF"] = Utf8.GetBytes("Manifest-Version: 1.0\r\nFMLModType: LIBRARY\r\n\r\n"),
+            ["META-INF/jarjar/metadata.json"] = Utf8.GetBytes("""{"jars":[{"path":"META-INF/jarjar/not-present.jar"}]}""")
+        });
+        Equal(true, Inspector.Inspect(mods, context).MetadataIncomplete);
     }
     private static Issue[] Issues(Report report, ModDependencyIssueKind kind, string? owner = null) =>
         report.Issues.Where(item => item.KindValue == kind && (owner is null || item.Owner.Id == owner)).ToArray();

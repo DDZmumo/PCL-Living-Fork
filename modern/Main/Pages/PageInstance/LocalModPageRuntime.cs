@@ -115,6 +115,8 @@ namespace PCL
                 NavigateDetails = global::PCL.LocalModPageRuntime.NavigateDetails,
                 ToNetFile = new Func<global::PCL.ResourceVersion, global::System.String, global::PCL.ModNet.NetFile>((Value, Address) => Value.ToNetFile(Address, global::PCL.ResourceVersion.DownloadReason.Update, global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders)),
                 CreateUpdateJob = global::PCL.LocalModPageRuntime.CreateUpdateJob,
+                CheckUpdateDependencies = (instance, replacements, token) => ModDependencyInspector.FindNewUpdateProblems(
+                    Path.Combine(instance.PathIndie, "mods"), ModDependencyInspector.ContextForInstance(instance), replacements, token),
                 CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Caption, Token)),
                 RefreshDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
                 RibbleDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
@@ -175,9 +177,12 @@ namespace PCL
                 Additional = new object[] { Project, new global::System.Collections.Generic.List<global::System.String>(), global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders, global::PCLCS.ResourceTypes.Mod }
             });
         }
-        private static global::PCLLF.Presentation.Mods.LegacyModUpdateJob CreateUpdateJob(global::System.Func<global::System.String> Name, global::System.Collections.Generic.List<global::PCL.ModNet.NetFile> Files, global::System.Double Weight, global::System.Action Replace)
+        private static global::PCLLF.Presentation.Mods.LegacyModUpdateJob CreateUpdateJob(global::System.Func<global::System.String> Name, global::System.Collections.Generic.List<global::PCL.ModNet.NetFile> Files, global::System.Double Weight, Action<CancellationToken> Replace)
         {
-            var Loaders = new global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderBase>() { new global::PCL.ModNet.LoaderDownload("下载新版 Mod 文件", (global::System.Collections.Generic.IEnumerable<global::PCL.ModNet.NetFile>)Files) { ProgressWeight = Weight }, new global::PCL.ModLoader.LoaderTask<global::System.Int32, global::System.Int32>("替换旧版 Mod 文件", _ => Replace()) };
+            var Loaders = new List<ModLoader.LoaderBase> {
+                new ModNet.LoaderDownload("下载新版 Mod 文件", Files) { ProgressWeight = Weight },
+                new ModLoader.LoaderTask<int, int>("检查并替换 Mod 文件", task => Replace(task.CreateCancellationToken())) { InterruptOnCancel = false }
+            };
             var Loader = new global::PCL.ModLoader.LoaderCombo<global::System.Collections.Generic.IEnumerable<global::PCL.LocalResourceFile>>(Name(), (global::System.Collections.Generic.IEnumerable<global::PCL.ModLoader.LoaderBase>)Loaders);
             var Port = new global::PCLLF.Presentation.Mods.LegacyModUpdateJob()
             {
