@@ -50,6 +50,13 @@ public class WindowResizer {
             info.MaxSize.Y = Math.Abs(checked(state.Work.Bottom - state.Work.Top)); workAreaMaxHeight = info.MaxSize.Y;
             if (state.Work.Height == state.Monitor.Height) info.MaxSize.Y = checked(info.MaxSize.Y - 2);
         }
+        // This handler marks the message handled, which also skips WPF's own MinWidth/MinHeight enforcement.
+        // Apply the window's minimum here (in device pixels) so native edge resizing cannot go below it.
+        if (System.Windows.Interop.HwndSource.FromHwnd(hwnd) is { RootVisual: System.Windows.Window window, CompositionTarget: { } target }) {
+            System.Windows.Media.Matrix toDevice = target.TransformToDevice;
+            if (window.MinWidth > 0) info.MinTrackSize.X = (int)Math.Ceiling(window.MinWidth * toDevice.M11);
+            if (window.MinHeight > 0) info.MinTrackSize.Y = (int)Math.Ceiling(window.MinHeight * toDevice.M22);
+        }
         Marshal.StructureToPtr(info, pointer, true);
     }
     private void Connect(UIElement element) => element.MouseLeftButtonDown += MouseDown;

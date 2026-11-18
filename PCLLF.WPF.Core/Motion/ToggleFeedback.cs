@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
+using System;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace PCLLF.Wpf.Motion;
 
 /// <summary>
-/// Native toggle feedback. Templates supply ThumbTransform and may supply ThumbScale and TrackActive.
+/// Native toggle/checkbox feedback. Templates may supply ThumbScale, TrackActive, CheckCoreScale, CheckMark, or ThumbTransform.
 /// The original ToggleButton still owns checking, keyboard behavior, focus and UI Automation.
 /// </summary>
 public static class ToggleFeedback {
@@ -47,6 +49,8 @@ public static class ToggleFeedback {
         private TranslateTransform? _thumb;
         private ScaleTransform? _scale;
         private FrameworkElement? _active;
+        private ScaleTransform? _coreScale;
+        private Shape? _checkMark;
         private double _progress, _pressed;
         private bool _keyboard, _pointerDown;
 
@@ -72,13 +76,23 @@ public static class ToggleFeedback {
 
         internal void Apply() {
             ResolveParts();
+            double p = Math.Clamp(_progress, 0, 1);
             if (_thumb is not null) _thumb.X = GetTravel(_owner) * _progress;
             if (_scale is not null) {
                 double deflection = (1 - MotionTokens.PressedScale) * _pressed;
                 _scale.ScaleX = 1 - deflection;
                 _scale.ScaleY = 1 - deflection;
             }
-            if (_active is not null) _active.Opacity = Math.Clamp(_progress, 0, 1);
+            if (_active is not null) _active.Opacity = p;
+            if (_coreScale is not null) {
+                double core = 0.52 + 0.48 * p;
+                _coreScale.ScaleX = core;
+                _coreScale.ScaleY = core;
+            }
+            if (_checkMark is not null) {
+                _checkMark.Opacity = Math.Clamp(p * 2.5, 0, 1);
+                _checkMark.StrokeDashOffset = 7.6 * (1 - p);
+            }
         }
         internal void Finish() { _position.Snap(_owner.IsChecked == true ? 1 : 0); _press.Snap(0); }
         private bool ResolveParts() {
@@ -87,8 +101,11 @@ public static class ToggleFeedback {
             var thumb = template.FindName("ThumbTransform", _owner) as TranslateTransform;
             var scale = template.FindName("ThumbScale", _owner) as ScaleTransform;
             var active = template.FindName("TrackActive", _owner) as FrameworkElement;
-            bool changed = !ReferenceEquals(thumb, _thumb) || !ReferenceEquals(scale, _scale) || !ReferenceEquals(active, _active);
-            _thumb = thumb; _scale = scale; _active = active;
+            var coreScale = template.FindName("CheckCoreScale", _owner) as ScaleTransform;
+            var checkMark = template.FindName("CheckMark", _owner) as Shape;
+            bool changed = !ReferenceEquals(thumb, _thumb) || !ReferenceEquals(scale, _scale) ||
+                !ReferenceEquals(active, _active) || !ReferenceEquals(coreScale, _coreScale) || !ReferenceEquals(checkMark, _checkMark);
+            _thumb = thumb; _scale = scale; _active = active; _coreScale = coreScale; _checkMark = checkMark;
             return changed;
         }
         private void OnLayoutUpdated(object? sender, EventArgs arguments) { if (ResolveParts()) Apply(); }

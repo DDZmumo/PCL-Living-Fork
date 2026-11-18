@@ -33,6 +33,11 @@ public sealed class GlassBackdropOptions {
     public bool UseDarkTheme { get; init; }
     public bool PreferCompositionBackdrop { get; init; } = true;
     public bool RespectSystemTransparency { get; init; } = true;
+    /// <summary>
+    /// Owns the main HWND region. When disabled, the caller also paints fallback
+    /// surfaces inside its own mask, so this controller keeps the window background transparent.
+    /// </summary>
+    public bool ManageWindowRegion { get; init; } = true;
     public Color LightFallbackColor { get; init; } = Color.FromRgb(242, 245, 248);
     public Color DarkFallbackColor { get; init; } = Color.FromRgb(31, 37, 43);
 }
@@ -125,9 +130,11 @@ public sealed class GlassWindowBackdrop : IDisposable {
     }
 
     /// <summary>
-    /// Sets the union of the floating shapes. Empty clears the custom native region.
+    /// Sets the union of the floating shapes. Empty clears the custom native region
+    /// when ManageWindowRegion is enabled; otherwise only the backdrop shapes change.
     /// Callers retain their own WM_NCHITTEST hook for dragging/resizing; this utility never consumes it.
-    /// Only points inside these shapes receive mouse input, so include any desired resize grip.
+    /// With window-region management enabled, only points inside these shapes receive
+    /// mouse input, so include any desired resize grip.
     /// </summary>
     public void SetRegions(IEnumerable<GlassWindowRegion>? regions) {
         VerifyUsable();
@@ -208,8 +215,11 @@ public sealed class GlassWindowBackdrop : IDisposable {
 
         var hasTransparentMaterial = Status is GlassBackdropStatus.DesktopAcrylic or GlassBackdropStatus.Wallpaper;
         var fallback = highContrast ? SystemColors.WindowColor : _darkTheme ? _options.DarkFallbackColor : _options.LightFallbackColor;
-        target.BackgroundColor = hasTransparentMaterial ? Colors.Transparent : fallback;
-        _window.SetCurrentValue(Window.BackgroundProperty, hasTransparentMaterial ? Brushes.Transparent : new SolidColorBrush(fallback));
+        // An external region/mask owner supplies its own opaque fallback surfaces.
+        // A window-wide background would bypass that mask and fill its transparent gap.
+        var transparentWindow = hasTransparentMaterial || !_options.ManageWindowRegion;
+        target.BackgroundColor = transparentWindow ? Colors.Transparent : fallback;
+        _window.SetCurrentValue(Window.BackgroundProperty, transparentWindow ? Brushes.Transparent : new SolidColorBrush(fallback));
         GlassMaterial.SetIsEnabled(_window, hasTransparentMaterial);
         ApplyRegions();
         SyncCompositionHost();
@@ -236,7 +246,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
             var margins = new Margins(0);
             DwmExtendFrameIntoClientArea(_handle, ref margins);
             if (_usedDwmPolicy) { var automatic = 0; DwmSetWindowAttribute(_handle, 2, ref automatic, sizeof(int)); }
-            SetWindowRgn(_handle, 0, true);
+            if (_options.ManageWindowRegion) SetWindowRgn(_handle, 0, true);
             if (_source?.CompositionTarget is { } target && _originalTargetBackground is { } original) target.BackgroundColor = original;
         }
         _window.SetCurrentValue(Window.BackgroundProperty, _originalBackground);
@@ -291,8 +301,8 @@ public sealed class GlassWindowBackdrop : IDisposable {
             LastHResult = exception.HResult;
             SetStatus(GlassBackdropStatus.Failed, $"Desktop composition became unavailable (0x{exception.HResult:X8}); using opaque material.");
             var fallback = SystemParameters.HighContrast ? SystemColors.WindowColor : _darkTheme ? _options.DarkFallbackColor : _options.LightFallbackColor;
-            if (_source?.CompositionTarget is { } target) target.BackgroundColor = fallback;
-            _window.SetCurrentValue(Window.BackgroundProperty, new SolidColorBrush(fallback));
+            if (_source?.CompositionTarget is { } target) target.BackgroundColor = _options.ManageWindowRegion ? fallback : Colors.Transparent;
+            _window.SetCurrentValue(Window.BackgroundProperty, _options.ManageWindowRegion ? new SolidColorBrush(fallback) : Brushes.Transparent);
             GlassMaterial.SetIsEnabled(_window, false);
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -332,10 +342,14 @@ public sealed class GlassWindowBackdrop : IDisposable {
 
     private void ApplyRegions() {
         if (_handle == 0 || _source?.CompositionTarget is not { } target) return;
-        var origin = new NativePoint();
-        if (!ClientToScreen(_handle, ref origin) || !GetWindowRect(_handle, out var windowBounds)) return;
         var transform = target.TransformToDevice;
         UseCompositionHost(host => host.SetRegions(_regions, transform));
+        if (!_options.ManageWindowRegion) {
+            LastRegionError = 0;
+            return;
+        }
+        var origin = new NativePoint();
+        if (!ClientToScreen(_handle, ref origin) || !GetWindowRect(_handle, out var windowBounds)) return;
         var offsetX = origin.X - windowBounds.Left;
         var offsetY = origin.Y - windowBounds.Top;
         var pixels = _regions.Select(region => {

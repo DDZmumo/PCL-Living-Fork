@@ -130,7 +130,12 @@ public sealed class ResourceThumbnailController {
         pressed = true;
         RefreshSelection();
         args.Handled = true;
-        ClickRequested?.Invoke(args.ClickCount);
+        Activate(args.ClickCount);
+    }
+
+    public void Activate(int count = 1) {
+        if (!view.Owner.IsEnabled || view.GetEntry() is null || count < 1) return;
+        ClickRequested?.Invoke(count);
     }
 
     private void ReleasePointer(object sender, MouseEventArgs args) {

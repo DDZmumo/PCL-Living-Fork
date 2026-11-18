@@ -44,12 +44,15 @@ internal static class LegacySettingsTests {
         Equal(false, fixture.Entries["UiHiddenPageFavorites"].DefaultValue);
         Equal(typeof(bool), fixture.Entries["UiHiddenPageFavorites"].Type);
         Equal(LegacySettingSource.Normal, fixture.Entries["UiHiddenPageFavorites"].Source);
-        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel", "UiLauncherColorMode" }) {
+        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel" }) {
             Equal(0, fixture.Entries[key].DefaultValue);
             Equal(typeof(int), fixture.Entries[key].Type);
             Equal(LegacySettingSource.Normal, fixture.Entries[key].Source);
         }
-        Equal(960, fixture.Entries["UiPanelOpacity"].DefaultValue);
+        Equal(1, fixture.Entries["UiLauncherColorMode"].DefaultValue);
+        Equal(typeof(int), fixture.Entries["UiLauncherColorMode"].Type);
+        Equal(LegacySettingSource.Normal, fixture.Entries["UiLauncherColorMode"].Source);
+        Equal(850, fixture.Entries["UiPanelOpacity"].DefaultValue);
         Equal(typeof(int), fixture.Entries["UiPanelOpacity"].Type);
         Equal(LegacySettingSource.Normal, fixture.Entries["UiPanelOpacity"].Source);
         Equal(typeof(LoginKind), fixture.Entries["LoginType"].Type);

@@ -150,8 +150,8 @@ public static class LegacySettingsDefinitions {
         Add("ToolLauncherUpdateIgnoredTag", "", LegacySettingSource.Registry);
         Add("ToolLauncherUpdateSource", 0);
         Add("ToolLauncherUpdateChannel", 0);
-        Add("UiLauncherColorMode", 0);
-        Add("UiPanelOpacity", 960);
+        Add("UiLauncherColorMode", 1);
+        Add("UiPanelOpacity", 850);
         Add("UiLauncherTransparent", 600);
         Add("UiLauncherHue", hostDefault("UiLauncherHue"));
         Add("UiLauncherSat", hostDefault("UiLauncherSat"));

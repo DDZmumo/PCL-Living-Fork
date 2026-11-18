@@ -9,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Newtonsoft.Json.Linq;
 using PCL;
 using PCLLF.Presentation.Foundation;
 using PCLLF.Presentation.Controls;
@@ -25,12 +26,19 @@ internal static class GlassPresentationChecks
         try
         {
             Controls();
+            ClientOnlyActions();
+            CollapsibleCard();
+            ModalFocusEffects();
             ExtraTextStart(environment);
             GroupedRadioVeto();
             RetiredActions();
+            DownloadVersionActions();
             ResourceRows();
+            ResourceEntryActivation(scope.Root);
+            ResourceSearchLayout();
             VirtualizedRows();
             ActualSettingsPage(scope.Root);
+            SettingsChoiceLayout();
         }
         finally { ModAnimation.AniControlEnabled = animation; }
         environment.AssertNoForbiddenIo();
@@ -70,7 +78,7 @@ internal static class GlassPresentationChecks
             Native.Check(ReferenceEquals(glyph.Data, icon.Path.Data) && ReferenceEquals(textGlyph.Data, iconText.ShapeLogo.Data) &&
                 ReferenceEquals(glyphButton, Find<Button>(session.View, "ProjectedGlyph")), "Delayed source glyphs did not update the existing new actions.");
             Button action = Find<Button>(session.View, "ProjectedAction");
-            Native.Check(action.GetType() == typeof(Button) && action.ActualHeight >= 36, "Button is not a new native WPF action with a modern target size.");
+            Native.Check(action.GetType() == typeof(Button) && action.ActualHeight >= 34, "Button is not a new native WPF action with a compact target size.");
             Invoke(action); Native.Check(clicks == 1 && customs == 1, "New action bypassed or duplicated the original click/custom pipeline.");
             CheckBox toggle = Find<CheckBox>(session.View, "ProjectedToggle");
             Toggle(toggle); Native.Check(!check.Checked && toggle.IsChecked == false && checks == 0, "A vetoed original checkbox changed or was not read back by the new toggle.");
@@ -82,12 +90,33 @@ internal static class GlassPresentationChecks
             ComboBox choice = Find<ComboBox>(session.View, "ProjectedChoice");
             choice.SelectedIndex = 1; Native.Check(combo.SelectedIndex == 1 && ReferenceEquals(combo.SelectedItem, combo.Items[1]), "New selection did not preserve the original item identity.");
             combo.SelectedIndex = 0; session.Refresh(); Native.Check(choice.SelectedIndex == 0, "Original selection did not update the new ComboBox.");
+            choice.ApplyTemplate();
+            var dropdown = (ToggleButton)choice.Template.FindName("DropDownButton", choice);
+            var dropdownPeer = UIElementAutomationPeer.CreatePeerForElement(dropdown) ?? new ToggleButtonAutomationPeer(dropdown);
+            ((IToggleProvider)dropdownPeer.GetPattern(PatternInterface.Toggle)!).Toggle();
+            VisualAssetChecks.Pump(() => ((Popup)choice.Template.FindName("PART_Popup", choice)).IsOpen, "projected dropdown opens through its actual button");
+            choice.UpdateLayout(); VisualAssetChecks.Drain();
+            var option = (ComboBoxItem)choice.ItemContainerGenerator.ContainerFromIndex(1);
+            option.IsSelected = true;
+            Native.Check(source.IsLoaded && combo.SelectedIndex == 1, "Dropdown selection did not reach the original source choice.");
+            choice.IsDropDownOpen = false;
             Slider range = Find<Slider>(session.View, "ProjectedRange");
             range.Value = 60; Native.Check(slider.Value == 60, "New slider did not update the original semantic value.");
             slider.Value = 42; session.Refresh(); Native.Check(range.Value == 42, "Original slider did not update the new range control.");
             var later = new MyButton { Name = "DynamicAction", Text = "动态操作" }; source.Children.Add(later); session.Refresh();
             Native.Check(Find<Button>(session.View, "DynamicAction") != null, "A dynamically added original action was not projected.");
             source.Children.Remove(later); session.Refresh(); Native.Check(!Descendants(session.View).OfType<Button>().Any(item => item.Name == "DynamicAction"), "A removed original action remained visible.");
+            var docRun = new System.Windows.Documents.Run("初始更新说明");
+            var docViewer = new FlowDocumentScrollViewer { Name = "ReleaseNotesDoc", Document = new System.Windows.Documents.FlowDocument(new System.Windows.Documents.Paragraph(docRun)) };
+            source.Children.Add(docViewer);
+            for (int iteration = 0; iteration < 32; iteration++) {
+                docRun.Text = "更新说明校验 #" + iteration;
+                session.Refresh();
+                session.Refresh();
+            }
+            var projectedDoc = Find<FlowDocumentScrollViewer>(session.View, "ReleaseNotesDoc");
+            Native.Check(new System.Windows.Documents.TextRange(projectedDoc.Document.ContentStart, projectedDoc.Document.ContentEnd).Text.Contains("更新说明校验 #31", StringComparison.Ordinal),
+                "Projected FlowDocumentScrollViewer lost updated text or overflowed under checked arithmetic.");
             session.Dispose(); Native.Check(((ContentControl)session.View).Content is null, "Disposal retained the rendered tree.");
         }
         finally
@@ -96,6 +125,83 @@ internal static class GlassPresentationChecks
             host.RaiseCustomEvent = previousCustom;
             VisualAssetChecks.Drain();
         }
+    }
+
+    private static void CollapsibleCard()
+    {
+        var source = new StackPanel();
+        var body = new StackPanel();
+        var label = new TextBlock { Name = "CardPayload", Text = "可折叠内容" }; body.Children.Add(label);
+        var card = new MyCard { Name = "CollapsibleCard", Title = "下载选项", CanSwap = true, BorderChild = body, SwapControl = body };
+        source.Children.Add(card);
+        using GlassPresentationSession session = GlassPresentation.Create(source);
+        Window? window = null;
+        try
+        {
+            window = Host(source, session.View);
+            Expander expander = Descendants(session.View).OfType<Expander>().Single();
+            TextBlock content = Find<TextBlock>(session.View, "CardPayload");
+            Native.Check(expander.IsExpanded && content.IsVisible, "The genuine collapsible card did not project its content.");
+            NoSharedVisuals(source, session.View);
+            expander.IsExpanded = false; VisualAssetChecks.Drain(); session.Refresh();
+            Native.Check(card.IsSwapped && !expander.IsExpanded, "Collapsing the new card lost the original swap state.");
+            expander.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
+            Native.Check(!card.IsSwapped && ReferenceEquals(content, Find<TextBlock>(session.View, "CardPayload")),
+                "Reopening the projected card replaced or reparented its live content.");
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void ClientOnlyActions()
+    {
+        var source = new StackPanel();
+        var server = new MyIconButton { ToolTip = "下载服务端", Logo = "M0,0 H10 V10 H0 Z" };
+        var log = new MyIconButton { ToolTip = "更新日志", Logo = "M0,0 L10,5 0,10 Z" };
+        var row = new MyListItem { Name = "ClientResource", Title = "支持server的模组", Info = "说明中保留下载服务端等文字", Type = MyListItem.CheckType.Clickable, Buttons = new[] { server, log } };
+        var ordinary = new Button { Name = "ClientActions", Content = "局域网联机" };
+        var menu = new ContextMenu();
+        foreach (string caption in new[] { "另存为", "下载服务端", "安装为服务端", "服务端文件", "服务器列表", "更新日志" }) menu.Items.Add(new MenuItem { Header = caption });
+        ordinary.ContextMenu = menu; source.Children.Add(row); source.Children.Add(ordinary);
+        using GlassPresentationSession session = GlassPresentation.Create(source);
+        Window? window = null;
+        try
+        {
+            window = Host(source, session.View); session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(!Descendants(session.View).OfType<Button>().Any(button => AutomationProperties.GetName(button) == "下载服务端"), "Client presentation retained the actual server-download toolbar action.");
+            Native.Check(Descendants(session.View).OfType<TextBlock>().Any(text => text.Text == row.Info) && Find<FrameworkElement>(session.View, "ClientResource") != null,
+                "Client-only policy accidentally filtered a resource description/name mentioning server.");
+            string[] projected = Find<Button>(session.View, "ClientActions").ContextMenu!.Items.OfType<MenuItem>().Select(item => item.Header.ToString()!).ToArray();
+            Native.Check(projected.SequenceEqual(new[] { "另存为", "服务器列表", "更新日志" }), "Client context menu removed unrelated actions or retained a server install/download entry.");
+            Native.Check(row.Buttons.Count() == 2 && menu.Items.Count == 6, "Client-only presentation policy changed its original business/source actions.");
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void ModalFocusEffects()
+    {
+        var root = new Grid();
+        var background = new Grid { Background = Brushes.SteelBlue };
+        background.Children.Add(new TextBlock { Text = "背景界面保持独立", FontSize = 24 });
+        var scrim = new Border { Background = Brushes.Black };
+        var dialog = new Border { Child = new TextBlock { Text = "弹窗文字保持清晰" }, Width = 280, Height = 160 };
+        root.Children.Add(background); root.Children.Add(scrim); root.Children.Add(dialog);
+        var window = new Window { Content = root, Width = 640, Height = 440, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        object? effects = null;
+        try
+        {
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            Type type = Native.Type("PCL.GlassModalEffects");
+            effects = Activator.CreateInstance(type, Native.Flags, null, [root, background, scrim, dialog], null)!;
+            Native.Call(type, "SetMessage", effects, new object());
+            VisualAssetChecks.Pump(() => (double)Native.Property(type, "Progress").GetValue(effects)! > .999, "modal blur open endpoint");
+            Native.Check(background.Effect is System.Windows.Media.Effects.BlurEffect { Radius: > 11.9 } && dialog.Effect is null &&
+                PCLLF.Wpf.Glass.GlassMaterial.GetWallpaperSource(dialog) is BitmapSource { IsFrozen: true } && !background.IsHitTestVisible && dialog.IsHitTestVisible,
+                "Modal focus did not blur its background, retain sharp foreground or supply an owned backdrop snapshot.");
+            Native.Call(type, "SetMessage", effects, new object?[] { null });
+            Native.Check(background.IsHitTestVisible && !dialog.IsHitTestVisible, "Modal dismissal delayed input ownership until the blur finished.");
+            VisualAssetChecks.Pump(() => background.Effect is null && scrim.Visibility == Visibility.Collapsed, "modal blur close endpoint");
+        }
+        finally { (effects as IDisposable)?.Dispose(); window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
     }
 
     private static void ExtraTextStart(FixtureEnvironment environment)
@@ -257,6 +363,8 @@ internal static class GlassPresentationChecks
     private static void ActualSettingsPage(string fixtureRoot)
     {
         var page = new PageSetupUI();
+        var featureCard = (MyCard)page.FindName("CardSwitch");
+        string[] removedFeatureNames = Descendants(featureCard).OfType<MyCheckBox>().Where(check => !string.IsNullOrEmpty(check.Name)).Select(check => check.Name).Append("CardSwitch").ToArray();
         using GlassPresentationSession session = GlassPresentation.Create(page);
         session.View.Width = 1000; session.View.Height = 650;
         session.View.Measure(new Size(1000, 650)); session.View.Arrange(new Rect(0, 0, 1000, 650)); session.View.UpdateLayout();
@@ -264,20 +372,91 @@ internal static class GlassPresentationChecks
         VisualAssetChecks.Drain();
         // The source BAML/controller objects are retained as semantics, not inserted into this view.
         NoSharedVisuals(page, session.View);
+        Native.Check(removedFeatureNames.Contains("CheckHiddenPageDownload") &&
+            !Descendants(session.View).OfType<FrameworkElement>().Any(element => removedFeatureNames.Contains(element.Name)),
+            "The new settings tree retained the removed feature-hiding card or one of its original setting controls.");
         Native.Check(Descendants(session.View).OfType<ComboBox>().Any(combo => combo.Name == "ComboLauncherColorMode" && combo.GetType() == typeof(ComboBox)), "The actual settings page did not create a new native appearance selector.");
         Native.Check(!Descendants(session.View).OfType<FrameworkElement>().Any(element => element.Name == "PanOfficialTheme"), "The new settings view retained the old official-purchase panel.");
         Native.Check(!Descendants(session.View).OfType<FrameworkElement>().Any(element => element.Name is "CardLogo" or "CheckBackgroundColorful"), "The new settings view retained unused legacy titlebar/rainbow controls.");
         Native.Check(!Descendants(session.View).OfType<CheckBox>().Any(check => AutomationProperties.GetName(check) == "打开启动器时显示 PCL 图标"), "The new settings view retained the old PCL-logo option.");
-        Native.Check(Descendants(session.View).OfType<Border>().Any(border => border.Name == "CardLauncherSurface" && border.CornerRadius == new CornerRadius(14)), "The actual settings group did not separate its heading from the new field surface.");
+        foreach (CheckBox projectedCheck in Descendants(session.View).OfType<CheckBox>()) {
+            projectedCheck.ApplyTemplate();
+            Native.Check(projectedCheck.Template.FindName("SwitchTrack", projectedCheck) is null &&
+                projectedCheck.Template.FindName("CheckMark", projectedCheck) is not null,
+                "Settings MyCheckBox still used a pill switch instead of the bespoke PCL-LF checkbox: " + projectedCheck.Name);
+        }
+        Native.Check(Descendants(session.View).OfType<Border>().Any(border => border.Name == "CardLauncherSurface" && border.CornerRadius == new CornerRadius(10)), "The actual settings group did not separate its heading from the new field surface.");
         ComboBox appearance = Find<ComboBox>(session.View, "ComboLauncherColorMode");
-        Native.Check(appearance.ActualHeight >= 34 && appearance.ActualHeight <= 38 && Math.Abs(appearance.ActualWidth - 220) < 1,
-            "Settings editor lost its compact fixed-height/right-column proportions.");
+        Native.Check(Math.Abs(appearance.ActualHeight - 34) * VisualTreeHelper.GetDpi(appearance).DpiScaleY <= 1 && Math.Abs(appearance.ActualWidth - 220) < 1,
+            "Settings editor lost its compact fixed-height/right-column proportions: " + appearance.ActualWidth + " x " + appearance.ActualHeight);
         FrameworkElement section = Descendants(session.View).OfType<FrameworkElement>().Single(element => element.Name == "CardLauncher");
         Native.Check(section.ActualWidth > 0 && section.ActualWidth <= 800, "Settings sections exceeded the reference-scale content measure.");
-        Native.Check(!Descendants(session.View).OfType<PCLLF.Wpf.Glass.GlassSurface>().Any(), "A field/card retained the retired blurred material primitive.");
+        // Cards frost the wallpaper beneath them; fields and other controls never carry their own material.
+        Native.Check(Descendants(session.View).OfType<PCLLF.Wpf.Glass.GlassSurface>().All(surface => surface.BlurRadius > 0) &&
+            !Descendants(session.View).OfType<Control>().Any(control => control is TextBoxBase or ComboBox or Slider or System.Windows.Controls.Primitives.ToggleButton or PasswordBox &&
+                Descendants(control).OfType<PCLLF.Wpf.Glass.GlassSurface>().Any()),
+            "Frosted material must belong to cards and plates, never to a field or toggle.");
         Native.Check(session.UnsupportedTypes.Count == 0, "Actual settings page contains unhandled presentation leaves: " + string.Join(", ", session.UnsupportedTypes));
         Native.Check(!page.IsLoaded, "Inspecting new settings presentation ran the original page's Loaded workflow.");
         foreach (int width in new[] { 1120, 810 }) RenderSettings(session.View, fixtureRoot, width);
+    }
+
+    private static void ResourceSearchLayout()
+    {
+        var source = new PageResource();
+        source.PageType = PCLCS.ResourceTypes.Mod;
+        source.SearchTags.Add(new MyComboBoxItem { Content = "全部", Tag = "", IsSelected = true });
+        int searches = 0;
+        object service = Native.Property(typeof(PageResource), "Service").GetValue(source)!;
+        object searchHost = Native.Get(service, "host")!;
+        Native.Set(searchHost, "Start", (Action)(() => searches++));
+        Native.Set(searchHost, "ShouldStart", (Func<ResourceSearcher.SearchRequest, bool>)(_ => false));
+        using GlassPresentationSession session = GlassPresentation.Create(source);
+        Window? window = null;
+        try
+        {
+            window = new Window { Content = session.View, Width = 800, Height = 620, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            TextBox search = Find<TextBox>(session.View, "ResourceSearchInput");
+            Button filter = Find<Button>(session.View, "ResourceFilterButton");
+            Border panel = Find<Border>(session.View, "ResourceFilterPanel");
+            Native.Check(!source.IsLoaded && panel.Visibility == Visibility.Collapsed && filter.Content?.ToString() == "筛选设置",
+                "Resource search did not use the compact toolbar or unexpectedly ran the backend Loaded flow.");
+            search.Text = "layout-only-query";
+            Native.Check(((MyTextBox)source.FindName("TextSearchName")).Text == "layout-only-query", "The compact search field lost the actual search input.");
+            Invoke(filter);
+            VisualAssetChecks.Pump(() => panel.Height > 100 && panel.Opacity > .99, "resource filter expansion");
+            Native.Check(Descendants(panel).OfType<ComboBox>().Count() == 3, "The compact filter did not preserve the three available original choices.");
+            ((MyComboBox)source.FindName("ComboSearchLoader")).Visibility = Visibility.Visible;
+            session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(Descendants(panel).OfType<ComboBox>().Count() == 4, "The expanding filter lost the original optional loader choice.");
+            window.Width = 440; window.Height = 330; window.UpdateLayout(); VisualAssetChecks.Drain();
+            var resultScroll = Find<ScrollViewer>(session.View, "ResourceResultsScroll");
+            ((StackPanel)source.FindName("PanContent")).Visibility = Visibility.Visible;
+            session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(resultScroll.ActualHeight >= 60 && panel.ActualHeight < session.View.ActualHeight - 100,
+                "Expanded filters consumed the entire compact result viewport.");
+            var filterScroll = (ScrollViewer)panel.Child;
+            Native.Check(filterScroll.ScrollableHeight > 0, "Overflowing compact filters have no reachable scroll viewport.");
+            window.Width = 800; window.Height = 620; window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(panel.ActualHeight > 160, "Expanded filters did not remeasure after the window grew.");
+            var pages = (MyCard)source.FindName("CardPages"); pages.Visibility = Visibility.Visible; pages.IsEnabled = false;
+            session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(!Find<Button>(session.View, "BtnPageRight").IsEnabled, "The new paging buttons bypassed the real loading-time disabled state.");
+            source.Page = 3;
+            Button apply = Descendants(panel).OfType<Button>().Single(button => Equals(button.Content, "应用筛选"));
+            Invoke(apply);
+            Native.Check(searches == 1 && source.Page == 0 && ((MyTextBox)source.FindName("TextSearchName")).Text == "layout-only-query",
+                "Apply filters did not execute the genuine search callback exactly once and reset its page.");
+            VisualAssetChecks.Pump(() => panel.Visibility == Visibility.Collapsed, "resource apply collapses filters");
+            Invoke(filter);
+            VisualAssetChecks.Pump(() => panel.Opacity > .99, "resource filters reopen");
+            Invoke(filter);
+            VisualAssetChecks.Pump(() => panel.Visibility == Visibility.Collapsed, "resource filter collapse");
+            Native.Check(!Descendants(session.View).OfType<TextBlock>().Any(text => text.Text.StartsWith("搜索XXX", StringComparison.Ordinal)),
+                "The old search card heading remained in the flat resource page.");
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }
 
     private static void VirtualizedRows()
@@ -306,6 +485,101 @@ internal static class GlassPresentationChecks
             NoSharedVisuals(source, session.View);
         }
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void DownloadVersionActions()
+    {
+        var entry = new JObject {
+            ["id"] = "1.21.5", ["type"] = "release",
+            ["url"] = "https://example.invalid/version.json",
+            ["releaseTime"] = new DateTime(2026, 7, 20, 12, 0, 0, DateTimeKind.Utc)
+        };
+        int selected = 0, built = 0, saved = 0, logs = 0, custom = 0;
+        object? selectedRow = null, selectedTag = null;
+        MyListItem row = ModDownloadLib.McDownloadListItem(entry, (sender, _) => {
+            selected++; selectedRow = sender; selectedTag = ((MyListItem)sender).Tag;
+        }, false).Init();
+        row.Name = "DownloadVersionRow";
+        Action<MyListItem, EventArgs> deferred = row.ContentHandler ?? throw new InvalidOperationException("The real download builder no longer exposes its deferred source actions.");
+        row.ContentHandler = (sender, args) => { built++; deferred(sender, args); };
+        var source = new StackPanel(); source.Children.Add(row);
+        var file = new MyListItem { Name = "DownloadFileAction", Title = "实际资源文件", Type = MyListItem.CheckType.Clickable, Tag = new ResourceVersion() };
+        var summary = new MyListItem { Name = "DownloadFileSummary", Title = "版本摘要", Type = MyListItem.CheckType.Clickable, Tag = new ResourceVersion() };
+        int files = 0; file.Click += (_, _) => files++;
+        source.Children.Add(file); source.Children.Add(summary);
+        object menus = typeof(ModDownloadLib).GetField("Menus", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        object menuHost = Native.Get(menus, "host")!;
+        object previousSave = Native.Get(menuHost, "SaveMinecraft")!;
+        object previousOpen = Native.Get(menuHost, "OpenWebsite")!;
+        ControlServiceHost services = ControlServices.Current;
+        Action<DependencyObject> previousCustom = services.RaiseCustomEvent;
+        GlassPresentationSession? session = null; Window? window = null;
+        MyIconButton? originalSave = null;
+        try
+        {
+            Native.Set(menuHost, "SaveMinecraft", (Action<Func<(string Title, JToken Json)>, bool>)((read, server) => {
+                (string title, JToken json) = read();
+                Native.Check(!server && title == row.Title && ReferenceEquals(json, entry),
+                    "The actual save callback lost its original row title/Tag through the action's parent chain.");
+                saved++;
+            }));
+            Native.Set(menuHost, "OpenWebsite", (Action<string>)(url => {
+                Native.Check(url == "https://zh.minecraft.wiki/w/Java版1.21.5", "The actual update-log callback lost its version Tag through the original parent chain.");
+                logs++;
+            }));
+            services.RaiseCustomEvent = sender => { if (ReferenceEquals(sender, originalSave)) custom++; };
+            session = GlassPresentation.Create(source);
+            Native.Check(built == 1 && row.ContentHandler is null && !row.IsMouseOver,
+                "Projecting an unhovered download row did not initialize its real source actions exactly once.");
+            originalSave = row.Buttons.Single(button => Equals(button.ToolTip, "另存为"));
+            RoutedEventArgs? payload = null;
+            originalSave.Click += (sender, args) => {
+                Native.Check(ReferenceEquals(sender, originalSave), "The projected save replaced the real source sender.");
+                payload = args as RoutedEventArgs;
+                Native.Check(payload is not null && payload.RoutedEvent == UIElement.MouseLeftButtonUpEvent && ReferenceEquals(payload.Source, originalSave),
+                    "The semantic icon action did not retain the real download callback's routed-event contract.");
+            };
+            window = Host(source, session.View);
+            NoSharedVisuals(source, session.View);
+            FrameworkElement projectedRow = Find<FrameworkElement>(session.View, row.Name);
+            FrameworkElement projectedFile = Find<FrameworkElement>(session.View, file.Name), projectedSummary = Find<FrameworkElement>(session.View, summary.Name);
+            Native.Check(row.HasClickAction && file.HasClickAction && !summary.HasClickAction &&
+                Descendants(projectedFile).OfType<TextBlock>().Any(text => text.Text == "下载") &&
+                !Descendants(projectedSummary).OfType<TextBlock>().Any(text => text.Text is "下载" or "安装") &&
+                !Descendants(projectedRow).OfType<TextBlock>().Any(text => text.Text == "安装"),
+                "A real version action lost its download label, or a summary/out-of-context Tag invented an install action.");
+            Invoke(Descendants(projectedFile).OfType<Button>().Single(button => AutomationProperties.GetName(button) == file.Title));
+            Native.Check(files == 1, "The visible download label did not retain the original row action exactly once.");
+            Button primary = Descendants(projectedRow).OfType<Button>().Single(button => AutomationProperties.GetName(button) == row.Title);
+            Button save = Descendants(projectedRow).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "另存为");
+            Button log = Descendants(projectedRow).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "更新日志");
+            Native.Check(!Descendants(projectedRow).OfType<Button>().Any(button => AutomationProperties.GetName(button) is "详情" or "下载服务端"),
+                "Version actions changed their actual download/update-log semantics or retained a server action.");
+            Invoke(primary);
+            Native.Check(selected == 1 && ReferenceEquals(selectedRow, row) && ReferenceEquals(selectedTag, entry),
+                "The main download/install row no longer invokes its actual version callback exactly once.");
+            Invoke(save);
+            Native.Check(saved == 1 && selected == 1 && custom == 1 && payload?.Handled == true,
+                "The real save callback/custom event was lost, duplicated, or bubbled into the row's installation action.");
+            Invoke(log);
+            Native.Check(logs == 1 && selected == 1, "The actual update-log callback was lost, duplicated, or replaced the main installation action.");
+            session.Refresh(); session.Refresh();
+            Native.Check(built == 1 && ReferenceEquals(save, Descendants(projectedRow).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "另存为")),
+                "Repeated projection rebuilt the original actions or replaced the live save control.");
+            IInvokeProvider retained = InvokePattern(save);
+            originalSave.CanClick = false; session.Refresh(); TryRetiredInvoke(retained);
+            session.Dispose(); TryRetiredInvoke(retained);
+            Native.Check(saved == 1 && selected == 1 && custom == 1, "A disabled/retired native version action still reached the download backend.");
+        }
+        finally
+        {
+            session?.Dispose();
+            if (window != null) { window.Content = null; window.Close(); }
+            services.RaiseCustomEvent = previousCustom;
+            Native.Set(menuHost, "SaveMinecraft", previousSave);
+            Native.Set(menuHost, "OpenWebsite", previousOpen);
+            VisualAssetChecks.Drain();
+        }
     }
 
     private static void ResourceRows()
@@ -341,6 +615,68 @@ internal static class GlassPresentationChecks
             Button clear = Descendants(session.View).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "清空搜索");
             Invoke(clear); Native.Check(search.Text == string.Empty, "The compact clear action did not use the actual search backend.");
             NoSharedVisuals(source, session.View);
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void SettingsChoiceLayout()
+    {
+        var page = new PageSetupUI();
+        using var session = GlassPresentation.Create((FrameworkElement)page.FindName("CardCustom"));
+        var window = new Window { Content = session.View, Width = 820, Height = 900, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        try {
+            window.Show();
+            foreach (int width in new[] { 820, 440 }) {
+                window.Width = width; window.UpdateLayout(); session.Refresh(); VisualAssetChecks.Drain(); window.UpdateLayout();
+                var choices = Descendants(session.View).OfType<RadioButton>().Where(item => item.Name.StartsWith("RadioCustomType", StringComparison.Ordinal)).ToArray();
+                var originals = ((Grid)((MyRadioBox)page.FindName("RadioCustomType0")).Parent).Children.OfType<MyRadioBox>().ToArray();
+                Native.Check(choices.Length == 4 && choices[0].Parent is Grid, "The home modes no longer use their original grid.");
+                foreach (RadioButton choice in choices) {
+                    MyRadioBox original = originals.Single(item => item.Name == choice.Name);
+                    Native.Check(ReferenceEquals(choice.Parent, choices[0].Parent) && Grid.GetRow(choice) == 0 && Grid.GetColumn(choice) == Grid.GetColumn(original),
+                        "A home mode moved out of its original single-row order: " + choice.Name);
+                    var label = (TextBlock)choice.Content;
+                    Native.Check(label.ActualHeight < 25, $"A home mode label wrapped within the original four-option row at {width}: {label.Text} ({label.ActualWidth} x {label.ActualHeight}).");
+                }
+            }
+            Native.Check(!page.IsLoaded, "Layout verification ran original settings load workflows.");
+        } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void ResourceEntryActivation(string fixtureRoot)
+    {
+        object Entry(string name, bool folder) {
+            object entry = Activator.CreateInstance(Native.Type("PCL.InstanceResourceEntry"), true)!;
+            Native.Set(entry, "Name", name); Native.Set(entry, "FullPath", Path.Combine(fixtureRoot, name)); Native.Set(entry, "IsDirectory", folder);
+            return entry;
+        }
+        var source = new StackPanel();
+        var folder = new MyLocalModItem { Name = "ProjectedFolder", Title = "目录", ResourceFolderRequested = () => { } };
+        Native.Set(folder, "ResourceEntry", Entry("folder", true));
+        int opened = 0; folder.ResourceFolderRequested = () => opened++;
+        var screenshot = new MyScreenshotItem { Name = "ProjectedScreenshot", Width = 280 };
+        Native.Call(typeof(MyScreenshotItem), "Bind", screenshot, Entry("screenshot.png", false));
+        var thumbnail = (PCLCS.ResourceThumbnailController)Native.Get(screenshot, "Controller")!;
+        var clicks = new List<int>(); thumbnail.ClickRequested += clicks.Add;
+        source.Children.Add(folder); source.Children.Add(screenshot);
+        using GlassPresentationSession session = GlassPresentation.Create(source);
+        Window? window = null;
+        try {
+            window = Host(source, session.View);
+            PresentationSource input = PresentationSource.FromVisual(window)!;
+            void Enter(UIElement target) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, input, Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            Button directory = Descendants(session.View).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "目录");
+            Enter(directory); VisualAssetChecks.Drain();
+            Native.Check(opened == 1 && !folder.Checked, "Opening a projected resource directory lost its original command or selected it instead.");
+            Grid tile = Find<Grid>(session.View, screenshot.Name);
+            tile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
+            Enter(tile); VisualAssetChecks.Drain();
+            Native.Check(clicks.SequenceEqual(new[] { 1, 2 }), "Projected screenshot selection/preview lost the real thumbnail controller's click count.");
+            CheckBox selection = Descendants(tile).OfType<CheckBox>().Single();
+            selection.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
+            Native.Check(clicks.Count == 2, "Selecting the screenshot checkbox also opened its image.");
+            session.Dispose(); Enter(tile); Enter(directory);
+            Native.Check(clicks.Count == 2 && opened == 1, "A retired resource projection still executed its original commands.");
         }
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }

@@ -200,13 +200,18 @@ public sealed class GlassWindowRegionClip : IDisposable {
             if (union == 0) { RecordNativeError(); return; }
             try {
                 foreach (PixelRegion region in pixels) {
-                    nint shape = CreateRoundRectRgn(region.Left, region.Top, region.Right, region.Bottom, region.EllipseWidth, region.EllipseHeight);
+                    // GDI's zero-ellipse round rectangle still drops its final row/column.
+                    // A rectangular native envelope must retain those pixels for WPF's
+                    // antialiased mask and client-to-screen integer coordinate rounding.
+                    nint shape = region.EllipseWidth == 0 || region.EllipseHeight == 0
+                        ? CreateRectRgn(region.Left, region.Top, region.Right, region.Bottom)
+                        : CreateRoundRectRgn(region.Left, region.Top, region.Right, region.Bottom, region.EllipseWidth, region.EllipseHeight);
                     if (shape == 0) { RecordNativeError(); return; }
                     try {
                         if (CombineRgn(union, union, shape, RgnOr) == 0) { RecordNativeError(); return; }
                     } finally { DeleteObject(shape); }
                 }
-                if (SetWindowRgn(_handle, union, true) == 0) { RecordNativeError(); return; }
+                if (SetWindowRgn(_handle, union, false) == 0) { RecordNativeError(); return; }
                 // A successful SetWindowRgn transfers ownership of the union to Windows.
                 union = 0;
                 _ownsRegion = true;

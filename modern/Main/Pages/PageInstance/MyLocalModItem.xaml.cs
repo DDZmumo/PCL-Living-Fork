@@ -25,6 +25,7 @@ namespace PCL
         private EnvironmentHistoryPagePointView RestorePointDisplay;
         internal Action ResourceUpdateRequested;
         internal Action ResourceDetailsRequested;
+        public Action ResourceFolderRequested;
         internal FrameworkElement SelectionBar;
         public Action<MyLocalModItem, EventArgs> ButtonHandler;
         public FrameworkElement ButtonStack;
@@ -205,8 +206,30 @@ namespace PCL
         {
             Controller.MouseUp(sender, e);
         }
-        public void PerformClick() => Controller.Activate(this,
-            new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left));
+        private bool _initializingActions;
+        /// <summary>Connects the original deferred row commands without requiring pointer entry.</summary>
+        public void EnsureActions()
+        {
+            Dispatcher.VerifyAccess();
+            if (_initializingActions) return;
+            _initializingActions = true;
+            try { Controller.InitLate(this, EventArgs.Empty); }
+            finally { _initializingActions = false; }
+        }
+        public void PerformClick()
+        {
+            if (!IsEnabled) return;
+            EnsureActions();
+            Controller.Activate(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) {
+                RoutedEvent = MouseLeftButtonUpEvent, Source = this
+            });
+        }
+        public void PerformFolderOpen()
+        {
+            if (!IsEnabled) return;
+            EnsureActions();
+            ResourceFolderRequested?.Invoke();
+        }
 
         private void Button_MouseDown(object sender, MouseButtonEventArgs e)
         {

@@ -37,6 +37,9 @@ public static class GlassMaterial {
     public static readonly DependencyProperty DesktopBackdropEnabledProperty = DependencyProperty.RegisterAttached(
         "DesktopBackdropEnabled", typeof(bool), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
+    public static readonly DependencyProperty IgnoreWallpaperHostEffectProperty = DependencyProperty.RegisterAttached(
+        "IgnoreWallpaperHostEffect", typeof(bool), typeof(GlassMaterial),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
 
     public static ImageSource? GetWallpaperSource(DependencyObject element) => (ImageSource?)element.GetValue(WallpaperSourceProperty);
     public static void SetWallpaperSource(DependencyObject element, ImageSource? value) => element.SetValue(WallpaperSourceProperty, value);
@@ -52,6 +55,8 @@ public static class GlassMaterial {
     public static void SetFallbackColor(DependencyObject element, Color value) => element.SetValue(FallbackColorProperty, value);
     public static bool GetDesktopBackdropEnabled(DependencyObject element) => (bool)element.GetValue(DesktopBackdropEnabledProperty);
     public static void SetDesktopBackdropEnabled(DependencyObject element, bool value) => element.SetValue(DesktopBackdropEnabledProperty, value);
+    public static bool GetIgnoreWallpaperHostEffect(DependencyObject element) => (bool)element.GetValue(IgnoreWallpaperHostEffectProperty);
+    public static void SetIgnoreWallpaperHostEffect(DependencyObject element, bool value) => element.SetValue(IgnoreWallpaperHostEffectProperty, value);
 
     private static void OnContextChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) {
         if (element is GlassSurface surface) surface.InvalidateMaterial();

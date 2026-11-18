@@ -50,7 +50,9 @@ public sealed class LegacyPageSetupUIRuntime {
                     try {
                         Logger.Info("加载背景图片：" + address);
                         Host.MarkCustomBackground(Host.MainBackground());
-                        Host.MainBackground().Background = Common.LoadBitmap(address).ToImageBrush();
+                        Host.MainBackground().Background = Common.LoadBackgroundBrush is not null
+                            ? Common.LoadBackgroundBrush(address)
+                            : Common.LoadBitmap(address).ToImageBrush();
                         Host.ApplyBackground(Host.MainPanel(), Host.MainBackground()); Host.UpdateBackgroundAndTitle();
                         if (isHint) Common.Hint("背景图片已刷新：" + PathUtils.GetLastPart(address), LegacySetupHint.Green, false);
                     } catch (Exception error) {

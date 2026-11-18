@@ -4,6 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
+using System.Collections.Generic;
+using System.Windows;
 using System.Windows.Media;
 
 namespace PCLLF.Wpf.Glass;
@@ -14,6 +16,7 @@ public sealed class GlassLauncherViewState
     public bool IsHome { get; init; } = true;
     public int SelectedNavigationId { get; init; }
     public string PageTitle { get; init; } = string.Empty;
+    public bool IsResourceList { get; init; }
     public bool CanGoBack { get; init; }
     public string AccountName { get; init; } = "未登录";
     public ImageSource AccountAvatar { get; init; }
@@ -46,5 +49,23 @@ public sealed class GlassSidebarItem
     public ImageSource Image { get; init; }
     public bool IsSelected { get; init; }
     public bool IsEnabled { get; init; } = true;
+    public Action Invoked { get; init; }
+    /// <summary>A small category caption (for example 社区资源) rather than a selectable row.</summary>
+    public bool IsHeader { get; init; }
+    /// <summary>A one-shot command row (for example 添加已有文件夹) that never shows a selected state.</summary>
+    public bool IsCommand { get; init; }
+    /// <summary>Row accessories from the original page (refresh, configure) shown while the row is hovered or focused.</summary>
+    public IReadOnlyList<GlassSidebarAction> Actions { get; init; } = Array.Empty<GlassSidebarAction>();
+    /// <summary>Opens the original row's context menu at the projected row, when it has one.</summary>
+    public Action<FrameworkElement> ContextRequested { get; init; }
+    /// <summary>The original navigation row; adapters use it to map back to a page.</summary>
+    public object Source { get; init; }
+}
+
+/// <summary>An accessory button of a sidebar row.</summary>
+public sealed class GlassSidebarAction
+{
+    public string ToolTip { get; init; } = string.Empty;
+    public string IconData { get; init; }
     public Action Invoked { get; init; }
 }

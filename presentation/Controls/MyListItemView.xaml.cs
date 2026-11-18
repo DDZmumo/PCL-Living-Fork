@@ -278,6 +278,16 @@ public partial class MyListItemView : Grid {
     protected virtual bool HasContentHandler => ContentHandler is not null;
     protected virtual void InvokeContentHandler(EventArgs args) => ContentHandler!(this, args);
     protected virtual void ClearContentHandler() => ContentHandler = null;
+    private bool ensuringActions;
+    /// <summary>Initializes deferred row actions without requiring pointer entry or changing hover state.</summary>
+    public void EnsureActions() => EnsureActions(EventArgs.Empty);
+    private void EnsureActions(EventArgs args) {
+        Dispatcher.VerifyAccess();
+        if (ensuringActions || !HasContentHandler) return;
+        ensuringActions = true;
+        try { InvokeContentHandler(args); ClearContentHandler(); }
+        finally { ensuringActions = false; }
+    }
     private bool isMouseDown;
     private void ButtonMouseUp(object sender, MouseButtonEventArgs args) {
         if (!isMouseDown) return;
@@ -307,7 +317,7 @@ public partial class MyListItemView : Grid {
     private string? stateLast;
     public bool IsMouseOverAnimationEnabled = true;
     public void RefreshColor(object? sender, EventArgs args) {
-        if (HasContentHandler) { InvokeContentHandler(args); ClearContentHandler(); }
+        EnsureActions(args);
         string stateNew; int time;
         if (isMouseDown && !(Type == CheckType.RadioBox && Checked)) { stateNew = "MouseDown"; time = 120; }
         else if (IsMouseOver && IsMouseOverAnimationEnabled) { stateNew = "MouseOver"; time = 120; }

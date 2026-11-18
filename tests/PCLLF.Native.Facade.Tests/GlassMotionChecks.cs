@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using PCLLF.Wpf.Glass;
 using PCLLF.Wpf.Motion;
@@ -15,8 +16,79 @@ namespace PCLLF.Native.Facade.Tests;
 // Actual native view and template states; no backend/login/game input is started.
 internal static class GlassMotionChecks
 {
+    private static void WallpaperSamplingDuringTransform()
+    {
+        var drawing = new DrawingGroup();
+        using (DrawingContext context = drawing.Open()) {
+            context.DrawRectangle(new LinearGradientBrush(Colors.Crimson, Colors.DodgerBlue, 0), null, new Rect(0, 0, 640, 480));
+            for (int x = 0; x < 640; x += 96) context.DrawRectangle(Brushes.White, null, new Rect(x, 0, 18, 480));
+            for (int y = 0; y < 480; y += 120) context.DrawRectangle(Brushes.DarkGreen, null, new Rect(0, y, 640, 18));
+        }
+        drawing.Freeze(); var picture = new DrawingImage(drawing); picture.Freeze();
+        var root = new Canvas { Width = 640, Height = 480 };
+        var wallpaper = new Image { Source = picture, Width = 640, Height = 480, Stretch = Stretch.Fill };
+        root.Children.Add(wallpaper);
+        var surface = new GlassSurface { Background = Brushes.Transparent, BorderThickness = new Thickness(), CornerRadius = new CornerRadius(), BlurRadius = 24,
+            WallpaperSource = picture, WallpaperHost = wallpaper, HighlightOpacity = 0 };
+        var scale = new ScaleTransform(1, 1); var rise = new TranslateTransform();
+        var transforms = new TransformGroup { Children = { scale, rise } };
+        var moving = new Border { Width = 340, Height = 180, Child = surface, RenderTransform = transforms, RenderTransformOrigin = new Point(.5, .5) };
+        Canvas.SetLeft(moving, 140); Canvas.SetTop(moving, 140); root.Children.Add(moving);
+        var sibling = new GlassSurface { Width = 100, Height = 60, Background = Brushes.Transparent, BorderThickness = new Thickness(), BlurRadius = 24,
+            WallpaperSource = picture, WallpaperHost = wallpaper, HighlightOpacity = 0 };
+        Canvas.SetLeft(sibling, 20); Canvas.SetTop(sibling, 20); root.Children.Add(sibling);
+        var window = new Window { Content = root, Width = 640, Height = 480, WindowStyle = WindowStyle.None, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        byte[] Capture() {
+            var bitmap = new RenderTargetBitmap(640, 480, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
+            var pixels = new byte[220 * 80 * 4]; bitmap.CopyPixels(new Int32Rect(200, 190, 220, 80), pixels, 220 * 4, 0); return pixels;
+        }
+        try {
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain(); Capture();
+            if (!(bool)Native.Property(typeof(GlassSurface), "CanUseTransparency").GetValue(surface)!) return;
+            object Plane(GlassSurface item) => Native.Get(Native.Get(item, "_material")!, "_wallpaper")!;
+            ImageSource Texture(GlassSurface item) {
+                object frame = Native.Get(Plane(item), "Frame") ?? throw new InvalidOperationException("The wallpaper texture was not prepared.");
+                return (ImageSource)Native.Property(frame.GetType(), "Source").GetValue(frame)!;
+            }
+            ImageSource texture = Texture(surface);
+            Check(texture is BitmapSource { IsFrozen: true } && ReferenceEquals(texture, Texture(sibling)) &&
+                ((UIElement)Plane(surface)).Effect is null && ((UIElement)Plane(sibling)).Effect is null,
+                "Cards of one host did not share their frozen blur or retained per-card blur effects.");
+            Type cache = typeof(GlassSurface).Assembly.GetType("PCLLF.Wpf.Glass.WallpaperBlurCache", true)!;
+            long built = (long)Native.Property(cache, "BuildCount").GetValue(null)!;
+            byte[] reference = Capture();
+            foreach (var pose in new[] { (.96, 14d), (.98, 7d), (1d, 0d) }) {
+                scale.ScaleX = scale.ScaleY = pose.Item1; rise.Y = pose.Item2;
+                VisualAssetChecks.Drain();
+                byte[] animated = Capture();
+                double drift = animated.Zip(reference, (first, second) => Math.Abs(first - second)).Average();
+                Check(drift < .5, $"The wallpaper moved in world space under an animated card: scale={pose.Item1}, rise={pose.Item2}, mean difference={drift:0.###}.");
+                Native.Call(typeof(GlassSurface), "InvalidateMaterial", surface); window.UpdateLayout(); VisualAssetChecks.Drain();
+                byte[] settled = Capture();
+                double difference = animated.Zip(settled, (first, second) => Math.Abs(first - second)).Average();
+                Check(difference < .5, $"Wallpaper sampling jumped after a pure render transform settled: scale={pose.Item1}, rise={pose.Item2}, mean pixel difference={difference:0.###}.");
+                Check(ReferenceEquals(texture, Texture(surface)) && (long)Native.Property(cache, "BuildCount").GetValue(null)! == built,
+                    "An entrance transform rebuilt the wallpaper blur instead of reusing its prepared texture.");
+            }
+            moving.RenderTransform = new TransformGroup { Children = { new ScaleTransform(.97, .97), new TranslateTransform(0, 9) } };
+            moving.RenderTransformOrigin = new Point(); VisualAssetChecks.Drain();
+            Check(Capture().Zip(reference, (first, second) => Math.Abs(first - second)).Average() < .5 &&
+                (long)Native.Property(cache, "BuildCount").GetValue(null)! == built,
+                "Replacing an entrance transform/origin moved the wallpaper or rebuilt its blur.");
+            if (MotionPreferences.AllowsAnimation) StaggeredEntrance.Play(new[] { moving });
+            window.Content = null; VisualAssetChecks.Drain();
+            Check(((System.Collections.IDictionary)Native.Get(surface, "_transformWatches")!).Count == 0 && Native.Get(Plane(surface), "Frame") is null,
+                "An unloaded surface retained transform observers or a prepared wallpaper frame.");
+            Check((Native.Get(Plane(surface), "_brush") as ImageBrush)?.ImageSource is null,
+                "The retained material drawing kept an unloaded card's blur texture alive.");
+            Check(moving.Opacity == 1, "An unloaded entrance retained its animation state.");
+        }
+        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
     internal static void Run(Window window, GlassLauncherView view, ImageSource icon)
     {
+        WallpaperSamplingDuringTransform();
         ResetPointerIntent(view);
         view.SetState(State(icon, true));
         view.SetAccountContent(new TextBox { Text = "Motion fixture", Height = 40 });
@@ -62,6 +134,7 @@ internal static class GlassMotionChecks
         }
         else view.SetState(State(icon, false, navigation: 0));
         Until(() => !navigation.IsRunning, "Navigation final endpoint");
+        NavigationHover(view, icon, animates);
 
         view.SetState(State(icon, true, home: false));
         view.SetPageContent(new Grid { Background = Brushes.OrangeRed });
@@ -90,7 +163,7 @@ internal static class GlassMotionChecks
         view.SetState(State(icon, false));
         ToggleFeedback.SetReduceMotion(toggle, false);
         toggle.IsChecked = false;
-        Until(() => Math.Abs(Thumb(toggle).X) < .01, "Toggle unchecked endpoint");
+        Until(() => CheckTrack(toggle).Opacity < .01 && CheckGlyph(toggle).Opacity < .01 && Math.Abs(CheckGlyph(toggle).StrokeDashOffset - 7.6) < .05, "Checkbox unchecked endpoint");
         if (animates)
         {
             SpringMotion position = TogglePosition(toggle);
@@ -107,10 +180,10 @@ internal static class GlassMotionChecks
             toggle.IsChecked = true;
         }
         else toggle.IsChecked = true;
-        Until(() => Math.Abs(Thumb(toggle).X - ToggleFeedback.GetTravel(toggle)) < .01, "Toggle checked endpoint");
+        Until(() => Math.Abs(CheckTrack(toggle).Opacity - 1) < .01 && Math.Abs(CheckCore(toggle).ScaleX - 1) < .01 && Math.Abs(CheckGlyph(toggle).StrokeDashOffset) < .05, "Checkbox checked endpoint");
         view.SetState(State(icon, true, dependency: false));
-        Check(Thumb(toggle).X == 0 && popup.Visibility == Visibility.Collapsed,
-            "Reduced motion left an animated toggle or popup between states.");
+        Check(CheckTrack(toggle).Opacity == 0 && CheckGlyph(toggle).Opacity == 0 && popup.Visibility == Visibility.Collapsed,
+            "Reduced motion left an animated checkbox or popup between states.");
         view.SetAccountOpen(true);
         Check(popup.Opacity == 1, "Reduced-motion popover did not open immediately.");
         view.SetAccountOpen(false);
@@ -130,6 +203,60 @@ internal static class GlassMotionChecks
     private static SpringMotion Motion(GlassLauncherView view, string name) =>
         (SpringMotion)(typeof(GlassLauncherView).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(view) ??
             throw new InvalidOperationException("Actual view spring missing: " + name));
+
+    private static void NavigationHover(GlassLauncherView view, ImageSource icon, bool animates)
+    {
+        view.SetState(State(icon, true));
+        var button = Part<Button>(view, "NavDownload");
+        button.ApplyTemplate();
+        var motions = (Dictionary<Button, SpringMotion>)(typeof(GlassLauncherView)
+            .GetField("_navigationHoverMotions", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(view) ??
+            throw new InvalidOperationException("Actual navigation hover lifecycle state missing."));
+        SpringMotion hover = motions.TryGetValue(button, out SpringMotion? owned) && owned is not null ? owned :
+            throw new InvalidOperationException("Loaded navigation has no owned hover spring.");
+        var layer = button.Template.FindName("NavHoverLayer", button) as Border ??
+            throw new InvalidOperationException("Actual navigation hover template layer missing.");
+        var translation = button.Template.FindName("NavHoverTranslation", button) as TranslateTransform ??
+            throw new InvalidOperationException("Actual navigation hover template translation missing.");
+        var selection = Part<Border>(view, "NavSelection");
+        var navigation = Motion(view, "_navigationMotion");
+        double selectionPosition = navigation.Value;
+        Rect bounds = button.TransformToAncestor(view).TransformBounds(new Rect(button.RenderSize));
+        // Exercise the actual spring-to-template seam without changing the desktop pointer.
+        // Physical MouseEnter/Leave admission is a separate interactive input check.
+        hover.Retarget(1, true);
+        Check(layer.Opacity == 1 && translation.X == 1.5 && navigation.Value == selectionPosition &&
+            System.Windows.Automation.AutomationProperties.GetItemStatus(button) == string.Empty &&
+            System.Windows.Automation.AutomationProperties.GetItemStatus(Part<Button>(view, "NavLaunch")) == "当前页面",
+            "A hover replaced the persistent selection or lost its independent low-amplitude presentation.");
+        Check(!ReferenceEquals(layer.Background, selection.Background) && selection.Child is Border marker && marker.Width == 3 &&
+            !selection.IsHitTestVisible && !layer.IsHitTestVisible && button.FocusVisualStyle is not null &&
+            button.TransformToAncestor(view).TransformBounds(new Rect(button.RenderSize)) == bounds,
+            "Hover/selection/focus layers were merged or feedback moved the navigation hit rectangle.");
+        if (!SystemParameters.HighContrast)
+            Check(layer.Background is SolidColorBrush hoverBrush && selection.Background is SolidColorBrush selectedBrush &&
+                hoverBrush.Color != selectedBrush.Color, "Neutral hover and selected emphasis use the same color.");
+        button.IsEnabled = false;
+        Check(layer.Opacity == 0 && translation.X == 0 && !hover.IsRunning,
+            "Disabling a hovered navigation action retained feedback or a live animation.");
+        button.IsEnabled = true;
+        if (animates)
+        {
+            view.SetState(State(icon, false));
+            AtInFlightRendering(() => hover.Retarget(1),
+                () => hover.Value is > 0 and < 1 && hover.Velocity > 0,
+                () => {
+                    MotionSample before = Sample(hover);
+                    hover.Retarget(0);
+                    CriticalContinuity(before, Sample(hover), MotionTokens.Reveal, "Navigation hover");
+                    Check(button.IsHitTestVisible && button.IsEnabled && navigation.Value == selectionPosition,
+                        "Hover reversal blocked input or changed persistent selection.");
+                }, "Navigation hover first in-flight rendering");
+        }
+        view.SetState(State(icon, true));
+        Check(layer.Opacity == 0 && translation.X == 0 && !hover.IsRunning,
+            "Reduced motion left navigation hover between states.");
+    }
     private readonly record struct MotionSample(double Value, double Velocity, double Target, bool IsRunning, double Timestamp);
     private static MotionSample Sample(SpringMotion motion) => new(motion.Value, motion.Velocity, motion.Target, motion.IsRunning,
         (double)(typeof(SpringMotion).GetField("_lastTimestamp", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(motion) ??
@@ -183,8 +310,12 @@ internal static class GlassMotionChecks
     }
     private static T Part<T>(GlassLauncherView view, string name) where T : class =>
         view.FindName(name) as T ?? throw new InvalidOperationException("Actual motion view part missing: " + name);
-    private static TranslateTransform Thumb(CheckBox toggle) => toggle.Template.FindName("ThumbTransform", toggle) as TranslateTransform ??
-        throw new InvalidOperationException("The native toggle template does not expose its shared spring thumb.");
+    private static FrameworkElement CheckTrack(CheckBox toggle) => toggle.Template.FindName("TrackActive", toggle) as FrameworkElement ??
+        throw new InvalidOperationException("The native checkbox template does not expose its active double-frame track.");
+    private static ScaleTransform CheckCore(CheckBox toggle) => toggle.Template.FindName("CheckCoreScale", toggle) as ScaleTransform ??
+        throw new InvalidOperationException("The native checkbox template does not expose its core scale spring.");
+    private static System.Windows.Shapes.Shape CheckGlyph(CheckBox toggle) => toggle.Template.FindName("CheckMark", toggle) as System.Windows.Shapes.Shape ??
+        throw new InvalidOperationException("The native checkbox template does not expose its drawn checkmark path.");
     private static void ResetPointerIntent(GlassLauncherView view) => view.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
     { RoutedEvent = Mouse.PreviewMouseDownEvent });
     private static void Observe(int milliseconds)

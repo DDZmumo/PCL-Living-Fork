@@ -47,6 +47,9 @@ internal sealed class GlassCompositionHost : IDisposable {
         try {
             var yes = 1;
             Marshal.ThrowExceptionForHR(DwmSetWindowAttribute(Handle, 17, ref yes, sizeof(int))); // USE_HOSTBACKDROPBRUSH.
+            var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+            Marshal.ThrowExceptionForHR(DwmExtendFrameIntoClientArea(Handle, ref margins));
+            EnableHostBackdropAccent(Handle);
             _composition = new GlassDesktopComposition(Handle);
         } catch {
             DestroyWindow(Handle);
@@ -54,6 +57,8 @@ internal sealed class GlassCompositionHost : IDisposable {
             throw;
         }
     }
+
+    internal bool HasBlurredEffectBrush => _composition.IsBlurredEffectBrush;
 
     internal void SetRegions(IReadOnlyList<GlassWindowRegion> regions, Matrix toDevice) {
         if (_hasRegions && _transform == toDevice && _regions.SequenceEqual(regions)) return;
@@ -78,9 +83,19 @@ internal sealed class GlassCompositionHost : IDisposable {
         if (ownerTopmost != hostTopmost)
             SetWindowPos(Handle, ownerTopmost ? new nint(-1) : new nint(-2), 0, 0, 0, 0, NoActivate | NoOwnerZOrder | 0x0001 | 0x0002);
         // Insert immediately after the main HWND, preserving its position relative to other apps.
-        if (!_lastClientBounds.Equals(bounds) || GetWindow(_owner, 2) != Handle || !IsWindowVisible(Handle))
-            SetWindowPos(Handle, _owner, bounds.Left, bounds.Top, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top,
-                NoActivate | NoOwnerZOrder | 0x0040);
+        bool boundsChanged = !_lastClientBounds.Equals(bounds);
+        bool wasVisible = IsWindowVisible(Handle);
+        if (boundsChanged || GetWindow(_owner, 2) != Handle || !wasVisible) {
+            uint flags = NoActivate | NoOwnerZOrder | 0x0040; // SWP_SHOWWINDOW.
+            if (wasVisible) flags |= 0x0008; // SWP_NOREDRAW after initial show.
+            if (!boundsChanged) flags |= 0x0001 | 0x0002; // SWP_NOSIZE | SWP_NOMOVE.
+            else if (_lastClientBounds.Right > _lastClientBounds.Left &&
+                     bounds.Right - bounds.Left == _lastClientBounds.Right - _lastClientBounds.Left &&
+                     bounds.Bottom - bounds.Top == _lastClientBounds.Bottom - _lastClientBounds.Top) {
+                flags |= 0x0001; // SWP_NOSIZE during pure window drags.
+            }
+            SetWindowPos(Handle, _owner, bounds.Left, bounds.Top, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, flags);
+        }
         if (!shouldBeVisible() || !IsWindowVisible(_owner) || IsIconic(_owner)) {
             ShowWindow(Handle, 0);
             return;
@@ -93,31 +108,20 @@ internal sealed class GlassCompositionHost : IDisposable {
 
     private void UpdateRegions() {
         if (_disposed || Handle == 0) return;
-        if (_regions.Length == 0) {
-            var width = Math.Max(1, _lastClientBounds.Right - _lastClientBounds.Left);
-            var height = Math.Max(1, _lastClientBounds.Bottom - _lastClientBounds.Top);
-            _composition.SetRegions([new GlassWindowRegion(new Rect(0, 0, width, height), 0)], Matrix.Identity);
-            SetWindowRgn(Handle, 0, true);
-            return;
-        }
+        // Never call SetWindowRgn on a WS_EX_NOREDIRECTIONBITMAP host-backdrop HWND: GDI window regions
+        // force DWM out of host-backdrop sampling and produce solid black rectangles. The composition
+        // SpriteVisual clips own exact antialiased rounded shapes; outside them the HWND is transparent.
         _composition.SetRegions(_regions, _transform);
-        var union = CreateRectRgn(0, 0, 0, 0);
-        if (union == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-        try {
-            foreach (var region in _regions) {
-                var bounds = region.Bounds;
-                var radius = Math.Min(region.CornerRadius, Math.Min(bounds.Width, bounds.Height) / 2);
-                var shape = CreateRoundRectRgn((int)Math.Floor(bounds.Left * _transform.M11), (int)Math.Floor(bounds.Top * _transform.M22),
-                    (int)Math.Ceiling(bounds.Right * _transform.M11) + 1, (int)Math.Ceiling(bounds.Bottom * _transform.M22) + 1,
-                    (int)Math.Round(radius * _transform.M11 * 2), (int)Math.Round(radius * _transform.M22 * 2));
-                if (shape == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-                try {
-                    if (CombineRgn(union, union, shape, 2) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-                } finally { DeleteObject(shape); }
-            }
-            if (SetWindowRgn(Handle, union, true) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            union = 0; // Ownership transferred to Windows.
-        } finally { if (union != 0) DeleteObject(union); }
+    }
+
+    private static unsafe void EnableHostBackdropAccent(nint hwnd) {
+        var accent = new AccentPolicy { AccentState = 5 }; // ACCENT_ENABLE_HOSTBACKDROP.
+        var data = new WindowCompositionAttributeData {
+            Attribute = 19, // WCA_ACCENT_POLICY.
+            Data = (nint)(&accent),
+            SizeOfData = sizeof(AccentPolicy)
+        };
+        SetWindowCompositionAttribute(hwnd, ref data);
     }
 
     public void Dispose() {
@@ -133,7 +137,8 @@ internal sealed class GlassCompositionHost : IDisposable {
             if (_classRegistered) return;
             var windowClass = new WindowClass {
                 Size = (uint)Marshal.SizeOf<WindowClass>(), Instance = GetModuleHandle(null), ClassName = ClassName,
-                Procedure = Marshal.GetFunctionPointerForDelegate(Procedure)
+                Procedure = Marshal.GetFunctionPointerForDelegate(Procedure),
+                Background = 0 // No class brush may fill the transparent composition gaps/corners.
             };
             if (RegisterClassEx(ref windowClass) == 0 && Marshal.GetLastWin32Error() != 1410)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -156,6 +161,9 @@ internal sealed class GlassCompositionHost : IDisposable {
     }
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct Margins { public int Left, Right, Top, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct AccentPolicy { public int AccentState, AccentFlags, GradientColor, AnimationId; }
+    [StructLayout(LayoutKind.Sequential)] private struct WindowCompositionAttributeData { public int Attribute; public nint Data; public int SizeOfData; }
     private static long GetExtendedStyle(nint hwnd) => nint.Size == 8 ? GetWindowLongPtr(hwnd, -20).ToInt64() : GetWindowLong(hwnd, -20);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern ushort RegisterClassEx(ref WindowClass value);
@@ -171,11 +179,8 @@ internal sealed class GlassCompositionHost : IDisposable {
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(nint hwnd, int index);
-    [DllImport("user32.dll", SetLastError = true)] private static extern int SetWindowRgn(nint hwnd, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreateRectRgn(int left, int top, int right, int bottom);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern int CombineRgn(nint destination, nint source1, nint source2, int mode);
-    [DllImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DeleteObject(nint handle);
+    [DllImport("user32.dll")] private static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? moduleName);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+    [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(nint hwnd, ref Margins margins);
 }

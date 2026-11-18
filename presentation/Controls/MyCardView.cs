@@ -187,7 +187,7 @@ public class MyCardView : Grid {
     public void PerformClick() {
         if (!IsEnabled) return;
         Services.RaiseCustomEvent(this);
-        if (!CanSwap || (SwapControl is null && !IsSwapped)) return;
+        if (SwapControl is null && (!CanSwap || !IsSwapped)) return;
         object args = CreateSwapArgs();
         if (OnPreviewSwap(args)) return;
         IsSwapped = !IsSwapped;

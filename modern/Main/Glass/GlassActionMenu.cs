@@ -46,6 +46,7 @@ internal sealed class GlassActionMenu : ContextMenu {
     }
     internal MenuItem AddCommand(string text, Action action, bool enabled = true, string? iconData = null, bool check = false) {
         ArgumentNullException.ThrowIfNull(action);
+        if (GlassClientUiPolicy.ServerAction(text)) return new MenuItem { Header = text, Visibility = Visibility.Collapsed, IsEnabled = false };
         var item = new LifetimeMenuItem(OwnerIsLive) { Header = text, IsEnabled = enabled, IsChecked = check, Style = (Style)Resources[typeof(MenuItem)] };
         if (!string.IsNullOrWhiteSpace(iconData)) {
             try { item.Icon = MakeIcon(Geometry.Parse(iconData)); }
@@ -90,9 +91,10 @@ internal sealed class GlassActionMenu : ContextMenu {
         Items.Clear();
         if (_original is null) return;
         foreach (object source in _original.Items) {
-            if (source is Separator) Items.Add(new Separator());
-            else if (source is MenuItem item) Items.Add(Project(item));
+            if (source is Separator) { if (Items.Count > 0 && Items[Items.Count - 1] is not Separator) Items.Add(new Separator()); }
+            else if (source is MenuItem item && !GlassClientUiPolicy.Excludes(item)) Items.Add(Project(item));
         }
+        if (Items.Count > 0 && Items[Items.Count - 1] is Separator) Items.RemoveAt(Items.Count - 1);
     }
     private MenuItem Project(MenuItem source) {
         var result = new LifetimeMenuItem(OwnerIsLive) { Header = HeaderText(source.Header), Icon = CopyIcon(source.Icon), Style = (Style)Resources[typeof(MenuItem)] };
@@ -107,9 +109,10 @@ internal sealed class GlassActionMenu : ContextMenu {
             // Native MenuItem invokes its bound original command exactly once after Click.
         };
         foreach (object child in source.Items) {
-            if (child is Separator) result.Items.Add(new Separator());
-            else if (child is MenuItem item) result.Items.Add(Project(item));
+            if (child is Separator) { if (result.Items.Count > 0 && result.Items[result.Items.Count - 1] is not Separator) result.Items.Add(new Separator()); }
+            else if (child is MenuItem item && !GlassClientUiPolicy.Excludes(item)) result.Items.Add(Project(item));
         }
+        if (result.Items.Count > 0 && result.Items[result.Items.Count - 1] is Separator) result.Items.RemoveAt(result.Items.Count - 1);
         return result;
     }
     private UIElement? CopyIcon(object? icon) => icon switch {

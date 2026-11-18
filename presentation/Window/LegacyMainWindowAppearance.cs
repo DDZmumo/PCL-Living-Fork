@@ -58,7 +58,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         Logger.Info("从设置更新背景图片与标题栏样式");
         view.ImgBack().Opacity = host.ReadInteger("UiBackgroundOpacity") / 1000d * PCLLF.Presentation.Foundation.LegacyThemePalette.BackgroundThemeOpacityFactor(view.ImgBack());
         double radius = checked(host.ReadInteger("UiBackgroundBlur") + 1);
-        if (radius == 1) view.ImgBack().Effect = null; else view.ImgBack().Effect = new BlurEffect { Radius = radius };
+        if (radius == 1 || view.UsesGlassShell?.Invoke() == true) view.ImgBack().Effect = null; else view.ImgBack().Effect = new BlurEffect { Radius = radius };
         view.ImgBack().Margin = new Thickness(-radius / 1.8);
         int type = host.ReadInteger("UiBackgroundSuit");
         if (view.ImgBack().Background is not null) {

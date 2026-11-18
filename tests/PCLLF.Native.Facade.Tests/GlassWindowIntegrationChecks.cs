@@ -121,10 +121,6 @@ internal static class GlassWindowIntegrationChecks {
             view.NavigationRequested += page => { previewPage = page; window.PageCurrent = (FormMain.PageType)page; Refresh(window); };
             view.DependencyCheckChanged += value => { previewDependencies = value; Refresh(window); };
             view.AutoFillChanged += value => { previewAutoFill = value; Refresh(window); };
-            view.WallpaperRequested += (_, _) => {
-                Native.Cache("UiGlassWallpaperPath", string.IsNullOrEmpty(Settings.Get<string>("UiGlassWallpaperPath")) ? wallpaper : "");
-                Refresh(window);
-            };
             view.CloseRequested += (_, _) => window.Close();
             view.SetAccountContent(new TextBlock { Text = "界面预览不会读取或更改登录账号。", Margin = new Thickness(18), TextWrapping = TextWrapping.Wrap });
             window.AllowDrop = false;
@@ -141,6 +137,7 @@ internal static class GlassWindowIntegrationChecks {
             previewResizer = windowPorts!.CreateResizer(window);
             RegisterResizeGrips(window, previewResizer);
             window.UpdateLayout(); VisualAssetChecks.Observe(550); Refresh(window); VisualAssetChecks.Drain();
+            VerifyHiddenShortcut(window, windowPorts!);
             environment.AssertNoForbiddenIo();
             Native.Check(window.IsLoaded && window.AllowsTransparency && window.Opacity == 1,
                 "Actual glass FormMain lost its alpha-enabled HWND or opaque foreground content.");
@@ -158,7 +155,7 @@ internal static class GlassWindowIntegrationChecks {
                 "Original BAML root must remain loaded and hidden beneath the shell.");
             CheckSurfaces(view);
             CheckResizeGrips(window, view);
-            window.Width = 810; window.Height = 470;
+            window.Width = 980; window.Height = 560;
             window.UpdateLayout(); VisualAssetChecks.Drain(); Refresh(window);
             CheckSurfaces(view); CheckResizeGrips(window, view);
             window.Width = 1110; window.Height = 740;
@@ -166,10 +163,9 @@ internal static class GlassWindowIntegrationChecks {
             CheckSurfaces(view);
             previewPage = 1; window.PageCurrent = FormMain.PageType.Download; Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
             CheckSurfaces(view);
-            Native.Check(Part<ContentControl>(view, "NavigationContent").Content is FrameworkElement &&
-                !ReferenceEquals(Part<ContentControl>(view, "NavigationContent").Content, Part<Border>(window, "PanMainLeft")) &&
+            Native.Check(Part<StackPanel>(view, "SidebarPanel").Children.Count > 0 && view.FindName("NavigationPopover") is null &&
                 !Part<Border>(window, "PanMainLeft").IsVisible,
-                "Context navigation must use new elements with the original state source hidden.");
+                "Context navigation must use new sidebar elements with the original state source hidden.");
             previewPage = 0; window.PageCurrent = FormMain.PageType.Launch; Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "The workspace created a native desktop-blur companion without a wallpaper.");
@@ -182,6 +178,15 @@ internal static class GlassWindowIntegrationChecks {
                 "The workspace did not display its configured launcher wallpaper.");
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "Wallpaper mode created a native desktop-blur companion.");
+            var boundedBrush = (ImageBrush)Native.Call(Native.Type("PCL.SetupPageRuntime"), "LoadBoundedBackgroundBrush", null, wallpaper)!;
+            Native.Check(!boundedBrush.IsFrozen && boundedBrush.ImageSource is { IsFrozen: true },
+                "Pictures background brush must remain mutable for suit/alignment updates while keeping a frozen BitmapSource.");
+            Canvas imgBack = Part<Canvas>(window, "ImgBack");
+            Brush? oldImgBack = imgBack.Background;
+            try {
+                imgBack.Background = boundedBrush;
+                window.UpdateBackgroundAndTitleBar();
+            } finally { imgBack.Background = oldImgBack; }
             Native.Cache("UiGlassWallpaperPath", ""); Refresh(window); VisualAssetChecks.Drain();
             window.WindowState = WindowState.Minimized; VisualAssetChecks.Observe(100);
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows, "Minimize created a desktop backdrop.");
@@ -208,9 +213,9 @@ internal static class GlassWindowIntegrationChecks {
                     $"PREVIEW SIZE actual-dip={args.NewSize.Width:0.###}x{args.NewSize.Height:0.###}; requested-dip={window.Width:0.###}x{window.Height:0.###}"));
                 window.PreviewKeyDown += (_, args) => {
                     if (args.Key != Key.F6 || args.IsRepeat) return;
-                    bool minimum = Math.Abs(window.Width - 810) < 0.5 && Math.Abs(window.Height - 470) < 0.5;
-                    window.Width = minimum ? 1110 : 810;
-                    window.Height = minimum ? 740 : 470;
+                    bool minimum = Math.Abs(window.Width - 980) < 0.5 && Math.Abs(window.Height - 560) < 0.5;
+                    window.Width = minimum ? 1110 : 980;
+                    window.Height = minimum ? 740 : 560;
                     window.UpdateLayout();
                     Console.WriteLine(FormattableString.Invariant($"PREVIEW F6 requested-dip={window.Width:0}x{window.Height:0}"));
                     args.Handled = true;
@@ -240,6 +245,23 @@ internal static class GlassWindowIntegrationChecks {
         Console.WriteLine("PASS workspace FormMain: independent presentation over hidden state sources; original commands and resize handlers, launcher wallpaper/opaque background, zero desktop composition windows, minimize/restore and cleanup; startup/account/game/profile access guarded.");
     }
 
+    private static void VerifyHiddenShortcut(FormMain window, MainHost host) {
+        object controller = Native.Get(window, "Controller")!;
+        FieldInfo viewField = controller.GetType().GetFields(Native.Flags).Single(field => field.FieldType == typeof(LegacyMainWindowView));
+        var view = (LegacyMainWindowView)viewField.GetValue(controller)!;
+        Func<bool>? previousMode = view.UsesGlassShell;
+        bool previousHidden = host.HiddenForceShow();
+        void Press() => Native.Call(controller.GetType(), "KeyDown", controller,
+            new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, Environment.TickCount, Key.F12) { RoutedEvent = Keyboard.KeyDownEvent });
+        try {
+            view.UsesGlassShell = () => true; Press();
+            Native.Check(host.HiddenForceShow() == previousHidden, "F12 still changed the removed visibility feature in the modern shell.");
+            view.UsesGlassShell = () => false; Press();
+            Native.Check(host.HiddenForceShow() != previousHidden, "The classic shell lost its original F12 visibility shortcut.");
+        }
+        finally { view.UsesGlassShell = previousMode; host.WriteHiddenForceShow(previousHidden); }
+    }
+
     private static void Refresh(FormMain window) => Native.Call(typeof(FormMain), "RefreshGlassShell", window);
     private static void RegisterResizeGrips(FormMain window, WindowResizer resizer) {
         resizer.addResizerDown(Part<FrameworkElement>(window, "ResizerB"));
@@ -262,12 +284,15 @@ internal static class GlassWindowIntegrationChecks {
                 handler.Method.DeclaringType == typeof(WindowResizer) && handler.Method.Name == "MouseDown") == true;
             Native.Check(actual, "Actual native resize handler was not registered on " + name);
         }
-        Rect area = new(view.RenderSize);
-        Point right = view.TranslatePoint(new Point(area.Right - 2, area.Top + area.Height / 2), window);
-        Point left = view.TranslatePoint(new Point(area.Left + 2, area.Top + area.Height / 2), window);
-        Point top = view.TranslatePoint(new Point(area.Left + area.Width / 2, area.Top + 2), window);
-        Point bottom = view.TranslatePoint(new Point(area.Left + area.Width / 2, area.Bottom - 2), window);
-        foreach (var (point, name) in new[] { (right, "ResizerR"), (left, "ResizerL"), (top, "ResizerT"), (bottom, "ResizerB") })
+        var regions = view.GetSurfaceRegions();
+        Native.Check(regions.Count == 3, "Expected three surfaces for resize grip placement.");
+        Rect rail = regions[0].Bounds, body = regions[1].Bounds, controls = regions[2].Bounds;
+        Point right = view.TranslatePoint(new Point(body.Right - 2, (controls.Bottom + body.Bottom) / 2), window);
+        Point left = view.TranslatePoint(new Point(rail.Left + 2, rail.Top + rail.Height / 2), window);
+        Point top = view.TranslatePoint(new Point((body.Left + controls.Left) / 2, body.Top + 2), window);
+        Point bottom = view.TranslatePoint(new Point(body.Left + body.Width / 2, body.Bottom - 2), window);
+        Point topRight = view.TranslatePoint(new Point(controls.Right - 2, controls.Top + 2), window);
+        foreach (var (point, name) in new[] { (right, "ResizerR"), (left, "ResizerL"), (top, "ResizerT"), (bottom, "ResizerB"), (topRight, "ResizerRT") })
             Native.Check(ReferenceEquals(window.InputHitTest(point), Part<FrameworkElement>(window, name)),
                 "Actual glass inner edge is not hit-testable by its original resize grip: " + name);
         var account = Part<Button>(view, "AccountButton");
@@ -276,10 +301,11 @@ internal static class GlassWindowIntegrationChecks {
         Native.Check(avatarHit != null && IsDescendant(avatarHit, account), "The corner resize grip covers the login avatar.");
     }
     private static void CheckSurfaces(GlassLauncherView view) {
+        GlassShellChecks.CheckChromeTargets(view, includeWindowOverlays: true);
         var regions = view.GetSurfaceRegions();
-        Native.Check(regions.Count == 2 && regions[0].CornerRadius == 12 && regions[1].CornerRadius == 12 &&
+        Native.Check(regions.Count == 3 && regions.All(region => region.CornerRadius == 12) &&
             Math.Abs(regions[1].Bounds.Left - regions[0].Bounds.Right - 12) < .2,
-            "The native window must match the separated rounded rail/body geometry.");
+            "The native window must match the separated rounded rail/body/controls geometry.");
         var window = (FormMain)System.Windows.Window.GetWindow(view);
         var integration = Native.Get(window, "glassShell")!;
         var controller = (GlassWindowRegionClip)Native.Get(integration, "_windowRegion")!;
@@ -299,7 +325,10 @@ internal static class GlassWindowIntegrationChecks {
                 return PtInRegion(shape, (int)Math.Floor(screen.X - frame.Left), (int)Math.Floor(screen.Y - frame.Top));
             }
             Point gap = new((regions[0].Bounds.Right + regions[1].Bounds.Left) / 2, view.ActualHeight / 2);
-            Native.Check(!Contains(gap), "The actual HWND still includes the gap between the two surfaces.");
+            Point topStep = new((regions[1].Bounds.Left + regions[2].Bounds.Left) / 2, regions[1].Bounds.Top / 2);
+            Point rightStep = new((regions[1].Bounds.Right + regions[2].Bounds.Right) / 2, (regions[2].Bounds.Bottom + regions[1].Bounds.Bottom) / 2);
+            Native.Check(!Contains(gap) && !Contains(topStep) && !Contains(rightStep),
+                "The actual HWND still includes the transparent gap or staggered insets outside the three surfaces.");
             foreach (GlassWindowRegion surface in regions) {
                 Rect area = surface.Bounds;
                 Native.Check(Contains(new Point(area.Left + area.Width / 2, area.Top + area.Height / 2)), "A painted workspace surface lies outside its native region.");
@@ -319,8 +348,6 @@ internal static class GlassWindowIntegrationChecks {
             MethodInfo actualHandler = Native.Method(runtime.GetType(), "On" + eventName);
             actualEvent.RemoveEventHandler(view, Delegate.CreateDelegate(actualEvent.EventHandlerType!, runtime, actualHandler));
         }
-        EventInfo wallpaper = typeof(GlassLauncherView).GetEvent("WallpaperRequested")!;
-        wallpaper.RemoveEventHandler(view, Delegate.CreateDelegate(wallpaper.EventHandlerType!, integration, Native.Method(integration.GetType(), "OnWallpaper")));
     }
 
     private static T Part<T>(FrameworkElement element, string name) where T : class => element.FindName(name) as T ?? throw new InvalidOperationException("Actual glass window part missing: " + name);

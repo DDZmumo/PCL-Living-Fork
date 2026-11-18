@@ -42,10 +42,11 @@ internal static class SettingsMicrosoftIsolationTests {
         foreach (Entry e in microsoft) Check(Engine.RegistryValueName(e) == e.Key + "_LF", "MS physical namespace: " + e.Key);
         foreach (string key in new[] { "Identify", "LoginType", "CacheAuthAccess", "CacheNidePass", "LaunchFolders", "UiLauncherTheme", "ToolLauncherUpdateIgnoredTag" })
             Check(Engine.RegistryValueName(f.Entries[key]) == key, "Unrelated key renamed: " + key);
-        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel", "UiLauncherColorMode" }) {
+        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel" }) {
             Check((int)f.Entries[key].DefaultValue! == 0 && f.Entries[key].GetSourceCode() == LegacySettingSource.Normal, "New default/source: " + key);
         }
-        Check((int)f.Entries["UiPanelOpacity"].DefaultValue! == 960 && f.Entries["UiPanelOpacity"].GetSourceCode() == LegacySettingSource.Normal, "Panel opacity default/source");
+        Check((int)f.Entries["UiLauncherColorMode"].DefaultValue! == 1 && f.Entries["UiLauncherColorMode"].GetSourceCode() == LegacySettingSource.Normal, "Dark theme default/source");
+        Check((int)f.Entries["UiPanelOpacity"].DefaultValue! == 850 && f.Entries["UiPanelOpacity"].GetSourceCode() == LegacySettingSource.Normal, "Panel opacity default/source");
         Check(!Engine.IsMicrosoftAccountSetting(new Entry("CacheMsFuture", "", LegacySettingSource.Normal, true, null)), "Normal setting should not gain registry namespace");
     }
     private static void ReadWriteAndLogout() {

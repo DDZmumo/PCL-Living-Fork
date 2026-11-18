@@ -42,11 +42,18 @@ internal static class GlassContextNavigationChecks
         var second = new MyListItem { Title = "设置", Type = MyListItem.CheckType.RadioBox };
         var disabled = new MyListItem { Title = "不可用", Type = MyListItem.CheckType.RadioBox, IsEnabled = false };
         var hidden = new MyListItem { Title = "隐藏", Type = MyListItem.CheckType.RadioBox, Visibility = Visibility.Collapsed };
+        var heading = new TextBlock { Text = "版本工具", FontSize = 12, Opacity = .6 };
         var action = new MyListItem { Title = "文件夹管理", Type = MyListItem.CheckType.Clickable };
-        panel.Children.Add(first); panel.Children.Add(second); panel.Children.Add(disabled); panel.Children.Add(hidden); panel.Children.Add(action);
+        panel.Children.Add(first); panel.Children.Add(second); panel.Children.Add(disabled); panel.Children.Add(hidden); panel.Children.Add(heading); panel.Children.Add(action);
         first.SetChecked(true, false, false);
         IReadOnlyList<GlassSidebarItem> items = Build(page);
-        Native.Check(items.Select(item => item.Label).SequenceEqual(new[] { "概览", "设置", "不可用" }), "Context navigation order/visibility/deduplication differs from real source rows.");
+        Native.Check(items.Select(item => item.Label).SequenceEqual(new[] { "概览", "设置", "不可用", "版本工具", "文件夹管理" }), "Context navigation order/visibility/deduplication differs from real source rows.");
+        // Category captions and one-shot action rows now live in the sidebar (the all-page-options portal was removed).
+        Native.Check(items[3].IsHeader && !items[3].IsSelected && items[4].IsCommand && !items[4].IsSelected && ReferenceEquals(items[4].Source, action),
+            "Sidebar caption or action row lost its role.");
+        int actionClicks = 0; action.Click += (_, _) => actionClicks++;
+        items[4].Invoked();
+        Native.Check(actionClicks == 1 && first.Checked, "An action row did not reach its original Click or changed the selected page.");
         Native.Check(items[0].IsSelected && items[0].ToolTip == "当前实例的概览" && !string.IsNullOrWhiteSpace(items[0].IconData), "Context projection lost the actual selection, tooltip or logo geometry.");
         Native.Check(items[1].IconData is null && items[1].Image is null && !items[2].IsEnabled, "A missing logo was replaced with invented navigation data, or a disabled action was enabled.");
         var events = new List<string>();

@@ -130,7 +130,11 @@ namespace PCL
         private void BtnTitleMin_Click() => Controller.Minimize();
         public static void UpdateBackgroundAndTitleBar(object Value)
             => LegacyMainWindowStatics.UpdateBackground(() => ModMain.FrmMain, () => ModMain.FrmMain.UpdateBackgroundAndTitleBar());
-        public void UpdateBackgroundAndTitleBar() => Controller.UpdateBackgroundAndTitleBar();
+        public void UpdateBackgroundAndTitleBar()
+        {
+            Controller.UpdateBackgroundAndTitleBar();
+            glassShell?.RefreshWallpaper(true);
+        }
         internal void UpdateTitleBar() => Controller.UpdateTitleBar();
         private void FormMain_KeyDown(object sender, KeyEventArgs e) => Controller.KeyDown(e);
         private void FormMain_MouseDown(object sender, MouseButtonEventArgs e) => Controller.MouseDown(e);
@@ -277,7 +281,12 @@ namespace PCL
                 CreateLaunchRight = () => ModMain.FrmLaunchRight = new PageLaunchRight(),
                 ReadInteger = key => Settings.Get<int>(key), ReadString = key => Settings.Get<string>(key),
                 ReadBoolean = key => Settings.Get<bool>(key), HasSaved = key => Settings.HasSaved(key),
-                DefaultValue = key => Settings.GetDefault(key), WriteSetting = (key, value) => Settings.Set(key, value), ResetSetting = key => Settings.Reset(key),
+                DefaultValue = key => Settings.GetDefault(key),
+                WriteSetting = (key, value) => Settings.Set(key,
+                    key == "WindowWidth" && glassShell?.HasLeftExpansionOverhang == true
+                        ? Math.Max(980, Convert.ToInt32(Math.Round(Convert.ToDouble(value) - GlassShellIntegration.LeftOverhangAllowance)))
+                        : value),
+                ResetSetting = key => Settings.Reset(key),
                 UpdateLogIdentity = () => CurrentUpdateLogIdentity,
                 HasIniKey = (file, key) => ModBase.HasIniKey(file, key), ThemeRefresh = value => ModSecret.ThemeRefresh(value),
                 ThemeRefreshMain = () => ModSecret.ThemeRefreshMain(), RefreshHidden = () => PageSetupUI.HiddenRefresh(),

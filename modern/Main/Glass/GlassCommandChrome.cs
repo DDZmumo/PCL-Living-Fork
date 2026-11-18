@@ -78,10 +78,10 @@ internal static class GlassCommandChrome {
         var root = new FrameworkElementFactory(typeof(Grid));
         root.SetValue(WallpaperPopupContext.EnableProperty, true);
         root.SetValue(WallpaperPopupContext.CornerRadiusProperty, radius);
-        root.SetValue(GlassMaterial.FallbackColorProperty, darkText ? Color.FromRgb(246, 248, 252) : Color.FromRgb(30, 37, 48));
+        root.SetValue(GlassMaterial.FallbackColorProperty, darkText ? Color.FromRgb(246, 248, 252) : Color.FromRgb(32, 32, 32));
         var surface = new FrameworkElementFactory(typeof(GlassSurface));
         surface.SetValue(GlassSurface.CornerRadiusProperty, new CornerRadius(radius));
-        surface.SetValue(GlassSurface.BackgroundProperty, Brush(darkText ? "#F2F6F8FC" : "#E8202732"));
+        surface.SetValue(GlassSurface.BackgroundProperty, Brush(darkText ? "#F2F6F8FC" : "#E8202020"));
         surface.SetValue(GlassSurface.BorderBrushProperty, Brush(darkText ? "#24172330" : "#20FFFFFF"));
         surface.SetValue(GlassSurface.BorderThicknessProperty, new Thickness(.8));
         surface.SetValue(GlassSurface.PaddingProperty, padding);

@@ -77,6 +77,8 @@ namespace PCL
             this.ConfigPackPath = (global::System.String)null;
             this.Pipeline = new global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>(global::PCL.PageInstanceExport.CreatePipelineHost());
             this.InitializeComponent();
+            // The new presentation invokes this button directly instead of the old card's mouse event.
+            this.BtnOverrideCancel.Click += (_, _) => this.Controller.OptionsMouseDown();
         }
 
         private global::PCLCS.ModpackExportPageView<global::PCL.MyCheckBox> CreateView()

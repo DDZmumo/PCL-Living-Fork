@@ -27,6 +27,12 @@ public sealed class SpringMotion : IDisposable {
     private readonly Func<bool> _allowsAnimation;
     private readonly Func<bool> _canAnimateOwner;
     private double _lastTimestamp;
+
+    /// <summary>
+    /// Optional cap on the time one rendered frame may advance. Leave unset for strictly time-based motion; set it
+    /// for transitions that must stay visible when the UI thread stalls (the motion pauses instead of skipping ahead).
+    /// </summary>
+    public double? MaxFrameSeconds { get; set; }
     private bool _disposed;
 
     public SpringMotion(FrameworkElement owner, double initialValue, Action<double> apply,
@@ -109,6 +115,7 @@ public sealed class SpringMotion : IDisposable {
             return;
         }
         double elapsed = Math.Max(0, timestamp - _lastTimestamp);
+        if (MaxFrameSeconds is double cap) elapsed = Math.Min(elapsed, cap);
         _lastTimestamp = timestamp;
         _spring.Advance(elapsed);
         if (_spring.IsAtRest) Stop();

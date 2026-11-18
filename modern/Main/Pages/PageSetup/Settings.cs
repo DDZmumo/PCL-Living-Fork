@@ -220,6 +220,7 @@ namespace PCL
         }
         public static object Get(string Key, ModMinecraft.McInstance Instance = null)
         {
+            if (GlassClientUiPolicy.IgnoresHiddenSetting(Key)) return false;
             return Backend.Get(Key, Instance);
         }
         private static object GetCore(string Key, ModMinecraft.McInstance Instance, Func<Setting, string> ReadRaw = null, string DeviceIdentify = null)
@@ -232,6 +233,7 @@ namespace PCL
         }
         public static object GetSafe(string Key, ModMinecraft.McInstance Instance = null)
         {
+            if (GlassClientUiPolicy.IgnoresHiddenSetting(Key)) return false;
             return Backend.GetSafe(Key, Instance);
         }
         public static void Reset(string Key, ModMinecraft.McInstance Instance = null)

@@ -61,7 +61,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     }
     public void Loaded() {
         host.WriteStartTick(host.Clock()); host.WriteHandle(new WindowInteropHelper(Window).Handle);
-        UpdateBackgroundAndTitleBar(); host.RefreshHidden(); host.RefreshBackground(false, true); host.RefreshMusic(false, true);
+        if (host.ReadInteger("UiBackgroundMode") == 1) UpdateBackgroundAndTitleBar();
+        host.RefreshHidden(); host.RefreshBackground(false, true); host.RefreshMusic(false, true);
         view.ExtraDownload().SetShowCheck(DownloadShowCheck); view.ExtraBack().SetShowCheck(BackShowCheck); view.ExtraApril().SetShowCheck(AprilShowCheck); view.ExtraShutdown().SetShowCheck(ShutdownShowCheck); view.ExtraApril().ShowRefresh();
         WindowResizer resizer = host.CreateResizer(Window);
         resizer.addResizerDown(view.Resizer(0)); resizer.addResizerLeft(view.Resizer(1)); resizer.addResizerLeftDown(view.Resizer(2)); resizer.addResizerLeftUp(view.Resizer(3));

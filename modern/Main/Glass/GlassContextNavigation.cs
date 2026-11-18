@@ -37,30 +37,40 @@ internal static class GlassContextNavigation
     private static void Collect(DependencyObject node, HashSet<DependencyObject> visited, List<GlassSidebarItem> result)
     {
         if (!visited.Add(node)) return;
+        if (GlassClientUiPolicy.Excludes(node)) return;
         // Inspect declared visibility rather than inherited IsVisible: the source page can live in a closed portal.
         if (node is UIElement element && element.Visibility != Visibility.Visible) return;
         if (node is FrameworkElement framework && framework.TemplatedParent != null) return;
         if (node is MyListItem list)
         {
-            if (list.Type == MyListItem.CheckType.RadioBox)
+            string label = string.IsNullOrWhiteSpace(list.Title) ? list.LabTitle.Text : list.Title;
+            if (!string.IsNullOrWhiteSpace(label) && list.Type is MyListItem.CheckType.RadioBox or MyListItem.CheckType.Clickable)
             {
-                string label = string.IsNullOrWhiteSpace(list.Title) ? list.LabTitle.Text : list.Title;
-                if (!string.IsNullOrWhiteSpace(label))
+                bool command = list.Type == MyListItem.CheckType.Clickable;
+                ReadIcon(list.PathLogo, out string geometry, out ImageSource image);
+                result.Add(new GlassSidebarItem
                 {
-                    ReadIcon(list.PathLogo, out string geometry, out ImageSource image);
-                    result.Add(new GlassSidebarItem
-                    {
-                        Label = label.Trim(),
-                        ToolTip = TooltipText(list.ToolTip),
-                        IconData = geometry,
-                        Image = image,
-                        IsSelected = list.Checked,
-                        IsEnabled = list.IsEnabled,
-                        Invoked = () => { if (list.IsEnabled && list.Visibility == Visibility.Visible) list.PerformClick(); },
-                    });
-                }
+                    Label = label.Trim(),
+                    ToolTip = TooltipText(list.ToolTip),
+                    IconData = geometry,
+                    Image = image,
+                    IsSelected = !command && list.Checked,
+                    IsCommand = command,
+                    IsEnabled = list.IsEnabled,
+                    Invoked = () => { if (list.IsEnabled && list.Visibility == Visibility.Visible) list.PerformClick(); },
+                    Actions = RowActions(list),
+                    ContextRequested = list.ContextMenu is { } menu ? target => ShowContextMenu(menu, target) : null,
+                    Source = list,
+                });
             }
-            // Row content, accessory buttons and clickable folder actions remain in the full portal.
+            // Row content is read through the item itself; its accessories become sidebar actions.
+            return;
+        }
+        // Category captions in the original left pages are small, dimmed text blocks (e.g. 社区资源 / 版本工具).
+        if (node is TextBlock { Text: { Length: > 0 } caption } heading && heading.FontSize <= 13 && heading.Opacity < 1 &&
+            !string.IsNullOrWhiteSpace(caption))
+        {
+            result.Add(new GlassSidebarItem { Label = caption.Trim(), IsHeader = true, IsEnabled = true });
             return;
         }
         if (node is MyRadioButton radio)
@@ -88,6 +98,28 @@ internal static class GlassContextNavigation
         if (node is Visual or Visual3D)
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
                 Collect(VisualTreeHelper.GetChild(node, i), visited, result);
+    }
+
+    private static IReadOnlyList<GlassSidebarAction> RowActions(MyListItem list)
+    {
+        var actions = new List<GlassSidebarAction>();
+        foreach (MyIconButton button in list.Buttons ?? Array.Empty<MyIconButton>())
+        {
+            if (button is null || button.Visibility == Visibility.Collapsed || GlassClientUiPolicy.Excludes(button)) continue;
+            actions.Add(new GlassSidebarAction
+            {
+                ToolTip = TooltipText(button.ToolTip) ?? string.Empty,
+                IconData = button.Logo,
+                Invoked = () => { if (button.IsEnabled) button.PerformClick(); },
+            });
+        }
+        return actions;
+    }
+
+    private static void ShowContextMenu(ContextMenu source, FrameworkElement target)
+    {
+        bool darkText = target.TryFindResource("GlassTextBrush") is SolidColorBrush { Color: var color } && color.R + color.G + color.B < 480;
+        GlassActionMenu.FromContextMenu(source, target, darkText).IsOpen = true;
     }
 
     private static void ReadIcon(FrameworkElement logo, out string geometry, out ImageSource image)

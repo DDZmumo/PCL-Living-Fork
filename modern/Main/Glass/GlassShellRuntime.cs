@@ -31,6 +31,7 @@ internal sealed class GlassShellRuntime : IDisposable {
     private McInstance? _observedInstance;
     private string _instanceName = "选择实例", _instanceDescription = string.Empty;
     private string? _instanceLogo, _gameFolder;
+    private McInstance? _loadRequested;
     private ImageSource? _instanceIcon;
     private double _nextMetadataRefresh, _nextAccountRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
     private string _accountName = "未登录";
@@ -80,6 +81,18 @@ internal sealed class GlassShellRuntime : IDisposable {
             _nextMetadataRefresh = 0;
             InvalidateRecent();
         }
+        // The glass home replaces the original launch page, which used to load the selected instance's metadata on display.
+        // Without that, the game folder (and so the recent world) stays unknown until the first launch. Load it once in the background.
+        if (instance is { IsLoaded: false } && !ReferenceEquals(_loadRequested, instance)) {
+            _loadRequested = instance;
+            McInstance target = instance;
+            _ = Task.Run(() => {
+                try { target.Load(); }
+                catch (Exception error) { Logger.Warn(error, "预加载玻璃界面的实例信息失败"); }
+                if (_owner.Dispatcher.HasShutdownStarted) return;
+                _owner.Dispatcher.BeginInvoke(new Action(() => { if (_disposed) return; _nextMetadataRefresh = 0; Refresh(); }));
+            });
+        }
         if (now >= _nextMetadataRefresh) {
             _nextMetadataRefresh = now + 1;
             RefreshInstanceMetadata(instance);
@@ -98,6 +111,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         bool canLaunch = hasInstance && !loadingInstances && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!);
         int page = _owner.GlassPageCode;
         string title = _owner.GlassPageTitle ?? string.Empty;
+        string? resourceTitle = page == (int)FormMain.PageType.Download ? ResourcePageTitle(_owner.PageRight) : null;
         bool recentEnabled = Settings.Get<bool>("LaunchRecentWorlds");
         if (page == (int)FormMain.PageType.Launch && recentEnabled && instance is not null && !launching && !launch.HasRunningGame) {
             if (now >= _nextRecentPresentationRefresh) {
@@ -122,8 +136,10 @@ internal sealed class GlassShellRuntime : IDisposable {
             SamePath(_recentWorld.VersionPath, instance.PathVersion) && SamePath(_recentWorld.GameFolder, _gameFolder);
         _view.SetState(new GlassLauncherViewState {
             IsHome = page == (int)FormMain.PageType.Launch && !ShowLegacyHome,
-            SelectedNavigationId = page,
-            PageTitle = ShowLegacyHome && page == (int)FormMain.PageType.Launch ? "主页内容与启动日志" : title,
+            // Detail pages keep the rail selection and secondary title of the page they were opened from.
+            SelectedNavigationId = _owner.GlassContextOrigin is { } origin ? (int)origin : page,
+            PageTitle = ShowLegacyHome && page == (int)FormMain.PageType.Launch ? "主页内容与启动日志" : resourceTitle ?? title,
+            IsResourceList = resourceTitle is not null,
             CanGoBack = ShowLegacyHome || !string.IsNullOrEmpty(title),
             AccountName = _accountName,
             AccountAvatar = _accountAvatar,
@@ -147,6 +163,17 @@ internal sealed class GlassShellRuntime : IDisposable {
             ReduceMotion = !MotionPreferences.AllowsAnimation
         });
     }
+
+    // Resolve the displayed page, rather than a queued navigation selection during page transitions.
+    private static string? ResourcePageTitle(MyPageRight? page) => page switch {
+        PageDownloadMod => "模组",
+        PageDownloadResourcePack => "资源包",
+        PageDownloadDataPack => "数据包",
+        PageDownloadShader => "光影包",
+        PageDownloadMap => "地图",
+        PageDownloadPack => "整合包",
+        _ => null
+    };
 
     public void Dispose() {
         _owner.Dispatcher.VerifyAccess();
@@ -254,6 +281,9 @@ internal sealed class GlassShellRuntime : IDisposable {
                     _recentRefreshPending = false;
                     if (_disposed || revision != _recentRevision) return;
                     SetRecentPresentation(world, icon);
+                    // At startup the original launch page discovers existing worlds a moment after the first read, so
+                    // an empty result is retried quickly instead of waiting the normal five seconds.
+                    if (world is null) _nextRecentRefresh = Math.Min(_nextRecentRefresh, Timestamp() + .8);
                     _recentImagePath = imagePath;
                     _recentImageStamp = imageStamp;
                     Refresh();
