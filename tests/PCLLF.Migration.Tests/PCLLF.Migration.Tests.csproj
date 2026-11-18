@@ -44,6 +44,9 @@
     <!-- Actual transaction/model and lease implementations exercised by file-task regressions. -->
     <Compile Include="../../PCLCS/Minecraft/LegacyMinecraftContracts.cs" Link="Production/Minecraft/LegacyMinecraftContracts.cs" />
     <Compile Include="../../PCLCS/Minecraft/PackUpdateContracts.cs" Link="Production/Minecraft/PackUpdateContracts.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PackConfigMerge.cs" Link="Production/Minecraft/PackConfigMerge.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PackLineConfig.cs" Link="Production/Minecraft/PackLineConfig.cs" />
+    <Compile Include="../../PCLCS/Minecraft/PackUpdateEngine.Configuration.cs" Link="Production/Minecraft/PackUpdateEngine.Configuration.cs" />
     <Compile Include="../../PCLCS/Minecraft/PackUpdateEngine.Package.cs" Link="Production/Minecraft/PackUpdateEngine.Package.cs" />
     <Compile Include="../../PCLCS/Minecraft/PackUpdateEngine.Baseline.cs" Link="Production/Minecraft/PackUpdateEngine.Baseline.cs" />
     <Compile Include="../../PCLCS/Minecraft/PackUpdateModInspection.cs" Link="Production/Minecraft/PackUpdateModInspection.cs" />

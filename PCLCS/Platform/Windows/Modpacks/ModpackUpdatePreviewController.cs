@@ -135,6 +135,8 @@ public sealed partial class ModpackUpdatePreviewController<TFile, TPackage, TCha
                     text.Children.Add(ModpackDialogController<TButton, TScroll>.Label(change.Reason, 12, false, "ColorBrushGray2", new Thickness(0, 4, 0, 0)));
                 if (change.CanChoose)
                     AddChoice(text, change);
+                if (change.ConfigurationMerge is { } merge)
+                    AddConfigurationChoices(text, change, merge);
                 if (change.Incoming is not null && change.Ownership == PackUpdateOwnership.Disabled)
                     AddDisabledState(text, change, paths);
                 Border box = ModpackDialogController<TButton, TScroll>.Frame(WithIcon(text, change)); box.ToolTip = change.Relative + "\r\n" + change.LocalRelative + "\r\n" + change.Reason; cards.Add(box);
@@ -197,6 +199,29 @@ public sealed partial class ModpackUpdatePreviewController<TFile, TPackage, TCha
         author.Margin = new Thickness(0, 0, 0, 4); author.Tag = PackUpdateChoice.UseAuthor;
         choices.Children.Add(preserve); choices.Children.Add(author); text.Children.Add(choices);
         RefreshResult(); text.Children.Add(result);
+    }
+    private void AddConfigurationChoices(StackPanel text, TChange change, PackConfigMerge merge) {
+        var authorKeys = change.AuthorConfigurationKeys!;
+        foreach (var conflict in merge.Conflicts) {
+            StackPanel row = new() { Margin = new Thickness(0, 8, 0, 0) };
+            row.Children.Add(ModpackDialogController<TButton, TScroll>.Label(conflict.Key, 12, true));
+            WrapPanel options = new() { Margin = new Thickness(0, 3, 0, 0) };
+            Add("玩家值", conflict.PlayerValue, false);
+            Add("作者值", conflict.AuthorValue, true);
+            row.Children.Add(options);
+            text.Children.Add(row);
+
+            void Add(string label, string? value, bool useAuthor) {
+                var option = view.RadioOption(label + " · " + PackConfigConflict.ShortValue(value),
+                    authorKeys.Contains(conflict.Key) == useAuthor, () => {
+                        if (useAuthor) authorKeys.Add(conflict.Key); else authorKeys.Remove(conflict.Key);
+                        plan.AllowUnverifiedDependencies = false;
+                        RecheckSelection();
+                    });
+                option.ToolTip = label + " · " + (value ?? "删除此键");
+                options.Children.Add(option);
+            }
+        }
     }
     private void AddDisabledState(StackPanel text, TChange change, TextBlock? paths) {
         void RefreshPaths() { if (paths is not null) paths.Text = Paths(change); }

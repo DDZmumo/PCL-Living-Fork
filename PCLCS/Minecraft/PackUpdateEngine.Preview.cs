@@ -87,6 +87,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         copy.Snapshot = new(plan.Snapshot, StringComparer.OrdinalIgnoreCase);
         copy.ObservedModFiles = new(plan.ObservedModFiles, StringComparer.OrdinalIgnoreCase);
         copy.AllowUnverifiedDependencies = plan.AllowUnverifiedDependencies;
+        copy.ConfigurationStage = plan.ConfigurationStage;
         return copy;
     }
 

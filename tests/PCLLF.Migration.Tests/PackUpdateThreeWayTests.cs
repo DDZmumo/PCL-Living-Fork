@@ -10,6 +10,9 @@ internal static class PackUpdateThreeWayTests {
         yield return ("pack update shared NeoForge dependencies do not block AE2 or Applied Flux upgrades", SharedDependencies);
         yield return ("pack update Lithium pure rename follows the author hash algorithm and removes the actual old path", PureRename);
         yield return ("pack update default preservation and explicit author selection handle a player replacement", ModifiedVersionAndChoice);
+        yield return ("pack update merges configuration keys and keeps the original author baseline for the next update", ConfigurationAcrossUpdates);
+        yield return ("pack update can recover a verified old configuration and refuses stale choices", ConfigurationBaselineRecovery);
+        yield return ("pack update preserves TOML and properties layout and rejects ambiguous configuration syntax", ConfigurationFormats);
         yield return ("pack update personal additions are visible, retained and excluded from author ownership", PersonalAdditions);
         yield return ("pack update disabled and deleted author files stay disabled or deleted", DisabledAndDeleted);
         yield return ("pack update duplicate author hash candidates and copied files need confirmation", AmbiguousCopies);
@@ -36,6 +39,88 @@ internal static class PackUpdateThreeWayTests {
         yield return ("pack update stages only changed selectable author files and skips unavailable unchanged or optional URLs", SelectiveDownloads);
         yield return ("pack update incoming conflicts and cascading retained-mod conflicts are visible before preview", IncomingAndCascadingConflicts);
         yield return ("pack update canceled planning and hashing preserve the instance and throw cancellation", PlanningCancellation);
+    }
+
+    private static void ConfigurationAcrossUpdates() {
+        using Context f = new();
+        const string path = "config/example.json";
+        Spec old = new(path, Encoding.UTF8.GetBytes("""{"hud":{"scale":1,"show":true},"cap":3,"stale":1,"rate":1e-120}"""));
+        var original = f.Package([old], overrides: true);
+        f.Install(old);
+        f.Engine.RecordInstalled(f.LastArchive!, f.Game);
+        JObject baseline = f.Engine.ReadManifest(f.Game)!;
+        Require(baseline["files"]![path]!["originalConfiguration"]?.Value<string>() == Convert.ToBase64String(old.Bytes), "Archive author bytes were not stored at install.");
+        f.Text(path, """{"hud":{"scale":2,"show":true},"cap":4,"stale":1,"rate":1e-120,"playerOnly":true}""");
+        Spec next = old with { Bytes = Encoding.UTF8.GetBytes("""{"hud":{"scale":1,"show":false},"cap":5,"rate":1e-120,"new":null}""") };
+        Plan plan = f.Engine.Plan(f.Game, baseline, f.Package([next], overrides: true));
+        f.Stage(plan);
+        Change change = Incoming(plan, path);
+        Require(change.ApplyAuthor && change.ConfigurationMerge?.Conflicts.Select(value => value.Key).SequenceEqual(["/cap"]) == true,
+            "Only the same-key edit should need a choice.");
+        TweakChoice();
+        f.Commit(plan);
+        var current = JObject.Parse(File.ReadAllText(f.Path(path)));
+        Require(current["hud"]!["scale"]!.Value<int>() == 2 && !current["hud"]!["show"]!.Value<bool>() && current["cap"]!.Value<int>() == 5 &&
+            current["stale"] is null && current["new"]?.Type == JTokenType.Null && current["playerOnly"]!.Value<bool>() &&
+            File.ReadAllText(f.Path(path)).Contains("1e-120"), "The file lost a personal edit, an author change, a deletion or numeric precision.");
+        JObject manifest = f.Engine.ReadManifest(f.Game)!;
+        Require(manifest["files"]![path]!["originalConfiguration"]?.Value<string>() == Convert.ToBase64String(next.Bytes) &&
+            manifest["files"]![path]!["local"]!["hash"]?.Value<string>() == Digest(f.Path(path)),
+            "Update confused the author configuration and the installed merge result.");
+        Spec third = next with { Bytes = Encoding.UTF8.GetBytes("""{"hud":{"scale":3,"show":true},"cap":5,"rate":1e-120,"new":null}""") };
+        Plan second = f.Engine.Plan(f.Game, manifest, f.Package([third], overrides: true));
+        f.Stage(second);
+        Require(Incoming(second, path).ConfigurationMerge?.Conflicts.Single().Key == "/hud/scale", "The second update did not use the last author version as its base.");
+        f.Commit(second);
+        current = JObject.Parse(File.ReadAllText(f.Path(path)));
+        Require(current["hud"]!["scale"]!.Value<int>() == 2 && current["hud"]!["show"]!.Value<bool>(), "Default selection lost a personal value on a subsequent update.");
+
+        void TweakChoice() {
+            change.AuthorConfigurationKeys!.Add("/cap");
+            var snapshot = f.Engine.SnapshotForPreview(plan);
+            Incoming(snapshot, path).AuthorConfigurationKeys!.Clear();
+            Require(change.AuthorConfigurationKeys.Contains("/cap"), "Background preview mutated live configuration choices.");
+        }
+    }
+
+    private static void ConfigurationBaselineRecovery() {
+        using Context f = new();
+        const string path = "config/example.properties";
+        Spec old = new(path, Encoding.UTF8.GetBytes("speed=1\nmode=easy\n"));
+        Spec next = old with { Bytes = Encoding.UTF8.GetBytes("speed=1\nmode=hard\n") };
+        var original = f.Package([old], overrides: true);
+        JObject baseline = Manifest(original);
+        baseline["files"]![path]!["originalConfiguration"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("speed=2\nmode=easy\n"));
+        f.Text(path, "speed=2\nmode=easy\n");
+        var plan = f.Engine.Plan(f.Game, baseline, f.Package([next], overrides: true));
+        f.Stage(plan);
+        Require(Incoming(plan, path).ConfigurationMerge is null && f.Engine.NeedsOriginalConfigurations(plan, CancellationToken.None),
+            "An invalid cached original was treated as author evidence.");
+        PackUpdateEngine<PackFile, Package, Change, Plan, Download>.RecoverOriginalConfigurations(plan, original, CancellationToken.None);
+        f.Engine.PrepareConfigurationMerges(plan, f.StagePath(), CancellationToken.None);
+        Require(Incoming(plan, path).ConfigurationMerge?.Conflicts.Count == 0, "The verified archive original was not used.");
+        f.Text(path, "speed=6\nmode=easy\n");
+        Throws<IOException>(() => f.Commit(plan));
+        Require(File.ReadAllText(f.Path(path)) == "speed=6\nmode=easy\n", "A stale configuration preview overwrote an external edit.");
+    }
+
+    private static void ConfigurationFormats() {
+        byte[] Text(string value) => Encoding.UTF8.GetBytes(value);
+        var toml = PackConfigMerge.TryCreate("config/settings.toml",
+            Text("[client]\r\n\"显示 HUD\" = true\r\nrange = [1, 2]\r\n"),
+            Text("[client]\r\n\"显示 HUD\" = false\r\nrange = [1, 2]\r\n[player]\r\nlimit = 8\r\n"),
+            Text("# incoming\r\n[client]\r\n\"显示 HUD\" = true # keep comment\r\nrange = [3, 4]\r\n"));
+        Require(toml?.Conflicts.Count == 0, "The valid UTF-8 TOML configuration was not merged.");
+        string result = Encoding.UTF8.GetString(toml!.Render(new()));
+        Require(result == "# incoming\r\n[client]\r\n\"显示 HUD\" = false # keep comment\r\nrange = [3, 4]\r\n[player]\r\nlimit = 8\r\n",
+            "A TOML value, table, newline or author comment was lost.");
+        var properties = PackConfigMerge.TryCreate("defaultconfigs/mod.properties", Text("color=blue\nn=4\n"),
+            Text("color=green\nn=4\n"), Text("# incoming\ncolor=red\nn:7\n"));
+        Require(properties?.Conflicts.Single().Key == "/color" &&
+            Encoding.UTF8.GetString(properties.Render(new())) == "# incoming\ncolor=green\nn:7\n", "Properties merge did not retain the author layout and personal value.");
+        Require(PackConfigMerge.TryCreate("config/invalid.json", Text("""{"n":1}"""), Text("""{"n":1,"n":2}"""), Text("""{"n":3}""")) is null &&
+            PackConfigMerge.TryCreate("config/invalid.toml", Text("foo = 1"), Text("foo = 2"), Text("[foo]\nbar = 3")) is null,
+            "An ambiguous configuration should stay in the file-level preview.");
     }
 
     private static void RollbackExternalWrites() {
@@ -683,9 +768,9 @@ internal static class PackUpdateThreeWayTests {
         internal void Text(string relative, string text) { string target = Path(relative); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!); File.WriteAllText(target, text, new UTF8Encoding(false)); }
         internal void Install(params Spec[] specs) { foreach (Spec spec in specs) { string target = Path(spec.Relative); Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!); File.WriteAllBytes(target, spec.Bytes); } }
         internal string StagePath() { string target = System.IO.Path.Combine(Root, "stage-" + (++counter)); Directory.CreateDirectory(target); return target; }
-        internal Package Package(Spec[] specs, ModLoaders loader = ModLoaders.Fabric, string loaderVersion = "0.18.4", string minecraft = "1.21.11", string hashAlgorithm = "sha1") {
+        internal Package Package(Spec[] specs, ModLoaders loader = ModLoaders.Fabric, string loaderVersion = "0.18.4", string minecraft = "1.21.11", string hashAlgorithm = "sha1", bool overrides = false) {
             string folder = StagePath(); JArray files = new();
-            foreach (Spec spec in specs) {
+            foreach (Spec spec in overrides ? Array.Empty<Spec>() : specs) {
                 string payload = System.IO.Path.Combine(folder, "payload-" + files.Count); File.WriteAllBytes(payload, spec.Bytes);
                 string project = spec.Project ?? "unmapped";
                 string url = "https://cdn.modrinth.com/data/" + project + "/versions/fixture" + counter + "/" + files.Count + ".jar";
@@ -694,7 +779,10 @@ internal static class PackUpdateThreeWayTests {
             }
             string loaderKey = loader == ModLoaders.NeoForge ? "neoforge" : loader == ModLoaders.Forge ? "forge" : "fabric-loader";
             JObject json = new() { ["formatVersion"] = 1, ["game"] = "minecraft", ["name"] = "Author fixture", ["versionId"] = "fixture-" + counter, ["dependencies"] = new JObject { ["minecraft"] = minecraft, [loaderKey] = loaderVersion }, ["files"] = files };
-            string archivePath = System.IO.Path.Combine(folder, "package.mrpack"); File.WriteAllBytes(archivePath, Jar(("modrinth.index.json", json.ToString())));
+            string archivePath = System.IO.Path.Combine(folder, "package.mrpack");
+            var entries = new[] { ("modrinth.index.json", json.ToString()) };
+            if (overrides) entries = entries.Concat(specs.Select(spec => ("overrides/" + spec.Relative, Encoding.UTF8.GetString(spec.Bytes)))).ToArray();
+            File.WriteAllBytes(archivePath, Jar(entries));
             LastArchive = archivePath;
             Package result = Engine.ReadPackage(archivePath, StagePath(), CancellationToken.None);
             foreach (Spec spec in specs.Where(s => s.Project is null)) result.Files[spec.Relative].Identity = null;

@@ -61,6 +61,8 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 byte[] baselineBytes = MmcPackageFileBaselineCodec.Serialize(CreateBaseline(source, packageFiles));
                 var baselineReference = sources.StageAuthorBaseline(baselineBytes, packageFiles.Files.Length); sources.StageOpaqueOriginals(packageFiles);
                 var baseline = RequireBaseline(baselineBytes, baselineReference, source.PackageSha256, source.Package.RelativeRoot);
+                var configurationOwnership = MmcInstancePackageUpdatePlanning<TNetFile>.StageInitialConfigurationOwnership(
+                    source, resolved.Resolution.Profile!, compiled, baseline, packageFiles, sources);
                 var preserved = PreservedArtifacts(baseline, compiled);
                 var artifactsRequest = new MmcArtifactRequest(paths, compiled.RuntimePlanFingerprint, ActiveArtifacts(compiled), preserved, [],
                     MmcArtifactIntent.AdoptDeclaredVariant, compiled.Assets);
@@ -74,7 +76,9 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 var observations = MmcArtifactBindingAdapter.Create(artifactsRequest, compiled, prepared);
                 byte[] projection = RenderProjection(request.InstanceName, reservation.InstanceId, 1, compiled, prepared, paths);
                 MmcInstanceDefinition draft = new(1, "Mmc", compiled.FormatProfile, reservation.InstanceId, 1,
-                    new(source.PackageSha256, Path.GetFileName(request.ArchivePath)), sources.Bundle, new(source.Package.GameRootLeaf), [], [], [], AuthorFileBaseline: baselineReference);
+                    new(source.PackageSha256, Path.GetFileName(request.ArchivePath)), sources.Bundle, new(source.Package.GameRootLeaf), [], [], [], AuthorFileBaseline: baselineReference) {
+                    PackageOwnershipReference = configurationOwnership
+                };
                 bound = MmcPlanBinder.Bind(draft, compiled, observations.Facts, observations.ApplyTo(new(1, 1, MmcBindingIntent.InitialImport, Hash(projection), 1)),
                     derivedOutputs: observations.DerivedOutputs, assetIndexes: observations.AssetIndexes, packageBaseline: new(baselineBytes));
                 RequireBinding(bound);

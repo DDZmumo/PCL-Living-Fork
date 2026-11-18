@@ -33,6 +33,7 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
         JObject? baseline = update.ReadManifest(host.VersionFolder(instance));
         EnsureOriginUnchanged();
         double inputStart = 0.03;
+        TPackage? originalPackage = null;
         if (PackUpdateEngine<TFile, TPackage, TChange, TPlan, TNetFile>.RequiresBaselineRepair(baseline)) {
             TPackage? original = null;
             Stage(PackUpdateStage.ReadRecord, "获取并核对当前版本原始整合包");
@@ -56,6 +57,7 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
                 original.Source = baseline?["source"] as JObject;
             }
             baseline = PackUpdateEngine<TFile, TPackage, TChange, TPlan, TNetFile>.Manifest(original);
+            originalPackage = original;
             inputStart = 0.08; host.SetProgress(task, inputStart);
         }
         JObject? source = null;
@@ -75,6 +77,14 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
         Stage(PackUpdateStage.PrepareFiles);
         update.DownloadChanges(plan, stage, token, (files, cancel) => host.Download(files, cancel, host.Progress(task, 0.15, 0.65)),
             text => Stage(PackUpdateStage.PrepareFiles, text), value => host.SetStageProgress(task, PackUpdateStage.PrepareFiles, value));
+        if (update.NeedsOriginalConfigurations(plan, token)) {
+            Stage(PackUpdateStage.PrepareFiles, "核对旧版作者配置");
+            originalPackage ??= FindOriginalForConfiguration(plan, instance, stage, task, token);
+            if (originalPackage is not null) {
+                PackUpdateEngine<TFile, TPackage, TChange, TPlan, TNetFile>.RecoverOriginalConfigurations(plan, originalPackage, token);
+                update.PrepareConfigurationMerges(plan, stage, token);
+            }
+        }
         host.SetProgress(task, 0.65);
         bool runtimeChanged = !Same(host.Version(instance).VanillaName, package.Minecraft) || host.Version(instance).ModLoaderVersions.Count != package.Loaders.Count ||
             package.Loaders.Any(pair => !host.Version(instance).ModLoaderVersions.ContainsKey(pair.Key) || !Same(host.Version(instance).ModLoaderVersions[pair.Key], pair.Value));
@@ -160,6 +170,31 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
         void EnsureOriginUnchanged() {
             if (!Same(originBefore, PackUpdateEngine<TFile, TPackage, TChange, TPlan, TNetFile>.Digest(originPath, token: token)))
                 throw new IOException("整合包作者记录在处理期间发生变化，请重新检查更新；未覆盖变动后的记录。");
+        }
+    }
+    private TPackage? FindOriginalForConfiguration(TPlan plan, TInstance instance, string stage, TTask task, CancellationToken token) {
+        try {
+            TPackage? original = DownloadRecordedOriginal(plan.Baseline!, stage, token,
+                host.Progress(task, 0.63, 0.65));
+            if (original is not null) {
+                ValidateOriginalPackage(original, plan.Baseline, host.Version(instance).VanillaName, host.Version(instance).ModLoaderVersions);
+                return original;
+            }
+        } catch (Exception error) when (error is not OperationCanceledException && !token.IsCancellationRequested) {
+            host.Info("自动获取旧版作者配置未完成：" + error.Message);
+        }
+        token.ThrowIfCancellationRequested();
+        if (host.Message("有配置同时被作者和玩家修改。选择当前版本的原始整合包，可以按键合并这些改动。", "获取旧版作者配置",
+                "选择原始包", "按文件处理", false) != 1) return null;
+        try {
+            var original = update.ReadPackage(SelectArchive("选择当前版本原始整合包"), Path.Combine(stage, "config-original-manual"), token);
+            ValidateOriginalPackage(original, plan.Baseline, host.Version(instance).VanillaName, host.Version(instance).ModLoaderVersions);
+            return original;
+        } catch (OperationCanceledException) when (!token.IsCancellationRequested) {
+            return null;
+        } catch (Exception error) when (error is not OperationCanceledException && !token.IsCancellationRequested) {
+            host.Info("无法核对旧版作者配置，沿用文件级选择：" + error.Message);
+            return null;
         }
     }
     // A same-Minecraft archive is insufficient evidence for a legacy, possibly

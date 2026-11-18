@@ -1,8 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using PCLLF.MMCC.Core;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
@@ -66,7 +64,8 @@ public sealed partial class MmcInstancePackageUpdateBackend<TNetFile> where TNet
             if (!mapped.OrderBy(value => value.RelativePath, StringComparer.Ordinal).SequenceEqual(actualMapped)) throw new IOException("Prepared mappings differ from the guarded new-package sources.");
             operations = engine.ManagedFileOperations(preview.Plan, token);
             if (!requiredUndo.SequenceEqual(PackageUndoPaths(currentPaths, operations))) throw new IOException("Selected package operations changed their exact undo coverage.");
-            byte[] ownershipBytes = Encoding.UTF8.GetBytes(engine.BuildNextManifest(preview.Plan, token).ToString(Formatting.Indented));
+            byte[] ownershipBytes = PackUpdateEngine<MmcPackageUpdateFile, MmcPackageUpdatePackage, MmcPackageUpdateChange, MmcPackageUpdatePlan, TNetFile>
+                .SerializeManifest(engine.BuildNextManifest(preview.Plan, token));
             string ownershipHash = MmcDurableFiles.Hash(ownershipBytes), ownershipPath = "PCL/MmcSource/" + preview.Source.SourceBundle.BundleSha256 + "/ownership/" + ownershipHash + ".json";
             var source = preview.Source with { PackageOwnershipReference = new(ownershipHash, ownershipPath) };
             long next = checked(current.Generation + 1); string name = Path.GetFileName(currentPaths.InstanceRoot);

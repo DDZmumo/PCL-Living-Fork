@@ -305,6 +305,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         LinkPersonalAuthorUpdates(plan, token);
         status?.Invoke("准备预览与原有禁用状态");
         PreparePreviewChanges(plan, stage, token);
+        PrepareConfigurationMerges(plan, stage, token);
         status?.Invoke("检查个人模组与补全前置");
         ResolvePersonalChanges(plan, stage, token, (dependencies, cancel) => {
             status?.Invoke("下载所需前置（" + dependencies.Count + " 个）");

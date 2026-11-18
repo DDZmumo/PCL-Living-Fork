@@ -60,6 +60,7 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
         token.ThrowIfCancellationRequested();
         JObject next = Manifest(plan.Package!);
         JObject files = (JObject)next["files"]!;
+        CarryOriginalConfigurations(plan, files);
         foreach (JProperty entry in files.Properties()) {
             token.ThrowIfCancellationRequested();
             JObject author = (JObject)entry.Value;
@@ -67,6 +68,10 @@ public sealed partial class PackUpdateEngine<TFile, TPackage, TChange, TPlan, TN
                 string.Equals(item.Incoming.Relative, entry.Name, StringComparison.OrdinalIgnoreCase));
             if (change is not null && change.PreviewOnly && !change.ApplyAuthor) {
                 ObserveInstalledFile(plan.Root!, entry.Name, author, token);
+            } else if (change is { ApplyAuthor: true, ConfigurationMerge: not null }) {
+                byte[] merged = RenderConfiguration(change);
+                author["state"] = MatchesConfiguration(merged, author["hash"]!.ToString()) ? "installed" : "modified";
+                author["local"] = LocalObservation(change.DestinationRelative, ConfigurationHash(merged));
             } else if (change is not null && change.ApplyAuthor && change.Operation != PackUpdateOperation.DisablePersonal) {
                 author["state"] = change.DisableAfterUpdate || change.Ownership == PackUpdateOwnership.Disabled && change.KeepDisabled ? "disabled" : "installed";
                 author["local"] = LocalObservation(change.DestinationRelative!, author["hash"]!.ToString());

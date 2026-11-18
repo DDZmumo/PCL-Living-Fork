@@ -628,6 +628,9 @@ PCLCS/Minecraft/ModDependencyVersions.cs
 PCLCS/Minecraft/PackUpdateContracts.cs
 PCLCS/Minecraft/PackUpdateDependencySupplement.cs
 PCLCS/Minecraft/PackUpdateEngine.Baseline.cs
+PCLCS/Minecraft/PackConfigMerge.cs
+PCLCS/Minecraft/PackLineConfig.cs
+PCLCS/Minecraft/PackUpdateEngine.Configuration.cs
 PCLCS/Minecraft/PackUpdateEngine.Package.cs
 PCLCS/Minecraft/PackUpdateEngine.Personal.cs
 PCLCS/Minecraft/PackUpdateEngine.Plan.cs
