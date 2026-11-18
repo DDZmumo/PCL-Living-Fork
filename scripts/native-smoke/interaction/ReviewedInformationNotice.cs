@@ -119,8 +119,7 @@ internal static class ReviewedInformationNotice
             notice.VerifyDocument(notice.DocumentText.Replace("- ", "• ").Replace("\r\n", "\r\n\r\n"));
             notice.VerifyDocument(notice.DocumentText.Replace("- ", ""));
             Refuse(() => notice.VerifyDocument(notice.DocumentText + "\r\n额外内容"));
-            string changed = notice.DocumentText.Replace("版本", "篡改");
-            if (changed == notice.DocumentText) throw new InvalidOperationException("Notice mutation fixture did not change its document.");
+            string changed = notice.DocumentText.Insert(2, "篡改");
             Refuse(() => notice.VerifyDocument(changed));
             Refuse(() => notice.VerifyDocument(notice.DocumentText[..40]));
             Refuse(() => notice.VerifyLogCaption(log.Replace("本地简述", "完整发布说明")));
