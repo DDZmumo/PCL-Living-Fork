@@ -55,6 +55,7 @@ public sealed partial class GlassPresentationSession
             ProgressBar progress => ProjectProgress(progress),
             FlowDocumentScrollViewer document => Document(document),
             RichTextBox document => RichDocument(document),
+            DataGrid dataGrid => ProjectDataGrid(dataGrid),
             ListBox list => ProjectListBox(list),
             TextBlock text => ProjectText(text),
             Image image => ProjectBitmap(image),
@@ -64,10 +65,12 @@ public sealed partial class GlassPresentationSession
             Grid grid => ProjectGrid(grid),
             StackPanel stack => ProjectStack(stack),
             WrapPanel wrap => ProjectWrap(wrap),
+            UniformGrid uniform => ProjectUniformGrid(uniform),
             DockPanel dock => ProjectDock(dock),
             Canvas canvas => ProjectCanvas(canvas),
             Border border => ProjectBorder(border),
             Decorator decorator => ProjectDecorator(decorator),
+            Expander expander => ProjectExpander(expander),
             ContentControl content => ProjectContentControl(content),
             ItemsControl items => ProjectItems(items),
             ContentPresenter presenter => ProjectPresenter(presenter),
@@ -242,7 +245,162 @@ public sealed partial class GlassPresentationSession
         }
         else border = new Border { Padding = source.Padding, CornerRadius = new CornerRadius(14) };
         var node = new Node(border);
-        node.Pull = () => { UIElement child = Project(source.Child); if (!ReferenceEquals(border.Child, child)) border.Child = child; };
+        node.Pull = () =>
+        {
+            if (border is not GlassSurface)
+                border.Padding = node.CardContent && source.Padding.Top >= 36
+                    ? new Thickness(0, 4, 0, 0)
+                    : source.Padding;
+            UIElement child = Project(source.Child);
+            if (!ReferenceEquals(border.Child, child)) border.Child = child;
+        };
+        return node;
+    }
+    private Node ProjectUniformGrid(UniformGrid source)
+    {
+        var uniform = new UniformGrid();
+        var node = new Node(uniform);
+        node.Pull = () =>
+        {
+            uniform.Rows = source.Rows;
+            uniform.Columns = source.Columns;
+            uniform.FirstColumn = source.FirstColumn;
+            UIElement[] items = source.Children.OfType<DependencyObject>().Select(child => Project(child)).Where(child => child != null).ToArray();
+            for (int index = 0; index < items.Length; index++)
+            {
+                if (items[index] is FrameworkElement element && element.Margin == new Thickness() && items.Length > 1 && source.Rows <= 1)
+                    element.Margin = new Thickness(index == 0 ? 0 : 6, 0, 0, 0);
+            }
+            Children(uniform, items);
+        };
+        return node;
+    }
+    private Node ProjectExpander(Expander source)
+    {
+        var expander = new Expander
+        {
+            Style = Style("GlassPresentationExpander"),
+            IsExpanded = source.IsExpanded,
+            Padding = new Thickness(),
+        };
+        var frame = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 6, 14, 8),
+            BorderThickness = new Thickness(1),
+            Child = expander,
+        };
+        frame.SetResourceReference(Border.BackgroundProperty, "GlassPresentationField");
+        frame.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationControlStroke");
+
+        bool pulling = false;
+        RoutedEventHandler syncExpanded = (_, _) =>
+        {
+            if (!Live(frame) || pulling || source.IsExpanded == expander.IsExpanded) return;
+            source.IsExpanded = expander.IsExpanded;
+            Refresh();
+        };
+        expander.Expanded += syncExpanded;
+        expander.Collapsed += syncExpanded;
+
+        var headerText = PlainText(string.Empty);
+        headerText.FontWeight = FontWeights.SemiBold;
+        headerText.VerticalAlignment = VerticalAlignment.Center;
+
+        var node = new Node(frame);
+        node.Pull = () =>
+        {
+            pulling = true;
+            try
+            {
+                if (source.Header is string textHeader)
+                {
+                    headerText.Text = textHeader;
+                    if (!ReferenceEquals(expander.Header, headerText)) expander.Header = headerText;
+                }
+                else
+                {
+                    object projectedHeader = Content(source.Header);
+                    if (!ReferenceEquals(expander.Header, projectedHeader)) expander.Header = projectedHeader;
+                }
+                object projectedContent = Content(source.Content);
+                if (!ReferenceEquals(expander.Content, projectedContent)) expander.Content = projectedContent;
+                expander.IsExpanded = source.IsExpanded;
+            }
+            finally { pulling = false; }
+        };
+        return node;
+    }
+    private Node ProjectDataGrid(DataGrid source)
+    {
+        var headerStyle = new Style(typeof(DataGridColumnHeader));
+        headerStyle.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        headerStyle.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension("GlassPresentationSecondary")));
+        headerStyle.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+        headerStyle.Setters.Add(new Setter(Control.FontSizeProperty, 12.5d));
+        headerStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 6, 10, 6)));
+        headerStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new DynamicResourceExtension("GlassPresentationEdge")));
+        headerStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0, 0, 0, 1)));
+
+        var cellStyle = new Style(typeof(DataGridCell));
+        cellStyle.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        cellStyle.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension("GlassPresentationText")));
+        cellStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+        cellStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 5, 10, 5)));
+
+        var grid = new DataGrid
+        {
+            IsReadOnly = source.IsReadOnly,
+            AutoGenerateColumns = false,
+            CanUserAddRows = false,
+            CanUserDeleteRows = false,
+            EnableRowVirtualization = true,
+            EnableColumnVirtualization = true,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+            Background = Brushes.Transparent,
+            RowBackground = Brushes.Transparent,
+            AlternatingRowBackground = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            ColumnHeaderStyle = headerStyle,
+            CellStyle = cellStyle,
+        };
+        grid.SetResourceReference(Control.ForegroundProperty, "GlassPresentationText");
+        grid.SetResourceReference(DataGrid.HorizontalGridLinesBrushProperty, "GlassPresentationSeparator");
+
+        foreach (DataGridColumn column in source.Columns)
+        {
+            if (column is DataGridTextColumn textColumn)
+            {
+                BindingBase clonedBinding = textColumn.Binding is Binding oldBinding && oldBinding.Path is not null
+                    ? new Binding(oldBinding.Path.Path) { Mode = BindingMode.OneWay }
+                    : textColumn.Binding;
+                grid.Columns.Add(new DataGridTextColumn
+                {
+                    Header = textColumn.Header,
+                    Binding = clonedBinding,
+                    Width = textColumn.Width,
+                });
+            }
+        }
+
+        var frame = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            ClipToBounds = true,
+            Child = grid,
+        };
+        frame.SetResourceReference(Border.BackgroundProperty, "GlassPresentationField");
+        frame.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationControlStroke");
+        if (!double.IsNaN(source.Height) && source.Height > 0) grid.Height = source.Height;
+
+        var node = new Node(frame);
+        node.Pull = () =>
+        {
+            if (!ReferenceEquals(grid.ItemsSource, source.ItemsSource))
+                grid.ItemsSource = source.ItemsSource;
+        };
         return node;
     }
     private Node ProjectDecorator(Decorator source)

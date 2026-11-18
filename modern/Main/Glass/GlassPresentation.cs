@@ -125,6 +125,8 @@ public sealed partial class GlassPresentationSession : IDisposable
         {
             target.Margin = cardContent ? new Thickness() : Spacing(element);
             if (ReferenceEquals(source, _source)) target.Margin = new Thickness();
+            if (!double.IsPositiveInfinity(element.MaxHeight)) target.MaxHeight = element.MaxHeight;
+            if (element is ModpackDialogView) target.Height = !double.IsNaN(element.Height) && element.Height > 0 ? element.Height : double.NaN;
             if (element.ReadLocalValue(UIElement.IsHitTestVisibleProperty) is bool permission && element is not MyButtonView and not MyIconButtonView and not MyTextButtonView and not MyIconTextButtonView)
                 target.SetCurrentValue(UIElement.IsHitTestVisibleProperty, permission);
             if (!ReferenceEquals(node.MenuSource, element.ContextMenu))
@@ -175,13 +177,15 @@ public sealed partial class GlassPresentationSession : IDisposable
         if (!double.IsNaN(source.Width) && source.Width > 0) target.Width = source is MyIconButtonView ? Math.Max(38, source.Width) : source.Width;
         target.MinWidth = Math.Max(target.MinWidth, source.MinWidth);
         if (!double.IsPositiveInfinity(source.MaxWidth)) target.MaxWidth = source.MaxWidth;
+        if (!double.IsPositiveInfinity(source.MaxHeight)) target.MaxHeight = source.MaxHeight;
+        if (Grid.GetIsSharedSizeScope(source)) Grid.SetIsSharedSizeScope(target, true);
         if (source is ComboBox && SettingsContext(source)) {
             target.Width = 220;
             target.MaxWidth = Math.Min(target.MaxWidth, 220);
             target.MinWidth = Math.Min(target.MinWidth, 220);
             target.HorizontalAlignment = HorizontalAlignment.Right;
         }
-        if (!double.IsNaN(source.Height) && source.Height > 0 && source is Image or System.Windows.Shapes.Shape or Canvas) target.Height = source.Height;
+        if (!double.IsNaN(source.Height) && source.Height > 0 && source is Image or System.Windows.Shapes.Shape or Canvas or ModpackDialogView or DataGrid) target.Height = source.Height;
         target.MinHeight = Math.Max(target.MinHeight, Math.Min(source.MinHeight, 64));
         target.ToolTip = source.ToolTip is string tip ? tip : (source.ToolTip as ToolTip)?.Content as string;
         Grid.SetRow(target, Grid.GetRow(source)); Grid.SetColumn(target, Grid.GetColumn(source));

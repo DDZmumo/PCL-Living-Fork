@@ -19,6 +19,8 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
 
     public string RestoreWithProgress(string versionFolder, string gameRoot, string mcRoot, string id, CancellationToken token, Action<double>? progress,
         Action<int>? beforeApply = null, Func<string>? captureBefore = null) {
+        MmcInstanceCapabilities.RequireLegacy(versionFolder, "旧格式环境还原");
+        MmcInstanceCapabilities.RequireLegacyContainingInstance(gameRoot, "旧格式环境还原");
         lock (Gate) {
             using (new StoreLease(this, versionFolder)) {
                 RestoringCount = checked(RestoringCount + 1);

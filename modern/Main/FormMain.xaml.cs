@@ -118,12 +118,15 @@ namespace PCL
         private void FormMain_Loaded(object sender, RoutedEventArgs e) => Controller.Loaded();
         private void UpgradeSub(int LastVersionCode) => Controller.Upgrade(LastVersionCode);
         private void DowngradeSub(int LastVersionCode) => Controller.Downgrade(LastVersionCode);
-        private void FormMain_Closing(object sender, CancelEventArgs e) => Controller.Closing(e);
-        public void EndProgram(bool SendWarning) => Controller.EndProgram(SendWarning);
+        private void FormMain_Closing(object sender, CancelEventArgs e) { e.Cancel = true; EndProgram(true); }
+        public void EndProgram(bool SendWarning) {
+            if (MmcLaunch.KeepAliveWhileSessionsFinish()) { Hidden = true; return; }
+            Controller.EndProgram(SendWarning);
+        }
         private static bool IsLogShown = false;
         public static void EndProgramForce(ModBase.ProcessReturnValues ReturnCode = ModBase.ProcessReturnValues.Success)
             => LegacyMainTermination.EndProgramForce((int)ReturnCode, CreateTerminationHost());
-        private void BtnTitleClose_Click(object sender, RoutedEventArgs e) => Controller.EndProgram(true);
+        private void BtnTitleClose_Click(object sender, RoutedEventArgs e) => EndProgram(true);
         private void FormDragMove(object sender, MouseButtonEventArgs e) => Controller.DragMove(sender);
         public bool IsSizeSaveable = false;
         private void FormMain_SizeChanged() => Controller.SizeChanged();
@@ -170,7 +173,8 @@ namespace PCL
             InstanceSetup = 1, InstanceModify = 2, InstanceMod = 3, InstanceModDisabled = 4,
             InstanceExport = 5, InstanceSaves = 6, InstanceScreenshots = 7,
             InstanceResourcePacks = 8, InstanceShaderPacks = 9, InstanceSchematics = 10,
-            InstanceKeybindings = 11, InstanceRestorePoints = 12, InstanceBackups = 13, InstanceClone = 14, InstancePackUpdate = 15, InstancePersonal = 16
+            InstanceKeybindings = 11, InstanceRestorePoints = 12, InstanceBackups = 13, InstanceClone = 14, InstancePackUpdate = 15,
+            InstancePersonal = 16, InstanceMmcPlatformOrigin = 17, InstanceMmcMove = 18
         }
         private string PageNameGet(PageStackData Stack) => Controller.PageNameGet(Stack);
         public void PageNameRefresh(PageStackData Type) => Controller.PageNameRefresh(Type);
@@ -331,7 +335,9 @@ namespace PCL
                 AprilEnabled = () => ModMain.IsAprilEnabled, AprilGivenUp = () => ModMain.IsAprilGiveup, WriteAprilGivenUp = value => ModMain.IsAprilGiveup = value,
                 AprilScale = () => ModMain.FrmLaunchLeft.AprilScaleTrans,
                 SettingsInstance = () => PageInstanceLeft.Instance, SelectedInstance = () => ModMinecraft.McInstanceSelected,
-                InstanceName = value => value.Name, InstanceLocked = value => ModMinecraft.McInstanceLock.IsLocked(value),
+                InstanceName = value => value.Name,
+                InstanceSettingsTitlePrefix = value => PageInstanceLeft.ObserveInstanceContext(value).SettingsTitlePrefix,
+                InstanceLocked = value => ModMinecraft.McInstanceLock.IsLocked(value),
                 InstanceBlocksNavigation = value => ModMinecraft.McInstanceLock.BlocksNavigation(value),
                 WriteInstanceSetting = (key, value, target) => Settings.Set(key, value, Instance: target),
                 ValidateHttp = value => new ValidateHttp().Validate(value), ReloadInstanceSetup = () => ModMain.FrmInstanceSetup.Reload(),
@@ -341,7 +347,7 @@ namespace PCL
                 LeftPage = LeftPagePort, RightPage = RightPageElement, NewBlankLeft = () => new MyPageLeft(),
                 HelpTitle = value => ((ModMain.HelpEntry)value).Title,
                 HasDownloadingTask = () => ModNet.HasDownloadingTask(), HasLaunchOperation = () => ModLaunch.McLaunchLoaderReal != null,
-                HasBlockingFileOperation = () => InstanceDeletionOperation.HasActiveOperations,
+                HasBlockingFileOperation = () => InstanceDeletionOperation.HasActiveOperations || MmcOperationLoaders.HasBlockingCommit || MmcCloneUi.HasActiveOperation || MmcLifecycleUi.HasActiveOperation || MmcDeleteUi.HasActiveOperation || MmcExportUi.HasActiveOperation || MmcHistoryUi.HasActiveOperation || MmcRepairUi.HasActiveOperation || MmcLegacyAdoptionUi.HasActiveOperation || MmcPackageUpdateUi.HasActiveOperation || MmcComponentEditorUi.HasActiveOperation,
                 HasRunningMinecraft = () => ModWatcher.HasRunningMinecraft,
                 TaskbarCancels = () => ModLoader.LoaderTaskbar.Select(value => (Action)(() => value.Cancel())),
                 WatcherKills = () => ModWatcher.McWatcherList.Select(value => (Action)(() => value.Kill())), CancelLaunchOperation = () => ModLaunch.McLaunchLoaderReal.Cancel(),
@@ -399,7 +405,7 @@ namespace PCL
             MarkEnding = () => ModBase.IsProgramEnding = true,
             DisableAnimations = () => ModAnimation.AniControlEnabled = checked(ModAnimation.AniControlEnabled + 1),
             Feedback = () => ModMain.FeedbackInfo(), OpenLog = () => ModBase.StartProcess(Paths.Base + "PCL\\Log1.txt"),
-            SaveAll = () => ConfigUtils.SaveAll(), FlushLog = () => Logger.Instance.Flush(), Kill = () => Process.GetCurrentProcess().Kill(),
+            SaveAll = () => { try { InstanceConfigProviders.SaveAll(); } finally { ConfigUtils.SaveAll(); } }, FlushLog = () => Logger.Instance.Flush(), Kill = () => Process.GetCurrentProcess().Kill(),
             LogShown = () => IsLogShown, WriteLogShown = value => IsLogShown = value, IssuesUrl = () => ModBase.LauncherIssuesUrl,
             Exit = value => Environment.Exit(value), DescribeCode = value => ((ModBase.ProcessReturnValues)value).ToString()
         };
@@ -457,7 +463,10 @@ namespace PCL
                 case PageType.Other: if (ModMain.FrmOtherLeft == null) ModMain.FrmOtherLeft = new PageOtherLeft(); break;
                 case PageType.InstanceSelect: if (ModMain.FrmSelectLeft == null) ModMain.FrmSelectLeft = new PageSelectLeft(); break;
                 case PageType.TaskManager: if (ModMain.FrmSpeedLeft == null) ModMain.FrmSpeedLeft = new PageSpeedLeft(); break;
-                case PageType.InstanceSetup: if (ModMain.FrmInstanceLeft == null) ModMain.FrmInstanceLeft = new PageInstanceLeft(); break;
+                case PageType.InstanceSetup:
+                    if (ModMain.FrmInstanceLeft == null) ModMain.FrmInstanceLeft = new PageInstanceLeft();
+                    ModMain.FrmInstanceLeft.SyncInstanceContext();
+                    break;
             }
         }
         private static void EnsureRightPage(int Page)

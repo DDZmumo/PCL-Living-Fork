@@ -149,6 +149,7 @@ public sealed class LegacyMainWindowHost<TStack, TInstance, TAnimation>
     public Func<ScaleTransform> AprilScale = null!;
     public Func<TInstance?> SettingsInstance = null!, SelectedInstance = null!;
     public Func<TInstance, string> InstanceName = null!;
+    public Func<TInstance?, string>? InstanceSettingsTitlePrefix;
     public Func<TInstance, bool> InstanceLocked = null!;
     public Func<TInstance?, bool> InstanceBlocksNavigation = null!;
     public Action<string, object?, TInstance> WriteInstanceSetting = null!;

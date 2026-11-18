@@ -110,10 +110,21 @@ namespace PCL
                 SetInstancePage = new Action<global::PCL.ModMinecraft.McInstance>(Instance => global::PCL.PageInstanceLeft.Instance = Instance),
                 SetSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Instance => global::PCL.ModMinecraft.McInstanceSelected = Instance),
                 BeforeMinecraftChange = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.String, global::System.Threading.CancellationToken>((Instance, Before, After, Token) => global::PCL.WorldBackups.BeforeMinecraftChange(Instance, Before, After, Token)),
-                CaptureEnvironment = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureInstance(Instance, Reason, Token)),
+                CaptureEnvironment = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
                 CleanupState = new Func<global::System.Object, global::System.Int32>(Loader => Conversions.ToInteger(((dynamic)Loader).State)),
-                CleanupInput = new Func<global::System.Object, global::System.String>(Loader => Conversions.ToString(((dynamic)Loader).Input))
+                CleanupInput = new Func<global::System.Object, global::System.String>(Loader => Conversions.ToString(((dynamic)Loader).Input)),
+                CleanupTasks = InstallCleanupTasks
             };
+        }
+        private static IEnumerable<object> InstallCleanupTasks(object loader)
+        {
+            yield return loader;
+            Type type = loader.GetType();
+            if (!type.IsGenericType || type.GetGenericTypeDefinition() != typeof(ModLoader.LoaderCombo<>)) yield break;
+            // LF GetLoaderList(false) restores RequireShow=true when it recurses.
+            // Cleanup needs the actual hidden marker task at every nesting level.
+            foreach (ModLoader.LoaderBase child in (IEnumerable<ModLoader.LoaderBase>)((dynamic)loader).Loaders)
+                foreach (object nested in InstallCleanupTasks(child)) yield return nested;
         }
         private static void InstallHint(global::System.String Text, global::System.Int32 Kind)
         {

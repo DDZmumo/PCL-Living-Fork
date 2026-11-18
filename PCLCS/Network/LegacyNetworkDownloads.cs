@@ -109,13 +109,28 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
 
     public void StartDownload(TDownload owner, object? Input = null, bool IsForceRestart = false)
     {
-        if (Input is not null)
-            owner.CoreFiles = new ConcurrentQueue<TFile>((IEnumerable<TFile>)Input);
-        owner.CoreFiles = new ConcurrentQueue<TFile>(MeloongCore.Extensions.EnumerableExtensions.DistinctBy(owner.CoreFiles, file => PathUtils.ForCompare(file.LocalPath).Lower()));
-        lock (owner.CoreRecord.FileRemainLock)
-            owner.CoreRecord.FileRemain = checked(owner.CoreRecord.FileRemain + owner.CoreFiles.Count(file => NetCode(file.State) != 5));
-        owner.State = LoadStateValue(1);
-        Host.RunNewThread(() =>
+        IDisposable? startWork;
+        lock (owner.LockState) {
+            if (LoadCode(owner.State) == 1) {
+                if (!IsForceRestart && Input is null) return;
+                throw new InvalidOperationException("Cancel and drain the active download operation before restarting it.");
+            }
+            if (owner.CoreRecord.IoWork.Active != 0) throw new InvalidOperationException("Previous download workers have not drained.");
+            if (LoadCode(owner.State) >= 2 && owner.CoreFiles.Any(file => NetCode(file.State) < 5 || !file.IoWork.IsSealed || file.IoWork.Active != 0))
+                throw new InvalidOperationException("Previous download target writers have not reached their terminal completion barrier.");
+            var inputs = Input is null ? owner.CoreFiles.ToArray() : ((IEnumerable<TFile>)Input).ToArray();
+            if (inputs.Any(file => file is null || file.IoWork.IsSealed))
+                throw new InvalidOperationException("NetFile instances are single-operation inputs; create fresh files after terminal download/drain.");
+            owner.CoreFiles = new ConcurrentQueue<TFile>(MeloongCore.Extensions.EnumerableExtensions.DistinctBy(inputs, file => PathUtils.ForCompare(file.LocalPath).Lower()));
+            lock (owner.CoreRecord.FileRemainLock) owner.CoreRecord.FileRemain = owner.CoreFiles.Count;
+            lock (owner.CoreRecord.CandidateInitialization) owner.CoreRecord.CandidateSizes = null;
+            owner.CoreRecord.FailCount = 0; owner.CoreRecord.Progress = 0;
+            startWork = owner.CoreRecord.IoWork.Enter() ?? throw new InvalidOperationException("Download operation has closed registration.");
+            try { owner.State = LoadStateValue(1); }
+            catch { startWork.Dispose(); throw; }
+        }
+        try {
+        RunDownloadWorker(owner, () =>
         {
             try
             {
@@ -156,9 +171,9 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
                         filesToCheck.Add(file);
                     else
                     {
-                        lock (owner.LockState)
+                        lock (file.LockState)
                         {
-                            file.State = NetStateValue(0);
+                            if (!file.IoWork.IsSealed) file.State = NetStateValue(0);
                             file.IsCopy = false;
                         }
                     }
@@ -185,7 +200,7 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
                         int size = checked(baseSize + (i < remainder ? 1 : 0));
                         List<TFile> threadFiles = filesToCheck.GetRange(index, size);
                         index = checked(index + size);
-                        Host.RunNewThread(() => CheckExistingFiles(owner, threadFiles, folders), $"下载 文件复制 {owner.Uuid}/{Host.NewUuid()}", ThreadPriority.Normal);
+                        RunDownloadWorker(owner, () => CheckExistingFiles(owner, threadFiles, folders), $"下载 文件复制 {owner.Uuid}/{Host.NewUuid()}", ThreadPriority.Normal);
                     }
                 }
             }
@@ -193,7 +208,9 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
             {
                 OnDownloadFail(owner, new List<Exception> { new Exception("下载初始化失败", error) });
             }
-        }, "L/下载 " + owner.Uuid, ThreadPriority.Normal);
+        }, "L/下载 " + owner.Uuid, ThreadPriority.Normal, startWork);
+        startWork = null;
+        } finally { startWork?.Dispose(); }
     }
 
     public void CheckExistingFiles(TDownload owner, List<TFile> files, List<string> folders)
@@ -210,6 +227,8 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
 
             foreach (TFile file in files)
             {
+                using IDisposable? io = file.EnterCopyIo();
+                if (io is null) continue;
                 string? target = CheckExistingFile(owner, folders, versionFolders, file);
                 Logger.Trace(() => $"本地文件匹配：{file.LocalName} → {target ?? "无匹配"}，当前状态 {file.State}");
                 if (NetCode(file.State) >= 0)
@@ -228,9 +247,9 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
                     }
                 }
 
-                lock (owner.LockState)
+                lock (file.LockState)
                 {
-                    file.State = NetStateValue(0);
+                    if (!file.IoWork.IsSealed) file.State = NetStateValue(0);
                     file.IsCopy = false;
                 }
             }
@@ -243,8 +262,11 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
 
     public string? CheckExistingFile(TDownload owner, List<string> folders, List<string> versionFolders, TFile file)
     {
-        if (file.Check.Check(file.LocalPath)is null)
+        if ((!FileUtils.Exists(file.LocalPath) || FileUtils.GetInfo(file.LocalPath).Length <= file.MaximumSizeBytes) && file.Check.Check(file.LocalPath)is null)
             return file.LocalPath;
+        // Cross-directory FileUtils.Copy has no streaming upper bound. Finite-limit requests
+        // use the ordinary bounded transfer path instead of this optional copy shortcut.
+        if (file.MaximumSizeBytes != long.MaxValue) return null;
         if (Host.BooleanSetting("SystemDebugSkipCopy"))
             return null;
         if (file.Check.Hash is null && file.Check.ActualSize < 0)
@@ -277,6 +299,7 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
         bool CheckCandidate(string candidate, FileChecker checker)
         {
             long length = sizes.GetOrAdd(candidate, path => FileUtils.Exists(path) ? FileUtils.GetInfo(path).Length : -1);
+            if (length > file.MaximumSizeBytes) return false;
             if (checker.ActualSize != length)
                 return false;
             return checker.Check(candidate)is null;
@@ -371,7 +394,7 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
             {
                 if (NetCode(file.State) != 6)
                     continue;
-                if (file.Sources.All(source => source.Ex.IsCanceled() || source.Ex is TimeoutException))
+                if (file.Sources.All(source => source.Ex is not null && (source.Ex.IsCanceled() || source.Ex is TimeoutException)))
                     continue;
                 string detail = string.Join("\r\n", file.Sources.Select(source => $"{(source.Ex is null ? "无错误信息。" : source.Ex.GetDisplay(false))}（{source.Url}）"));
                 owner.Error = new Exception("文件下载失败：" + file.LocalPath + "\r\n各下载源的错误如下：\r\n" + detail, owner.Error);

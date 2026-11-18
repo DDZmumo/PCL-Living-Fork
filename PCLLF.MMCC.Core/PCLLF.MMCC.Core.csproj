@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- SPDX-License-Identifier: MPL-2.0 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <Configurations>Debug;Release;Snapshot</Configurations>
+    <PackageLicenseExpression>MPL-2.0</PackageLicenseExpression>
+    <Description>Independently implemented pure MMC metadata parsing for PCL Living Fork.</Description>
+  </PropertyGroup>
+</Project>

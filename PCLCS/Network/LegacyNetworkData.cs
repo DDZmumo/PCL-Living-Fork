@@ -41,6 +41,7 @@ public abstract class LegacyNetThreadData<TFile, TSource, TThread, TNetState> : 
 
     public TFile Task = null !;
     public Thread Thread = null !;
+    internal IDisposable? IoLease;
     public TThread NextThread = null !;
     private IEnumerable<TThread> Next()
     {

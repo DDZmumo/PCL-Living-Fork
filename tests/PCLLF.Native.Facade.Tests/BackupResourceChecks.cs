@@ -114,8 +114,23 @@ internal static class BackupResourceChecks
         Cache(owner, "VersionArgumentIndieV2", true);
         return owner;
     }
-    internal static object? Cache(ModMinecraft.McInstance owner, string key) => ((IDictionary)Native.Get(Native.Entries[key]!, "ValueCache")!)[owner.PathVersion];
-    internal static void Cache(ModMinecraft.McInstance owner, string key, object value) => ((IDictionary)Native.Get(Native.Entries[key]!, "ValueCache")!)[owner.PathVersion] = value;
+    internal static object? Cache(ModMinecraft.McInstance owner, string key) => Settings.Get(key, owner);
+    internal static void Cache(ModMinecraft.McInstance owner, string key, object value) {
+        // Provider attachment may invalidate the private legacy cache. Fixture preferences
+        // must use the same contextual Set/Get and INI/default boundary as the real page.
+        var setting = Settings.Entries[key];
+        Native.Check(setting.Source == Settings.Sources.Instance, "Backup fixture preference is not instance-scoped: " + key);
+        Settings.Set(key, value, owner);
+        Native.Check(Equals(Settings.Get(key, owner), value), "Owned backup preference did not survive its real Set/Get path: " + key);
+        string expected = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!;
+        string? persisted = File.ReadAllLines(Path.Combine(owner.PathVersion, "PCL", "Setup.ini"))
+            .Select(line => line.Trim()).FirstOrDefault(line => line.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase));
+        // SetCore intentionally performs no write when the effective value already equals
+        // the schema default. A missing key is valid only for that exact default value.
+        Native.Check(persisted is null ? Equals(setting.DefaultValue, value)
+                : string.Equals(persisted, key + ":" + expected, StringComparison.OrdinalIgnoreCase),
+            "Owned backup preference disagrees with its persisted INI or unsaved schema default: " + key);
+    }
     internal static T Part<T>(FrameworkElement element, string name) where T : class => element.FindName(name) as T ?? throw new MissingMemberException(element.GetType().FullName, name);
     internal static object ReadProperty(object value, string name) => Native.Property(value.GetType(), name).GetValue(value)!;
     // Constructors are instance members; Static also admits .cctor and makes

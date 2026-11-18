@@ -51,6 +51,33 @@
 <Compile Include="Modules/Resource/LocalResourceLoaders.cs" />
 <Compile Include="Modules/Minecraft/ModModpack.cs" />
 <Compile Include="Modules/ThirdParty/DragHelper.cs" />
+<Compile Include="Modules/Minecraft/MmcDownloads.cs" />
+<Compile Include="Modules/Minecraft/MmcLaunch.cs" />
+<Compile Include="Modules/Minecraft/MmcLaunchAuthentication.cs" />
+<Compile Include="Modules/Minecraft/MmcLaunchPreferences.cs" />
+<Compile Include="Modules/Minecraft/MmcLaunchJava.cs" />
+<Compile Include="Modules/Minecraft/MmcJavaDiscovery.cs" />
+<Compile Include="Modules/Minecraft/MmcInstances.cs" />
+<Compile Include="Modules/Minecraft/MmcOperationLoaders.cs" />
+<Compile Include="Modules/Minecraft/MmcCloneUi.cs" />
+<Compile Include="Modules/Minecraft/MmcLifecycleUi.cs" />
+<Compile Include="Modules/Minecraft/MmcDeleteUi.cs" />
+<Compile Include="Modules/Minecraft/MmcExportUi.cs" />
+<Compile Include="Modules/Minecraft/MmcHistoryUi.cs" />
+<Compile Include="Modules/Minecraft/MmcRepairUi.cs" />
+<Compile Include="Modules/Minecraft/MmcImportProgress.cs" />
+<Compile Include="Pages/PageSpeedLeft.MmcStages.cs" />
+<Compile Include="Modules/Minecraft/MmcPackageUpdateUi.cs" />
+<Compile Include="Controls/MmcPackageUpdateViews.cs" />
+<Compile Include="Controls/MmcProjectionReviewView.cs" />
+<Compile Include="Modules/Minecraft/MmcComponentEditorUi.cs" />
+<Compile Include="Controls/MmcComponentEditorViews.cs" />
+<Compile Include="Controls/MmcPlatformOriginViews.cs" />
+<Compile Include="Modules/Minecraft/MmcPlatformOriginUi.cs" />
+<Compile Include="Modules/Minecraft/MmcPackageUpdateUi.PlatformOrigin.cs" />
+<Compile Include="Modules/Minecraft/MmcLegacyAdoptionUi.cs" />
+<Compile Include="Modules/Minecraft/MmcLegacyAdoptionPreviewView.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceOverall.Mmc.cs" />
 <Compile Include="My Project/Resources.Designer.cs" />
 <Compile Include="Pages/PageInstance/MyLocalModItem.xaml.cs" />
 <Compile Include="Modules/ModEvent.cs" />
@@ -89,6 +116,7 @@
 <Compile Include="Modules/Minecraft/ModpackUpdate.cs" />
 <Compile Include="Modules/Minecraft/EnvironmentHistory.cs" />
 <Compile Include="Modules/Minecraft/WorldBackups.cs" />
+<Compile Include="Modules/Minecraft/BackupPreferences.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyInspector.cs" />
 <Compile Include="Modules/Minecraft/ModDependencyOnline.cs" />
 <Compile Include="Modules/Minecraft/LaunchDependencyCheck.cs" />
@@ -143,7 +171,12 @@
 <Compile Include="Pages/PageLink/PageLinkMain.xaml.cs" Condition="'$(EnableLegacyLink)' == 'true'" />
 <Compile Include="Pages/PageOther/PageOtherHelpDetail.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceExport.xaml.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceExport.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstancePackUpdate.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceRestorePoints.Mmc.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceMmcComponents.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceLeft.xaml.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceMmcTool.xaml.cs" />
 <Compile Include="Pages/PageInstance/LocalModPageRuntime.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMod.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceResources.xaml.cs" />
@@ -260,6 +293,7 @@
 <Page Include="Pages/PageSpeedLeft.xaml" />
 <Page Include="Pages/PageSpeedRight.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceLeft.xaml" />
+<Page Include="Pages/PageInstance/PageInstanceMmcTool.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceMod.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceKeybindings.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceRestorePoints.xaml" />
@@ -332,6 +366,29 @@
 <Resource Include="Images/Branding/LivingPCL.ico" />
 <Resource Include="../ThirdParty/Markdig/LICENSE.txt"><Link>Licenses/Markdig.txt</Link></Resource>
 <Resource Include="../../licenses/THIRD-PARTY-NOTICES.txt"><Link>Licenses/ThirdParty.txt</Link></Resource>
+<Resource Include="../ThirdParty/MeloongCore-Wpf/LICENSE.txt"><Link>Licenses/MeloongCore.txt</Link></Resource>
+<Resource Include="../ThirdParty/dotnet-runtime-bundle/LICENSE.TXT"><Link>Licenses/dotnet-runtime.txt</Link></Resource>
+<Resource Include="../ThirdParty/JavaLaunchWrapper/LICENSE.txt"><Link>Licenses/JavaLaunchWrapper/LICENSE.txt</Link></Resource>
+<Resource Include="../ThirdParty/JavaLaunchWrapper/NOTICE.txt"><Link>Licenses/JavaLaunchWrapper/NOTICE.txt</Link></Resource>
+<Resource Include="../ThirdParty/LwjglUnsafeAgent/NOTICE.txt"><Link>Licenses/LwjglUnsafeAgent/NOTICE.txt</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/LICENSE"><Link>Licenses/HMCLTransformerDiscoveryService/LICENSE</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/ADDITIONAL_TERMS.md"><Link>Licenses/HMCLTransformerDiscoveryService/ADDITIONAL_TERMS.md</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/src/main/java/org/jackhuang/hmcl/HMCLTransformerDiscoveryService.java"><Link>Licenses/HMCLTransformerDiscoveryService/src/main/java/org/jackhuang/hmcl/HMCLTransformerDiscoveryService.java</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/src/main/resources/META-INF/services/cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService"><Link>Licenses/HMCLTransformerDiscoveryService/src/main/resources/META-INF/services/cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/upstream-build/build.gradle"><Link>Licenses/HMCLTransformerDiscoveryService/upstream-build/build.gradle</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/upstream-build/settings.gradle"><Link>Licenses/HMCLTransformerDiscoveryService/upstream-build/settings.gradle</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/upstream-build/license-header.txt"><Link>Licenses/HMCLTransformerDiscoveryService/upstream-build/license-header.txt</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/upstream-build/HMCLTransformerDiscoveryService/build.gradle"><Link>Licenses/HMCLTransformerDiscoveryService/upstream-build/HMCLTransformerDiscoveryService/build.gradle</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/compile-api/ITransformerDiscoveryService.java"><Link>Licenses/HMCLTransformerDiscoveryService/compile-api/ITransformerDiscoveryService.java</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/compile-api/LICENSE"><Link>Licenses/HMCLTransformerDiscoveryService/compile-api/LICENSE</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/compile-api/COPYING"><Link>Licenses/HMCLTransformerDiscoveryService/compile-api/COPYING</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/compile-api/COPYING.LGPL"><Link>Licenses/HMCLTransformerDiscoveryService/compile-api/COPYING.LGPL</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/NOTICE.txt"><Link>Licenses/HMCLTransformerDiscoveryService/NOTICE.txt</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/SOURCE.md"><Link>Licenses/HMCLTransformerDiscoveryService/SOURCE.md</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/Build.ps1"><Link>Licenses/HMCLTransformerDiscoveryService/Build.ps1</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/source-manifest.json"><Link>Licenses/HMCLTransformerDiscoveryService/source-manifest.json</Link></Resource>
+<Resource Include="../ThirdParty/HMCLTransformerDiscoveryService/.gitattributes"><Link>Licenses/HMCLTransformerDiscoveryService/.gitattributes</Link></Resource>
+
 </ItemGroup><ItemGroup><PackageReference Include="Markdig" Version="1.6.0"/><PackageReference Include="Newtonsoft.Json" Version="13.0.3"/><PackageReference Include="System.Runtime.Caching" Version="10.0.0"/><PackageReference Include="Ookii.Dialogs.Wpf" Version="5.0.1"/></ItemGroup><ItemGroup><Reference Include="CacheCow.Client"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Client.dll</HintPath><Private>true</Private></Reference><Reference Include="CacheCow.Client.FileStore"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Client.FileStore.dll</HintPath><Private>true</Private></Reference><Reference Include="CacheCow.Common"><HintPath>../../Plain Craft Launcher 2/Resources/CacheCow.Common.dll</HintPath><Private>true</Private></Reference><Reference Include="ThrottleDebounce"><HintPath>../../Plain Craft Launcher 2/Resources/ThrottleDebounce.dll</HintPath><Private>true</Private></Reference><Reference Include="Imazen.WebP"><HintPath>../../Plain Craft Launcher 2/Resources/Imazen.WebP.dll</HintPath><Private>true</Private></Reference><Reference Include="NAudio"><HintPath>../../Plain Craft Launcher 2/Resources/NAudio.dll</HintPath><Private>true</Private></Reference><Reference Include="System.Net.Http.Formatting"><HintPath>../../Plain Craft Launcher 2/Resources/System.Net.Http.Formatting.dll</HintPath><Private>true</Private></Reference></ItemGroup><ItemGroup><Using Remove="System.Windows.Forms;System.Drawing"/><Using Include="MeloongCore"/><Using Include="MeloongCore.Extensions"/><Using Include="MeloongCore.Wpf"/><Using Include="MeloongCore.Wpf.Extensions"/><Using Include="Newtonsoft.Json"/><Using Include="Newtonsoft.Json.Linq"/><Using Include="PCLCS"/><Using Include="System"/><Using Include="System.Collections.Concurrent"/><Using Include="System.Collections.Generic"/><Using Include="System.IO"/><Using Include="System.IO.Compression"/><Using Include="System.Linq"/><Using Include="System.Net"/><Using Include="System.Net.Http"/><Using Include="System.Text"/><Using Include="System.Threading"/><Using Include="System.Threading.Tasks"/><Using Include="System.Xml.Linq"/><Using Include="System.Collections"/><Using Include="System.Diagnostics"/><Using Include="System.Windows"/><Using Include="System.Windows.Controls"/><Using Include="System.Windows.Data"/><Using Include="System.Windows.Documents"/><Using Include="System.Windows.Input"/><Using Include="System.Windows.Media"/><Using Include="System.Windows.Media.Imaging"/><Using Include="ThrottleDebounce"/></ItemGroup>
 <!-- Generate the original LF resource interface from actual resolved modern payloads. -->
 <PropertyGroup>
@@ -351,5 +408,6 @@
   <Resource Include="Images/Branding/DefaultBackgroundNight.png" />
 <Compile Include="Modules/Minecraft/ModDependencyIndex.cs" />
 <Compile Include="Modules/Minecraft/ModDownloadInstaller.cs" />
+<Compile Include="Modules/Minecraft/ModDownloadDependencies.cs" />
 </ItemGroup>
 </Project>

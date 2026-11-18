@@ -26,7 +26,7 @@ internal static class GlassProjectionRegressionChecks
         using var scope = new VisualAssetChecks.Scope(environment, "glass-projection-regressions");
         int animation = ModAnimation.AniControlEnabled;
         ModAnimation.AniControlEnabled++;
-        try { LaunchSettingsViewport(); ExportOptionCaptions(environment.Data); InlineTitlesAndContextActions(); LazyHelpCardToggle(); FirstManagementInteractions(environment); FloatingSelectionDockLayout(); }
+        try { LaunchSettingsViewport(); ExportOptionCaptions(environment.Data); InlineTitlesAndContextActions(); LazyHelpCardToggle(); FirstManagementInteractions(environment); FloatingSelectionDockLayout(); Main150ControlsProjection(); }
         finally { ModAnimation.AniControlEnabled = animation; }
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS projection regressions: genuine launch settings viewport, export option/header text and actions, source inline titles, original instance/mod right-click actions and disposal.");
@@ -415,6 +415,46 @@ internal static class GlassProjectionRegressionChecks
             Button cancelButton = Visuals(dockAfterCollapse).OfType<Button>().Single(item => item.Name == "BtnSelectCancel");
             Invoke(cancelButton);
             Native.Check(cancelClicks == 1, "Invoking projected BtnSelectCancel did not trigger the underlying Cancel click handler.");
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void Main150ControlsProjection()
+    {
+        var about = new PageOtherAbout();
+        using GlassPresentationSession aboutSession = GlassPresentation.Create(about);
+        Window? window = null;
+        try
+        {
+            window = Host(aboutSession.View);
+            Expander[] expanders = Visuals(aboutSession.View).OfType<Expander>().ToArray();
+            Native.Check(expanders.Length >= 7 && expanders.All(item => !item.IsExpanded && item.Header is TextBlock { Text.Length: > 0 }),
+                $"PageOtherAbout 1.5.0 offline license Expanders did not project collapsed with headers: count={expanders.Length}.");
+
+            var composite = new StackPanel();
+            var uniform = new UniformGrid { Rows = 1, Columns = 3 };
+            uniform.Children.Add(new MyButton { Text = "全部" });
+            uniform.Children.Add(new MyButton { Text = "新增" });
+            uniform.Children.Add(new MyButton { Text = "修改" });
+            composite.Children.Add(uniform);
+
+            var grid = new DataGrid { Height = 220, IsReadOnly = true, AutoGenerateColumns = false };
+            grid.Columns.Add(new DataGridTextColumn { Header = "游戏文件", Binding = new Binding("Key"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            grid.Columns.Add(new DataGridTextColumn { Header = "状态", Binding = new Binding("Value"), Width = 120 });
+            grid.ItemsSource = new[] { new KeyValuePair<string, string>("mods/sodium.jar", "保留") };
+            composite.Children.Add(grid);
+
+            using GlassPresentationSession controlSession = GlassPresentation.Create(composite);
+            window.Content = controlSession.View;
+            window.UpdateLayout();
+            VisualAssetChecks.Drain();
+
+            UniformGrid projectedUniform = Visuals(controlSession.View).OfType<UniformGrid>().Single();
+            DataGrid projectedGrid = Visuals(controlSession.View).OfType<DataGrid>().Single();
+            Native.Check(projectedUniform.Columns == 3 && projectedUniform.Children.Count == 3,
+                "UniformGrid filter bar from 1.5.0 ModpackDialogController did not preserve column count and children.");
+            Native.Check(projectedGrid.Columns.Count == 2 && projectedGrid.Items.Count == 1 && Math.Abs(projectedGrid.ActualHeight - 220) <= 2,
+                "DataGrid from 1.5.0 MmcLegacyAdoptionPreviewView did not project columns, items, and bounded height.");
         }
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }

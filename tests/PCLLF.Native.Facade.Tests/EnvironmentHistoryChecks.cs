@@ -79,8 +79,16 @@ internal static class EnvironmentHistoryChecks
         foreach (DictionaryEntry item in Native.Entries) { object entry = item.Value!; if (Native.Get(entry, "Source")!.ToString() == "Instance") ((IDictionary)Native.Get(entry, "ValueCache")!)[instance.PathVersion] = Native.Get(entry, "DefaultValue"); }
         Cache(instance, "VersionArgumentIndieV2", true); return instance;
     }
-    internal static object? Cache(ModMinecraft.McInstance instance, string key) => ((IDictionary)Native.Get(Native.Entries[key]!, "ValueCache")!)[instance.PathVersion];
-    internal static void Cache(ModMinecraft.McInstance instance, string key, object value) => ((IDictionary)Native.Get(Native.Entries[key]!, "ValueCache")!)[instance.PathVersion] = value;
+    // Preserve the original fixture call sites, but exercise the supported preference boundary:
+    // provider attachment and INI publication may legitimately invalidate private ValueCache rows.
+    internal static object? Cache(ModMinecraft.McInstance instance, string key) => Settings.Get(key, instance);
+    internal static void Cache(ModMinecraft.McInstance instance, string key, object value) {
+        Settings.Set(key, value, instance);
+        Native.Check(Equals(Settings.Get(key, instance), value), "Owned history preference did not survive its real Set/Get path: " + key);
+        string expected = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!;
+        string[] persisted = File.ReadAllLines(Path.Combine(instance.PathVersion, "PCL", "Setup.ini"));
+        Native.Check(persisted.Any(line => string.Equals(line.Trim(), key + ":" + expected, StringComparison.OrdinalIgnoreCase)), "Owned history preference was not persisted to its instance INI: " + key);
+    }
     internal static void PageState(object page, string name, object value)
     {
         Native.Check(page.GetType().FullName == "PCL.PageInstanceRestorePoints" && name is "Owner" or "RetentionDirty" or "Entries", "Unreviewed history-page state hook.");

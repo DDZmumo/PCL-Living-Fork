@@ -19,6 +19,13 @@ namespace PCL
             ReadIni = new Func<string, string, string, string>((File, Key, Fallback) => ModBase.ReadIni(File, Key, Fallback)),
             WriteIni = new Action<string, string, string>((File, Key, Value) => ModBase.WriteIni(File, Key, Value)),
             DeleteIni = new Action<string, string>((File, Key) => ModBase.DeleteIniKey(File, Key)),
+            ValidateInstanceConfiguration = ValidateInstanceConfiguration,
+            InstanceCacheKey = Instance => Instance.PathVersion + Instance.Config.PreferenceCacheNamespace,
+            ValidateInstanceSettingWrite = (Instance, Key) => MmcIniConfiguration.ValidatePreferenceWrite(Instance.Config, Key),
+            ReadInstanceIni = (Instance, Key, Fallback) => MmcIniConfiguration.WithInstanceContext<string>(Instance.Config, () => ModBase.ReadIni(Instance.PathVersion + "PCL\\Setup.ini", Key, Fallback)),
+            HasInstanceIni = (Instance, Key) => MmcIniConfiguration.WithInstanceContext<bool>(Instance.Config, () => ModBase.HasIniKey(Instance.PathVersion + "PCL\\Setup.ini", Key)),
+            WriteInstanceIni = (Instance, Key, Value) => MmcIniConfiguration.WithInstanceContext(Instance.Config, () => ModBase.WriteIni(Instance.PathVersion + "PCL\\Setup.ini", Key, Value)),
+            DeleteInstanceIni = (Instance, Key) => MmcIniConfiguration.WithInstanceContext(Instance.Config, () => ModBase.DeleteIniKey(Instance.PathVersion + "PCL\\Setup.ini", Key)),
             HasIni = new Func<string, string, bool>((File, Key) => ModBase.HasIniKey(File, Key)),
             ReadRegistry = (Folder, Key, Fallback) => LfRegistry.ReadRegistry(Folder, Key, Fallback),
             WriteRegistry = LfRegistry.WriteRegistry,
@@ -27,6 +34,15 @@ namespace PCL
             IdentifyCandidates = LegacySettingsRegistryStore.IdentifyCandidates,
             Log = LogSettings
         });
+
+        private static void ValidateInstanceConfiguration(ModMinecraft.McInstance Instance)
+        {
+            Instance.Config.EnsurePreferenceCacheInvalidator(() => {
+                foreach (var Entry in Entries.Values)
+                    if (Entry.Source == Sources.Instance) Entry.ValueCache.TryRemove(Instance.PathVersion + Instance.Config.PreferenceCacheNamespace, out _);
+            });
+            Instance.Config.AssertAttached();
+        }
 
         private static void LogSettings(Exception ErrorValue, string Message, LegacySettingsLogLevel Level, bool Toast)
         {
@@ -209,6 +225,14 @@ namespace PCL
         public static void Set(string Key, object Value, ModMinecraft.McInstance Instance = null)
         {
             Backend.Set(Key, Value, Instance);
+        }
+        public static void SetInstanceUserPreference(string Key, object Value, ModMinecraft.McInstance Instance = null)
+        {
+            if (!MmcLaunchPreferences.TrySaveUserPreference(Instance, Key, Value, reset: false)) Backend.Set(Key, Value, Instance);
+        }
+        public static void ResetInstanceUserPreference(string Key, ModMinecraft.McInstance Instance = null)
+        {
+            if (!MmcLaunchPreferences.TrySaveUserPreference(Instance, Key, null, reset: true)) Backend.Reset(Key, Instance);
         }
         private static void SetCore(string Key, object Value, ModMinecraft.McInstance Instance)
         {

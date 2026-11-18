@@ -21,7 +21,9 @@ internal static class LocalModSortChecks
         // HasUpdate reads a genuine instance-scoped setting even when no
         // update exists. Supply its owner while keeping loader ports isolated.
         ModMinecraft.McInstance? previous = PageInstanceLeft.Instance;
-        ModMinecraft.McInstance owner = new(Path.Combine(root, "instance"));
+        string instanceRoot = Path.Combine(root, "instance"); Directory.CreateDirectory(instanceRoot);
+        ModMinecraft.McInstance owner = new(instanceRoot);
+        Native.Check(owner.Config.ContextStamp.Kind == MmcConfigurationContextKind.Unmanaged, "The ordinary mod-sort owner did not attach to its existing fixture directory.");
         IDictionary cache = (IDictionary)Native.Get(Native.Entries["VersionAdvanceDisableModUpdate"]!, "ValueCache")!;
         bool existed = cache.Contains(owner.PathVersion);
         object? oldValue = cache[owner.PathVersion];

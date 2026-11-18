@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Windows;
 using Newtonsoft.Json.Linq;
 using PCL;
 
@@ -6,6 +7,59 @@ namespace PCLLF.Native.Facade.Tests;
 
 internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile, TOptions, TCache>
 {
+    private static void LaunchPlatformActivation(string parent)
+    {
+        LaunchFixture f = new(Path.Combine(parent, "platform-only-activation"));
+        File.Delete(f.Source); File.Delete(f.Library);
+        LaunchFabric(f.Source, "consumer");
+        LaunchFabric(f.Library, "lib_core", new JObject { ["minecraft"] = ">=1.21", ["fabricloader"] = ">=0.16" });
+        f.ParentData = LaunchFixture.Version(f.Source, "parent01", "parentv1", new JArray(LaunchFixture.Required("libproj1")));
+        f.LibraryData = LaunchFixture.Version(f.Library, "libproj1", "libver01");
+        f.VersionMap.Clear();
+        f.VersionMap[Hash(f.Source)] = f.ParentData;
+        f.VersionMap[Hash(f.Library)] = f.LibraryData;
+        string disabled = Path.Combine(f.Mods, "library.jar.disabled"); File.Copy(f.Library, disabled);
+        Native.Check(!f.Scan().HasErrors, "Platform-only fixture accidentally has an embedded missing dependency.");
+        object plan = f.Plan();
+        Native.Check(PlanList(plan, "Enables").Count == 1 && PlanList(plan, "Items").Count == 0,
+            "Exact platform-required compatible disabled dependency has no enable action: " + string.Join("; ", PlanNotes(plan)));
+        TReport evidence = PlanReport(plan);
+        FrameworkElement view = (FrameworkElement)LaunchConstruct("PCL.ModDependencyCheckView", evidence, plan);
+        var cards = ((System.Windows.Controls.Panel)Native.Get(view, "Groups")!).Children.OfType<MyCard>().ToArray();
+        Native.Check(cards.Any(card => card.Title.StartsWith("可启用", StringComparison.Ordinal)) &&
+            !cards.Any(card => card.Title.StartsWith("平台声明与本地状态", StringComparison.Ordinal)),
+            "A safely repairable platform dependency is still duplicated as manual review.");
+        string duplicate = Path.Combine(f.Mods, "another-library.jar.disabled"); File.Copy(disabled, duplicate);
+        Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "Ambiguous disabled candidates were automatically enabled."); File.Delete(duplicate);
+        File.AppendAllText(disabled, "changed-after-lookup");
+        Native.Check(PlanList(ActivationPlan(f.Mods, evidence), "Enables").Count == 0, "Stale online identity authorized a changed disabled file.");
+        File.Copy(f.Library, disabled, true);
+        TOnlineDependency required = evidence.OnlineFiles.Single(file => file.Enabled).Matches.First(match => match.IsExact).Dependencies.Single();
+        required.VersionId = "different-version";
+        Native.Check(PlanList(ActivationPlan(f.Mods, evidence), "Enables").Count == 0, "A different pinned platform version was automatically enabled."); required.VersionId = "";
+        plan = f.Plan();
+        Native.Check(LaunchInstall(plan) == 1 && !File.Exists(disabled) && File.Exists(Path.Combine(f.Mods, "library.jar")),
+            "Platform-only dependency was not enabled by the actual repair transaction.");
+        Native.Check(PlanReport(f.Plan()).PlatformReviewNotes().Count == 0, "Enabled dependency still triggers platform review after a fresh check.");
+        File.Delete(Path.Combine(f.Mods, "library.jar"));
+        void RewriteLibrary(JObject dependencies) {
+            File.Delete(f.Library); LaunchFabric(f.Library, "lib_core", dependencies);
+            f.LibraryData = LaunchFixture.Version(f.Library, "libproj1", "libver01");
+            f.VersionMap.Clear(); f.VersionMap[Hash(f.Source)] = f.ParentData; f.VersionMap[Hash(f.Library)] = f.LibraryData;
+            File.Copy(f.Library, disabled, true);
+        }
+        RewriteLibrary(new JObject { ["minecraft"] = ">=1.22" });
+        Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "Platform metadata concealed an incompatible embedded Minecraft requirement.");
+        RewriteLibrary(new JObject { ["fabricloader"] = ">=99.0" });
+        Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "Platform metadata concealed an incompatible loader requirement.");
+        RewriteLibrary(new JObject { ["base_core"] = "*" });
+        Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "A disabled dependency with missing required children was automatically enabled.");
+        RewriteLibrary(new JObject());
+        ((JArray)f.ParentData["dependencies"]!).Add(new JObject { ["project_id"] = "libproj1", ["dependency_type"] = "incompatible" });
+        Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "A platform-declared incompatible disabled file was automatically enabled.");
+        Console.WriteLine("PASS exact platform-only dependency: enable/transaction/recheck and no duplicate review; ambiguity, stale identity, fixed version, game/loader/child requirements and platform conflicts remain guarded.");
+    }
+
     private static object LaunchRepair(LaunchFixture f)
     {
         TReport report = f.Scan(); LD(82, report.HasErrors);

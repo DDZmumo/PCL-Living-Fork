@@ -11,7 +11,7 @@ public sealed class LegacyJavaHost<TInstance> where TInstance : class {
     public Func<string, TInstance?, string> ReadString = null!;
     public Func<string, TInstance, int> ReadInteger = null!;
     public Action<string, int, TInstance> WriteInteger = null!;
-    public Func<TInstance, JsonConfigProvider> Config = null!;
+    public Func<TInstance, IConfigProvider> Config = null!;
     public Func<TInstance, McVersion> Version = null!;
     public Func<TInstance, string> VersionPath = null!;
     public Func<TInstance, string> InstanceName = null!;
@@ -58,7 +58,7 @@ public sealed class LegacyJavaDownloadPlan {
     public string BaseDirectory = null!;
     public List<LegacyJavaDownloadFile> Files = [];
 
-    /// <summary>Called by the original loader on its Failed or Canceled transition.</summary>
+    /// <summary>Cleanup after download writers have drained and while the Java maintenance lease is held.</summary>
     public void Incomplete() {
         Logger.Warn($"由于 Java 下载未完成，清理未下载完成的 Java 文件夹：{BaseDirectory}");
         DirectoryUtils.Delete(BaseDirectory);

@@ -208,6 +208,7 @@ internal static class MapResourceChecks
 
     private static object Instance(Type type, string path)
     {
+        Directory.CreateDirectory(path);
         object instance = type.GetConstructor([typeof(string)])!.Invoke([path]);
         Native.Property(type, "Version").SetValue(instance, new McVersion("1.20.1", true));
         return instance;
@@ -242,11 +243,11 @@ internal static class MapResourceChecks
         try
         {
             string shared = Path.Combine(fixture.Data, "shared-minecraft") + Path.DirectorySeparatorChar;
+            Directory.CreateDirectory(shared);
             field.SetValue(null, shared);
-            string setup = Path.Combine((string)Native.Property(instanceType, "PathVersion").GetValue(instances[0])!, "PCL", "Setup.ini");
-            File.WriteAllText(setup, "VersionArgumentIndieV2:False\r\n", new System.Text.UTF8Encoding(false));
-            Native.Static("PCL.ModBase", "IniClearCache", setup);
-            ((IDictionary)Native.Get(Native.Entries["VersionArgumentIndieV2"]!, "ValueCache")!).Clear();
+            // Exercise the real coordinated preference setter. Rewriting Setup.ini
+            // behind the already attached provider leaves its valid snapshot unchanged.
+            PCL.Settings.Set("VersionArgumentIndieV2", false, (PCL.ModMinecraft.McInstance)instances[0]);
             Native.Check(string.Equals(Native.Full(Choose(instances[0], null)), Native.Full(Path.Combine(shared, "mods")), StringComparison.OrdinalIgnoreCase), "Non-isolated instance did not use the actual shared Minecraft directory.");
         }
         finally

@@ -1,0 +1,115 @@
+{
+  "component": "HMCLTransformerDiscoveryService",
+  "version": "1.0",
+  "license": "GPL-3.0-or-later with upstream Section 7 terms",
+  "runtime": {
+    "path": "Plain Craft Launcher 2/Resources/transformer.jar",
+    "sha256": "ea5756fec2e06d5aa5824b54f9c26ae46a7ab43ca9a57e747f1f63e1269f7dad",
+    "git_blob": "3ea51be50926e0b72ac87e7c8e73086edbbd6f04",
+    "repository": "HMCL-dev/HMCL",
+    "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+    "upstream_path": "HMCLCore/src/main/resources/assets/game/HMCLTransformerDiscoveryService-1.0.jar"
+  },
+  "files": [
+    {
+      "path": ".gitattributes",
+      "origin": "LF source packaging added 2026-11-08"
+    },
+    {
+      "path": "LICENSE",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "LICENSE",
+      "upstream_git_blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+    },
+    {
+      "path": "ADDITIONAL_TERMS.md",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "README.md (complete License section)",
+      "upstream_git_blob": "4817b27d4ae4afd08bdc44211c0c99b1b179f23c"
+    },
+    {
+      "path": "src/main/java/org/jackhuang/hmcl/HMCLTransformerDiscoveryService.java",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "HMCLTransformerDiscoveryService/src/main/java/org/jackhuang/hmcl/HMCLTransformerDiscoveryService.java",
+      "upstream_git_blob": "64d4b3dbd41dd04e3486ad4c93667d33f19712ac"
+    },
+    {
+      "path": "src/main/resources/META-INF/services/cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "HMCLTransformerDiscoveryService/src/main/resources/META-INF/services/cpw.mods.modlauncher.serviceapi.ITransformerDiscoveryService",
+      "upstream_git_blob": "82fc86968dd1d1b09acc2aaa6d9388241c284223"
+    },
+    {
+      "path": "upstream-build/build.gradle",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "build.gradle",
+      "upstream_git_blob": "f8443b1ce3311d366936dc393b5532a17081fe3e"
+    },
+    {
+      "path": "upstream-build/settings.gradle",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "settings.gradle",
+      "upstream_git_blob": "32100c8ffa9b2bf72421e2cebfb4aeecc2f098d1"
+    },
+    {
+      "path": "upstream-build/license-header.txt",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "license-header.txt",
+      "upstream_git_blob": "b3ce7882ddc4695b85c135c2644f89e428906c95"
+    },
+    {
+      "path": "upstream-build/HMCLTransformerDiscoveryService/build.gradle",
+      "repository": "HMCL-dev/HMCL",
+      "commit": "7c510f9fb8655598a26b1b5937bcb0046d0960d4",
+      "upstream_path": "HMCLTransformerDiscoveryService/build.gradle",
+      "upstream_git_blob": "82d65da4740ae4f0f8f0c9c37e864c0f5fae76ce"
+    },
+    {
+      "path": "compile-api/ITransformerDiscoveryService.java",
+      "repository": "McModLauncher/modlauncher",
+      "commit": "5bfa59b715884c91a8b90aa53d270776d0a60186",
+      "upstream_path": "src/api/java/cpw/mods/modlauncher/serviceapi/ITransformerDiscoveryService.java",
+      "upstream_git_blob": "7aba0484ab8f82bd4c607852f8da88c4e8dabfd9"
+    },
+    {
+      "path": "compile-api/LICENSE",
+      "repository": "McModLauncher/modlauncher",
+      "commit": "5bfa59b715884c91a8b90aa53d270776d0a60186",
+      "upstream_path": "LICENSE",
+      "upstream_git_blob": "ca468ddd7053cd5bf7227a57700ecd7258654422"
+    },
+    {
+      "path": "compile-api/COPYING",
+      "repository": "McModLauncher/modlauncher",
+      "commit": "5bfa59b715884c91a8b90aa53d270776d0a60186",
+      "upstream_path": "COPYING",
+      "upstream_git_blob": "ed990f8cd2954029f8e6a9808a24e330be503a12"
+    },
+    {
+      "path": "compile-api/COPYING.LGPL",
+      "repository": "McModLauncher/modlauncher",
+      "commit": "5bfa59b715884c91a8b90aa53d270776d0a60186",
+      "upstream_path": "COPYING.LGPL",
+      "upstream_git_blob": "0a041280bd00a9d068f503b8ee7ce35214bd24a1"
+    },
+    {
+      "path": "NOTICE.txt",
+      "origin": "LF source packaging added 2026-11-08"
+    },
+    {
+      "path": "SOURCE.md",
+      "origin": "LF source packaging added 2026-11-08"
+    },
+    {
+      "path": "Build.ps1",
+      "origin": "LF source packaging added 2026-11-08"
+    }
+  ]
+}

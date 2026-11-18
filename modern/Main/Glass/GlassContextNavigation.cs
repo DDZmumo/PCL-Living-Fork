@@ -28,6 +28,7 @@ internal static class GlassContextNavigation
     {
         if (!RequiresSidebar(page)) return Array.Empty<GlassSidebarItem>();
         page.Dispatcher.VerifyAccess();
+        if (page is PageInstanceLeft instanceLeft) instanceLeft.SyncInstanceContext();
         var result = new List<GlassSidebarItem>();
         var visited = new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance);
         Collect(page, visited, result);

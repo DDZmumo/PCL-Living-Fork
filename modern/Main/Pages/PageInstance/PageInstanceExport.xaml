@@ -28,7 +28,7 @@
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="整合包名称" Margin="0,0,20,0" />
                         <local:MyTextBox Grid.Row="0" Grid.Column="1" x:Name="TextExportName" MaxLength="100" />
-                        <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Left" Text="整合包版本" Margin="30,0,20,0" />
+                        <TextBlock x:Name="LabExportVersion" Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Left" Text="整合包版本" Margin="30,0,20,0" />
                         <local:MyTextBox Grid.Row="0" Grid.Column="3" x:Name="TextExportVersion" Tag="VersionArgumentTitle" MaxLength="100" />
                     </Grid>
                 </local:MyCard>
@@ -196,7 +196,7 @@
                         <StackPanel Margin="30,0,0,0" x:Name="PanOptionsShaderPacks"
                                 Visibility="{Binding Checked, ElementName=CheckOptionsShaderPacks, Converter={StaticResource BooleanToVisibilityConverter}}">
                         </StackPanel>
-                        <local:MyCheckBox>
+                        <local:MyCheckBox x:Name="CheckOptionsScreenshots">
                             <local:MyCheckBox.Tag>
                                 <local:ExportOption 
                                 Title="截图"
@@ -244,7 +244,7 @@
                                 DefaultChecked="True" />
                             </local:MyCheckBox.Tag>
                         </local:MyCheckBox>
-                        <local:MyCheckBox>
+                        <local:MyCheckBox x:Name="CheckOptionsServers">
                             <local:MyCheckBox.Tag>
                                 <local:ExportOption 
                                 Title="多人游戏服务器列表"
@@ -287,8 +287,9 @@
                         </StackPanel>
                     </StackPanel>
                 </local:MyCard>
-                <local:MyCard Title="高级选项" Margin="0,0,0,15" CanSwap="True" IsSwapped="True">
-                    <StackPanel Margin="25,37,23,20">
+                <local:MyCard x:Name="CardAdvanced" Title="高级选项" Margin="0,0,0,15" CanSwap="True" IsSwapped="True">
+                    <StackPanel>
+                    <StackPanel x:Name="PanAdvancedStandard" Margin="25,37,23,20">
                         <local:MyCheckBox Text="开启该版本的版本隔离" x:Name="CheckAdvancedVersionIsolation" Checked="True"
                                           ToolTip="导入后，该版本的 Mod、存档等使用独立目录。取消勾选后使用共享游戏目录，不改变全局默认隔离设置。" />
                         <local:MyHint Text="建议仅在无法稳定连接 CurseForge 或 Modrinth 时才打包资源文件。&#xa;请不要公开发布含资源文件的整合包，这会违反部分 Mod 的使用协议！"
@@ -312,6 +313,20 @@
                             <local:MyButton Grid.Column="2" MinWidth="140" Text="整合包制作指南" Padding="13,0" Margin="0,0,20,0" x:Name="BtnAdvancedHelp"
                                             local:CustomEventService.EventType="打开帮助" />
                         </Grid>
+                    </StackPanel>
+                    <StackPanel x:Name="PanMmcPortability" Margin="25,37,23,20" Visibility="Collapsed">
+                        <local:MyHint Text="本机 Java 路径和自动内存不能直接用于其他电脑。需要转换时，请明确选择下面的处理方式；组件声明的 Java 版本要求会随包保留。" Theme="Blue" Margin="0,0,0,10" />
+                        <local:MyCheckBox x:Name="CheckMmcPortableJava" Text="移除本机 Java 选择，保留整合包的 Java 要求" />
+                        <local:MyCheckBox x:Name="CheckMmcFixedMemory" Text="将自动内存改为下方固定值（MiB）" />
+                        <StackPanel Orientation="Horizontal" Margin="26,6,0,10" IsEnabled="{Binding Checked, ElementName=CheckMmcFixedMemory}">
+                            <TextBlock Text="最小" VerticalAlignment="Center" />
+                            <local:MyTextBox x:Name="TextMmcMinimumMemory" Text="0" Width="90" Margin="8,0,20,0" />
+                            <TextBlock Text="最大" VerticalAlignment="Center" />
+                            <local:MyTextBox x:Name="TextMmcMaximumMemory" Text="4096" Width="90" Margin="8,0,0,0" />
+                        </StackPanel>
+                        <local:MyCheckBox x:Name="CheckMmcExcludeInactive" Text="不导出未启用的另一游戏目录" />
+                        <local:MyHint Text="如果另一游戏目录中有文件，需要明确选择排除后才能导出。模组自己的配置可能含个人信息，请在分享前核对。" Theme="Yellow" Margin="0,8,0,0" />
+                    </StackPanel>
                     </StackPanel>
                 </local:MyCard>
             </StackPanel>

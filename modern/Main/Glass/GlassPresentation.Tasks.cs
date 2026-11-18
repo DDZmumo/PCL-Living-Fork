@@ -43,7 +43,9 @@ public sealed partial class GlassPresentationSession
         var node = new Node(root);
         node.Pull = () =>
         {
-            List<ModLoader.LoaderBase> loaders = ModLoader.LoaderTaskbar.ToList().Where(loader => loader.Show).ToList();
+            List<ModLoader.LoaderBase> loaders = ModLoader.LoaderTaskbar.ToList().Where(loader =>
+                loader.Show && !(loader is IMmcImportProgressOperation mmc &&
+                    loader.State is ModBase.LoadState.Finished or ModBase.LoadState.Canceled && mmc.ProducerCompleted)).ToList();
             foreach (ModLoader.LoaderBase gone in cards.Keys.Where(loader => !loaders.Contains(loader)).ToList())
             {
                 list.Children.Remove(cards[gone].View);
@@ -81,7 +83,8 @@ public sealed partial class GlassPresentationSession
         private readonly GlassPresentationSession _owner;
         private readonly ModLoader.LoaderBase _loader;
         private readonly PageSpeedRight _page;
-        private readonly TextBlock _state, _percent, _error;
+        private readonly TextBlock _title, _state, _percent, _error;
+        private readonly Button _cancel;
         private readonly SlimBar _progress;
         private readonly StackPanel _rows = new() { Margin = new Thickness(0, 12, 0, 0) };
         private string _rowSignature = string.Empty;
@@ -90,23 +93,23 @@ public sealed partial class GlassPresentationSession
         internal TaskCard(GlassPresentationSession owner, ModLoader.LoaderBase loader, PageSpeedRight page)
         {
             _owner = owner; _loader = loader; _page = page;
-            var title = owner.PlainText(loader.Name); title.FontSize = 15; title.FontWeight = FontWeights.SemiBold; title.TextTrimming = TextTrimming.CharacterEllipsis; title.VerticalAlignment = VerticalAlignment.Center;
+            _title = owner.PlainText(loader.Name); _title.FontSize = 15; _title.FontWeight = FontWeights.SemiBold; _title.TextTrimming = TextTrimming.CharacterEllipsis; _title.VerticalAlignment = VerticalAlignment.Center;
             _state = owner.PlainText(string.Empty); _state.FontSize = 12; _state.Margin = new Thickness(10, 0, 0, 0); _state.VerticalAlignment = VerticalAlignment.Center;
             _state.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
             _percent = owner.PlainText(string.Empty); _percent.FontSize = 13; _percent.FontWeight = FontWeights.SemiBold; _percent.VerticalAlignment = VerticalAlignment.Center; _percent.Margin = new Thickness(12, 0, 8, 0);
-            var cancel = new Button { Content = "取消", Style = owner.Style("GlassPresentationButton"), Height = 28, MinHeight = 28, Padding = new Thickness(12, 0, 12, 0), FontSize = 12.5 };
-            AutomationProperties.SetName(cancel, "取消任务：" + loader.Name);
-            cancel.Click += (_, _) => { if (!owner.Live(cancel)) return; Cancel(); owner.Refresh(); };
+            _cancel = new Button { Content = "取消", Style = owner.Style("GlassPresentationButton"), Height = 28, MinHeight = 28, Padding = new Thickness(12, 0, 12, 0), FontSize = 12.5 };
+            AutomationProperties.SetName(_cancel, "取消任务：" + loader.Name);
+            _cancel.Click += (_, _) => { if (!owner.Live(_cancel)) return; Cancel(); owner.Refresh(); };
 
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition());
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.Children.Add(title);
+            header.Children.Add(_title);
             Grid.SetColumn(_state, 1); header.Children.Add(_state);
             Grid.SetColumn(_percent, 2); header.Children.Add(_percent);
-            Grid.SetColumn(cancel, 3); header.Children.Add(cancel);
+            Grid.SetColumn(_cancel, 3); header.Children.Add(_cancel);
 
             _progress = new SlimBar { Margin = new Thickness(0, 12, 0, 0) };
 
@@ -123,6 +126,8 @@ public sealed partial class GlassPresentationSession
 
         internal void Update()
         {
+            _title.Text = _loader.Name ?? string.Empty;
+            AutomationProperties.SetName(View, _title.Text);
             ModBase.LoadState state = _loader.State;
             double progress = Math.Clamp(_loader.Progress, 0, 1);
             _progress.Value = progress;
@@ -140,7 +145,35 @@ public sealed partial class GlassPresentationSession
             _progress.Visibility = failed ? Visibility.Collapsed : Visibility.Visible;
             _error.Visibility = failed ? Visibility.Visible : Visibility.Collapsed;
             if (failed) _error.Text = _loader.Error?.GetDisplay(true) ?? "任务失败";
+
+            if (_loader is IMmcImportProgressOperation mmcOp)
+            {
+                _cancel.Content = failed ? "关闭" : "取消";
+                _cancel.IsEnabled = failed || (!mmcOp.ImportProgress.CancellationRequested && !mmcOp.ImportProgress.DecisionStarted);
+                _cancel.ToolTip = mmcOp.ImportProgress.CancellationRequested ? "正在取消，等待文件操作结束" :
+                    mmcOp.ImportProgress.DecisionStarted ? "正在保存导入结果，请等待文件操作结束" :
+                    failed ? "关闭任务" : "取消导入";
+                if (mmcOp.ImportProgress.CancellationRequested && state == ModBase.LoadState.Loading) _state.Text = "取消中";
+                UpdateMmcStages(mmcOp.ImportProgress.Snapshot(state));
+                return;
+            }
+
             UpdateRows(failed ? new List<ModLoader.LoaderBase>() : SubTasks());
+        }
+
+        private void UpdateMmcStages(MmcImportStageSnapshot[] stages)
+        {
+            string signature = "mmc:" + string.Join("\n", stages.Select(stage => stage.Stage + ":" + stage.State + ":" + stage.Detail + ":" + stage.Progress + ":" + stage.CompletedBytes + ":" + stage.TotalBytes + ":" + stage.CompletedFiles + ":" + stage.TotalFiles));
+            if (signature == _rowSignature) return;
+            _rowSignature = signature;
+            _rows.Children.Clear();
+            foreach (MmcImportStageSnapshot stage in stages)
+            {
+                var row = new TaskRow(_owner);
+                row.UpdateMmcStage(stage);
+                _rows.Children.Add(row.View);
+            }
+            _rows.Visibility = stages.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private List<ModLoader.LoaderBase> SubTasks()
@@ -175,6 +208,19 @@ public sealed partial class GlassPresentationSession
                 button.PerformClick();
                 return;
             }
+            if (_loader is IMmcImportProgressOperation mmcOp)
+            {
+                if (_loader.State is ModBase.LoadState.Loading or ModBase.LoadState.Waiting)
+                {
+                    _cancel.IsEnabled = false;
+                    ModBase.RunInThread(() => { _loader.Cancel(); ModBase.RunInUi(() => _owner.Refresh()); });
+                }
+                else if (mmcOp.ProducerCompleted)
+                {
+                    ModLoader.LoaderTaskbar.Remove(_loader);
+                }
+                return;
+            }
             ModLoader.LoaderTaskbar.Remove(_loader);
             ModBase.RunInThread(() => _loader.Cancel());
         }
@@ -184,17 +230,17 @@ public sealed partial class GlassPresentationSession
     private sealed class TaskRow
     {
         private readonly Path _glyph;
-        private readonly TextBlock _percent, _name;
+        private readonly TextBlock _percent, _name, _detail;
         private readonly Grid _waiting;
         internal FrameworkElement View { get; }
 
         internal TaskRow(GlassPresentationSession owner)
         {
             var grid = new Grid { MinHeight = 26 };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
             grid.ColumnDefinitions.Add(new ColumnDefinition());
             _glyph = new Path { Width = 11, Height = 10, Stretch = Stretch.Uniform, StrokeThickness = 1.7, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            _percent = owner.PlainText(string.Empty); _percent.FontSize = 12.5; _percent.FontWeight = FontWeights.SemiBold; _percent.HorizontalAlignment = HorizontalAlignment.Center; _percent.VerticalAlignment = VerticalAlignment.Center;
+            _percent = owner.PlainText(string.Empty); _percent.FontSize = 12; _percent.FontWeight = FontWeights.SemiBold; _percent.HorizontalAlignment = HorizontalAlignment.Center; _percent.VerticalAlignment = VerticalAlignment.Center; _percent.TextWrapping = TextWrapping.NoWrap;
             _waiting = new Grid { Width = 18, Height = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             for (int dot = 0; dot < 3; dot++)
             {
@@ -202,9 +248,13 @@ public sealed partial class GlassPresentationSession
                 ellipse.SetResourceReference(Shape.FillProperty, "GlassPresentationSecondary");
                 _waiting.Children.Add(ellipse);
             }
+            var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 0, 2) };
             _name = owner.PlainText(string.Empty); _name.FontSize = 13; _name.VerticalAlignment = VerticalAlignment.Center; _name.TextTrimming = TextTrimming.CharacterEllipsis;
+            _detail = owner.PlainText(string.Empty); _detail.FontSize = 11.5; _detail.Margin = new Thickness(0, 2, 0, 0); _detail.Visibility = Visibility.Collapsed;
+            _detail.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+            content.Children.Add(_name); content.Children.Add(_detail);
             grid.Children.Add(_glyph); grid.Children.Add(_percent); grid.Children.Add(_waiting);
-            Grid.SetColumn(_name, 1); grid.Children.Add(_name);
+            Grid.SetColumn(content, 1); grid.Children.Add(content);
             grid.Tag = this;
             View = grid;
         }
@@ -212,6 +262,7 @@ public sealed partial class GlassPresentationSession
         internal void Update(ModLoader.LoaderBase task)
         {
             _name.Text = task.Name;
+            _detail.Visibility = Visibility.Collapsed;
             ModBase.LoadState state = task.State;
             _glyph.Visibility = state is ModBase.LoadState.Finished or ModBase.LoadState.Failed ? Visibility.Visible : Visibility.Collapsed;
             _percent.Visibility = state == ModBase.LoadState.Loading ? Visibility.Visible : Visibility.Collapsed;
@@ -222,6 +273,47 @@ public sealed partial class GlassPresentationSession
             // Finished and waiting steps step back so the running one stands out.
             _name.SetResourceReference(TextBlock.ForegroundProperty, state == ModBase.LoadState.Loading ? "GlassPresentationText" : "GlassPresentationSecondary");
             _name.FontWeight = state == ModBase.LoadState.Loading ? FontWeights.SemiBold : FontWeights.Normal;
+        }
+
+        internal void UpdateMmcStage(MmcImportStageSnapshot stage)
+        {
+            _name.Text = stage.Name;
+            string? badge = stage.State switch
+            {
+                MmcImportStageState.Running when stage.Progress.HasValue => Math.Floor(Math.Clamp(stage.Progress.Value, 0, 1) * 100) + "%",
+                MmcImportStageState.Running => "进行中",
+                MmcImportStageState.Cancelling => "取消中",
+                MmcImportStageState.Canceled => "已取消",
+                MmcImportStageState.NotRun => "未执行",
+                MmcImportStageState.Skipped => "跳过",
+                _ => null,
+            };
+            bool done = stage.State == MmcImportStageState.Finished;
+            bool failed = stage.State == MmcImportStageState.Failed;
+            bool waiting = stage.State == MmcImportStageState.Waiting && badge is null;
+            _percent.Visibility = badge is not null ? Visibility.Visible : Visibility.Collapsed;
+            if (badge is not null) _percent.Text = badge;
+            _glyph.Visibility = (done || failed) ? Visibility.Visible : Visibility.Collapsed;
+            if (done) { _glyph.Data = TaskDoneGlyph; _glyph.SetResourceReference(Shape.StrokeProperty, "GlassPresentationText"); }
+            if (failed) { _glyph.Data = TaskFailedGlyph; _glyph.SetResourceReference(Shape.StrokeProperty, "GlassPresentationDanger"); }
+            _waiting.Visibility = waiting ? Visibility.Visible : Visibility.Collapsed;
+
+            bool active = stage.State is MmcImportStageState.Running or MmcImportStageState.Cancelling;
+            _name.SetResourceReference(TextBlock.ForegroundProperty, active ? "GlassPresentationText" : "GlassPresentationSecondary");
+            _name.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+
+            string caption = stage.Detail ?? string.Empty;
+            if (stage.CompletedFiles is { } completedFiles)
+                caption += " " + completedFiles + (stage.TotalFiles is { } knownTotal ? "/" + knownTotal : string.Empty);
+            else if (stage.TotalFiles is { } totalFiles)
+                caption += "（共 " + totalFiles + " 个文件）";
+            if (stage.TotalBytes > 0)
+                caption += " · " + MeloongCore.StringUtils.FormatByteSize(stage.CompletedBytes) + " / " + MeloongCore.StringUtils.FormatByteSize(stage.TotalBytes);
+            else if (stage.CompletedBytes > 0)
+                caption += " · 累计 " + MeloongCore.StringUtils.FormatByteSize(stage.CompletedBytes);
+
+            _detail.Text = caption.Trim();
+            _detail.Visibility = string.IsNullOrWhiteSpace(_detail.Text) ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 

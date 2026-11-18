@@ -10,6 +10,7 @@ internal static class WorldBackupPipelineTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
         yield return ("world backup pipeline captures verified files and empty folders then restores with a real undo point", CaptureRestoreRoundTrip);
         yield return ("world backup pipeline retention protects manual points and other worlds", PerWorldRetention);
+        yield return ("world backup unlimited retention preserves all captures and restore safety points", UnlimitedRetention);
         yield return ("world backup pipeline cancellation and bad destinations release busy state and owned staging", CaptureFailureCleanup);
         yield return ("world backup pipeline commit faults cancellation and persisted journal recovery preserve current world", RestoreFailureAndRecovery);
         yield return ("world backup workflow keeps confirmation output stopped and rejected-worker boundaries", WorkflowLifecycle);
@@ -153,6 +154,22 @@ internal static class WorldBackupPipelineTests {
         foreach (string id in new[] { legacyManual, manual, other })
             Equal(true, points.Any(point => (string?)point["id"] == id));
         Equal(1, points.Count(point => (string?)point["world"] == "World B"));
+        AssertClean(context);
+    }
+    private static void UnlimitedRetention() {
+        using Fixture fixture = new(); Context context = new(fixture);
+        string world = context.World("World A", [1]);
+        var ids = new List<string>();
+        for (byte value = 1; value <= 4; value++) {
+            File.WriteAllBytes(Path.Combine(world, "level.dat"), [value]);
+            ids.Add(context.Engine.CaptureWorld(context.Owner.GameFolder, "World A", "automatic", 0, CancellationToken.None));
+        }
+        Equal(4, context.Engine.Points(context.Owner.GameFolder).Count);
+        context.Engine.Restore(context.Owner.GameFolder, ids[0], 0, CancellationToken.None);
+        Equal(true, File.ReadAllBytes(Path.Combine(world, "level.dat")).SequenceEqual(new byte[] { 1 }));
+        var points = context.Engine.Points(context.Owner.GameFolder);
+        Equal(5, points.Count);
+        Equal(true, ids.All(id => points.Any(point => (string?)point["id"] == id)));
         AssertClean(context);
     }
 

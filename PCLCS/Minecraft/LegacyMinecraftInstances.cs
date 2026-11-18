@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using MeloongCore;
@@ -14,6 +15,7 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
     where TFolder : LegacyMinecraftFolder<TFolderKind>, new() where TLibrary : LegacyMinecraftLibrary, new()
     where TNetFile : class where TState : struct, Enum where TCard : struct, Enum where TFolderKind : struct, Enum {
     public void InitMcInstanceList(string pathMc, Func<bool> isCanceled) {
+        var elapsed = Stopwatch.StartNew();
         try {
             host.StoreInstances(new Dictionary<TCard, List<TInstance>>());
             List<string> folderList = [];
@@ -68,6 +70,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             if (isCanceled() || ex.IsCanceled()) return;
             WriteIni(pathMc + "PCL.ini", "InstanceCache", "");
             Logger.Error(ex, "加载 .minecraft 版本列表失败");
+        } finally {
+            Logger.Info($"本地版本列表处理完成：{host.Instances().Values.Sum(items => items.Count)} 个版本，{elapsed.Elapsed.TotalMilliseconds:0} ms，已取消 {isCanceled()}");
         }
     }
 
@@ -82,6 +86,14 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
                 foreach (string versionName in ReadIni(folder + "PCL.ini", "CardValue" + (i + 1), ":")!.Split(':')) {
                     if (versionName == "") continue;
                     string versionsFolder = $"{folder}versions\\{versionName}\\";
+                    if (!Directory.Exists(versionsFolder) || MmcImportVisibility.IsPrivateReservation(versionsFolder)) continue;
+                    if (MmcInstanceLifecycleVisibility.IsCompletedQuarantine(versionsFolder)) continue;
+                    MmcInstanceInspection managed = MmcInstanceInspector.Read(versionsFolder);
+                    if (!managed.IsLegacy || !managed.Management.ObservationComplete) {
+                        if (!Directory.Exists(versionsFolder)) continue;
+                        instanceList.Add(host.Instance.CreateInstance(versionsFolder).Load());
+                        continue;
+                    }
                     if (!LegacyMinecraftDirectoryScanner.HasFiles(DirectoryUtils.GetInfo(versionsFolder))) continue;
                     if (FileUtils.Exists(versionsFolder + ".pclignore")) {
                         if (host.FirstLoad()) {
@@ -169,6 +181,16 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
     public Dictionary<TCard, List<TInstance>> InitMcInstanceListWithoutCache(string folder) {
         List<TInstance> instanceList = [];
         foreach (DirectoryInfo versionFolderInfo in LegacyMinecraftDirectoryScanner.GetDirectories(folder + "versions")) {
+            string versionFolder = versionFolderInfo.FullName + "\\";
+            if (!Directory.Exists(versionFolder)) continue;
+            MmcInstanceInspection managed = MmcInstanceInspector.Read(versionFolder);
+            if (!managed.IsLegacy || !managed.Management.ObservationComplete) {
+                if (!Directory.Exists(versionFolder)) continue;
+                TInstance managedInstance = host.Instance.CreateInstance(versionFolder);
+                instanceList.Add(managedInstance);
+                managedInstance.Load();
+                continue;
+            }
             if (!LegacyMinecraftDirectoryScanner.HasFiles(versionFolderInfo)) {
                 Logger.Info($"跳过空文件夹或已清理的版本：{versionFolderInfo.FullName}");
                 continue;
@@ -178,7 +200,6 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
                 Logger.Info($"跳过可能不是版本文件夹的项目：{versionFolderInfo.FullName}");
                 continue;
             }
-            string versionFolder = versionFolderInfo.FullName + "\\";
             if (FileUtils.Exists(versionFolder + ".pclignore")) {
                 if (host.FirstLoad()) {
                     Logger.Info($"清理残留的忽略项目：{versionFolder}");

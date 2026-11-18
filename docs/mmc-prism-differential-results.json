@@ -1,0 +1,228 @@
+{
+  "schemaVersion": 1,
+  "productBaseline": "d5c7e9fd",
+  "upstreamCommit": "899d2f3957215a09fe398a8a8cbb8a8a9c619968",
+  "scope": "Actual pinned native parsing/applyTo/library plan subset. Explicit package component order supplied by adapter; PackProfile/Component resolver, Java auto-selection, filesystem materialization, credentials, wrappers, GUI and full launch are not executed.",
+  "os": "Windows-11-10.0.26200-SP0",
+  "evidenceRoot": "C:\\Users\\16892\\.codex\\worktrees\\mmc-prism-differential\\PCL2-MMC-Compatibility\\artifacts\\prism-native",
+  "reportRelativePath": "comparison-final-20261109.json",
+  "reportSha256": "ad7b33573221811a9d7b32f82c64dac9c951eeafea0654655665471669748099",
+  "comparisonExitCode": 1,
+  "meaning": "Observed differences retained; no overall equivalence pass.",
+  "buildIdentity": {
+    "commit": "899d2f3957215a09fe398a8a8cbb8a8a9c619968",
+    "compiler": "g++.exe (GCC) 16.2.0",
+    "compilerSha256": "315c23bc298aba9eaf2aece174fa7fcb0e404247176663e6a4c7707a60f8e444",
+    "executableSha256": "8f1282dab7150e2e7c2ca17d154ccf62aae28c7db1364018dee5365e652c4499",
+    "qtCoreSha256": "deefe957c332c148f38f620675e87c6d815d31eaa2268be6a4da8fdacddb54e2",
+    "sourceLockSha256": "2aeb3d71a23f14a1883329b9cd8a9795e42da0d73853db931154e9ff71e85785",
+    "toolchainLockSha256": "048785a571c79c33ac57635c5e761db56eebe094fd33f90b10dbc1cde913d0eb",
+    "adapterSourceSha256": "89fb89b7621785a595932e6daa3f5e787dba92cbfda225dbda16f6adf9c2aea7",
+    "transformationsSha256": "84cd86da045bc6b516a6906d3f47c78a15a9eb307973dbf93f54254d88fcd9c6",
+    "serialTranslationUnits": 17
+  },
+  "coreAssemblySha256": "7600d8ce650b4ad1c1ff26c8fbaea03a980eed72cf589647ed46f49a66b10622",
+  "runtimeDllSha256": {
+    "Qt6Core.dll": "deefe957c332c148f38f620675e87c6d815d31eaa2268be6a4da8fdacddb54e2",
+    "libstdc++-6.dll": "c1bdb519ea2a92ae2d9777ac07f8fb5c524ab46bc22169d203d6f2f9383fa6f1",
+    "libgcc_s_seh-1.dll": "c0612dd76138fcd4c609ce45bd30642b987112145bf20f25075b9fb7e442a5be",
+    "libwinpthread-1.dll": "d662e103f9ef08e4d1a959a81b483802cec098400d12ca3dcf0194c3e3014952",
+    "libicudt77.dll": "d5a4e87c027022f9b16c4c0431b5705c11bf46799cd192efc4384c0bcb575a11",
+    "libicuuc77.dll": "d4013cf3415c501b581d71ece5b4658f0bdfa0d56ed045d62ccae877600f49d4",
+    "libicuin77.dll": "257dfd1843109f8d1dfc8345d4dfaa5314ecf2cf6df58d4c3f6f0214a9fffd66",
+    "libpcre2-16-0.dll": "0cb81d7d13749abf45ee753d8b8a7e90bb20fa7bcd2e5170195100b664eec32a",
+    "libdouble-conversion.dll": "925e994660fc9848e1a2c258952d0188043eaa82869ddbc98a54b3ea2a5fec9f",
+    "libb2-1.dll": "77bab532b5421d6cdddb96c3ae9a4bde144eb481ccaf243336c9f8c690a50987",
+    "zlib1.dll": "cb7ab3788d10940df874acd97b1821bbb5ee4a91f3eec11982bb5bf7a3c96443",
+    "libzstd.dll": "b95c223a9548a9ecf51377c962e0bc8f0c51eb0c6f67a296dbc885996f0dd40d"
+  },
+  "cases": [
+    {
+      "case": "gtnh-java21",
+      "prismExit": 0,
+      "coreExit": 0,
+      "equalFields": 15,
+      "comparedFields": 16,
+      "differences": [
+        {
+          "field": "natives.orderedPaths",
+          "classification": "NativePlanOrderDifference",
+          "prism": [
+            "global/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-windows.jar",
+            "global/tv/twitch/twitch-platform/5.16/twitch-platform-5.16-natives-windows-64.jar",
+            "global/tv/twitch/twitch-external-platform/4.5/twitch-external-platform-4.5-natives-windows-64.jar"
+          ],
+          "core": [
+            "global/tv/twitch/twitch-platform/5.16/twitch-platform-5.16-natives-windows-64.jar",
+            "global/tv/twitch/twitch-external-platform/4.5/twitch-external-platform-4.5-natives-windows-64.jar",
+            "global/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-windows.jar"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "gtnh-java8",
+      "prismExit": 0,
+      "coreExit": 0,
+      "equalFields": 15,
+      "comparedFields": 16,
+      "differences": [
+        {
+          "field": "jvmArguments",
+          "classification": "LfLoggingConfigurationAddition",
+          "prism": [],
+          "core": [
+            "-Dlog4j.configurationFile=${mmc_logging_config}"
+          ]
+        }
+      ]
+    },
+    {
+      "case": "null-mainjar",
+      "prismExit": 9,
+      "coreExit": 0,
+      "equalFields": 0,
+      "comparedFields": 0,
+      "differences": [
+        {
+          "field": "parseAcceptance",
+          "classification": "NullMainJarGrammarDifference",
+          "prism": "exit 9: mainJar is not an object",
+          "core": "exit 0: retains earlier mainJar"
+        }
+      ]
+    },
+    {
+      "case": "ordered-fields",
+      "prismExit": 0,
+      "coreExit": 0,
+      "equalFields": 16,
+      "comparedFields": 16,
+      "differences": []
+    },
+    {
+      "case": "rules-native-arm64",
+      "prismExit": 0,
+      "coreExit": 0,
+      "equalFields": 15,
+      "comparedFields": 16,
+      "differences": [
+        {
+          "field": "compatibleJavaName",
+          "classification": "EmptyOptionalValueRepresentation",
+          "prism": "",
+          "core": null
+        }
+      ]
+    },
+    {
+      "case": "rules-native32",
+      "prismExit": 0,
+      "coreExit": 0,
+      "equalFields": 15,
+      "comparedFields": 16,
+      "differences": [
+        {
+          "field": "compatibleJavaName",
+          "classification": "EmptyOptionalValueRepresentation",
+          "prism": "",
+          "core": null
+        }
+      ]
+    }
+  ],
+  "nativePayloadFollowup": {
+    "kind": "Read-only selected-input and LF-output byte inventory; Prism extractor not executed.",
+    "relativePath": "native-payload-verified.json",
+    "sha256": "5ce661e0894ace33614e1576856fd718163b2d5e3e7b164235da3939e4133840",
+    "jarCount": 3,
+    "fileCount": 10,
+    "entryCollisions": [],
+    "orderIndependentPayloadBytes": true,
+    "lfOutputMatchesInputPayloadHashes": true,
+    "inputJars": [
+      {
+        "relativePath": "tv/twitch/twitch-platform/5.16/twitch-platform-5.16-natives-windows-64.jar",
+        "sha256": "e4857d9ede9e94a75642cfbd4f9ca45981c76de49842716bea7e4081c2ba3245"
+      },
+      {
+        "relativePath": "tv/twitch/twitch-external-platform/4.5/twitch-external-platform-4.5-natives-windows-64.jar",
+        "sha256": "6428eb438f53afc563d58c7f2a563ca9fcaae80db3520af744de5e5db1c9df6a"
+      },
+      {
+        "relativePath": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-windows.jar",
+        "sha256": "24afbd5e1fab17da57d16a4d3f19d53f36155ef46a9976484201a4bb9722287f"
+      }
+    ],
+    "lfOutputFiles": [
+      {
+        "path": "avutil-ttv-51.dll",
+        "bytes": 653832,
+        "sha256": "d16151cf613bd26f9138188efab2e55df37b0c21956ea70adc252d0fa35ae3cc"
+      },
+      {
+        "path": "jinput-dx8.dll",
+        "bytes": 61952,
+        "sha256": "89779abf806a93dd809bc7a4914967d0e6924dedf293afd48dd205dbce87d8b8"
+      },
+      {
+        "path": "jinput-dx8_64.dll",
+        "bytes": 65024,
+        "sha256": "a38cb458b9e5a246d7418f38ac04430c2e5a3f46b082955d6dfd5d2bd74f4222"
+      },
+      {
+        "path": "jinput-raw.dll",
+        "bytes": 59392,
+        "sha256": "0a8c0b47e173453bd92da224f73a6aff35b07c2db315abaf33e68edbdb147971"
+      },
+      {
+        "path": "jinput-raw_64.dll",
+        "bytes": 62464,
+        "sha256": "832308f96b1760f2ebc183d1a1771278bb3236e4567dd7a23e1eaecf95f9c03c"
+      },
+      {
+        "path": "jinput-wintab.dll",
+        "bytes": 56832,
+        "sha256": "59201c94eb563025e47fe6b6f5c4dc326f0059d49285e2d3a44482cb60ffc9e2"
+      },
+      {
+        "path": "libmfxsw64.dll",
+        "bytes": 20533656,
+        "sha256": "b5eaa1918ffbdcdfaf91a4895dac20b6325a9f53d20f343b7e7f05ff95c9aabd"
+      },
+      {
+        "path": "libmp3lame-ttv.dll",
+        "bytes": 688161,
+        "sha256": "d2941e4392fe2c55f7858b0e5d76567b6dea00c99ebbbf9e6049cefc5241c0e0"
+      },
+      {
+        "path": "swresample-ttv-0.dll",
+        "bytes": 361103,
+        "sha256": "d2e299de60803d5c4f869b45a3c9f9eff3876dd466bfc5b8071bf34ef592afea"
+      },
+      {
+        "path": "twitchsdk.dll",
+        "bytes": 1127424,
+        "sha256": "09b72e85709036c154c3a11ab02a1cc33a38234631936ccaade107888b4f6361"
+      }
+    ]
+  },
+  "staticFollowupSources": [
+    {
+      "path": "launcher/BaseInstance.cpp",
+      "sha256": "c45ee1aadb6d8c7f8bb3cd69e84c54945add3673a36c5be00bd159c7c8eb8ad3"
+    },
+    {
+      "path": "launcher/minecraft/launch/ExtractNatives.cpp",
+      "sha256": "bbd0723f92bf09314a66335758fa092151ce07e9b426a2268c90fe498e951715"
+    },
+    {
+      "path": "launcher/archive/ArchiveReader.cpp",
+      "sha256": "7468d2778e9e68ebcefad57715032c0cf1b8b545feb2544bfe8f51573b2d10b7"
+    },
+    {
+      "path": "launcher/archive/ArchiveWriter.cpp",
+      "sha256": "b90e50a96918a9bb3302c7138b2c6e1c4940eff57eeff687db7c0dc4ff089dc1"
+    }
+  ]
+}

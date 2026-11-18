@@ -81,7 +81,7 @@ namespace PCL
                 ReadString = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.String>((Key, Instance) => global::PCL.Settings.Get<string>(Key, Instance: Instance)),
                 ReadInteger = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Int32>((Key, Instance) => global::PCL.Settings.Get<int>(Key, Instance: Instance)),
                 WriteInteger = new Action<global::System.String, global::System.Int32, global::PCL.ModMinecraft.McInstance>((Key, Value, Instance) => global::PCL.Settings.Set(Key, Value, Instance: Instance)),
-                Config = new Func<global::PCL.ModMinecraft.McInstance, global::MeloongCore.JsonConfigProvider>(Instance => Instance.Config),
+                Config = new Func<global::PCL.ModMinecraft.McInstance, global::MeloongCore.IConfigProvider>(Instance => Instance.Config),
                 Version = new Func<global::PCL.ModMinecraft.McInstance, global::PCLCS.McVersion>(Instance => Instance.Version),
                 VersionPath = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathVersion),
                 InstanceName = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.Name),
@@ -140,8 +140,19 @@ namespace PCL
             return global::PCL.ModJava.Service.GetJavaRequirement(Instance);
         }
 
+        public static (global::MeloongCore.ValueRange<global::System.Version> Range, global::System.String RecommendedComponent) GetManagedJavaRequirement(
+            global::PCL.ModMinecraft.McInstance Instance, global::PCLLF.MMCC.Core.MmcLaunchAuthorityResult Authority, bool NideLogin)
+        {
+            return global::PCL.ModJava.Service.GetManagedJavaRequirement(Instance,
+                Authority?.Retires("net.minecraft", global::PCLLF.MMCC.Core.MmcRetiredHeuristicKind.BuiltinMinecraftJavaInference) == true,
+                Authority?.Retires("net.minecraftforge", global::PCLLF.MMCC.Core.MmcRetiredHeuristicKind.BuiltinForgeJavaInference) == true, NideLogin);
+        }
+
         public static global::PCLCS.Java SelectOrDownloadJava(global::MeloongCore.OneOf<global::MeloongCore.ValueRange<global::System.Version>, global::PCL.ModMinecraft.McInstance> Target, global::System.Boolean TryFixOrHint, global::System.Threading.CancellationToken c = default(global::System.Threading.CancellationToken), global::MeloongCore.ProgressProvider p = null)
         {
+            if (Target.Is<global::PCL.ModMinecraft.McInstance>() &&
+                MmcJavaDiscovery.TrySelect(Target.As<global::PCL.ModMinecraft.McInstance>(), c, p, out var managedJava))
+                return managedJava;
             return global::PCL.ModJava.Service.SelectOrDownloadJava(Target, TryFixOrHint, c, p);
         }
 
@@ -175,15 +186,86 @@ namespace PCL
             }
         }
 
-        // 仅适配原 Loader/NetFile 生命周期；manifest 解释、文件选择、校验参数和清理由 C# 计划提供。
+        // All LF processes use the same durable pin store, outside individual JDK homes.
+        public static MmcJavaPinStore MmcPins => new MmcJavaPinStore(Path.Combine(Paths.AppData, ".minecraft", "runtime", ".pcllf-mmc-pins"));
+
         private static global::PCLCS.LegacyJavaDownloadOperation CreateJavaDownload(global::PCLCS.LegacyJavaDownloadPlan Plan)
         {
-            var FilesToDownload = Plan.Files.Select(File => new global::PCL.ModNet.NetFile(File.Sources, File.Destination, new FileChecker() { ActualSize = File.ActualSize, Hash = File.Hash })).ToList();
-            var Loader = new global::PCL.ModLoader.LoaderCombo<global::System.Int32>("下载 Java", new global::PCL.ModLoader.LoaderBase[] { new global::PCL.ModNet.LoaderDownload("下载 Java 文件", (global::System.Collections.Generic.IEnumerable<global::PCL.ModNet.NetFile>)FilesToDownload) { ProgressWeight = 10d }, new global::PCL.ModLoader.LoaderWorker("刷新 Java 列表", global::PCL.ModJava.JavaListRefreshWorker) }) { OnStateChanged = new Action<global::PCL.ModLoader.LoaderBase>(RawValue => { var RawLoader = (global::PCL.ModLoader.LoaderCombo<global::System.Int32>)RawValue; if (((RawLoader.State == global::PCL.ModBase.LoadState.Failed) || (RawLoader.State == global::PCL.ModBase.LoadState.Canceled))) Plan.Incomplete(); }) };
-            return new global::PCLCS.LegacyJavaDownloadOperation()
+            return CreateProtectedJavaDownload(Plan, MmcPins, Path.Combine(Paths.AppData, ".minecraft", "runtime"));
+        }
+
+        // Maintenance is acquired before constructing download files and held until every writer
+        // has drained. A terminal loader state alone must never authorize recursive cleanup.
+        private static LegacyJavaDownloadOperation CreateProtectedJavaDownload(LegacyJavaDownloadPlan plan,
+            MmcJavaPinStore pins, string runtimeRoot)
+        {
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(runtimeRoot));
+            string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(plan.BaseDirectory));
+            if (!string.Equals(Path.GetDirectoryName(target), root, StringComparison.OrdinalIgnoreCase) ||
+                Path.GetFileName(target).StartsWith(".", StringComparison.Ordinal))
+                throw new IOException("Java 下载目标不在运行时组件目录内。");
+            foreach (var file in plan.Files)
+                if (!Path.GetFullPath(file.Destination).StartsWith(target + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Java 下载文件超出了组件目录。");
+            var stop = new CancellationTokenSource();
+            int started = 0;
+            return new LegacyJavaDownloadOperation
             {
-                Wait = new Action<global::System.Threading.CancellationToken, global::MeloongCore.ProgressProvider>((c, p) => Loader.WaitForExit(IsForceRestart: true, c: c, p: p)),
-                Cancel = new Action(() => Loader.Cancel())
+                Wait = (c, p) =>
+                {
+                    if (Interlocked.Exchange(ref started, 1) != 0) throw new InvalidOperationException("Java 下载操作不能重复使用。");
+                    Task.Run(async () =>
+                    {
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(c, stop.Token);
+                        using var maintenance = pins.EnterMaintenance(target, TimeSpan.FromSeconds(10), linked.Token);
+                        linked.Token.ThrowIfCancellationRequested();
+                        MmcJavaPinStore.ValidateMaintenanceTarget(target);
+                        bool complete = false;
+                        bool writesStarted = false;
+                        try
+                        {
+                            var files = plan.Files.Select(file => new ModNet.NetFile(file.Sources, file.Destination,
+                                new FileChecker { ActualSize = file.ActualSize, Hash = file.Hash })).ToList();
+                            var loader = new ModNet.LoaderDownload("下载 Java 文件", files);
+                            object cancelGate = new();
+                            Task cancelWork = Task.CompletedTask;
+                            using var cancellation = linked.Token.Register(() =>
+                            {
+                                lock (cancelGate) cancelWork = Task.Run(loader.Cancel);
+                            });
+                            try
+                            {
+                                lock (loader.LockState) { linked.Token.ThrowIfCancellationRequested(); writesStarted = true; loader.Start(); }
+                                while (loader.State == ModBase.LoadState.Loading)
+                                {
+                                    p?.Set(loader.Progress * 0.95);
+                                    await Task.Delay(10).ConfigureAwait(false);
+                                }
+                                loader.WaitForExit(StartIfNeeded: false);
+                                linked.Token.ThrowIfCancellationRequested();
+                                complete = true;
+                            }
+                            finally
+                            {
+                                await cancellation.DisposeAsync().ConfigureAwait(false);
+                                if (loader.State is ModBase.LoadState.Waiting or ModBase.LoadState.Loading)
+                                    await Task.Run(loader.Cancel).ConfigureAwait(false);
+                                Task pending; lock (cancelGate) pending = cancelWork;
+                                try { await pending.ConfigureAwait(false); }
+                                finally { await MmcDownloads.DrainAsync(loader).ConfigureAwait(false); }
+                            }
+                        }
+                        finally { if (writesStarted && !complete) { MmcJavaPinStore.ValidateMaintenanceTarget(target); plan.Incomplete(); } }
+                        linked.Token.ThrowIfCancellationRequested();
+                        var refresh = JavaListRefreshWorker;
+                        refresh.Start(linked.Token, p);
+                        await refresh.WaitIfRunningAsync(cancellationToken: linked.Token).ConfigureAwait(false);
+                        linked.Token.ThrowIfCancellationRequested();
+                        if (!refresh.LastSucceeded) throw new IOException("Java 文件已下载，但刷新 Java 列表失败。");
+                    }, CancellationToken.None).GetAwaiter().GetResult();
+                },
+                // Mark cancellation immediately; its callbacks run on the pool, never a UI click.
+                Cancel = () => { _ = stop.CancelAsync(); }
             };
         }
     }

@@ -58,12 +58,12 @@ internal static class NativeModDownloadChecks {
             var chosen=(ResourceVersion)Activator.CreateInstance(typeof(ResourceVersion))!;
             chosen.GameVersions=new(){"1.20.1"};chosen.ModLoaders=ModLoaders.Fabric;
             string target=Path.Combine(taskRoot,"selected.jar");
-            var task=(ModLoader.LoaderTask<string,string>)Native.Call(installer,"CreateInstallTask",null,project,chosen,taskSource,target,null)!;
+            var task=(ModLoader.LoaderTask<string,string>)Native.Call(installer,"CreateInstallTask",null,project,chosen,taskSource,target,null,false)!;
             task.Start("");task.WaitForExit();
             Native.Check(task.State==ModBase.LoadState.Finished&&File.Exists(target)&&!File.Exists(taskOld),"The actual Main post-download task did not execute its coordinated replacement.");
             Native.Check(!(bool)Native.Property(typeof(ModMinecraft.McInstanceLock),"IsAnyLocked").GetValue(null)!,"Completed mod install retained its instance write lease.");
             string failedOld=Jar(taskRoot,"failed-existing.jar","other_core","1.0");
-            var failed=(ModLoader.LoaderTask<string,string>)Native.Call(installer,"CreateInstallTask",null,project,chosen,Path.Combine(root,"missing.jar"),Path.Combine(taskRoot,"missing-target.jar"),null)!;
+            var failed=(ModLoader.LoaderTask<string,string>)Native.Call(installer,"CreateInstallTask",null,project,chosen,Path.Combine(root,"missing.jar"),Path.Combine(taskRoot,"missing-target.jar"),null,false)!;
             bool rejected=false;try{failed.Start("");failed.WaitForExit();}catch(Exception){rejected=true;}
             Native.Check(rejected&&File.Exists(failedOld)&&!File.Exists(Path.Combine(taskRoot,"missing-target.jar")),"A failed post-download task removed an existing mod or published a partial file.");
         } finally {LocalResourceLoaders.LocalResourceLoader.Output=before;PageInstanceLeft.Instance=previousInstance;}

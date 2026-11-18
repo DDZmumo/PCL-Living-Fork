@@ -50,7 +50,9 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public string? PageNameGet(TStack stack) => (LegacyMainPage)stack.PageCode switch {
         LegacyMainPage.InstanceSelect => "版本选择",
         LegacyMainPage.TaskManager => "任务管理",
-        LegacyMainPage.InstanceSetup => "版本设置 - " + (host.SettingsInstance() is null ? "未知版本" : host.InstanceName(host.SettingsInstance()!)),
+        LegacyMainPage.InstanceSetup => (host.SettingsInstance() is not { } settingsInstance
+            ? "版本设置 - 未知版本"
+            : (host.InstanceSettingsTitlePrefix?.Invoke(settingsInstance) ?? "版本设置") + " - " + host.InstanceName(settingsInstance)),
         LegacyMainPage.ResourceDetail => ((ResourceProjectModelData)AdditionalAt(stack, 0)).TranslatedName,
         LegacyMainPage.HelpDetail => host.HelpTitle(AdditionalAt(stack, 0)),
         _ => ""

@@ -55,6 +55,11 @@ public sealed class InstanceNavigationHost<TInstance, TId, TItem, TButton, TPage
     public Action<TItem, bool, bool, bool> SetCheckedState = null!;
     public Func<string> RestoreLogo = null!;
     public Func<bool> ModpackEnabled = null!;
+    public Action? SyncContext;
+    public Func<bool>? IsMmcContext;
+    public Func<int, int>? NormalizeForContext;
+    public Func<int, TPage?>? ResolveContextPage;
+    public Func<int, bool>? RefreshContextPage;
 }
 
 public sealed class InstanceNavigationTransitionHost<TPage> where TPage : FrameworkElement {

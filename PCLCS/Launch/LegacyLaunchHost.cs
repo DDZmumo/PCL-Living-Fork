@@ -86,6 +86,8 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Func<LegacyLaunchTask<TOffline, ILegacyLaunchLoginResult>> OfflineLoader = null!;
     public Func<int, LegacyLaunchTask<TServer, ILegacyLaunchLoginResult>> ServerLoader = null!;
     public Func<TInstance, LegacyLaunchStep> ClientFix = null!;
+    /// <summary>Managed MMC supplies its complete executor; absence must never select ordinary repair/argv.</summary>
+    public Func<TInstance, TOptions, IList<LegacyLaunchStep>>? ManagedMmcSteps;
     public Func<string, IList<LegacyLaunchStep>, LegacyLaunchOperation> CreateCombo = null!;
     public Action<LegacyLaunchOperation> StoreLaunchOperation = null!, AddTaskbar = null!;
     public Func<TInstance, string, string, LegacyLaunchDependencyContext> DependencyContext = null!;

@@ -188,6 +188,14 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
         }
     }
 
+    /// <summary>Launcher-owned cached transport with its existing redirect/TLS policy and cookies disabled. Do not dispose or mutate defaults.</summary>
+    public HttpClient GetStandardRequestClient() {
+        Directory.CreateDirectory(Host.TempFolder() + "Cache\\Http\\");
+        lock (requestClientLock) {
+            return requestClient ??= Host.CreateCachedClient(Host.TempFolder() + "Cache/Http/", Host.WrapRedirects(CreateTransport(true)));
+        }
+    }
+
     public byte[] SendRequest(string Url, HttpMethod Method, object? Content = null, Dictionary<string, string>? Headers = null, bool SimulateBrowserHeaders = false, int Timeout = 25000, Encoding? Encoding = null)
     {
         if (Host.InUi() && !Url.Contains("//127."))
@@ -197,14 +205,7 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
         HttpResponseMessage? response = null;
         try
         {
-            Directory.CreateDirectory(Host.TempFolder() + "Cache\\Http\\");
-            lock (requestClientLock)
-            {
-                if (requestClient is null)
-                {
-                    requestClient = Host.CreateCachedClient(Host.TempFolder() + "Cache/Http/", Host.WrapRedirects(CreateTransport(true)));
-                }
-            }
+            HttpClient standardClient = GetStandardRequestClient();
 
             Url = Host.SignCdn(Url);
             request = new HttpRequestMessage(Method, Url);
@@ -234,7 +235,7 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
                 HttpRequestMessage clone = request.Clone();
                 try
                 {
-                    response = Host.Waiter.Result(requestClient.SendAsync(clone, HttpCompletionOption.ResponseHeadersRead, cancelToken.Token), cancelToken, Timeout);
+                    response = Host.Waiter.Result(standardClient.SendAsync(clone, HttpCompletionOption.ResponseHeadersRead, cancelToken.Token), cancelToken, Timeout);
                 }
                 finally
                 {

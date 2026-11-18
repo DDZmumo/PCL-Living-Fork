@@ -173,7 +173,9 @@
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="60" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="60" />
                         <RowDefinition Height="Auto" />
@@ -191,26 +193,42 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="60" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="60" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="60" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Java Launch Wrapper" TextWrapping="Wrap" FontWeight="Bold" />
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Java Launch Wrapper 1.4.4" TextWrapping="Wrap" FontWeight="Bold" />
                     <TextBlock Grid.Row="0" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2022 00ll00&#xa;Licensed under the MIT License." TextWrapping="Wrap" />
-                    <local:MyButton Grid.Row="1" Grid.Column="2" MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/00ll00/java_launch_wrapper" />
-                    <local:MyButton Grid.Row="1" Grid.Column="3" MinWidth="140" Text="查看许可文档" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/00ll00/java_launch_wrapper?tab=MIT-1-ov-file#readme" />
+                    <StackPanel Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,7,0,18">
+                        <WrapPanel>
+                            <local:MyButton MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,0,20,0"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/00ll00/java_launch_wrapper/releases/tag/v1.4.4" />
+                            <local:MyButton MinWidth="140" Text="查看许可文档" Padding="13,0"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/00ll00/java_launch_wrapper/blob/da6121dcf3c5d0f1f02be402b1fbbfdd9e07e095/LICENCE" />
+                        </WrapPanel>
+                        <Expander Header="查看 Java Launch Wrapper 完整许可" Margin="0,7,0,0">
+                            <TextBlock x:Name="LabJavaWrapperLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                        </Expander>
+                    </StackPanel>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="LWJGL Unsafe Agent" TextWrapping="Wrap" FontWeight="Bold" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="LWJGL Unsafe Agent 2.0" TextWrapping="Wrap" FontWeight="Bold" />
                     <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2026 Glavo&#xa;Licensed under the Apache License, Version 2.0." TextWrapping="Wrap" />
-                    <local:MyButton Grid.Row="3" Grid.Column="2" MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/lwjgl-unsafe-agent" />
-                    <local:MyButton Grid.Row="3" Grid.Column="3" MinWidth="140" Text="查看许可文档" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://www.apache.org/licenses/LICENSE-2.0" />
+                    <StackPanel Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,7,0,18">
+                        <WrapPanel>
+                            <local:MyButton MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,0,20,0"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/lwjgl-unsafe-agent/releases/tag/2.0" />
+                            <local:MyButton MinWidth="140" Text="查看许可文档" Padding="13,0"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://www.apache.org/licenses/LICENSE-2.0" />
+                        </WrapPanel>
+                        <Expander Header="查看 LWJGL Unsafe Agent 完整许可" Margin="0,7,0,0">
+                            <TextBlock x:Name="LabLwjglUnsafeLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                        </Expander>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="Newtonsoft.Json" TextWrapping="Wrap" FontWeight="Bold" />
                     <TextBlock Grid.Row="4" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2007 James Newton-King&#xa;Licensed under the MIT License." TextWrapping="Wrap" />
@@ -273,16 +291,34 @@
                     <local:MyButton Grid.Row="19" Grid.Column="3" MinWidth="140" Text="查看许可文档" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
                                     local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://licenses.nuget.org/MIT" />
 
-                    <TextBlock Grid.Row="20" Grid.Column="0" Text="Transformer Discovery Service" TextWrapping="Wrap" FontWeight="Bold" />
-                    <TextBlock Grid.Row="20" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2020 huangyuhui &lt;huanghongxun2008@126.com&gt; and contributors&#xa;Licensed under the GNU General Public License, Version 3 or later, with additional terms.&#xa;本组件作为独立组件分发，可依 GPL 复制、修改及再分发。" TextWrapping="Wrap" />
-                    <local:MyButton Grid.Row="21" Grid.Column="2" MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/HMCL/tree/main/minecraft/libraries/HMCLTransformerDiscoveryService" />
-                    <local:MyButton Grid.Row="21" Grid.Column="3" MinWidth="140" Text="查看许可文档" Padding="13,0" Margin="0,7,20,18" HorizontalAlignment="Left"
-                                    local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/HMCL/blob/main/LICENSE" />
+                    <TextBlock Grid.Row="20" Grid.Column="0" Text="Transformer Discovery Service 1.0" TextWrapping="Wrap" FontWeight="Bold" />
+                    <TextBlock Grid.Row="20" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2020 huangyuhui &lt;huanghongxun2008@126.com&gt; and contributors&#xa;Licensed under the GNU General Public License, Version 3 or later, with additional terms.&#xa;本组件不提供任何担保，可依 GPL 复制、修改及再分发；完整许可与对应源码随程序提供。" TextWrapping="Wrap" />
+                    <StackPanel Grid.Row="21" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,7,0,18">
+                        <WrapPanel>
+                            <local:MyButton MinWidth="140" Text="查看来源网站" Padding="13,0" Margin="0,0,20,7"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/HMCL/tree/7c510f9fb8655598a26b1b5937bcb0046d0960d4/HMCLTransformerDiscoveryService" />
+                            <local:MyButton MinWidth="140" Text="查看许可文档" Padding="13,0" Margin="0,0,20,7"
+                                            local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://github.com/HMCL-dev/HMCL/blob/7c510f9fb8655598a26b1b5937bcb0046d0960d4/LICENSE" />
+                            <local:MyButton MinWidth="140" Text="保存对应源码" Padding="13,0" Margin="0,0,20,7" Click="BtnTransformerSource_Click" />
+                        </WrapPanel>
+                        <Expander Header="查看 Transformer 完整许可与附加条款">
+                            <TextBlock x:Name="LabTransformerLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                        </Expander>
+                    </StackPanel>
                     <TextBlock Grid.Row="22" Grid.Column="0" Text="Markdig" TextWrapping="Wrap" FontWeight="Bold" />
                     <TextBlock Grid.Row="22" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © 2016–2026 Alexandre Mutel&#xa;Licensed under the BSD 2-Clause License." TextWrapping="Wrap" />
                     <Expander Grid.Row="23" Grid.Column="2" Grid.ColumnSpan="2" Header="查看 Markdig 完整许可" Margin="0,7,0,18">
                         <TextBlock x:Name="LabMarkdigLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                    </Expander>
+                    <TextBlock Grid.Row="24" Grid.Column="0" Text="MeloongCore" TextWrapping="Wrap" FontWeight="Bold" />
+                    <TextBlock Grid.Row="24" Grid.Column="2" Grid.ColumnSpan="2" Text="MeloongCore contributors&#xa;Licensed under the Apache License, Version 2.0." TextWrapping="Wrap" />
+                    <Expander Grid.Row="25" Grid.Column="2" Grid.ColumnSpan="2" Header="查看 MeloongCore 完整许可" Margin="0,7,0,18">
+                        <TextBlock x:Name="LabMeloongCoreLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
+                    </Expander>
+                    <TextBlock Grid.Row="26" Grid.Column="0" Text=".NET runtime / CoreCLR" TextWrapping="Wrap" FontWeight="Bold" />
+                    <TextBlock Grid.Row="26" Grid.Column="2" Grid.ColumnSpan="2" Text="Copyright © .NET Foundation and Contributors&#xa;Licensed under the MIT License." TextWrapping="Wrap" />
+                    <Expander Grid.Row="27" Grid.Column="2" Grid.ColumnSpan="2" Header="查看 .NET 完整许可" Margin="0,7,0,18">
+                        <TextBlock x:Name="LabDotNetLicense" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"/>
                     </Expander>
                 </Grid>
             </local:MyCard>

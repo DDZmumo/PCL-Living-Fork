@@ -77,6 +77,11 @@ public sealed class InstanceOverallPageController<TInstance, TState, TCard, TIte
     }
     public void Rename() {
         try {
+            TInstance target = host.Instance();
+            if (!MmcInstanceInspector.Read(target.PathVersion).IsLegacy && host.BeginManagedRename is not null) {
+                host.BeginManagedRename(target); return;
+            }
+            MmcInstanceCapabilities.RequireLegacy(host.Instance().PathVersion, "重命名");
             if (host.Locked(host.Instance())) { host.HintRed("该版本正在被修改，请稍后再重命名！"); return; }
             string oldName = host.Instance().Name; string? name = host.InputName(oldName, host.MinecraftFolder() + "versions");
             if (string.IsNullOrWhiteSpace(name)) return;
@@ -107,6 +112,7 @@ public sealed class InstanceOverallPageController<TInstance, TState, TCard, TIte
     public void OpenGameFolder(string leaf) { string folder = host.Instance().PathIndie + leaf + "\\"; DirectoryUtils.Create(folder); host.Explorer(folder); }
     public void Script() {
         try {
+            MmcInstanceCapabilities.RequireLegacy(host.Instance().PathVersion, "导出旧启动脚本");
             string? path = host.SaveScript("选择脚本保存位置", "启动 " + host.Instance().Name + ".bat"); if (path is null) return;
             if (host.LaunchLoading()) { host.HintRed("请在当前启动任务结束后再试！"); return; }
             if (host.LaunchScript(host.Instance(), path)) host.Hint(host.LegacyLogin() ? "正在导出启动脚本……" : "正在导出启动脚本……（注意，使用脚本启动可能会导致登录失效！）");
@@ -114,7 +120,14 @@ public sealed class InstanceOverallPageController<TInstance, TState, TCard, TIte
     }
     public void Repair() {
         try {
-            if (host.Locked(host.Instance())) { host.HintRed("该版本正在被修改，请稍后再补全文件！"); return; }
+            var target = host.Instance();
+            if (host.Locked(target)) { host.HintRed("该版本正在被修改，请稍后再补全文件！"); return; }
+            // Dispatch before legacy settings reads and library inference. Damaged,
+            // pending and unsupported MMC evidence must never fall through to Forge fix.
+            if (!MmcManagementProbe.Read(target.PathVersion).CanUseLegacyBackend && host.BeginManagedRepair is not null) {
+                host.BeginManagedRepair(target); return;
+            }
+            MmcInstanceCapabilities.RequireLegacy(target.PathVersion, "旧版本文件补全");
             if (host.IgnoreFileCheck(host.Instance())) { host.HintBlue("请先关闭 [版本设置 → 设置 → 高级启动选项 → 关闭文件校验]，然后再尝试补全文件！"); return; }
             foreach (string ongoing in host.TaskNames()) if (ongoing == host.Instance().Name + " 文件补全") { host.HintRed("正在处理中，请稍候！"); return; }
             string name = host.Instance().Name + " 文件补全"; TCombo loader = host.CreateFixLoader(host.Instance(), name);
@@ -132,6 +145,17 @@ public sealed class InstanceOverallPageController<TInstance, TState, TCard, TIte
         TInstance? target = null;
         try {
             target = host.Instance();
+            if (target.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed && host.BeginManagedDelete is not null) {
+                string managedPath = target.PathVersion;
+                Guid managedId = target.Config.ContextStamp.InstanceId;
+                host.BeginManagedDelete(target, host.Shift(), () => {
+                    host.RefreshInstanceList();
+                    if (host.IsCurrentPage() && host.Instance() is TInstance shown && PathUtils.IsSame(shown.PathVersion, managedPath) &&
+                        shown.Config.ContextStamp.Kind == MmcConfigurationContextKind.Managed && shown.Config.ContextStamp.InstanceId == managedId) host.PageBack();
+                });
+                return;
+            }
+            MmcInstanceCapabilities.RequireLegacy(target.PathVersion, "删除");
             if (host.Locked(target)) { host.HintRed("该版本正在被修改，请稍后再删除！"); return; }
             bool shift = host.Shift(); bool hintIndie = Convert.ToInt32(target.State) != 0 && !Same(target.PathIndie, host.MinecraftFolder());
             DirectoryInfo folder = DirectoryUtils.GetInfo(target.PathIndie + @"saves\");

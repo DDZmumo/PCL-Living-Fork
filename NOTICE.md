@@ -34,6 +34,19 @@
 
 MeloongCore、第三方库、图标、字体、帮助文件及其他资源分别遵循其自身的许可与版权声明；保留关于页的原作者、协力开发者、资源贡献者和第三方许可列表。MeloongCore 的声明见 [MeloongCore/LICENSE.txt](MeloongCore/LICENSE.txt)。
 
+以下为本项目实际使用或移植内容的现有许可入口，具体文件与固定来源见 [源码来源记录](modern/Main/SOURCE_PROVENANCE.md)：
+
+- MeloongCore Shared 及选择性移植的 WPF 辅助代码：Apache-2.0；WPF 移植副本的完整文本见 [MeloongCore-Wpf/LICENSE.txt](modern/ThirdParty/MeloongCore-Wpf/LICENSE.txt)，原文件署名和修改说明保留在对应实现中。
+- .NET bundle 身份读取器使用的格式实现：MIT，Copyright (c) .NET Foundation and Contributors；见 [完整许可](modern/ThirdParty/dotnet-runtime-bundle/LICENSE.TXT)及[固定源文件清单](modern/ThirdParty/dotnet-runtime-bundle/source-manifest.json)。既有 CoreCLR 数值解析算法移植的 MIT 许可与署名完整保留在[对应源码文件头](PCLCS/Minecraft/LegacyPackMetadataNumberParser.cs)。
+- Markdig 1.6.0：BSD 2-Clause，Copyright (c) 2016-2026, Alexandre Mutel；见[完整许可](modern/ThirdParty/Markdig/LICENSE.txt)。该文本同时作为应用资源供关于页展示。
+- Java Launch Wrapper 1.4.4：MIT，Copyright (c) 2022 00ll00；内嵌 JAR 与官方发行资产 SHA-256 一致，见[完整许可](modern/ThirdParty/JavaLaunchWrapper/LICENSE.txt)及[固定来源记录](modern/ThirdParty/JavaLaunchWrapper/NOTICE.txt)。
+- LWJGL Unsafe Agent 2.0：Apache-2.0，Copyright 2026 Glavo；内嵌 JAR 与官方发行资产 SHA-256 一致，见[署名及固定来源](modern/ThirdParty/LwjglUnsafeAgent/NOTICE.txt)。[完整 Apache-2.0 文本](modern/ThirdParty/MeloongCore-Wpf/LICENSE.txt)与 MeloongCore 共用，关于页将该正文与本组件自己的 Glavo 署名一并展示。
+- HMCL Transformer Discovery Service 1.0：GPL-3.0-or-later，Copyright (C) 2020 huangyuhui and contributors，并保留上游附加条款；见[完整许可](modern/ThirdParty/HMCLTransformerDiscoveryService/LICENSE)、[附加条款](modern/ThirdParty/HMCLTransformerDiscoveryService/ADDITIONAL_TERMS.md)及[固定来源与对应源码](modern/ThirdParty/HMCLTransformerDiscoveryService/SOURCE.md)。内嵌 JAR 与固定 HMCL 历史提交的二进制 Git blob 完全相同。对应源码包中保留实际编译所需的 ModLauncher 4.1.0 接口及其 LGPLv3 文本；它仅用于构建组件，不是新增的宿主运行时依赖。
+
+上述完整许可均作为应用资源保留，可在关于页的第三方许可区域展开阅读；单文件打包沿用这些资源。Transformer 对应源码、服务注册、构建脚本及所需接口源码同样内嵌，可在关于页保存为 ZIP，不要求在单文件精简包旁放置附件。这里只记录实际复用组件的来源与交付，不将其视为整个产品的法律合规认证。
+
+新原创 [PCLLF.MMCC.Core](PCLLF.MMCC.Core/README.md) 使用自身的 [MPL-2.0 许可](PCLLF.MMCC.Core/LICENSE)；其许可范围不替换宿主的根许可、既有第三方声明或输入整合包的许可。
+
 Minecraft、Mojang 和 Microsoft 的名称与相关资产归相应权利人所有。本项目不是 Minecraft 官方产品，未经 Mojang 或 Microsoft 批准，也不与其关联。
 
 ### 启动器图标来源

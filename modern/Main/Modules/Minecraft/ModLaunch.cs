@@ -459,6 +459,7 @@ namespace PCL
         {
             return new LaunchHost
             {
+                ManagedMmcSteps = (instance, options) => MmcLaunch.CreateSteps(instance, options, java => McLaunchJavaSelected = java),
                 Options = new Func<global::PCL.ModLaunch.McLaunchOptions>(() => global::PCL.ModLaunch.CurrentLaunchOptions),
                 StoreOptions = new Action<global::PCL.ModLaunch.McLaunchOptions>(Value => global::PCL.ModLaunch.CurrentLaunchOptions = Value),
                 SelectedInstance = LauncherApplicationServices.ReadLaunchInstance,
@@ -578,7 +579,7 @@ namespace PCL
                 TrackQuickPlay = new Action<global::PCLCS.QuickPlaySessionData, global::System.Diagnostics.Process>((Session, Game) => global::PCL.QuickPlayWorlds.Track((global::PCL.QuickPlaySession)Session, Game)),
                 FinishQuickPlay = new Action<global::PCLCS.QuickPlaySessionData>(Session => global::PCL.QuickPlayWorlds.Finish((global::PCL.QuickPlaySession)Session)),
                 TrackWorlds = new Action<global::PCL.ModMinecraft.McInstance, global::System.Diagnostics.Process>((Instance, Game) => global::PCL.WorldBackups.Track(Instance, Game)),
-                CaptureEnvironment = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken, global::System.String>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureInstance(Instance, Reason, Token)),
+                CaptureEnvironment = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken, global::System.String>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
                 CreateWatcher = new Func<global::PCLCS.LegacyLaunchTask<global::System.Diagnostics.Process, global::System.Int32>, global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Action<global::System.Diagnostics.Process>, global::System.Action, global::System.String, global::PCL.ModWatcher.Watcher>((Loader, Instance, Title, BeforeMonitor, Stopped, Point) => new global::PCL.ModWatcher.Watcher((global::PCL.ModLoader.LoaderTask<global::System.Diagnostics.Process, global::System.Int32>)Loader.Source, Instance, Title, BeforeMonitor, Stopped, Point)),
                 WatcherState = new Func<global::PCL.ModWatcher.Watcher, global::System.Int32>(Value => (global::System.Int32)Value.State),
                 MusicPause = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicPause()),

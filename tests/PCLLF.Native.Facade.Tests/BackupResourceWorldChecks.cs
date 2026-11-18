@@ -79,7 +79,7 @@ internal static class BackupResourceWorldChecks
         Native.Check(before.SequenceEqual(Points(game).Select(p => (string)p["id"]!)), "Failed/canceled capture pruned existing backups.");
         Reject(() => Capture(game, "../escape", "traversal"), "world path traversal");
         Reject(() => Restore(game, "../escape"), "backup ID traversal");
-        Reject(() => Capture(game, "World A", "invalid retention", 0), "invalid retention");
+        Reject(() => Capture(game, "World A", "invalid retention", -1), "invalid retention");
         Junction(scope, game);
         string corrupt = Capture(game, "World A", "corrupt-fixture"); Put(Path.Combine(store, "points", corrupt, "world.zip"), "broken zip");
         count = Points(game).Count; Reject(() => Restore(game, corrupt), "corrupt ZIP restore");
@@ -107,6 +107,8 @@ internal static class BackupResourceWorldChecks
         object? oldFlag = Native.Field(module, "HasRunningMinecraft").GetValue(null);
         using IdleProcess child = new();
         try {
+            Native.Check(MeloongCore.PathUtils.IsSame(instance.PathIndie, game) && Settings.Get<bool>("VersionWorldBackupAutoEnabled", instance),
+                "The backup fixture did not establish its launched isolated folder and enabled automatic backup.");
             World("Track", instance, child.Value);
             Put(Path.Combine(scope.Profile, "world-backup-sessions", child.Value.Id + "-1.json"), new JObject { ["gameFolder"] = Path.Combine(scope.Root, "stale-pid-game"), ["pid"] = child.Value.Id, ["started"] = 1 }.ToString());
             Native.Check((bool)World("HasActiveGame", game, null)!, "Tracked live process did not block capture.");
@@ -114,12 +116,55 @@ internal static class BackupResourceWorldChecks
             Native.Check(!(bool)World("HasActiveGame", game, child.Value)!, "Exited Watcher was treated as a live game.");
             int count = Points(game).Count;
             Cache(instance, "VersionArgumentIndieV2", false);
-            try { World("OnProcessStopped", instance, child.Value, true); }
+            try {
+                string exactSession = Path.Combine(scope.Profile, "world-backup-sessions", child.Value.Id + "-" + child.Value.StartTime.ToUniversalTime().Ticks + ".json");
+                Native.Check(!Settings.Get<bool>("VersionArgumentIndieV2", instance) && !MeloongCore.PathUtils.IsSame(instance.PathIndie, game) &&
+                    MeloongCore.PathUtils.IsSame(JObject.Parse(File.ReadAllText(exactSession))["gameFolder"]!.ToString(), game),
+                    "The backup fixture did not retain the launched folder while actually switching current isolation.");
+                World("OnProcessStopped", instance, child.Value, true);
+            }
             finally { Cache(instance, "VersionArgumentIndieV2", true); }
             Native.Check(Points(game).Count == count + 2, "Normal exit lost the launched folder when current isolation changed, stale PID record existed and legacy running flag remained set.");
             World("OnProcessStopped", instance, child.Value, false);
             Native.Check(Points(game).Count == count + 2, "Abnormal exit triggered automatic backups.");
         } finally { watchers.Remove(watch); Native.Field(module, "HasRunningMinecraft").SetValue(null, oldFlag); }
+    }
+
+    private static void GlobalAutomaticSwitch(Scope scope) {
+        string game = Path.Combine(scope.Root, "global-auto/minecraft/versions/fixture");
+        var instance = Instance(game);
+        Put(Path.Combine(game, "saves/World A/level.dat"), "global switch world");
+        bool previous = Settings.Get<bool>("LaunchWorldBackupAutoEnabled");
+        try {
+            Settings.Set("LaunchWorldBackupAutoEnabled", true);
+            var page = new PageSetupSystem();
+            var control = (MyCheckBox)(page.FindName("CheckWorldBackupAuto") ?? throw new Exception("Global backup control is missing."));
+            SettingService.RefreshSettings(control);
+            Native.Check(control.Checked && SettingService.GetKey(control) == "LaunchWorldBackupAutoEnabled",
+                "The genuine system page does not expose the global automatic-backup switch.");
+            control.Checked = false; Native.Call(typeof(MyCheckBox), "OnChange", control, true);
+            Native.Check(!Settings.Get<bool>("LaunchWorldBackupAutoEnabled") && Settings.Get<bool>("VersionWorldBackupAutoEnabled", instance),
+                "The global switch was not saved or rewrote instance preferences.");
+            int before = Points(game).Count;
+            Native.Check(((IEnumerable)World("BeforeMinecraftChange", instance, "1.20.1", "1.21.1", None)!).Cast<object>().Count() == 0,
+                "Global disable still backed up before a Minecraft change.");
+            using (IdleProcess child = new()) {
+                World("Track", instance, child.Value); child.Finish(); World("OnProcessStopped", instance, child.Value, true);
+                Native.Check(Points(game).Count == before && !Directory.GetFiles(Path.Combine(scope.Profile, "world-backup-sessions"), child.Value.Id + "-*.json").Any(),
+                    "Global disable still backed up on exit or retained its stopped-process session.");
+            }
+            string manual = Capture(game, "World A");
+            Native.Check(Points(game).Any(point => (string?)point["id"] == manual), "Global automatic disable blocked a manual backup.");
+            Settings.Set("LaunchWorldBackupAutoEnabled", true); Cache(instance, "VersionWorldBackupAutoEnabled", false);
+            Native.Check(((IEnumerable)World("BeforeMinecraftChange", instance, "1.20.1", "1.21.1", None)!).Cast<object>().Count() == 0,
+                "Re-enabling the global switch overrode an instance's explicit disable.");
+        } finally { Cache(instance, "VersionWorldBackupAutoEnabled", true); Settings.Set("LaunchWorldBackupAutoEnabled", previous); }
+    }
+    internal static void RunGlobal(FixtureEnvironment environment) {
+        using Scope scope = new(environment);
+        GlobalAutomaticSwitch(scope);
+        environment.AssertNoForbiddenIo();
+        Console.WriteLine("PASS global automatic backups: genuine settings control, persisted master disable, preserved instance choices, exit/version-change suppression, stopped-session cleanup and manual capture.");
     }
 
     private static void Recovery(string game, string world, string store, string first)

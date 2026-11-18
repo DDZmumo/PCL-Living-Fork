@@ -25,6 +25,10 @@ public sealed partial class PackUpdateFlowEngine<TFile, TPackage, TChange, TPlan
     private static bool Same(string? left, string? right) => (left ?? "") == (right ?? "");
     public bool IsUpdating => host.ReadActive() != 0;
     public void Start(TInstance? instance, bool online, string? requestedVersion = null) {
+        if (instance is not null) {
+            var capability = MmcInstanceCapabilities.LegacyOperation(host.VersionFolder(instance), "旧整合包更新");
+            if (!capability.Allowed) { host.HintRed(capability.RefusalReason!); return; }
+        }
         if (instance is null || host.EnvironmentBusy() || host.HasRunningGame() || host.HasRunningSessions() || host.LaunchLoading() || host.IsLocked(instance)) {
             host.HintRed("请先关闭游戏并等待版本任务完成。"); return;
         }

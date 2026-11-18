@@ -34,6 +34,7 @@ PCL、第三方代码、字体图标与其他资产保留各自许可；整个�
 | [ClipboardInterceptor / uye](https://github.com/DDZmumo/PCL-Living-Fork/blob/f4aa0fae62c3ee8af24c81e61844c8fdd13c8983/Plain%20Craft%20Launcher%202/Controls/Behaviors/ClipboardInterceptor.vb) | file-specific Apache grant; not the whole MAA project | Apache-2.0；[ClipboardInterceptor-permission.txt](licenses/texts/ClipboardInterceptor-permission.txt)、[MeloongCore-Apache-2.0.txt](licenses/texts/MeloongCore-Apache-2.0.txt) |
 | [Tabler Icons](https://github.com/tabler/tabler-icons/tree/ed177a085b652fe04ec4f37ced867c94621e7840) | ed177a085b652fe04ec4f37ced867c94621e7840 | MIT；[Tabler-Icons-MIT.txt](licenses/texts/Tabler-Icons-MIT.txt) |
 | [PolySharp](https://github.com/Sergio0694/PolySharp/tree/02753db24d9685e54db06739eb63183d86eb5b62) | 1.15.0 | MIT；[PolySharp-MIT.txt](licenses/texts/PolySharp-MIT.txt) |
+| [PCLLF.MMCC.Core](https://github.com/DDZmumo/PCL-Living-Fork/tree/main/PCLLF.MMCC.Core) | original independent MMC component, patch and launch-definition semantic core; host and inherited sources retain their existing scope | MPL-2.0；[LICENSE](PCLLF.MMCC.Core/LICENSE) |
 
 完整范围、核实方法与未确认项目见 [许可审计](docs/licensing-audit.md)。
 

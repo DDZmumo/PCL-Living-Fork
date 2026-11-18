@@ -19,6 +19,10 @@ public static class ResourceVersionRules {
         TVersion result = create();
         result.ResourceType = expectedResourceType;
         if (data.ContainsKey("gameId")) {
+            result.ProjectId = (string?)data["modId"];
+            result.RequiredDependencyReferences = data["dependencies"]?.OfType<JObject>()
+                .Where(value => (int?)value["relationType"] == 3)
+                .Select(value => new ModDownloadDependencyReference((string?)value["modId"], null)).ToList() ?? new();
             result.Id = (string?)data["id"];
             result.Display = data["displayName"]!.ToString().Replace("\t", "").Trim(' ');
             result.Version = null;
@@ -39,6 +43,7 @@ public static class ResourceVersionRules {
                 .Where(value => value["relationType"]!.ToObject<int>() == 3 && value["modId"]!.ToObject<int>() != 306612 && value["modId"]!.ToObject<int>() != 634179)
                 .Select(value => value["modId"]!.ToString()).ToList();
             List<string> rawVersions = data["gameVersions"]!.Select(value => value.ToString().Trim().ToLowerInvariant()).ToList();
+            result.ExactGameVersions = data["gameVersions"]!.Select(value => value.ToString().Trim()).Where(McVersion.IsStandardFormat).ToList();
             result.GameVersions = rawVersions.Where(McVersion.IsStandardFormat).Select(value => value.Replace("-snapshot", " 预览版")).Distinct().ToList();
             if (result.GameVersions.Count == 1) result.GameVersions = result.GameVersions.ToList();
             else if (result.GameVersions.Count > 1) {
@@ -49,6 +54,10 @@ public static class ResourceVersionRules {
             foreach (ModLoaders loader in EnumUtils.GetAllFlags<ModLoaders>())
                 if (rawVersions.Contains(loader.ToString().ToLowerInvariant())) result.ModLoaders |= loader;
         } else {
+            result.ProjectId = (string?)data["project_id"];
+            result.RequiredDependencyReferences = data["dependencies"]?.OfType<JObject>()
+                .Where(value => Same((string?)value["dependency_type"], "required"))
+                .Select(value => new ModDownloadDependencyReference((string?)value["project_id"], (string?)value["version_id"])).ToList() ?? new();
             result.Id = (string?)data["id"];
             result.Display = data["name"]!.ToString().Replace("\t", "").Trim(' ');
             result.Version = (string?)data["version_number"];
@@ -56,7 +65,7 @@ public static class ResourceVersionRules {
             result.ReleaseTypeCode = data["version_type"]!.ToString() == "release" ? 1 : data["version_type"]!.ToString() == "beta" ? 2 : 3;
             result.DownloadCount = (int)data["downloads"]!;
             if (((JArray)data["files"]!).Any()) {
-                JToken file = data["files"]![0]!;
+                JToken file = data["files"]!.FirstOrDefault(value => (bool?)value["primary"] == true) ?? data["files"]![0]!;
                 result.FileName = (string?)file["filename"];
                 string? url = (string?)file["url"];
                 result.DownloadUrls = new List<string> { url!, result.Services.MirrorUrl(url!) }.Distinct().ToList();
@@ -74,9 +83,10 @@ public static class ResourceVersionRules {
             }
             if (data.ContainsKey("dependencies")) result.RawDependencies = data["dependencies"]!
                 .Where(value => Same((string?)value["dependency_type"], "required") && !Same((string?)value["project_id"], "P7dR8mSH") &&
-                    !Same((string?)value["project_id"], "qvIfYCYJ") && value["project_id"]!.ToString().Length > 0)
+                    !Same((string?)value["project_id"], "qvIfYCYJ") && !string.IsNullOrEmpty((string?)value["project_id"]))
                 .Select(value => value["project_id"]!.ToString()).ToList();
             List<string> rawVersions = data["game_versions"]!.Select(value => value.ToString().Trim().ToLowerInvariant()).ToList();
+            result.ExactGameVersions = data["game_versions"]!.Select(value => value.ToString().Trim()).ToList();
             result.GameVersions = rawVersions.Where(value => value.Contains('.')).Select(value => value.Contains('-') ? value.BeforeFirst("-") + " 预览版" :
                 value.StartsWithF("b1.") ? "远古版本" : value).Distinct().ToList();
             if (result.GameVersions.Count > 1) {

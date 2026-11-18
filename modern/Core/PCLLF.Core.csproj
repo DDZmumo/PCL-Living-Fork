@@ -37,6 +37,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="../../MeloongCore/Shared/MeloongCore.csproj" />
+    <ProjectReference Include="../../PCLLF.MMCC.Core/PCLLF.MMCC.Core.csproj" />
     <!-- Existing white-box regression cases now exercise the product binary. UI assemblies
          receive no friend access and must use the public Core contracts. -->
     <InternalsVisibleTo Include="PCLLF.Migration.Tests" />

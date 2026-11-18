@@ -366,6 +366,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
           $failedGroups = @()
+          # Isolated hosts create their own GUID directories; a short runner
+          # temp base keeps the real native-loader path budget intact.
+          if (-not [IO.Directory]::Exists($env:RUNNER_TEMP)) { throw 'Runner temp base is missing.' }
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
           $registeredJson = & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --list-groups
           if ($LASTEXITCODE -ne 0) { throw 'The real facade host did not enumerate its registered groups.' }
           $registered = @(($registeredJson -join "`n") | ConvertFrom-Json)
@@ -380,6 +385,19 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $failedGroups += $group }
           }
           if ($failedGroups.Count -ne 0) { throw ('Actual native Main acceptance failed: ' + ($failedGroups -join ', ')) }
+
+      - name: Verify managed MMC export through the genuine production graph
+        if: ${{ !cancelled() && steps.facade.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          & dotnet restore tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --verbosity minimal "-p:Configuration=$env:NATIVE_CONFIGURATION"
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export production graph restore failed.' }
+          & dotnet build tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-restore --verbosity minimal -warnaserror -p:BuildProjectReferences=false --disable-build-servers -nodeReuse:false -m:1
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export production graph build failed.' }
+          & dotnet run --project tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build 2>&1 |
+            Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'mmc-export-runtime.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export/import roundtrip or ownership/cancellation acceptance failed.' }
 
       - name: Verify actual Main safe navigation theme focus and wheel
         id: interaction

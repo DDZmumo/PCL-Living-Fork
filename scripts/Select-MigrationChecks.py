@@ -45,7 +45,7 @@ def documentation_only(paths: list[str]) -> bool:
     return bool(paths) and all(is_documentation_path(name) for name in paths)
 
 GROUPS = ("world-metadata", "local-data", "personal-options", "keybindings", "quick-play",
-          "resource-entry", "resource-paths", "resource-files", "resource-metadata", "world-backups", "toolbox-surprise", "environment-history", "instance-clone", "pack-update", "mod-dependencies", "mod-dependency-online", "settings", "mod-favorites", "validation-loaders", "legacy-java", "foundation")
+          "resource-entry", "resource-paths", "resource-files", "resource-metadata", "world-backups", "toolbox-surprise", "environment-history", "instance-clone", "pack-update", "mod-dependencies", "mod-dependency-online", "settings", "mod-favorites", "validation-loaders", "legacy-java", "foundation", "mmc-profile", "mmc-metadata", "mmc-transactions", "mmc-artifacts", "mmc-configuration", "mmc-archive", "mmc-definition", "mmc-java", "mmc-runtime-environment", "mmc-backend", "mmc-variants", "mmc-clone", "mmc-lifecycle", "mmc-catalog-paging", "mmc-purge", "mmc-history", "mmc-definition-change", "mmc-platform-origin", "mmc-import-publication", "mmc-package-revision", "mmc-package-scope", "mmc-package-update", "mmc-standard-managed", "mmc-legacy-adoption", "mmc-import-recovery")
 # Resources is a fixed feature alias, not every group appended after the first five.
 RESOURCE_GROUPS = ("resource-entry", "resource-paths", "resource-files", "resource-metadata")
 # Release-tooling-only paths have isolated, synthetic Python checks. They do
@@ -268,6 +268,15 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
             # The native selection job always runs these real CLI regressions.
             # Changes to its test inputs alone do not require a product build.
             continue
+        elif name.startswith("PCLLF.MMCC.Core/"):
+            # The pure Core is a genuine managed product dependency. Keep its
+            # own rule group and the real modern Main graph in validation.
+            include(("mmc-profile", "mmc-definition", "mmc-runtime-environment", "mmc-package-revision", "mmc-package-scope", "mmc-package-update", "mmc-platform-origin"), (), build=False)
+            native = True
+        elif name == "PCLCS/Launch/MmcRuntimeEnvironmentOverlay.cs":
+            include(("mmc-runtime-environment",), (), build=False)
+        elif name == "PCLCS/Launch/MmcJavaPinStore.cs":
+            include(("mmc-java",), (), build=False)
         elif name == "docs/migration/source-inventory.baseline.json" or name == "scripts/Inventory-Migration.py":
             inventory = True
         elif name in NATIVE_ONLY_PATHS or name.startswith(NATIVE_ONLY_PREFIXES):
@@ -291,7 +300,53 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
             include(GROUPS, (), build=False)
         elif name.startswith("tests/PCLLF.Migration.Tests/"):
             stem = leaf.removesuffix("Tests.cs")
-            if stem.startswith("WorldMetadata"):
+            if stem in {"MmcProfile", "MmcResolution", "MmcCompilation", "MmcManagement", "MmcInstancePaths"}:
+                include(("mmc-profile",), (), build=False)
+            elif stem == "MmcMetadata":
+                include(("mmc-metadata",), (), build=False)
+            elif stem in {"MmcTransaction", "MmcSession", "MmcOperationPendingGuard"}:
+                include(("mmc-transactions",), (), build=False)
+            elif stem == "MmcArtifact":
+                include(("mmc-artifacts",), (), build=False)
+            elif stem == "MmcConfiguration":
+                include(("mmc-configuration",), (), build=False)
+            elif stem == "MmcJavaPin":
+                include(("mmc-java",), (), build=False)
+            elif stem == "MmcRuntimeEnvironment":
+                include(("mmc-runtime-environment",), (), build=False)
+            elif stem in {"MmcArchive", "MmcArchiveInspection", "MmcPackagePreservation"}:
+                include(("mmc-archive",), (), build=False)
+            elif stem in {"MmcDefinition", "MmcLaunchAuthority", "MmcProjection"}:
+                include(("mmc-definition",), (), build=False)
+            elif stem in {"MmcInstanceBackend", "MmcPrivatePayloadPath"}:
+                include(("mmc-backend", "mmc-variants", "mmc-import-publication"), (), build=False)
+            elif stem == "MmcInstanceClone":
+                include(("mmc-clone",), (), build=False)
+            elif stem == "MmcInstanceLifecycle":
+                include(("mmc-lifecycle",), (), build=False)
+            elif stem == "MmcLifecycleCatalogPaging":
+                include(("mmc-catalog-paging",), (), build=False)
+            elif stem.startswith(("MmcInstancePurge", "MmcPurgeTxF")):
+                include(("mmc-purge",), (), build=False)
+            elif stem == "MmcInstanceHistory":
+                include(("mmc-history",), (), build=False)
+            elif stem == "MmcInstanceDefinitionChange":
+                include(("mmc-definition-change",), (), build=False)
+            elif stem == "MmcPlatformOrigin":
+                include(("mmc-platform-origin",), (), build=False)
+            elif stem == "MmcPackageRevision":
+                include(("mmc-package-revision",), (), build=False)
+            elif stem == "MmcPackageLocalScope":
+                include(("mmc-package-scope",), (), build=False)
+            elif stem == "MmcInstancePackageUpdate":
+                include(("mmc-package-update",), (), build=False)
+            elif stem == "MmcStandardManaged":
+                include(("mmc-standard-managed",), (), build=False)
+            elif stem == "MmcLegacyAdoption":
+                include(("mmc-legacy-adoption",), (), build=False)
+            elif stem == "MmcImportRecovery":
+                include(("mmc-import-recovery",), (), build=False)
+            elif stem.startswith("WorldMetadata"):
                 include(("world-metadata",), (), build=False)
             elif stem == "LocalGameData":
                 include(("local-data",), (), build=False)
@@ -339,6 +394,8 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
                 unknown.append(name)
         elif name.startswith("scripts/Test-") and leaf.removesuffix(".ps1") in SCRIPTS:
             include((), (leaf.removesuffix(".ps1"),))
+        elif name in {"PCLCS/Resources/MmcPlatformOriginCatalog.cs", "PCLCS/Network/LegacyNetworkPlatformOrigin.cs"}:
+            include(("mmc-platform-origin",), (), build=False)
         elif name in {"PCLCS/Resources/LegacyModFavorites.cs", "PCLCS/Resources/ResourceFavorites.cs", "PCLCS/Resources/ResourceProjectKey.cs"}:
             include(("mod-favorites",), (), build=False)
         elif name == "PCLCS/Settings/LegacyUpdateLogPrompt.cs":
@@ -371,7 +428,54 @@ def choose(paths: list[str], full: bool = False, reason: str = "changed paths") 
         elif name in RESOURCE_IMAGE_PATHS:
             include(RESOURCE_GROUPS, RESOURCE_IMAGE_CHECKS)
         elif name.startswith("PCLCS/Minecraft/") and leaf.endswith(".cs"):
-            if leaf.startswith("InstanceResourceOnline"):
+            if name.startswith("PCLCS/Minecraft/MmcMetadata/"):
+                include(("mmc-metadata",), (), build=False)
+            elif name.startswith("PCLCS/Minecraft/MmcTransactions/"):
+                include(("mmc-transactions",), (), build=False)
+            elif name in {"PCLCS/Minecraft/MmcArtifacts/MmcNativeArchive.cs", "PCLCS/Minecraft/MmcArtifacts/MmcArtifactIo.cs"}:
+                include(("mmc-artifacts", "mmc-archive"), (), build=False)
+            elif name.startswith("PCLCS/Minecraft/MmcArtifacts/"):
+                include(("mmc-artifacts",), (), build=False)
+            elif name.startswith("PCLCS/Minecraft/MmcConfiguration/"):
+                include(("mmc-configuration",), (), build=False)
+            elif name.startswith("PCLCS/Minecraft/MmcArchive/"):
+                include(("mmc-archive",), (), build=False)
+            elif name.startswith("PCLCS/Minecraft/MmcInstances/"):
+                if leaf.startswith(("MmcImportRecovery", "MmcImportOperation", "MmcInstanceBackend.ImportRetry")):
+                    include(("mmc-import-recovery",), (), build=False)
+                elif leaf.startswith(("MmcInstancePlatform", "MmcPlatformOrigin")):
+                    include(("mmc-platform-origin",), (), build=False)
+                elif leaf.startswith("MmcInstancePackageUpdate"):
+                    include(("mmc-package-update",), (), build=False)
+                elif leaf == "MmcInstancePackageOwnership.cs":
+                    include(("mmc-history", "mmc-package-update"), (), build=False)
+                elif leaf.startswith("MmcInstanceDefinitionChange"):
+                    include(("mmc-definition-change",), (), build=False)
+                elif leaf.startswith("MmcInstanceHistory"):
+                    include(("mmc-history",), (), build=False)
+                elif leaf == "MmcInstanceLifecycleCatalog.Paging.cs":
+                    include(("mmc-catalog-paging",), (), build=False)
+                elif leaf.startswith(("MmcInstancePurge", "MmcInstanceLifecycleBackend.Purge", "MmcInstanceLifecycleCatalog.Purge")):
+                    include(("mmc-purge",), (), build=False)
+                elif leaf == "MmcInstanceLifecycleCatalog.cs":
+                    include(("mmc-lifecycle", "mmc-catalog-paging", "mmc-purge"), (), build=False)
+                elif leaf.startswith("MmcInstanceLifecycle"):
+                    include(("mmc-lifecycle",), (), build=False)
+                elif leaf.startswith("MmcOperationPending"):
+                    include(("mmc-transactions",), (), build=False)
+                elif leaf.startswith("MmcInstanceClone"):
+                    include(("mmc-clone",), (), build=False)
+                elif leaf == "MmcPackageFileStager.cs":
+                    include(("mmc-archive", "mmc-backend"), (), build=False)
+                elif leaf.startswith(("MmcInstanceBackend", "MmcSavedSourceStore", "MmcOwnedImportReservation")):
+                    include(("mmc-backend", "mmc-variants", "mmc-import-publication"), (), build=False)
+                else:
+                    include(("mmc-definition",), (), build=False)
+            elif leaf.startswith("MmcLegacyAdoption"):
+                include(("mmc-legacy-adoption",), (), build=False)
+            elif leaf.startswith(("MmcManagement", "MmcInstancePaths")):
+                include(("mmc-profile",), (), build=False)
+            elif leaf.startswith("InstanceResourceOnline"):
                 include(RESOURCE_GROUPS, RESOURCE_ONLINE_CHECKS)
             elif leaf in {"ResourceRecycleFiles.cs", "MapDownloadFiles.cs"}:
                 include(RESOURCE_GROUPS, RESOURCE_CHECKS)

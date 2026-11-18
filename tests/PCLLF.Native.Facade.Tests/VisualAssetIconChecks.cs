@@ -47,7 +47,11 @@ internal static class VisualAssetIconChecks
             Put(setup, custom); string before = File.ReadAllText(setup);
             VisualAssetChecks.Check("icon", 122, Helper("ReadVersionLogo", setup, "") == custom && File.ReadAllText(setup) == before);
         }
-        string fresh = Path.Combine(root, "versions", "new", "PCL", "Setup.ini");
+        string freshVersion = Path.Combine(root, "versions", "new");
+        // The first-logo assertion covers a missing Setup.ini in an established instance.
+        // An unqualified INI write must not recreate a missing version directory.
+        Directory.CreateDirectory(freshVersion);
+        string fresh = Path.Combine(freshVersion, "PCL", "Setup.ini");
         VisualAssetChecks.Check("icon", 125, Helper("ReadVersionLogo", fresh, "fallback") == "fallback" && !File.Exists(fresh));
         Native.Static("PCL.MinecraftLogoCompatibility", "WriteVersionLogo", fresh, Living + "Blocks/Grass.png");
         VisualAssetChecks.Check("icon", 127, Read(fresh, "Logo") == Official + "Blocks/Grass.png");

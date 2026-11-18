@@ -228,6 +228,13 @@ public sealed partial class GlassPresentationSession
             MaxLength = source.MaxLength, VerticalScrollBarVisibility = source.VerticalScrollBarVisibility,
             HorizontalScrollBarVisibility = source.HorizontalScrollBarVisibility };
         if (!source.AcceptsReturn) input.Height = 36;
+        else
+        {
+            input.VerticalContentAlignment = VerticalAlignment.Top;
+            input.Padding = new Thickness(12, 8, 12, 8);
+            if (source.MinHeight > 0) input.MinHeight = source.MinHeight;
+            if (!double.IsPositiveInfinity(source.MaxHeight)) input.MaxHeight = source.MaxHeight;
+        }
         Bind(input, TextBox.TextProperty, source, nameof(TextBox.Text), BindingMode.TwoWay);
         input.Name = source.Name;
         ForwardKeys(input, source);

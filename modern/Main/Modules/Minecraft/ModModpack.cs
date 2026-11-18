@@ -61,9 +61,6 @@ namespace PCL
                 NameValidator = global::PCL.ModModpack.CreateNameValidator,
                 WriteIni = new Action<global::System.String, global::System.String, global::System.Object>((Name, Key, Value) => global::PCL.ModBase.WriteIni(Name, Key, Conversions.ToString(Value))),
                 ClearIniCache = global::PCL.ModBase.IniClearCache,
-                ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((Name, Key, DefaultValue) => global::PCL.ModBase.ReadIni(Name, Key, DefaultValue)),
-                ReadIniBoolean = new Func<global::System.String, global::System.String, global::System.Boolean, global::System.Boolean>((Name, Key, DefaultValue) => Conversions.ToBoolean(global::PCL.ModBase.ReadIni(Name, Key, Conversions.ToString(DefaultValue)))),
-                SettingString = new Func<global::System.String, global::System.String>(Key => global::PCL.Settings.Get<string>(Key)),
                 ReadIsolation = global::PCL.ExportedVersionIsolation.ReadArchiveChoice,
                 GameFolder = global::PCL.ExportedVersionIsolation.GameFolder,
                 ConfigureIsolation = global::PCL.ExportedVersionIsolation.ConfigureTarget,
@@ -86,6 +83,7 @@ namespace PCL
                 Download = global::PCL.ModModpack.NewDownload,
                 Weight = new Func<global::PCL.ModLoader.LoaderBase, global::System.Double>(Loader => Loader.ProgressWeight),
                 InstallGame = global::PCL.ModModpack.InstallGame,
+                InstallManagedMmc = global::PCL.MmcInstances.StartImport,
                 TaskbarNames = new Func<global::System.Collections.Generic.IEnumerable<global::System.String>>(() => global::PCL.ModLoader.LoaderTaskbar.Select(Loader => Loader.Name)),
                 AttachInstallState = new Action<global::PCL.ModLoader.LoaderBase>(Loader => Loader.OnStateChanged = global::PCL.ModDownloadLib.McInstallState),
                 AddTaskbar = new Action<global::PCL.ModLoader.LoaderBase>(Loader => global::PCL.ModLoader.LoaderTaskbarAdd((global::PCL.ModLoader.LoaderCombo<global::System.String>)Loader)),
@@ -184,10 +182,6 @@ namespace PCL
         private static global::PCL.ModLoader.LoaderCombo<global::System.String> InstallPackHMCL(global::System.String FileAddress, global::System.IO.Compression.ZipArchive Archive, global::System.String ArchiveBaseFolder)
         {
             return (global::PCL.ModLoader.LoaderCombo<global::System.String>)global::PCL.ModModpack.Service.InstallPackHMCL(FileAddress, Archive, ArchiveBaseFolder);
-        }
-        private static global::PCL.ModLoader.LoaderCombo<global::System.String> InstallPackMMC(global::System.String FileAddress, global::System.IO.Compression.ZipArchive Archive, global::System.String ArchiveBaseFolder)
-        {
-            return (global::PCL.ModLoader.LoaderCombo<global::System.String>)global::PCL.ModModpack.Service.InstallPackMMC(FileAddress, Archive, ArchiveBaseFolder);
         }
         private static global::PCL.ModLoader.LoaderCombo<global::System.String> InstallPackMCBBS(global::System.String FileAddress, global::System.IO.Compression.ZipArchive Archive, global::System.String ArchiveBaseFolder, global::System.String InstanceName = null)
         {

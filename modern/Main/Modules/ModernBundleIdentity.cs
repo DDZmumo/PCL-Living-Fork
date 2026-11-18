@@ -17,7 +17,8 @@ namespace PCL;
 // 6aa72daa24f66c01c3d7b6a32519e9d21396deec:
 // src/installer/managed/Microsoft.NET.HostModel/Bundle/{Bundler,Manifest,FileEntry}.cs
 // and src/native/corehost/bundle/{header.cpp,header.h,file_entry.cpp,reader.h}.
-// .NET Foundation portions (format/constants) are MIT; see dotnet-source/LICENSE.TXT.
+// .NET Foundation portions (format/constants) are MIT;
+// see modern/ThirdParty/dotnet-runtime-bundle/LICENSE.TXT and source-manifest.json.
 // Only our unsigned Windows-x64, NET10, uncompressed v6 publish format is supported.
 // No extraction, loading or execution of candidate DLLs is performed.
 internal static class ModernBundleIdentity

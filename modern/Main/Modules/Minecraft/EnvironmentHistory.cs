@@ -88,8 +88,8 @@ namespace PCL
                 LibraryPaths = new Func<global::PCL.ModMinecraft.McInstance, global::System.Collections.Generic.IEnumerable<global::System.String>>(Instance => global::PCL.ModMinecraft.McLibListGet(Instance, true).Select(Library => Library.LocalPath)),
                 ModLoaderVersions = new Func<global::PCL.ModMinecraft.McInstance, global::System.Collections.Generic.IEnumerable<global::System.String>>(Instance => Instance.Version.ModLoaderVersions.Select(Pair => ((Pair.Key.ToString() + " ") + Pair.Value))),
                 JsonObject = new Func<global::PCL.ModMinecraft.McInstance, global::Newtonsoft.Json.Linq.JObject>(Instance => Instance.JsonObject),
-                AutoCleanup = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Instance => global::PCL.Settings.Get<bool>("VersionEnvironmentHistoryAutoCleanup", Instance: Instance)),
-                Retention = new Func<global::PCL.ModMinecraft.McInstance, global::System.Int32>(Instance => global::PCL.Settings.Get<int>("VersionEnvironmentHistoryRetention", Instance: Instance)),
+                AutoCleanup = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Instance => BackupPreferences.HistoryAutoCleanup(Instance)),
+                Retention = new Func<global::PCL.ModMinecraft.McInstance, global::System.Int32>(Instance => BackupPreferences.HistoryRetention(Instance)),
                 Info = new Action<global::System.String>(Message => global::MeloongCore.Logger.Info(Message)),
                 Warn = new Action<global::System.Exception, global::System.String>((ErrorValue, Message) => global::MeloongCore.Logger.Warn(ErrorValue, Message)),
                 OpenFolder = new Action<global::System.String>(Folder => global::PCL.ModBase.OpenExplorer(Folder)),
@@ -131,6 +131,12 @@ namespace PCL
         internal static global::System.String CaptureInstance(global::PCL.ModMinecraft.McInstance Instance, global::System.String Label, global::System.Threading.CancellationToken Token)
         {
             return global::PCL.EnvironmentHistory.Service.CaptureInstance(Instance, Label, Token);
+        }
+        internal static string CaptureAutomatic(ModMinecraft.McInstance instance, string label, CancellationToken token) {
+            token.ThrowIfCancellationRequested();
+            MmcInstanceCapabilities.RequireLegacy(instance.PathVersion, "创建旧格式自动环境还原点");
+            if (!BackupPreferences.HistoryAutoEnabled(instance)) return null;
+            return Service.CaptureInstance(instance, label, token);
         }
         internal static string CaptureWithProgress(string VersionFolder, string GameRoot, string Label, CancellationToken Token, Action<double> Progress, Dictionary<string, string> Dependencies = null, string Description = "")
         {

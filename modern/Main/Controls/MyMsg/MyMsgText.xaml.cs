@@ -45,13 +45,23 @@ internal static class MessageDialogPlatform {
         DragMove = () => ModMain.FrmMain.DragMove(), PixelToWpf = ModBase.GetWPFSize,
         Animations = () => ControlServices.Current.Animations,
         UpdateWidth = body => (body as ModLauncherUpdate.UpdatePromptView)?.PreferredWidth ?? (body as ReleaseNotesView)?.PreferredWidth ?? (body as ReleaseNotesPromptView)?.PreferredWidth,
-        ModpackWidth = body => (body as ModpackDialogView)?.PreferredWidth,
-        DependenciesWidth = body => (body as ModDependencyCheckView)?.PreferredWidth,
+        ModpackWidth = body => (body as ModpackDialogView)?.PreferredWidth ?? (body as MmcProjectionReviewView)?.PreferredWidth,
+        DependenciesWidth = body => (body as ModDependencyCheckView)?.PreferredWidth ?? (body as ModDownloadDependencyView)?.PreferredWidth,
         GraphWidth = body => (body as ModDependencyGraphView)?.PreferredWidth,
         ImpactsWidth = body => (body as ModDependencyImpactView)?.PreferredWidth,
         VersionSelection = VersionSelection, Radio = Radio
     };
     private static ModalSelectionPort VersionSelection(object body) {
+        if (body is MmcPlatformOriginInputView platformInput)
+            return new(() => platformInput.CanConfirm, handler => platformInput.ConfirmationChanged += (_, _) => handler());
+        if (body is MmcPlatformReleaseSelectView release)
+            return new(() => release.CanConfirm, handler => release.ConfirmationChanged += (_, _) => handler());
+        if (body is MmcComponentEditorView editor)
+            return new(() => editor.CanConfirm, handler => editor.ConfirmationChanged += (_, _) => handler());
+        if (body is MmcComponentEditorPreviewView componentPreview)
+            return new(() => componentPreview.CanConfirm, handler => componentPreview.ConfirmationChanged += (_, _) => handler());
+        if (body is MmcPackageUpdatePreviewView package)
+            return new(() => package.CanConfirm, handler => package.ConfirmationChanged += (_, _) => handler());
         if (body is ModpackUpdatePreviewView preview)
             return new(() => preview.CanConfirm, handler => preview.ConfirmationChanged += (_, _) => handler());
         if (body is not ModpackVersionSelectView actual) return null;

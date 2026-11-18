@@ -98,7 +98,7 @@ namespace PCL
             foreach (var Entry in global::PCL.Settings.Entries.Values)
             {
                 if ((Entry.Source == global::PCL.Settings.Sources.Instance))
-                    Entry.ValueCache.Remove(Instance.PathVersion);
+                    Entry.ValueCache.Remove(Instance.PathVersion + Instance.Config.PreferenceCacheNamespace);
             }
         }
         private static void PublishMinecraftHint(global::System.String Text, global::System.Boolean IsError)

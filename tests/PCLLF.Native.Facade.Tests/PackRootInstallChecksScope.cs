@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Windows.Threading;
 using MeloongCore;
 using Newtonsoft.Json.Linq;
 using PCL;
@@ -45,6 +46,7 @@ internal sealed class PackRootInstallChecksScope
     private readonly List<string> completeFiles=new();
     private readonly Dictionary<string,string> redirects=new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string,byte> unknownSources=new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<string> cleanupEvents=new();
     private InstallCase? current;
     private int nextTemp, cleanupRunning, networkForbidden;
     internal readonly string Root, Game, LibraryFile, AssetIndexFile, AssetObjectFile;
@@ -59,6 +61,7 @@ internal sealed class PackRootInstallChecksScope
     internal PackRootInstallChecksScope(FixtureEnvironment environment)
     {
         this.environment=environment; ModpackUpdateCleanup.VerifyIsolatedChild();
+        Logger.Instance=new CleanupObserver(Logger.Instance,cleanupEvents);
         files=new(environment); Root=Path.Combine(files.Root,"pack-root-install");
         Native.Check(!Directory.Exists(Root),"Refusing existing HMCL root fixture."); Directory.CreateDirectory(Root);
         Game=Path.Combine(Root,"minecraft")+Path.DirectorySeparatorChar; Directory.CreateDirectory(Game); files.SelectMinecraft(Game.TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar));
@@ -101,7 +104,7 @@ internal sealed class PackRootInstallChecksScope
         installHost.ClientJsonUrl=id=>{InstallCase value=current??throw new InvalidOperationException("Unexpected metadata lookup before root admission.");Native.Check(id=="1.20.1","HMCL changed requested vanilla version.");value.MetadataEntered.Set();if(value.Hold&&value.Fail&&!value.Release.Wait(10000))throw new TimeoutException("Owned metadata phase was not released.");if(value.Fail)throw value.Failure;return value.MetadataUrl;};
         var libraries=installHost.LibraryFiles;installHost.LibraryFiles=instance=>{Interlocked.Increment(ref LibraryAnalyses);return libraries(instance);};
         var assets=installHost.AssetFiles;installHost.AssetFiles=(instance,hashCheck,loader)=>{Interlocked.Increment(ref AssetAnalyses);return assets(instance,hashCheck,loader);};
-        var background=installHost.RunInThread;installHost.RunInThread=work=>{Interlocked.Increment(ref cleanupRunning);background(()=>{cleanupThreads.Add(Thread.CurrentThread);try{work();}finally{Interlocked.Decrement(ref cleanupRunning);}});};
+        var background=installHost.RunInThread;installHost.RunInThread=work=>{Interlocked.Increment(ref cleanupRunning);background(()=>{cleanupThreads.Add(Thread.CurrentThread);cleanupEvents.Enqueue("cleanup-enter "+DateTime.UtcNow.ToString("O"));try{work();}catch(Exception error){cleanupEvents.Enqueue(error.ToString());throw;}finally{cleanupEvents.Enqueue("cleanup-return "+DateTime.UtcNow.ToString("O"));Interlocked.Decrement(ref cleanupRunning);}});};
         installHost.RefreshDownload=()=>{};installHost.RibbleDownload=()=>{};installHost.RefreshInstanceList=()=>{};
         installHost.Hint=(text,kind)=>Hints.Add((text,kind==1));installHost.Message=message=>{Messages.Add(message);return 1;};
         foreach(string field in new[]{"RetryRequest","LoaderRequest","NeoForge","ForgeList","SelectJava","ExtractResources","RunInNewThread","SaveFile","SelectFolder","OpenWebsite","BeforeMinecraftChange","CaptureEnvironment"})Guard(installHost,field);
@@ -134,7 +137,29 @@ internal sealed class PackRootInstallChecksScope
     internal List<ModLoader.LoaderBase> AllNodes(ModLoader.LoaderCombo<string> root){List<ModLoader.LoaderBase> result=new(){root};void Visit(ModLoader.LoaderBase node){Type type=node.GetType();if(type.IsGenericType&&type.GetGenericTypeDefinition()==typeof(ModLoader.LoaderCombo<>)){foreach(ModLoader.LoaderBase child in (IEnumerable<ModLoader.LoaderBase>)Native.Get(node,"Loaders")!){result.Add(child);Visit(child);}}}Visit(root);return result;}
     private void Observe(ModLoader.LoaderBase node) {if(!observedTasks.TryAdd(node,0))return;Type? type=node.GetType();if(type.IsGenericType&&type.GetGenericTypeDefinition()==typeof(ModLoader.LoaderTask<,>))typeof(PackRootInstallChecksScope).GetMethod(nameof(ObserveTask),BindingFlags.NonPublic|BindingFlags.Instance)!.MakeGenericMethod(type.GetGenericArguments()).Invoke(this,[node]);}
     private void ObserveTask<TInput,TOutput>(ModLoader.LoaderTask<TInput,TOutput> task){FieldInfo field=Native.Field(task.GetType(),"LoadDelegate");var work=(Action<ModLoader.LoaderTask<TInput,TOutput>>)field.GetValue(task)!;field.SetValue(task,new Action<ModLoader.LoaderTask<TInput,TOutput>>(current=>{taskThreads.Add(Thread.CurrentThread);work(current);}));}
-    internal void Until(Func<bool> condition,string phase){DateTime deadline=DateTime.UtcNow.AddSeconds(12);while(true){Native.Call(typeof(FileTaskScope),"DrainPostedUi",null,deadline);CaptureTransfers();if(condition())return;if(DateTime.UtcNow>=deadline)throw new TimeoutException("HMCL root phase: "+phase);Thread.Sleep(2);}}
+    internal void Until(Func<bool> condition,string phase){
+        DateTime deadline=DateTime.UtcNow.AddSeconds(12);
+        while(true){
+            CaptureTransfers();bool complete=condition();
+            if(DateTime.UtcNow>=deadline){ReportCompletion("timeout "+phase);throw new TimeoutException("HMCL root phase: "+phase);}
+            if(complete)return;
+            PumpActiveCondition(condition,deadline);
+            Thread.Sleep(2);
+        }
+    }
+    private static void PumpActiveCondition(Func<bool> condition,DateTime deadline){
+        // Active HTTP/progress can keep ContextIdle busy. Observe the original
+        // data/producer predicate while dispatching real UI callbacks; Finish still
+        // performs FileTaskScope's complete UI/IO drain before any receipt is valid.
+        Dispatcher dispatcher=Dispatcher.CurrentDispatcher;DispatcherFrame frame=new();
+        DispatcherTimer timer=new(DispatcherPriority.Send,dispatcher){Interval=TimeSpan.FromMilliseconds(5)};
+        EventHandler observed=(_,_)=>{if(DateTime.UtcNow>=deadline||condition())frame.Continue=false;};
+        timer.Tick+=observed;
+        DispatcherOperation idle=dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,new Action(()=>frame.Continue=false));
+        timer.Start();
+        try{Dispatcher.PushFrame(frame);}
+        finally{timer.Stop();timer.Tick-=observed;if(idle.Status==DispatcherOperationStatus.Pending)idle.Abort();}
+    }
     private void CaptureTransfers(){foreach(var download in roots.SelectMany(AllNodes).OfType<ModNet.LoaderDownload>())foreach(var file in download.Files){if(file.Threads is not null)foreach(var part in file.Threads)if(part.Thread is Thread thread)transferThreads.TryAdd(thread,0);}}
     internal bool CaptureHeldTransfer(InstallCase value,ModLoader.LoaderCombo<string> root){CaptureTransfers();string target=Native.Full(Path.Combine(value.Folder,value.Name+".json"));Thread[] held=AllNodes(root).OfType<ModNet.LoaderDownload>().SelectMany(download=>download.Files).Where(file=>Native.Full(file.LocalPath)==target&&file.Threads is not null).SelectMany(file=>file.Threads).Select(part=>part.Thread).OfType<Thread>().Where(thread=>thread.IsAlive).ToArray();foreach(Thread thread in held)transferThreads.TryAdd(thread,0);return held.Length>0;}
     private bool TransientStopped(){CaptureTransfers();
@@ -153,7 +178,8 @@ internal sealed class PackRootInstallChecksScope
                 FileRemain=Volatile.Read(ref ModNet.NetManager.FileRemain),NetworkWorkers=Volatile.Read(ref ModNet.NetTaskThreadCount),CleanupRunning=Volatile.Read(ref cleanupRunning),
                 ManagerTaskCount=downloads.Length,ManagerTasksTerminal=downloads.All(task=>task.State is ModBase.LoadState.Finished or ModBase.LoadState.Canceled or ModBase.LoadState.Failed),
                 ManagerTasks=downloads.Take(64).Select(task=>new { task.Name,State=task.State.ToString(),Files=task.Files.Take(8).Select(file=>new { State=file.State.ToString(),Parents=file.Tasks.Count,Registered=ModNet.NetManager.AllFiles.TryGetValue(file.LocalPath,out ModNet.NetFile? registered)&&ReferenceEquals(file,registered),AliveTransfers=file.Threads?.Count(part=>part.Thread?.IsAlive==true)??0 }).ToArray() }).ToArray(),
-                Roots=roots.Select(root=>new { root.Name,State=root.State.ToString() }).ToArray(),
+                Roots=roots.Select(root=>new { root.Name,State=root.State.ToString(),Children=AllNodes(root).Select(node=>new {node.Name,State=node.State.ToString(),Error=node.Error?.ToString()}).Take(32).ToArray(),Target=ObserveTarget(root) }).ToArray(),
+                CleanupEvents=cleanupEvents.TakeLast(16).ToArray(),
                 AliveTasks=taskThreads.Where(thread=>thread.IsAlive).Distinct().Take(32).Select(ThreadInfo).ToArray(),
                 AliveTransfers=transferThreads.Keys.Where(thread=>thread.IsAlive).Take(32).Select(ThreadInfo).ToArray(),
                 AliveCleanup=cleanupThreads.Where(thread=>thread.IsAlive).Distinct().Take(32).Select(ThreadInfo).ToArray(),
@@ -166,6 +192,19 @@ internal sealed class PackRootInstallChecksScope
         {
             try{Console.Error.WriteLine("HMCL completion diagnostic unavailable: "+diagnostic.GetType().Name);}
             catch{/* Keep the original assertion/exception authoritative. */}
+        }
+    }
+    private object ObserveTarget(ModLoader.LoaderBase root){
+        try{
+            string folder=installHost.CleanupInput(root);var inspection=MmcInstanceInspector.Read(folder);
+            return new {Folder=folder,Exists=Directory.Exists(folder),Management=inspection.Management.State.ToString(),inspection.Management.ObservationComplete,inspection.Management.CanUseLegacyBackend,inspection.Error,
+                Diagnostics=inspection.Management.Diagnostics.Take(8).ToArray(),Files=Directory.Exists(folder)?Directory.EnumerateFiles(folder,"*",SearchOption.AllDirectories).Take(24).Select(file=>new {Path=Path.GetRelativePath(folder,file),Length=new FileInfo(file).Length}).ToArray():null};
+        }catch(Exception error){return new {Error=error.ToString()};}
+    }
+    private sealed class CleanupObserver(BaseLogger original,ConcurrentQueue<string> events):BaseLogger{
+        public override void Log(Exception? error,string? message,LogLevel level,LogBehavior behavior,string filePath){
+            if(Path.GetFileName(filePath)=="MinecraftInstallWorkflow.cs")events.Enqueue((message??"")+(error is null?"":"\n"+error));
+            original.Log(error,message,level,behavior,filePath);
         }
     }
     internal void Settle(ModLoader.LoaderCombo<string> root){Until(()=>AllNodes(root).All(loader=>loader.State!=ModBase.LoadState.Loading)&&TransientStopped(),"real root/cleanup/task/network producer barrier");ReportCompletion("settled "+root.Name);}

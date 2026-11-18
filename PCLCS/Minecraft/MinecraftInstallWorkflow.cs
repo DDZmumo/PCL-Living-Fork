@@ -15,6 +15,7 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
     }
     public bool McModificationStart(TRequest request, TInstance instance) {
         try {
+            MmcInstanceInspector.AssertLegacyOperationAllowed(instance.PathVersion, "组件修改");
             string targetFolder = instance.PathIndie;
             List<TLoader> loaders = new() { Task<int, int>("检查 Natives 文件占用", _ => {
                 foreach (string file in DirectoryUtils.EnumerateFiles(host.NativesFolder(instance), includeSubDirectories: true, searchPattern: "*.dll"))
@@ -61,6 +62,8 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
         } catch (Exception error) { host.RefreshInstanceList(); Logger.Error(error, "开始修改版本失败", LogBehavior.Toast); return false; }
     }
     public void McInstallCommit(TInstance instance, McInstallManifest newManifest, string buildFolder, string targetFolder) {
+        MmcInstanceCapabilities.RequireLegacy(instance.PathVersion, "组件修改");
+        MmcInstanceCapabilities.RequireLegacyContainingInstance(targetFolder, "组件修改");
         host.BeforeMinecraftChange(instance, instance.Version.VanillaName, newManifest.Components.MinecraftVersion, CancellationToken.None);
         host.CaptureEnvironment(instance, "修改游戏组件前", CancellationToken.None);
         IEnumerable<McInstallManifest.ManagedFile> oldFiles = Configs.McInstallManifest.Get(instance.Config)?.ManagedFiles ?? Array.Empty<McInstallManifest.ManagedFile>();
@@ -101,8 +104,16 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
         host.RunInThread(() => {
             try {
                 Thread.Sleep(1000);
-                if (DirectoryUtils.Exists(host.CleanupInput(loader) + "saves\\") || DirectoryUtils.Exists(host.CleanupInput(loader) + "versions\\")) Logger.Warn("由于版本已被独立启动，不清理版本文件夹：" + host.CleanupInput(loader));
-                else { Logger.Warn("由于下载失败或取消，清理版本文件夹：" + host.CleanupInput(loader)); DirectoryUtils.Delete(host.CleanupInput(loader)); }
+                string folder = host.CleanupInput(loader);
+                MmcInstanceInspection management = MmcInstanceInspector.Read(folder);
+                bool known = OrdinaryInstallCleanupProof.TryAuthorize(host.CleanupTasks(loader), folder, out bool hasProof, out string? refusal);
+                if (hasProof ? !known : !management.IsLegacy || !management.Management.CanUseLegacyBackend) {
+                    Logger.Warn("保留 MMC 或尚未确认归属的安装现场，等待其专用恢复流程：" + folder);
+                    if (refusal is not null) Logger.Warn(refusal);
+                    return;
+                }
+                if (DirectoryUtils.Exists(Path.Combine(folder, "saves")) || DirectoryUtils.Exists(Path.Combine(folder, "versions"))) Logger.Warn("由于版本已被独立启动，不清理版本文件夹：" + folder);
+                else { Logger.Warn("由于下载失败或取消，清理版本文件夹：" + folder); DirectoryUtils.Delete(folder); }
             } catch (Exception error) { Logger.Warn(error, "下载失败或取消后清理版本文件夹失败"); }
         });
     }

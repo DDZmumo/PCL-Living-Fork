@@ -56,14 +56,25 @@ namespace PCL
         {
             get
             {
+                if (this.IsMmcExport) throw new global::System.InvalidOperationException("MMC 导出必须使用专用后端。");
                 if (this.PageController is null)
                     this.PageController = new global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.MyCheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>>(this.CreateView(), this.CreateState(), this.CreateHost());
                 return this.PageController;
             }
         }
 
-        public PageInstanceExport()
+        public PageInstanceExport() : this(global::PCL.PageInstanceLeft.Instance, false, global::System.Guid.Empty)
         {
+        }
+
+        internal PageInstanceExport(global::PCL.ModMinecraft.McInstance owner, global::System.Guid expectedInstanceId = default)
+            : this(owner, true, expectedInstanceId)
+        {
+        }
+
+        private PageInstanceExport(global::PCL.ModMinecraft.McInstance owner, global::System.Boolean managed, global::System.Guid expectedInstanceId)
+        {
+            this.CaptureExportOwner(owner, managed, expectedInstanceId);
             __LfAttachOwnHandles();
             this.CurrentInstance = "";
             this.SubOptionBlackList = new[]
@@ -75,10 +86,12 @@ namespace PCL
             this._RulesOverrides = (global::System.Collections.Generic.List<global::System.String>)null;
             this.ExtraFiles = (global::System.Collections.Generic.List<global::System.String>)null;
             this.ConfigPackPath = (global::System.String)null;
-            this.Pipeline = new global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>(global::PCL.PageInstanceExport.CreatePipelineHost());
+            if (!this.IsMmcExport)
+                this.Pipeline = new global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>(global::PCL.PageInstanceExport.CreatePipelineHost());
             this.InitializeComponent();
             // The new presentation invokes this button directly instead of the old card's mouse event.
-            this.BtnOverrideCancel.Click += (_, _) => this.Controller.OptionsMouseDown();
+            this.BtnOverrideCancel.Click += (_, _) => { if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.OptionsMouseDown(); };
+            if (this.IsMmcExport) this.InitializeMmcExport();
         }
 
         private global::PCLCS.ModpackExportPageView<global::PCL.MyCheckBox> CreateView()
@@ -144,7 +157,7 @@ namespace PCL
         {
             return new global::PCLCS.ModpackExportPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.ModLoader.LoaderCombo<global::System.String>>()
             {
-                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
+                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => this.ExportOwner ?? global::PCL.PageInstanceLeft.Instance),
                 Name = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.Name),
                 VersionFolder = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathVersion),
                 GameRoot = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathIndie),
@@ -235,17 +248,19 @@ namespace PCL
 
         private void PageInstanceExport_Initialized(global::System.Object sender, global::System.EventArgs e)
         {
-            this.Controller.Initialized();
+            if (!this.IsMmcExport) this.Controller.Initialized();
         }
 
         private void PageInstanceExport_Loaded()
         {
-            this.Controller.Loaded();
+            if (this.IsMmcExport) this.RefreshMmcExport();
+            else if (this.CanUseOrdinaryExport()) this.Controller.Loaded();
         }
 
         public void RefreshAll()
         {
-            this.Controller.RefreshAll();
+            if (this.IsMmcExport) this.RefreshMmcExport();
+            else if (this.CanUseOrdinaryExport()) this.Controller.RefreshAll();
         }
 
         void global::PCL.IRefreshable.Refresh() => this.RefreshAll();
@@ -309,42 +324,47 @@ namespace PCL
 
         private void CardOptions_MouseLeftButtonDown()
         {
-            this.Controller.OptionsMouseDown();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.OptionsMouseDown();
         }
 
         private void ExportConfig()
         {
-            this.Controller.ExportConfig();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.ExportConfig();
         }
 
         private void ImportConfig()
         {
-            this.Controller.ImportConfig();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.ImportConfig();
         }
 
         private void StartExport()
         {
-            this.Controller.StartExport();
+            if (this.IsMmcExport) this.StartMmcExport();
+            else if (this.CanUseOrdinaryExport()) this.Controller.StartExport();
         }
 
         private void RefreshJavaInfo()
         {
-            this.Controller.RefreshJavaInfo();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.RefreshJavaInfo();
         }
 
         private void TextExportName_GotFocus()
         {
-            this.Controller.NameGotFocus();
+            if (this.IsMmcExport)
+            {
+                if (this.TextExportName.Text == "") this.TextExportName.Text = this.TextExportName.HintText;
+            }
+            else if (this.CanUseOrdinaryExport()) this.Controller.NameGotFocus();
         }
 
         private void CheckAdvancedInclude_Change(global::System.Object sender, global::System.Boolean user)
         {
-            this.Controller.IncludeChanged();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.IncludeChanged();
         }
 
         private void CheckAdvancedModrinth_Change(global::System.Object sender, global::System.Boolean user)
         {
-            this.Controller.ModrinthChanged();
+            if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.ModrinthChanged();
         }
     }
 }

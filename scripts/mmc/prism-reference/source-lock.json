@@ -1,0 +1,177 @@
+{
+  "commit": "899d2f3957215a09fe398a8a8cbb8a8a9c619968",
+  "files": [
+    {
+      "path": "buildconfig/BuildConfig.h",
+      "sha256": "2fc495aa343be551bfb3e215512a0ead0bd530fcb18173f75e02fddc5913e557"
+    },
+    {
+      "path": "COPYING.md",
+      "sha256": "9729ddd9ab5896561e181ef8e1d4271f938e4f9716df0053aa6ccc41381fd40e"
+    },
+    {
+      "path": "launcher/BaseVersion.h",
+      "sha256": "13a5d00840776a340b245a30ad90f537ac55ca761275943dac74dd9fdc39490e"
+    },
+    {
+      "path": "launcher/FileSystem.cpp",
+      "sha256": "5f043ddf85e7312e95210eb32c3b02718ba66bd9767d607e2bd0e207edb42135"
+    },
+    {
+      "path": "launcher/FileSystem.h",
+      "sha256": "6c99c6fd9403889c6781de0d24207c318ae0abdaf8bfd5f3c4affdeeec6657c9"
+    },
+    {
+      "path": "launcher/java/JavaMetadata.cpp",
+      "sha256": "e3d9230c27480f35e4d4b2a15d96470a68ab4d83f7d20fa37aa5a6fbe2136d54"
+    },
+    {
+      "path": "launcher/java/JavaMetadata.h",
+      "sha256": "ff77e5cbf4985155b3b96bca209311896e039e6d1f090ebfe53df79c411a1cbd"
+    },
+    {
+      "path": "launcher/java/JavaUtils.h",
+      "sha256": "27b769cedc2271bccf6f4bbdf9c60fc590de78aea28c856c0f8500dcbc8f0a9f"
+    },
+    {
+      "path": "launcher/java/JavaVersion.cpp",
+      "sha256": "2f0301dbe3459c80121dd1d1662240a57e1b68429da90f0d7e0c96c6ce077308"
+    },
+    {
+      "path": "launcher/java/JavaVersion.h",
+      "sha256": "18cc311fc822de5a848192783f4cddbe5c83ee6d74adbc6fe8a2f939fc1b794d"
+    },
+    {
+      "path": "launcher/Json.cpp",
+      "sha256": "60279461c1ee2bc70b9f6ac28f33be7b8e009b708717c96d45687a7118419b86"
+    },
+    {
+      "path": "launcher/Json.h",
+      "sha256": "b73c407c452d80be27043fdc41964e8abb798e8a95d85e43b35fe957a9765332"
+    },
+    {
+      "path": "launcher/meta/JsonFormat.cpp",
+      "sha256": "82d4bcade535ef466f380960b3ace16266f735f33f29965d90e8b35dd93b8818"
+    },
+    {
+      "path": "launcher/meta/JsonFormat.h",
+      "sha256": "3ab9ca2eb2efd1fd352201e888c361c8c0bc146f5b135567be198f4f6409cca7"
+    },
+    {
+      "path": "launcher/minecraft/Agent.h",
+      "sha256": "a7fabf2e4b9e0526ee210fcc13aefc443d64a41ecdbdc0f282a4f623c5103fad"
+    },
+    {
+      "path": "launcher/minecraft/GradleSpecifier.h",
+      "sha256": "58c3b42c531bc4b4feb72ae447ea888ef986a80e20ae0517f3e033d5de50408d"
+    },
+    {
+      "path": "launcher/minecraft/LaunchProfile.cpp",
+      "sha256": "81157555c1d7ad93f613b57d18e892b2f4b41d274cddd9dd0fa69cb27b31a30b"
+    },
+    {
+      "path": "launcher/minecraft/LaunchProfile.h",
+      "sha256": "a6affaf1252e4bbe2f987ab5e254fde8fb18b15d38d3aee84d7777f8fcc166a8"
+    },
+    {
+      "path": "launcher/minecraft/Library.cpp",
+      "sha256": "ea809ec6dbc5782867bd3686ab8d5ca4353c6a2facbf64d2b78737e1155c0beb"
+    },
+    {
+      "path": "launcher/minecraft/Library.h",
+      "sha256": "80705ba01517ccdc6725dcec9acabb316cb11ae978f906efeeb85ef4243df341"
+    },
+    {
+      "path": "launcher/minecraft/MinecraftInstance.cpp",
+      "sha256": "a3c588370408cea87a37d7aa4e17148e4f8daea8015a24c952978e9bfa919355"
+    },
+    {
+      "path": "launcher/minecraft/MinecraftInstance.h",
+      "sha256": "ddae426a3ce2a5af676869b4fcca38effdba7766c6c95953de082fb29bc54ce1"
+    },
+    {
+      "path": "launcher/minecraft/MojangDownloadInfo.h",
+      "sha256": "eb6c2869bb68beb2cc5ac7ef31a70e84868126110fbb0528d90c3c11c3616ebd"
+    },
+    {
+      "path": "launcher/minecraft/MojangVersionFormat.cpp",
+      "sha256": "6de1b17780912ac3c3367c420326280a5c6dc8eb995a804c256dab0c80da4e8e"
+    },
+    {
+      "path": "launcher/minecraft/MojangVersionFormat.h",
+      "sha256": "785e362cb10a6ae1cbd373a432af93e1f47dfb8b7cb88f775452a5aa55435766"
+    },
+    {
+      "path": "launcher/minecraft/OneSixVersionFormat.cpp",
+      "sha256": "ea943114d030e7566d1f93c0508d3bc3334ec15b2abfd725f644165b8edc768b"
+    },
+    {
+      "path": "launcher/minecraft/OneSixVersionFormat.h",
+      "sha256": "0e8f746bbb4ee7c8d1d90ca40ec7ead80d9699a84992157c3d8d02c4ead81af4"
+    },
+    {
+      "path": "launcher/minecraft/PackProfile.cpp",
+      "sha256": "db875101f76a0aaa4325f5cf60cfe841b5e0ab25d330d88177fee11861ea0c51"
+    },
+    {
+      "path": "launcher/minecraft/PackProfile.h",
+      "sha256": "71675aced65cfb05746d60d35005f6d7bb0c3d72e59620577abdc3a995c22052"
+    },
+    {
+      "path": "launcher/minecraft/ParseUtils.cpp",
+      "sha256": "12e8cbae11d2bcd5dca83d077f6f749aa64d8fcb224fa951132162a26e16f2cd"
+    },
+    {
+      "path": "launcher/minecraft/ParseUtils.h",
+      "sha256": "2aaf6a1026bd946ab3f3d4f4e52a5ba97dccc8d9a088b581fca061762b9416c0"
+    },
+    {
+      "path": "launcher/minecraft/Rule.cpp",
+      "sha256": "767e0ebb9356882a01d96c94a0a3747e10eea5f9e16d6e7cc68c8149c52f2568"
+    },
+    {
+      "path": "launcher/minecraft/Rule.h",
+      "sha256": "a4f28a4846ee658fa5529cdb10e6060c855e5f75112406ec855350064832713c"
+    },
+    {
+      "path": "launcher/minecraft/VersionFile.cpp",
+      "sha256": "9eb6ed49e2955edd3acc0e850fe5ac92772df36cbd5970d3dde13757a64da48b"
+    },
+    {
+      "path": "launcher/minecraft/VersionFile.h",
+      "sha256": "f9a4852c244be26e5cf3ec2ffb615a67c5a244ea98b4b21afdd2055e71c84960"
+    },
+    {
+      "path": "launcher/ProblemProvider.h",
+      "sha256": "2b1fc77e2860b2d11423f3c9b1ec2babd3e1144012f640689aae7454cef23be4"
+    },
+    {
+      "path": "launcher/Result.h",
+      "sha256": "2f002e2fe8d03c15350f0e066bd3a790faa7602fbed36e55673455121fdc83c4"
+    },
+    {
+      "path": "launcher/RuntimeContext.h",
+      "sha256": "e696a6f4bcf01e0ae006d986b943fb72b823deca196e7f9b8be030309c178d4f"
+    },
+    {
+      "path": "launcher/StringUtils.cpp",
+      "sha256": "25b0538c4e102cd1ba821859bf67ff12518c438f20e33c7ace33ae8f696bdf2c"
+    },
+    {
+      "path": "launcher/StringUtils.h",
+      "sha256": "53c2b4db9230b1080e99d9fddf24c9edfd40a192d40e662ab9e0e3c00a61f951"
+    },
+    {
+      "path": "launcher/Version.cpp",
+      "sha256": "192eb01771eace81c22e64a873b56a385ded2dc9d2724f39d3760739cfbea264"
+    },
+    {
+      "path": "launcher/Version.h",
+      "sha256": "295efb1d8dfd11e4d64651130bd7fdbd7ab83e9ae39c5494945186c5551509f4"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    }
+  ]
+}

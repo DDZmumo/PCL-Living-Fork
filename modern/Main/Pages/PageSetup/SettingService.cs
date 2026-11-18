@@ -29,7 +29,7 @@ namespace PCL
         }
         public static void ResetSettings(DependencyObject Target)
         {
-            LegacySettingsBindingController.ResetSettings(Target, KeyProperty, Key => Settings.Reset(Key, Instance: PageInstanceLeft.Instance));
+            LegacySettingsBindingController.ResetSettings(Target, KeyProperty, Key => Settings.ResetInstanceUserPreference(Key, Instance: PageInstanceLeft.Instance));
         }
         public static void RefreshSettings(DependencyObject Target)
         {
@@ -43,7 +43,7 @@ namespace PCL
         public static void SaveSetting(object sender)
         {
             LegacySettingsBindingController.SaveSetting(sender, ModAnimation.AniControlEnabled, Control => Control is ISettingControl, KeyProperty, Control => ((ISettingControl)Control).GetCurrentSetting(), (Key, Value) =>
-                Settings.Set(Key, Value, Instance: PageInstanceLeft.Instance));
+                Settings.SetInstanceUserPreference(Key, Value, Instance: PageInstanceLeft.Instance));
         }
     }
 

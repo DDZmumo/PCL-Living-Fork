@@ -17,7 +17,18 @@ public sealed class InstanceNavigationController<TInstance, TId, TItem, TButton,
     public InstanceNavigationController(InstanceNavigationView<TItem> view, InstanceNavigationHost<TInstance, TId, TItem, TButton, TPage, TResource> host) { this.view = view; this.host = host; }
     private static int Code(TId id) => Convert.ToInt32(id);
     private static TId Id(int code) => (TId)Enum.ToObject(typeof(TId), code);
-    public void Loaded() => host.HiddenRefresh();
+    private TId NormalizeId(TId id) {
+        id = host.Normalize(id);
+        if (host.NormalizeForContext is null) return id;
+        int code = Code(id);
+        int next = host.NormalizeForContext(code);
+        return next == code ? id : Id(next);
+    }
+    public void Loaded() {
+        host.SyncContext?.Invoke();
+        host.HiddenRefresh();
+        host.SyncContext?.Invoke();
+    }
     public void InitializeButtons() {
         // Semantic sidebar glyphs belong to the actual page's BAML. Do not
         // replace its keyboard/history/copy icons with unrelated navigation art.
@@ -32,26 +43,30 @@ public sealed class InstanceNavigationController<TInstance, TId, TItem, TButton,
         view.Mod.Visibility = modable ? Visibility.Visible : Visibility.Collapsed; view.ModDisabled.Visibility = modable ? Visibility.Collapsed : Visibility.Visible;
     }
     public void Check(FrameworkElement sender) { if (!host.IsSyncingSelection() && sender.Tag is not null) PageChange(Id(Conversions.ToInteger(Conversion.Val(sender.Tag)))); }
-    public TItem NavigationItem(TId id) { id = host.Normalize(id); return view.Items.Children.OfType<TItem>().First(item => Conversions.ToInteger(item.Tag) == Code(id)); }
+    public TItem NavigationItem(TId id) { host.SyncContext?.Invoke(); id = NormalizeId(id); return view.Items.Children.OfType<TItem>().First(item => Conversions.ToInteger(item.Tag) == Code(id)); }
     public void SyncSelection(TId id) {
-        id = host.Normalize(id);
+        host.SyncContext?.Invoke();
+        id = NormalizeId(id);
         TItem item = NavigationItem(id);
         host.SetSyncingSelection(true);
         try { host.SetPageId(id); host.SetCheckedState(item, true, false, false); }
         finally { host.SetSyncingSelection(false); }
     }
     public TPage PageGet(TId id) {
-        if (Code(id) == -1) id = host.PageId(); id = host.Normalize(id); int code = Code(id);
+        host.SyncContext?.Invoke();
+        if (Code(id) == -1) id = host.PageId(); id = NormalizeId(id); int code = Code(id);
         if (code >= 6 && code <= 10) {
             if (!host.ResourcePages.ContainsKey(id)) host.ResourcePages[id] = host.CreateResource(code - 6);
             return host.ResourcePages[id];
         }
+        if (host.ResolveContextPage?.Invoke(code) is { } contextPage) return contextPage;
         if (!host.ReadPage.ContainsKey(code)) throw new Exception("未知的版本设置子页面种类：" + Conversions.ToString(code));
         if (host.ReadPage[code]() is null) host.WritePage[code](host.CreatePage[code]());
         return host.ReadPage[code]()!;
     }
     public void PageChange(TId id) {
-        id = host.Normalize(id); if (Code(host.PageId()) == Code(id)) return;
+        host.SyncContext?.Invoke();
+        id = NormalizeId(id); if (Code(host.PageId()) == Code(id)) return;
         if (host.Instance() is not null && host.BlocksNavigation(host.Instance()!)) { SyncSelection(host.PageId()); host.HintRed("该版本正在被修改，请稍后再切换页面！"); return; }
         if (host.Locked(host.Instance()!) && InstanceNavigationRules.IsEditingPage(Code(id))) { SyncSelection(host.PageId()); host.HintRed("文件任务进行中，可浏览版本内容，请稍后再修改版本设置。"); return; }
         host.AdjustAnimation(1);
@@ -63,8 +78,13 @@ public sealed class InstanceNavigationController<TInstance, TId, TItem, TButton,
     public void RefreshTag(object tag) => Refresh(Id(Conversions.ToInteger(Conversion.Val(tag))));
     public void Refresh() => Refresh(host.CurrentSubPage());
     public void Refresh(TId id) {
-        int code = Code(id); if (host.ModpackEnabled() && code == 5) return;
+        host.SyncContext?.Invoke();
+        id = NormalizeId(id);
+        int code = Code(id);
+        bool isMmc = host.IsMmcContext?.Invoke() == true;
+        if (!isMmc && host.ModpackEnabled() && code == 5) return;
         if (host.Instance() is not null && host.BlocksNavigation(host.Instance()!)) { host.HintRed("该版本正在被修改，请稍后再刷新！"); return; }
+        if (isMmc && host.RefreshContextPage is not null && host.RefreshContextPage(code)) { host.SetChecked(NavigationItem(id), true); return; }
         switch (code) {
             case 3: host.RefreshMods(); host.SetChecked(view.Mod, true); break;
             case 5: host.RefreshExport(); host.SetChecked(view.Export, true); break;

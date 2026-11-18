@@ -24,6 +24,8 @@ public abstract class LegacySettingData<TInstance> where TInstance : class {
     public Action<object>? OnChanged;
     public Type Type = null!;
     public ConcurrentDictionary<string, object> ValueCache = new();
+    // Optional immutable instance identity namespace. Disk paths remain unchanged.
+    public Func<TInstance, string>? InstanceCacheKey;
 
     protected LegacySettingData(string key, object? value, bool encrypted, Action<object>? onChanged,
         Action<Exception, string> logInitializationError) {
@@ -42,12 +44,13 @@ public abstract class LegacySettingData<TInstance> where TInstance : class {
     // read that same field instead of introducing a duplicate Source property.
     public abstract LegacySettingSource GetSourceCode();
     protected abstract string GetInstancePath(TInstance instance);
+    public string GetInstanceCacheKey(TInstance instance) => InstanceCacheKey?.Invoke(instance) ?? GetInstancePath(instance);
     public object? GetCache(TInstance? instance) {
-        string key = GetSourceCode() == LegacySettingSource.Instance ? GetInstancePath(instance!) : "";
+        string key = GetSourceCode() == LegacySettingSource.Instance ? GetInstanceCacheKey(instance!) : "";
         return ValueCache.TryGetValue(key, out object? value) ? value : null;
     }
     public void Set(object value, TInstance? instance) {
-        string key = GetSourceCode() == LegacySettingSource.Instance ? GetInstancePath(instance!) : "";
+        string key = GetSourceCode() == LegacySettingSource.Instance ? GetInstanceCacheKey(instance!) : "";
         ValueCache[key] = value;
     }
     public abstract void Save(TInstance? instance = null);
@@ -75,6 +78,16 @@ public sealed class LegacySettingsHost<TInstance> where TInstance : class {
     public Func<string, string, string?, string?> ReadIni = null!;
     public Action<string, string, string?> WriteIni = null!;
     public Action<string, string> DeleteIni = null!;
+    // Instance-specific hosts retain immutable configuration identity at the path-only INI boundary.
+    // Validation is data-only; global/account storage and legacy test hosts keep their existing path.
+    public Action<TInstance>? ValidateInstanceConfiguration;
+    // Must derive from the owner's fixed stamp/attachment epoch, never the path's mutable current ID.
+    public Func<TInstance, string>? InstanceCacheKey;
+    public Action<TInstance, string>? ValidateInstanceSettingWrite;
+    public Func<TInstance, string, string?, string?>? ReadInstanceIni;
+    public Func<TInstance, string, bool>? HasInstanceIni;
+    public Action<TInstance, string, string?>? WriteInstanceIni;
+    public Action<TInstance, string>? DeleteInstanceIni;
     public Func<string, string, bool> HasIni = null!;
     public Func<string, string, string?, string?> ReadRegistry = null!;
     public Action<string, string, string?> WriteRegistry = null!;
