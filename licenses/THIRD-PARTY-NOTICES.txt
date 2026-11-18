@@ -786,6 +786,11 @@ modern/Main/Modules/Minecraft/ModDownloadDependencies.cs
 tests/PCLLF.Native.Facade.Tests/ModDownloadDependencyChecks.cs
 tests/PCLLF.Native.Facade.Tests/BackupPreferenceChecks.cs
 tests/PCLLF.Native.Facade.Tests/InstanceListScanChecks.cs
+PCLCS/Launch/NeoForgeKeybindPatch.cs
+modern/Java/NeoForgeKeybindPatch/Build.ps1
+modern/Java/NeoForgeKeybindPatch/src/Agent.java
+modern/Java/NeoForgeKeybindPatch/src/SaveTransformer.java
+modern/Java/NeoForgeKeybindPatch/src/KeybindWriter.java
 
 
 ========================================================================

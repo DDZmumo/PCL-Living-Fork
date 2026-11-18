@@ -193,6 +193,22 @@ public List<string> McLaunchArgumentsJVM()
             Args.Add($"-javaagent:\"{LaunchUtils.ExtractPatch(@"Launch\LwjglUnsafeAgent.jar", host.PureFolder())}\"");
         McLaunchLog("使用 LUA：" + UseLUA);
 
+        var gameVersion = McInstanceSelected.Version;
+        if (CurrentLaunchOptions?.SaveBatch is null && gameVersion.Reliable &&
+            gameVersion.ModLoaderVersions.TryGetValue(ModLoaders.NeoForge, out var neoForgeVersion) &&
+            NeoForgeKeybindPatch.Applies(gameVersion.VanillaName, neoForgeVersion, McLaunchJavaSelected.Version.Major))
+        {
+            try
+            {
+                string agent = NeoForgeKeybindPatch.StageLegacy(host.PureFolder());
+                Args.Add($"\"-javaagent:{agent}\"");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                Logger.Warn(error, "未能应用 NeoForge 1.21.1 模组键位保护");
+            }
+        }
+
         #region 内存管理
 
         McLaunchLog("当前剩余内存：" + Math.Round(host.AvailablePhysicalMemory() / 1024d / 1024d / 1024d * 10d) / 10 + "G");

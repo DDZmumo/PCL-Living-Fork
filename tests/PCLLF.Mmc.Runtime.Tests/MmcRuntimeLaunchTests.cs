@@ -24,11 +24,40 @@ internal static partial class MmcRuntimeLaunchTests {
         yield return ("MMC launch plan applies the package environment mapping at the real process boundary", EnvironmentBoundary);
         yield return ("MMC package wrapper composes with each Java wrapper mode at the real process boundary", WrapperCommandBoundary);
         yield return ("MMC wrapped launch places the inner Java session nonce after innerEntry and enforces the Windows 32767 budget", WrapperNonceBudget);
+        yield return ("NeoForge 1.21.1 keybind patch is included only as verified, owned JVM support", KeybindPatchSupport);
     }
     private static void BridgeIdentity() {
         byte[] bytes = MmcRuntimeBridgeTransport.CreateJarBytes();
         string digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
         if (digest != MmcRuntimeBridgeTransport.JarSha256() || !MmcRuntimeBridgeTransport.JavaSource.Contains("getSystemClassLoader", StringComparison.Ordinal)) throw new Exception("Bridge identity/source missing.");
+    }
+    private static void KeybindPatchSupport() {
+        Require(NeoForgeKeybindPatch.Applies("1.21.1", "21.1.243", 21) &&
+            !NeoForgeKeybindPatch.Applies("1.21.5", "21.5.1", 21) &&
+            !NeoForgeKeybindPatch.Applies("1.21.1", "21.1.243", 17) &&
+            !NeoForgeKeybindPatch.Applies("1.21.1", "47.4.0", 21), "The ordinary launch version gate is too broad.");
+        using var fixture = new Fixture(21, loader: false, wrapperMode: MmcRuntimeWrapperMode.DirectMain, neoForgeProfile: true);
+        var request = fixture.Request;
+        Require(NeoForgeKeybindPatch.Applies(request.BoundPlan.CompiledProfile, request.Java.Major), "The bound NeoForge profile was not recognized.");
+        string legacy = NeoForgeKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache"));
+        Require(Hash(File.ReadAllBytes(legacy)) == NeoForgeKeybindPatch.Sha256, "Legacy staged bytes did not match the embedded patch.");
+        File.WriteAllText(legacy, "damaged cache");
+        Require(NeoForgeKeybindPatch.StageLegacy(Path.Combine(fixture.Root, "launcher cache")) == legacy &&
+            Hash(File.ReadAllBytes(legacy)) == NeoForgeKeybindPatch.Sha256, "A stale cache could be loaded as a Java agent.");
+        Require(NeoForgeKeybindPatch.CanUsePath(legacy) && !NeoForgeKeybindPatch.CanUsePath(legacy + "=suffix"),
+            "A path with the agent options separator was admitted.");
+
+        var plan = MmcRuntimeLaunchBuilder.BuildAsync(request).GetAwaiter().GetResult();
+        string support = Path.Combine(plan.MutableDirectories.SessionRoot, NeoForgeKeybindPatch.FileName);
+        Require(plan.Inputs.Any(input => input.Identity == "support:neoforge-keybinds" &&
+                input.Sha256 == NeoForgeKeybindPatch.Sha256 && input.ActualPath == support) &&
+            NeoForgeKeybindPatch.CanUsePath(support) && plan.LogicalJvmArguments.Contains("-javaagent:" + support.Replace('\\', '/')),
+            "The verified patch did not survive into the JVM arguments and final input observations.");
+        MmcRuntimeLaunchBuilder.RevalidateFilesAsync(plan).GetAwaiter().GetResult();
+        File.AppendAllText(support, "changed after launch plan");
+        try { MmcRuntimeLaunchBuilder.RevalidateFilesAsync(plan).GetAwaiter().GetResult(); }
+        catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_RUNTIME_INPUT_CHANGED") { return; }
+        throw new Exception("A modified keybind agent survived final input validation.");
     }
     private static string Java17 => RequiredJava("PCLLF_MMC_TEST_JAVA17");
     private static string Java8 => RequiredJava("PCLLF_MMC_TEST_JAVA8");
@@ -115,7 +144,8 @@ public final class TestLoader extends ClassLoader {
         internal MmcRuntimeLaunchRequest Request { get; }
         internal MmcResolvedProfile Sources { get; }
         internal Fixture(int javaMajor = 17, bool multiRelease = false, bool loader = true, string? unknownArgument = null, MmcRuntimeWrapperMode wrapperMode = MmcRuntimeWrapperMode.JavaWrapper,
-            bool unmarkedVersions = false, bool laterTooNew = false, bool firstTooNew = false, bool longClasspath = false, Func<byte[], byte[]>? firstJarTransform = null) {
+            bool unmarkedVersions = false, bool laterTooNew = false, bool firstTooNew = false, bool longClasspath = false, Func<byte[], byte[]>? firstJarTransform = null,
+            bool neoForgeProfile = false) {
             Root = Path.Combine(Path.GetTempPath(), "PCLLF-MmcRuntimeTests", "run-" + Guid.NewGuid().ToString("N"));
             string instance = Path.Combine(Root, "versions", "实例 space");
             if (longClasspath) instance = Path.Combine(Root, "versions", "deep-" + new string('d', Math.Max(1, 139 - Root.Length - "\\versions\\deep-\\minecraft".Length)));
@@ -137,13 +167,16 @@ public final class TestLoader extends ClassLoader {
             string game = "--username ${auth_player_name} --uuid ${auth_uuid} --accessToken ${auth_access_token} --session ${auth_session} --userType ${user_type} --userProperties ${user_properties} --profile ${profile_name} --mc ${version_name} --type ${version_type} --gameDir ${game_directory} --assetsDir ${assets_root} --assetIndex ${assets_index_name} --libraries ${library_directory} --primary ${primary_jar} --width ${resolution_width} --height ${resolution_height} --value '' --trail 'tail\\' --中文 '中文 path'";
             if (longClasspath) game += " --cpEquivalent ${classpath}";
             if (unknownArgument is not null) game += " " + unknownArgument;
+            string minecraftVersion = neoForgeProfile ? "1.21.1" : "1.7.10";
+            string mainClass = neoForgeProfile ? "cpw.mods.bootstraplauncher.BootstrapLauncher" : "fixture.Probe";
+            if (neoForgeProfile) game += " --fml.neoForgeVersion 21.1.243";
             string patch = JsonSerializer.Serialize(new Dictionary<string, object?> {
-                ["uid"] = "net.minecraft", ["version"] = "1.7.10", ["type"] = "release", ["mainClass"] = "fixture.Probe", ["mainJar"] = Library("fixture:main:1:client", main),
+                ["uid"] = "net.minecraft", ["version"] = minecraftVersion, ["type"] = "release", ["mainClass"] = mainClass, ["mainJar"] = Library("fixture:main:1:client", main),
                 ["libraries"] = libraries.Select(name => Library("fixture:" + name + ":1", jarBytes[name])).ToArray(),
                 ["minecraftArguments"] = game, ["compatibleJavaMajors"] = new[] { 8, 17, 21, 24, 26 },
                 ["+jvmArgs"] = loader ? new[] { "-Djava.system.class.loader=fixture.TestLoader" } : [], ["+tweakers"] = loader ? new[] { "fixture.Tweak" } : []
             });
-            string manifest = "{\"formatVersion\":1,\"components\":[{\"uid\":\"net.minecraft\",\"version\":\"1.7.10\"}]}";
+            string manifest = JsonSerializer.Serialize(new { formatVersion = 1, components = new[] { new { uid = "net.minecraft", version = minecraftVersion } } });
             Dictionary<string, string> metadata = new() { ["mmc-pack.json"] = manifest, ["patches/net.minecraft.json"] = patch };
             var parsed = MmcPackageReader.Parse(new(metadata.Select(m => new MmcArchiveEntry(m.Key)).ToArray(), metadata));
             var resolved = MmcComponentResolver.Resolve(parsed, []); Require(resolved.IsComplete, "Runtime fixture source resolution failed.");
@@ -161,7 +194,7 @@ public final class TestLoader extends ClassLoader {
             string bundle = new('b', 64), prefix = "PCL/MmcSource/" + bundle + "/";
             var definition = new MmcInstanceDefinition(1, "Mmc", "prism-v1", Guid.NewGuid(), 1, new(new string('a', 64), "fixture.zip"),
                 new("", bundle, plan.SourceFingerprint, [new("mmc-pack.json", Hash(Encoding.UTF8.GetBytes(manifest)), prefix + "mmc-pack.json", MmcSourceRecordKind.Manifest),
-                    new("patches/net.minecraft.json", Hash(Encoding.UTF8.GetBytes(patch)), prefix + "patches/net.minecraft.json", MmcSourceRecordKind.Component, "net.minecraft", "1.7.10", MmcComponentSourceKind.PackageLocal)]), new("minecraft"), [], [], []);
+                    new("patches/net.minecraft.json", Hash(Encoding.UTF8.GetBytes(patch)), prefix + "patches/net.minecraft.json", MmcSourceRecordKind.Component, "net.minecraft", minecraftVersion, MmcComponentSourceKind.PackageLocal)]), new("minecraft"), [], [], []);
             var bound = MmcPlanBinder.Bind(definition, plan, facts, new(1, 1, MmcBindingIntent.InitialImport, Hash(Encoding.UTF8.GetBytes("{}")), 1)); Require(!bound.HasErrors, "Runtime fixture byte binding failed.");
             foreach (var item in metadata) { string path = paths.ResolveRelative(MmcPathRole.Instance, prefix + item.Key); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, item.Value, new UTF8Encoding(false)); }
             File.WriteAllText(paths.ResolveRelative(MmcPathRole.Instance, "PCL/InstanceDefinition.json"), MmcDefinitionCodec.Serialize(bound.Definition!), new UTF8Encoding(false));
