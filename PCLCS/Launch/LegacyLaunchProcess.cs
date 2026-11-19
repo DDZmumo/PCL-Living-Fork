@@ -69,9 +69,18 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
         start.StandardOutputEncoding = McLaunchEncoding; start.StandardErrorEncoding = McLaunchEncoding;
         start.RedirectStandardOutput = true; start.RedirectStandardError = true; start.CreateNoWindow = true; start.Arguments = McLaunchArgument;
         if (host.WorldBackupsBusy() || host.ClonerUiBusy() || host.HistoryUiBusy()) throw new OperationCanceledException("正在备份或修改游戏环境，请稍后再启动。");
-        host.RecoverWorlds(McInstanceSelected.PathIndie, loader.CreateCancellationToken());
+        CancellationToken token = loader.CreateCancellationToken();
+        host.RecoverWorlds(McInstanceSelected.PathIndie, token);
+        using var localSkin = host.PrepareLocalSkin?.Invoke(McLoginLoader.Output, McLaunchJavaSelected, start, token);
+        token.ThrowIfCancellationRequested();
         Process game = host.StartProcess(start); McLaunchLog("已启动游戏进程：" + McLaunchJavaSelected.JavaExePath);
         if (loader.IsCanceled) { McLaunchLog("由于取消启动，已强制结束游戏进程"); game.Kill(); return; }
+        try { localSkin?.Attach(game, token); }
+        catch {
+            try { if (!game.HasExited) game.Kill(); }
+            finally { game.Dispose(); }
+            throw;
+        }
         loader.Output = game; host.StoreProcess(game);
         try {
             game.PriorityBoostEnabled = true;

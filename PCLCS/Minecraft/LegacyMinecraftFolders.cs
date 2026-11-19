@@ -94,13 +94,11 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         }
         if (ReadInteger("VersionServerLogin", value) == 3)
             host.Instance.WriteString("CacheNideServer", ReadString("VersionServerNide", value), null);
-        if (host.AnimationControlEnabled() == 0 &&
-            Operators.CompareString(ReadString("VersionServerAuthServer", value), ReadString("CacheAuthServerServer"), false) != 0 &&
-            ReadInteger("VersionServerLogin", value) == 4) {
-            host.Instance.WriteString("CacheAuthAccess", "", null);
-            Logger.Info("服务器改变，要求重新登录 Authlib-Injector");
-        }
         if (ReadInteger("VersionServerLogin", value) == 4) {
+            if (!AuthlibEndpoint.Same(AuthlibEndpoint.ForServer(ReadString("VersionServerAuthServer", value)), ReadString(AuthlibEndpoint.CredentialServerSetting))) {
+                host.Instance.WriteString("CacheAuthAccess", "", null);
+                Logger.Info("服务器改变，要求重新登录 Authlib-Injector");
+            }
             host.Instance.WriteString("CacheAuthServerServer", ReadString("VersionServerAuthServer", value), null);
             host.Instance.WriteString("CacheAuthServerName", ReadString("VersionServerAuthName", value), null);
             host.Instance.WriteString("CacheAuthServerRegister", ReadString("VersionServerAuthRegister", value), null);

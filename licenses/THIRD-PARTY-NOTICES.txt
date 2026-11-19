@@ -834,6 +834,8 @@ modern/Main/Glass/GlassPresentation.Memory.cs
 modern/Main/Glass/GlassPresentation.Resources.cs
 modern/Main/Glass/GlassPresentation.Tasks.cs
 modern/Main/Glass/GlassResourceInfo.cs
+modern/Main/Glass/GlassAccountWorkspace.cs
+modern/Main/Glass/GlassSkinHead.cs
 modern/Main/Glass/GlassPresentation.cs
 modern/Main/Glass/GlassPresentationResources.xaml
 modern/Main/Glass/GlassToastHost.cs

@@ -121,15 +121,28 @@ public sealed class LegacyPageSetupUIController {
     public void BackgroundRefreshUI(bool show, int count) {
         if (PanBackgroundOpacity is null) return;
         CheckBackgroundColorful.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        SetBackgroundEditorsVisible(show);
         if (show) {
-            PanBackgroundOpacity.Visibility = Visibility.Visible; PanBackgroundBlur.Visibility = Visibility.Visible; PanBackgroundSuit.Visibility = Visibility.Visible;
             BtnBackgroundClear.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
             CardBackground.Title = count > 0 ? "背景图片（" + count + " 张）" : "背景图片（默认角色背景）";
         } else {
-            PanBackgroundOpacity.Visibility = Visibility.Collapsed; PanBackgroundBlur.Visibility = Visibility.Collapsed; PanBackgroundSuit.Visibility = Visibility.Collapsed;
             BtnBackgroundClear.Visibility = Visibility.Collapsed; CardBackground.Title = "背景图片（原生白底）";
         }
         CardBackground.TriggerForceResize();
+    }
+
+    public void RefreshLauncherWallpaperUI(bool hasWallpaper) {
+        if (PanBackgroundOpacity is null) return;
+        SetBackgroundEditorsVisible(hasWallpaper);
+        CardBackground.Title = "背景图片";
+        CardBackground.TriggerForceResize();
+    }
+
+    private void SetBackgroundEditorsVisible(bool show) {
+        Visibility visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        PanBackgroundOpacity.Visibility = visibility;
+        PanBackgroundBlur.Visibility = visibility;
+        PanBackgroundSuit.Visibility = visibility;
     }
     public void ClearBackground() {
         if (Common.Message("即将删除背景图片文件夹中的所有文件。\r\n此操作不可撤销，是否确定？", "警告", button2: "取消", warning: true) == 1) {

@@ -229,7 +229,9 @@ internal static class GlassMotionChecks
             System.Windows.Automation.AutomationProperties.GetItemStatus(button) == string.Empty &&
             System.Windows.Automation.AutomationProperties.GetItemStatus(Part<Button>(view, "NavLaunch")) == "当前页面",
             "A hover replaced the persistent selection or lost its independent low-amplitude presentation.");
-        Check(!ReferenceEquals(layer.Background, selection.Background) && selection.Child is Border marker && marker.Width == 3 &&
+        Check(selection.Child is null && Part<Border>(view, "SidebarSelection").Child is null,
+            "The navigation selection backgrounds should not contain indicator bars.");
+        Check(!ReferenceEquals(layer.Background, selection.Background) &&
             !selection.IsHitTestVisible && !layer.IsHitTestVisible && button.FocusVisualStyle is not null &&
             button.TransformToAncestor(view).TransformBounds(new Rect(button.RenderSize)) == bounds,
             "Hover/selection/focus layers were merged or feedback moved the navigation hit rectangle.");

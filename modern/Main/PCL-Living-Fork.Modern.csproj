@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
 <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting><CETCompat>false</CETCompat>
-<OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.Application</StartupObject>
+<OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.LauncherEntryPoint</StartupObject>
 <EnableDefaultCompileItems>false</EnableDefaultCompileItems><EnableDefaultPageItems>false</EnableDefaultPageItems><EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
 <GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><EnableLegacyLink>false</EnableLegacyLink><DefineConstants Condition="'$(EnableLegacyLink)' == 'true'">$(DefineConstants);LEGACY_LINK</DefineConstants><AllowUnsafeBlocks>true</AllowUnsafeBlocks><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
 </PropertyGroup>

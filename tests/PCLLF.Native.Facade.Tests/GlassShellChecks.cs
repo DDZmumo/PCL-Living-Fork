@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Runtime.InteropServices;
 using PCLLF.Wpf.Glass;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -65,6 +66,8 @@ internal static class GlassShellChecks
             LeftwardRailExpansion(window, view, icon);
             RailMaterialIsolation(window, view, icon);
             DesktopMaterial(window, view, icon);
+            ExtendedWallpaperSample(window);
+            VideoFrameContinuity(window);
             BrandVector(window, view, icon);
             AvatarPixelGrid(window, view, icon);
             Layout(window, view, 1120, 720);
@@ -76,6 +79,7 @@ internal static class GlassShellChecks
             Portals(window, view, icon);
             ContentHost(view, icon);
             GlassMotionChecks.Run(window, view, icon);
+            StartupSplash(window, view, icon);
             environment.AssertNoForbiddenIo();
         }
         finally
@@ -91,6 +95,78 @@ internal static class GlassShellChecks
         }
         Native.Check(app.Windows.Count == previousWindowCount, "Glass shell checks left an owned window open.");
         Console.WriteLine("PASS glass shell: genuine WPF workbench, two rounded surfaces and transparent gap, internal wallpaper, crisp layered pixel avatar, vertical navigation, three-pane single-instance launch pane, default/minimum layout and targets, events, snapshots/toggles, reversible options and accessible panels.");
+    }
+
+    private static void VideoFrameContinuity(Window window)
+    {
+        var preferences = typeof(GlassSurface).Assembly.GetType("PCLLF.Wpf.Glass.GlassSystemPreferences", throwOnError: true)!;
+        if (SystemParameters.HighContrast || !(bool)Native.Property(preferences, "TransparencyEnabled").GetValue(null)!) return;
+        var viewport = (Canvas)window.Content;
+        var drawing = new GeometryDrawing(Brushes.Red, null, new RectangleGeometry(new Rect(0, 0, 160, 90)));
+        var host = new Image { Source = new DrawingImage(drawing), Width = 400, Height = 300, Stretch = Stretch.UniformToFill };
+        BitmapSource? presented = null;
+        int publications = 0;
+        using var sampler = new VideoWallpaperSampler(window.Dispatcher, source => {
+            if (source is BitmapSource frame) { presented = frame; publications++; }
+        });
+        viewport.Children.Add(host);
+        try {
+            sampler.SetHost(host);
+            sampler.SetPaused(false);
+            byte[] pixel = new byte[4];
+            bool PixelMatches(byte blue, byte red) {
+                if (presented is not { } frame) return false;
+                frame.CopyPixels(new Int32Rect(frame.PixelWidth / 2, frame.PixelHeight / 2, 1, 1), pixel, 4, 0);
+                return pixel[0] == blue && pixel[2] == red && pixel[3] == 255;
+            }
+            VisualAssetChecks.Pump(() => PixelMatches(0, 255), "first video wallpaper sample");
+            drawing.Brush = Brushes.Transparent;
+            host.Width += 15;
+            VisualAssetChecks.Observe(160);
+            Native.Check(PixelMatches(0, 255), "An empty video readback replaced the last good frame.");
+            drawing.Brush = Brushes.Blue;
+            VisualAssetChecks.Pump(() => PixelMatches(255, 0), "video wallpaper recovery after an empty sample");
+            Native.Check(publications == 1 && presented!.PixelWidth == 160 && presented.PixelHeight == 90,
+                "A viewport resize recreated or recropped the shared video frame.");
+        } finally { viewport.Children.Remove(host); }
+    }
+
+    private static void StartupSplash(Window window, GlassLauncherView view, ImageSource icon)
+    {
+        if (!PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) return;
+        view.SetState(State(icon, reduceMotion: false));
+        view.SetWallpaper(null!);
+        Flush(window);
+
+        Type preload = Native.Type("PCL.GlassStartupPreload");
+        var slot = Native.Field(preload, "_interfaceShown");
+        object? previous = slot.GetValue(null);
+        var ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        slot.SetValue(null, ready);
+        EventHandler shown = (_, _) => Native.Call(preload, "MarkInterfaceShown", null);
+        view.SplashFinished += shown;
+        Task<bool> prompt = Task.Run(() => (bool)Native.Call(preload, "WaitForInterface", null)!);
+        try
+        {
+            view.BeginSplash();
+            Native.Check(view.IsSplashing && Part<FrameworkElement>(view, "ApplicationBackdrop").Opacity == 0 &&
+                Part<FrameworkElement>(view, "WorkspaceContentLayer").Opacity == 0,
+                "The workspace covered the startup splash's backdrop.");
+            Native.Check(!prompt.Wait(100) && !(bool)Native.Call(preload, "WaitForInterface", null)!,
+                "An automatic prompt passed the startup gate while the loading page was visible.");
+            view.SplashProgress = 1;
+            view.CompleteSplash();
+            VisualAssetChecks.Pump(() => !view.IsSplashing, "complete startup splash", 12000);
+            Native.Check(prompt.Wait(2000) && prompt.Result && Part<FrameworkElement>(view, "SplashLayer").Visibility == Visibility.Collapsed &&
+                Part<FrameworkElement>(view, "ApplicationBackdrop").Opacity == 1 && Part<FrameworkElement>(view, "WorkspaceContentLayer").Opacity == 1,
+                "Startup did not restore the workspace before releasing its automatic prompts.");
+        }
+        finally
+        {
+            ready.TrySetResult(false);
+            view.SplashFinished -= shown;
+            slot.SetValue(null, previous);
+        }
     }
 
     private static GlassLauncherViewState State(ImageSource image, bool reduceMotion = true, bool dependency = true,
@@ -318,13 +394,15 @@ internal static class GlassShellChecks
             Rect collapsedRail = Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view);
             Rect collapsedBody = Bounds(Part<FrameworkElement>(view, "BodyFrame"), view);
             Native.Check(!view.IsRailExpanded && Math.Abs(collapsedRail.Width - GlassLauncherView.RailCollapsedWidth) < .2 &&
-                Part<TextBlock>(view, "NavLaunchText").Visibility == Visibility.Collapsed,
-                "Collapsed rail already showed labels or deviated from 64 DIP.");
+                Part<TextBlock>(view, "NavLaunchText").Visibility == Visibility.Collapsed &&
+                ToolTipService.GetIsEnabled(Part<Button>(view, "NavSettings")),
+                "Collapsed rail already showed labels, disabled icon tooltips, or deviated from 64 DIP.");
             Click(toggle);
             Flush(window);
             Rect expandedRail = Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view);
             Rect expandedBody = Bounds(Part<FrameworkElement>(view, "BodyFrame"), view);
             Native.Check(view.IsRailExpanded &&
+                !ToolTipService.GetIsEnabled(Part<Button>(view, "NavSettings")) &&
                 Math.Abs(expandedBody.Left - collapsedBody.Left) < .1 &&
                 Math.Abs(expandedBody.Width - collapsedBody.Width) < .1 &&
                 Math.Abs(expandedRail.Right - collapsedRail.Right) < .1 &&
@@ -344,7 +422,12 @@ internal static class GlassShellChecks
             Native.Check(!view.IsRailExpanded && Same(retractedRail, collapsedRail), "Retracting rail did not return to exact 64 DIP bounds.");
             if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
             {
+                view.SetState(State(icon, reduceMotion: false, home: false, navigation: 3));
+                Native.Check(Part<FrameworkElement>(view, "SecondarySurface").CacheMode is null,
+                    "SecondarySurface attached a BitmapCache during page flip, which freezes shifted wallpaper coordinates.");
                 view.SetState(State(icon, reduceMotion: false));
+                Native.Check(Part<FrameworkElement>(view, "SecondarySurface").CacheMode is null,
+                    "SecondarySurface attached a BitmapCache when flipping back to Home.");
                 Click(toggle);
                 VisualAssetChecks.Pump(() => view.IsRailAnimating && Bounds(Part<FrameworkElement>(view, "NavigationSurface"), view).Width > 80, "Rail iOS spring expansion start");
                 Click(toggle);
@@ -427,7 +510,42 @@ internal static class GlassShellChecks
         }
         view.SetSidebar(Array.Empty<GlassSidebarItem>());
         view.SetState(State(image));
-        Flush(window);
+        var workspaceType = Native.Type("PCL.GlassAccountWorkspace");
+        var constructor = workspaceType.GetConstructor(Native.Flags, null, [Native.Type("PCL.PageLaunchLeft"), typeof(GlassLauncherView)], null)!;
+        using var workspace = (IDisposable)constructor.Invoke([null, view]);
+        var scene = (Grid)Native.Property(workspaceType, "Scene").GetValue(workspace)!;
+        var side = (FrameworkElement)Native.Property(workspaceType, "Side").GetValue(workspace)!;
+        // Scene hosts the account page first and the skin library page after it.
+        var titleGroup = (Grid)((Grid)scene.Children[0]).Children[0];
+        var frost = (GlassSurface)titleGroup.Children[0];
+        var accountTitle = (TextBlock)titleGroup.Children[1];
+        view.SetAccountWorkspace(side, scene);
+        try {
+            view.SetAccountWorkspaceOpen(true, immediate: true);
+            Flush(window);
+            var pageFrost = Part<GlassSurface>(view, "PageTitleBacking");
+            Native.Check(accountTitle.Text == "切换账号" && frost.IsVisible && ReferenceEquals(frost.Style, pageFrost.Style) &&
+                ReferenceEquals(frost.WallpaperSource, view.FindName("WallpaperImage") is Image wallpaper ? wallpaper.Source : null) &&
+                frost.WallpaperSource is not null && Contains(Bounds(frost, view), Bounds(accountTitle, view)),
+                "The account-switch heading lost the shared frosted material directly behind its text.");
+            var deck = (Grid)Native.Get(workspace, "_deck")!;
+            var cards = (List<FrameworkElement>)Native.Get(workspace, "_cards")!;
+            var front = (GlassSurface)Native.Call(workspaceType, "DeckCard", workspace, new TextBlock { Text = "当前账号" }, "当前账号")!;
+            var back = (GlassSurface)Native.Call(workspaceType, "DeckCard", workspace, new TextBlock { Text = "添加正版账号" }, "添加正版账号")!;
+            cards.Add(front); deck.Children.Add(front);
+            cards.Add(back); deck.Children.Add(back);
+            Native.Call(workspaceType, "LayoutDeck", workspace);
+            view.SetWallpaper(null!); view.SetDesktopBackdropActive(true);
+            Flush(window);
+            Native.Check(front.Child is Grid { Effect: null } && back.Child is Grid { Effect: System.Windows.Media.Effects.BlurEffect { Radius: > 0 } },
+                "Desktop backdrop left the rear account label sharp through the front card or blurred the active card.");
+            view.SetWallpaper(image); view.SetDesktopBackdropActive(false);
+            Flush(window);
+            Native.Check(back.Child is Grid { Effect: null }, "Wallpaper mode unnecessarily blurred the account-card text.");
+        } finally {
+            view.SetAccountWorkspace(null!, null!);
+            Flush(window);
+        }
     }
 
     private static bool IsWithin(DependencyObject element, DependencyObject ancestor)
@@ -449,13 +567,15 @@ internal static class GlassShellChecks
         Rect icon = Bounds(Part<FrameworkElement>(view, "InstanceImage"), view);
         Rect title = Bounds(Part<FrameworkElement>(view, "InstanceNameText"), view);
         Rect launch = Bounds(Part<FrameworkElement>(view, "LaunchButton"), view);
+        Rect recentWorld = Bounds(Part<FrameworkElement>(view, "RecentWorldCard"), view);
         Rect choose = Bounds(Button(view, "选择实例"), view);
         Rect manage = Bounds(Part<Button>(view, "InstanceSettingsButton"), view);
-        Native.Check(Contains(pane, profile) && Contains(pane, launch) && Contains(pane, icon) &&
+        Native.Check(Contains(pane, profile) && Contains(pane, launch) && Contains(pane, icon) && Contains(pane, recentWorld) &&
+            recentWorld.Left >= pane.Left + 11.5 && recentWorld.Right <= pane.Right - 11.5 &&
             icon.Width == 64 && icon.Height == 64 && icon.Bottom <= title.Top + .05 && title.Bottom <= launch.Top + .05 &&
             launch.Bottom <= choose.Top + .05 && Math.Abs(launch.Width - (width < 960 ? 180 : 190)) < 1 &&
             Math.Abs(launch.Height - 48) < 1,
-            "The game icon/name/start hierarchy is not inside the left home pane at " + width);
+            $"The game icon/name/start/recent-world hierarchy overflowed or left the home pane at {width}: pane={pane}, recentWorld={recentWorld}.");
         Native.Check(Contains(pane, choose) && Contains(pane, manage) && choose.Right < manage.Left &&
             Contains(pane, Bounds(Part<Button>(view, "ExpandButton"), view)) &&
             Bounds(Part<Button>(view, "ExpandButton"), view).Bottom < icon.Top,
@@ -525,13 +645,41 @@ internal static class GlassShellChecks
                 byte[] secondRail = Pixel(railPoint), secondBody = Pixel(bodyPoint), secondOverhang = Pixel(controlsOverhangPoint), secondCorner = Pixel(bodyCornerOutsideArc);
                 if (Enumerable.Range(0, 4).Any(channel => Math.Abs(firstRail[channel] - secondRail[channel]) > 3))
                     failures.Add("a wallpaper pattern/blur is visible through the detached rail");
-                if (Enumerable.Range(0, 4).Any(channel => Math.Abs(firstOverhang[channel] - secondOverhang[channel]) > 3))
-                    failures.Add("a wallpaper pattern/blur bled into the desktop overhang of the window controls capsule");
-                if (Enumerable.Range(0, 4).Any(channel => Math.Abs(firstCorner[channel] - secondCorner[channel]) > 3) ||
-                    Enumerable.Range(0, 4).Any(channel => Math.Abs(firstCorner[channel] - firstOverhang[channel]) > 2))
-                    failures.Add("unclipped body wallpaper leaked outside BodyFrame's top-right rounded corner under the window controls capsule");
+                if (!SystemParameters.HighContrast && transparent &&
+                    Enumerable.Range(0, 3).All(channel => Math.Abs(firstCorner[channel] - secondCorner[channel]) < 8))
+                    failures.Add("window controls frost remained clipped underneath BodyFrame instead of blurring BodyFrame's top-right edge from above");
+                Point unmaskedBodyCornerBelowControls = new(body.Right - 1, controls.Bottom + 14);
+                byte[] belowControlsRightEdge = Pixel(new Point(body.Right + 2, controls.Bottom + 14));
+                if (belowControlsRightEdge[3] != 0)
+                    failures.Add("body wallpaper leaked into the staggered right inset below WindowControlsSurface");
+                _ = unmaskedBodyCornerBelowControls;
                 if (!SystemParameters.HighContrast && Enumerable.Range(0, 3).All(channel => Math.Abs(firstBody[channel] - secondBody[channel]) < 40))
                     failures.Add("the main panel lost its actual wallpaper while isolating the rail");
+                if (!darkText && !SystemParameters.HighContrast && transparent) {
+                    var uniformGreyDrawing = new DrawingGroup();
+                    using (DrawingContext ctx = uniformGreyDrawing.Open())
+                        ctx.DrawRectangle(new SolidColorBrush(Color.FromRgb(197, 197, 197)), null, new Rect(0, 0, 1120, 720));
+                    uniformGreyDrawing.Freeze();
+                    var uniformGrey = new DrawingImage(uniformGreyDrawing);
+                    uniformGrey.Freeze();
+                    wallpaper.Effect = null;
+                    view.SetWallpaper(uniformGrey); Flush(window);
+                    byte[] controlsCenterBody = Pixel(new Point(controls.Left + 18, controls.Bottom - 8));
+                    byte[] controlsNearBodyEdge = Pixel(new Point(body.Right - 4, body.Top + 18));
+                    byte[] controlsJustOutsideBody = Pixel(new Point(body.Right + 2, body.Top + 18));
+                    static double CompositeOverDesktop(byte[] pbgra, byte desktopChannel) => pbgra[2] + (255 - pbgra[3]) / 255d * desktopChannel;
+                    double centerOnLavender = CompositeOverDesktop(controlsCenterBody, 225);
+                    double insideEdgeOnLavender = CompositeOverDesktop(controlsNearBodyEdge, 225);
+                    double outsideEdgeOnLavender = CompositeOverDesktop(controlsJustOutsideBody, 225);
+                    if (centerOnLavender < 115 || insideEdgeOnLavender < centerOnLavender - 6 || Math.Abs(outsideEdgeOnLavender - insideEdgeOnLavender) > 16)
+                        failures.Add($"window controls frost darkened or stepped sharply across BodyFrame edge (center={centerOnLavender:0.#}, insideEdge={insideEdgeOnLavender:0.#}, outsideEdge={outsideEdgeOnLavender:0.#})");
+                    Rect sec = Bounds(Part<FrameworkElement>(view, "SecondarySurface"), view);
+                    byte[] secTop = Pixel(new Point(sec.Left + sec.Width / 2, sec.Top + 6));
+                    byte[] secMid = Pixel(new Point(sec.Left + sec.Width / 2, sec.Top + sec.Height / 2));
+                    if (Math.Abs(secTop[0] - secMid[0]) > 4)
+                        failures.Add($"WallpaperBlurCache darkened near top edge (top={secTop[0]}, mid={secMid[0]})");
+                }
+                view.SetWallpaper(Pattern(true)); wallpaper.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 40 }; Flush(window);
                 double previousOpacity = wallpaper.Opacity;
                 wallpaper.Opacity = 0; Flush(window);
                 byte[] zeroOpacityBody = Pixel(bodyPoint);
@@ -579,7 +727,9 @@ internal static class GlassShellChecks
             if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) && !SystemParameters.HighContrast && enabled) {
                 GlassMaterial.SetDesktopBackdropEnabled(window, true);
                 try {
-                    using var liveBackdrop = GlassWindowBackdrop.Attach(window, new GlassBackdropOptions { UseDarkTheme = true, ManageWindowRegion = false });
+                    using var liveBackdrop = GlassWindowBackdrop.Attach(window, new GlassBackdropOptions {
+                        UseDarkTheme = true, ManageWindowRegion = false, RegionsForClientSize = view.GetDesktopBackdropRegions
+                    });
                     liveBackdrop.SetRegions(view.GetDesktopBackdropRegions());
                     Native.Check(liveBackdrop.HasDesktopBackdrop && liveBackdrop.NativeBackdropHandle != 0,
                         "Live Windows 11 host-backdrop composition did not activate: " + liveBackdrop.DiagnosticMessage);
@@ -588,7 +738,11 @@ internal static class GlassShellChecks
                     bool blurred = (bool)Native.Property(host.GetType(), "HasBlurredEffectBrush").GetValue(host)!;
                     string diag = (string)Native.Property(comp.GetType(), "BlurDiagnostic").GetValue(comp)!;
                     Native.Check(blurred, "Desktop host-backdrop brush did not compile its Direct2D GaussianBlur effect factory: " + diag);
+                    view.SetWallpaper(Image()); Flush(window);
+                    liveBackdrop.SetRegions(view.GetDesktopBackdropRegions());
+                    ResizeDesktopBackdrop(window, view, liveBackdrop);
                 } finally {
+                    view.SetWallpaper(null!); Flush(window);
                     GlassMaterial.SetDesktopBackdropEnabled(window, false);
                 }
             }
@@ -600,6 +754,108 @@ internal static class GlassShellChecks
             view.SetState(State(icon)); view.SetWallpaper(Image()); Flush(window);
         }
     }
+
+    private static void ResizeDesktopBackdrop(Window window, GlassLauncherView view, GlassWindowBackdrop backdrop)
+    {
+        nint main = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        nint material = backdrop.NativeBackdropHandle;
+        var resizeFlags = new List<uint>();
+        SubclassProc observe = (hwnd, message, wParam, lParam, _, _) =>
+        {
+            if (message == 0x0047 && lParam != 0)
+            {
+                var position = Marshal.PtrToStructure<WindowPosition>(lParam);
+                if ((position.Flags & 0x0001) == 0) resizeFlags.Add(position.Flags);
+            }
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        };
+        double width = window.Width, height = window.Height, viewWidth = view.Width, viewHeight = view.Height;
+        object host = Native.Get(backdrop, "_compositionHost")!;
+        DpiScale dpi = VisualTreeHelper.GetDpi(window);
+        Native.Check(SetWindowSubclass(material, observe, 1, 0), "Could not observe the owned backdrop HWND.");
+        try
+        {
+            foreach (int delta in new[] { -100, 0 })
+            {
+                resizeFlags.Clear();
+                window.Width = width + delta; window.Height = height + delta;
+                Flush(window);
+                Native.Check(GetClientRect(main, out ClientRect primary), "Could not read the resized client area.");
+                Native.Check(GetClientRect(material, out ClientRect companion) &&
+                    primary.Right == companion.Right && primary.Bottom == companion.Bottom,
+                    "The frosted companion's native client area no longer matches the launcher after resizing.");
+                Native.Check(resizeFlags.Count != 0 && resizeFlags.All(flags => (flags & 0x0008) == 0),
+                    "A native backdrop resize suppressed repainting the exposed area.");
+                // The fixed component viewport still represents the old layout here.
+                var arranged = view.GetDesktopBackdropRegions();
+                var actual = (GlassWindowRegion[])Native.Get(host, "_regions")!;
+                double widthDelta = primary.Right / dpi.DpiScaleX - view.ActualWidth;
+                double heightDelta = primary.Bottom / dpi.DpiScaleY - view.ActualHeight;
+                Native.Check(actual.Length == 2 &&
+                    Math.Abs(actual[0].Bounds.Bottom - (arranged[0].Bounds.Bottom + heightDelta)) < 1 &&
+                    Math.Abs(actual[1].Bounds.Right - (arranged[1].Bounds.Right + widthDelta)) < 1,
+                    "The wallpaper-mode rail or caption frost kept its old composition clip while the window resized.");
+                view.Width = viewWidth + delta; view.Height = viewHeight + delta;
+                Flush(window);
+                backdrop.SetRegions(view.GetDesktopBackdropRegions());
+            }
+        }
+        finally
+        {
+            RemoveWindowSubclass(material, observe, 1);
+            window.Width = width; window.Height = height; view.Width = viewWidth; view.Height = viewHeight;
+            Flush(window);
+            GC.KeepAlive(observe);
+        }
+    }
+
+    private static void ExtendedWallpaperSample(Window window)
+    {
+        var viewport = (Canvas)window.Content;
+        var host = new Border { Width = 80, Height = 64 };
+        Canvas.SetLeft(host, 80);
+        var wallpaper = new DrawingImage(new GeometryDrawing(Brushes.Teal, null, new RectangleGeometry(new Rect(0, 0, 80, 64))));
+        wallpaper.Freeze();
+        var surface = new GlassSurface { Width = 120, Height = 64, Background = Brushes.Transparent, BlurRadius = 16, HighlightOpacity = 0 };
+        GlassMaterial.SetWallpaperSource(surface, wallpaper);
+        GlassMaterial.SetWallpaperHost(surface, host);
+        viewport.Children.Add(host); viewport.Children.Add(surface);
+        try {
+            Flush(window);
+            if (!surface.IsTransparencyActive) return;
+            byte[] Sample(int x) {
+                var bitmap = new RenderTargetBitmap(120, 64, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(surface);
+                byte[] pixel = new byte[4];
+                bitmap.CopyPixels(new Int32Rect(x, 32, 1, 1), pixel, 4, 0);
+                return pixel;
+            }
+            byte[] inside = Sample(105), outside = Sample(16);
+            Native.Check(Math.Abs(inside[2] - outside[2]) > 50, "The fixture did not cross the wallpaper boundary.");
+            surface.ExtendWallpaper = true;
+            Flush(window);
+            Native.Check(Sample(16).Zip(inside).All(channel => Math.Abs(channel.First - channel.Second) < 5),
+                "A wallpaper-sampling popup changed to a solid color past the launcher panel boundary.");
+        } finally {
+            viewport.Children.Remove(surface); viewport.Children.Remove(host);
+            Flush(window);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ClientRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPosition { public nint Handle, InsertAfter; public int X, Y, Width, Height; public uint Flags; }
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint SubclassProc(nint hwnd, uint message, nint wParam, nint lParam, nuint id, nuint data);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(nint hwnd, out ClientRect bounds);
+    [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(nint hwnd, SubclassProc callback, nuint id, nuint data);
+    [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(nint hwnd, SubclassProc callback, nuint id);
+    [DllImport("comctl32.dll")]
+    private static extern nint DefSubclassProc(nint hwnd, uint message, nint wParam, nint lParam);
 
     private static void ConstrainedHost(Window window, GlassLauncherView view)
     {
@@ -824,10 +1080,42 @@ internal static class GlassShellChecks
         Escape(accountContent);
         Native.Check(accountPopover.Visibility == Visibility.Collapsed && ReferenceEquals(FocusManager.GetFocusedElement(window), account),
             "Escape did not dismiss the account portal and restore logical focus to its trigger.");
+        AccountWorkspaceDrag(window, view);
         view.SetAccountContent(null!); view.SetSidebar(Array.Empty<GlassSidebarItem>());
         view.SetState(State(image));
         Flush(window);
         WorkbenchFrame(view);
+    }
+
+    private static void AccountWorkspaceDrag(Window window, GlassLauncherView view)
+    {
+        var sideTitle = new TextBlock { Text = "游戏账号" };
+        var sceneTitle = new TextBlock { Text = "切换账号" };
+        var action = new Button { Content = "使用账号" };
+        var input = new TextBox { Text = "离线账号" };
+        var deckCard = new Border { Background = Brushes.Transparent, Child = new TextBlock { Text = "已保存账号" } };
+        view.SetAccountWorkspace(sideTitle, new StackPanel { Children = { sceneTitle, deckCard, action, input } });
+        view.SetAccountWorkspaceOpen(true, immediate: true);
+        Flush(window);
+        int drags = 0;
+        EventHandler dragged = (_, _) => drags++;
+        view.DragRequested += dragged;
+        try
+        {
+            static void Press(UIElement element) => element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = Mouse.MouseDownEvent });
+            Press(sideTitle); Press(sceneTitle);
+            Native.Check(drags == 2, "Account workspace headings do not relay window drag requests.");
+            var protection = (DependencyProperty)Native.Field(typeof(GlassLauncherView), "PreventWindowDragProperty").GetValue(null)!;
+            deckCard.SetValue(protection, true);
+            Press(deckCard); Press(action); Press(input);
+            Native.Check(drags == 2, "Window dragging intercepted account cards or their interactive controls.");
+        }
+        finally
+        {
+            view.DragRequested -= dragged;
+            view.SetAccountWorkspace(null!, null!);
+            Flush(window);
+        }
     }
 
     private static void ContentHost(GlassLauncherView view, ImageSource image)
@@ -837,15 +1125,16 @@ internal static class GlassShellChecks
         view.SetPageContent(originalRightContainer);
         view.SetState(State(image));
         Flush(Window.GetWindow(view));
-        Native.Check(originalRightContainer.IsLoaded && page.IsLoaded && view.PageContentHost.Visibility == Visibility.Hidden &&
-            !view.PageContentHost.IsVisible && !view.PageContentHost.IsHitTestVisible,
-            "Home did not materialize and retain the original right page while keeping it hidden from UI and input.");
+        // Home shows the original right page's homepage content (cards) and lets it take input.
+        Native.Check(originalRightContainer.IsLoaded && page.IsLoaded && view.PageContentHost.Visibility == Visibility.Visible &&
+            view.PageContentHost.IsHitTestVisible,
+            "Home did not materialize and show the original right page's homepage content.");
         view.SetState(State(image, home: false));
         Native.Check(ReferenceEquals(view.PageContentHost.Content, originalRightContainer) && view.PageContentHost.IsVisible &&
             !Part<FrameworkElement>(view, "HomePanel").IsVisible, "The main content slot did not host the supplied actual page.");
         view.SetState(State(image));
-        Native.Check(!view.PageContentHost.IsVisible && Part<FrameworkElement>(view, "HomePanel").IsVisible,
-            "Returning home did not restore the current-instance shell.");
+        Native.Check(view.PageContentHost.IsVisible && Part<FrameworkElement>(view, "HomePanel").IsVisible,
+            "Returning home did not restore the current-instance shell next to its homepage content.");
         Native.Check(page.IsLoaded && originalRightContainer.IsLoaded, "Returning home unloaded the backend's actual original right page.");
         view.SetPageContent(null!);
     }

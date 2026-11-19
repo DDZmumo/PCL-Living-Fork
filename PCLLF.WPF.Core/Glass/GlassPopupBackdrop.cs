@@ -7,11 +7,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 
 namespace PCLLF.Wpf.Glass;
 
-/// <summary>Legacy explicit-opt-in desktop backdrop. The workbench uses WallpaperPopupContext instead.</summary>
+/// <summary>Wallpaper sampling with an explicit desktop backdrop option for translucent popups.</summary>
 public static class GlassPopupBackdrop {
     public static readonly DependencyProperty EnableProperty = DependencyProperty.RegisterAttached(
         "Enable", typeof(bool), typeof(GlassPopupBackdrop), new PropertyMetadata(false, OnEnableChanged));
@@ -83,8 +84,10 @@ public static class GlassPopupBackdrop {
             bool wallpaper = GlassMaterial.GetWallpaperSource(context) is not null;
             bool native = GlassMaterial.GetDesktopBackdropEnabled(context) && requested && !wallpaper && !_failed && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled &&
                           OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621);
+            GlassMaterial.SetDesktopBackdropEnabled(_root, native);
             GlassMaterial.SetIsEnabled(_root, requested && (native || wallpaper));
-            AlignWallpaper(context);
+            if (wallpaper) AlignWallpaper(context);
+            else _root.ClearValue(GlassMaterial.WallpaperHostProperty);
             try {
                 if (native) {
                     _host ??= new GlassCompositionHost(_source.Handle);
@@ -94,6 +97,7 @@ public static class GlassPopupBackdrop {
                 _host?.SyncBounds(() => !_disposed && native && _root.IsVisible);
             } catch (Exception error) when (error is COMException or Win32Exception or InvalidOperationException) {
                 _host?.Dispose(); _host = null; _failed = true;
+                GlassMaterial.SetDesktopBackdropEnabled(_root, false);
                 GlassMaterial.SetIsEnabled(_root, wallpaper && requested);
             }
         }
@@ -105,6 +109,12 @@ public static class GlassPopupBackdrop {
                 Point origin = _root.PointFromScreen(original.PointToScreen(new Point()));
                 Point end = _root.PointFromScreen(original.PointToScreen(new Point(original.RenderSize.Width, original.RenderSize.Height)));
                 _wallpaperHost.Width = Math.Max(1, end.X - origin.X); _wallpaperHost.Height = Math.Max(1, end.Y - origin.Y);
+                _wallpaperHost.Opacity = original.Opacity;
+                GlassMaterial.SetWallpaperStretch(_wallpaperHost, original is Image image ? image.Stretch : GlassMaterial.GetWallpaperStretch(original));
+                if (original.Effect is BlurEffect blur) {
+                    if (_wallpaperHost.Effect is not BlurEffect current || current.Radius != blur.Radius || current.KernelType != blur.KernelType)
+                        _wallpaperHost.Effect = blur.CloneCurrentValue();
+                } else if (_wallpaperHost.Effect is not null) _wallpaperHost.Effect = null;
                 Canvas.SetLeft(_wallpaperHost, origin.X); Canvas.SetTop(_wallpaperHost, origin.Y);
                 GlassMaterial.SetWallpaperHost(_root, _wallpaperHost);
             } catch (InvalidOperationException) { }
@@ -117,6 +127,7 @@ public static class GlassPopupBackdrop {
             _host?.Dispose(); _host = null;
             if (_root is Panel panel && _wallpaperLayer is not null) panel.Children.Remove(_wallpaperLayer);
             _root.ClearValue(GlassMaterial.IsEnabledProperty); _root.ClearValue(GlassMaterial.WallpaperHostProperty);
+            _root.ClearValue(GlassMaterial.DesktopBackdropEnabledProperty);
         }
     }
 }

@@ -46,6 +46,7 @@ public static class ToggleFeedback {
         private readonly ToggleButton _owner;
         private readonly SpringMotion _position;
         private readonly SpringMotion _press;
+        private System.Windows.Controls.ControlTemplate? _resolvedTemplate;
         private TranslateTransform? _thumb;
         private ScaleTransform? _scale;
         private FrameworkElement? _active;
@@ -64,7 +65,6 @@ public static class ToggleFeedback {
             owner.Indeterminate += OnChecked;
             owner.Loaded += OnLoaded;
             owner.Unloaded += OnUnloaded;
-            owner.LayoutUpdated += OnLayoutUpdated;
             owner.PreviewKeyDown += OnKeyDown;
             owner.PreviewMouseLeftButtonDown += OnMouseDown;
             owner.PreviewMouseLeftButtonUp += OnMouseUp;
@@ -97,7 +97,9 @@ public static class ToggleFeedback {
         internal void Finish() { _position.Snap(_owner.IsChecked == true ? 1 : 0); _press.Snap(0); }
         private bool ResolveParts() {
             var template = _owner.Template;
-            if (template is null) return false;
+            if (template is null) { _resolvedTemplate = null; return false; }
+            if (ReferenceEquals(template, _resolvedTemplate) && (_scale is not null || _thumb is not null || _active is not null))
+                return false;
             var thumb = template.FindName("ThumbTransform", _owner) as TranslateTransform;
             var scale = template.FindName("ThumbScale", _owner) as ScaleTransform;
             var active = template.FindName("TrackActive", _owner) as FrameworkElement;
@@ -106,10 +108,11 @@ public static class ToggleFeedback {
             bool changed = !ReferenceEquals(thumb, _thumb) || !ReferenceEquals(scale, _scale) ||
                 !ReferenceEquals(active, _active) || !ReferenceEquals(coreScale, _coreScale) || !ReferenceEquals(checkMark, _checkMark);
             _thumb = thumb; _scale = scale; _active = active; _coreScale = coreScale; _checkMark = checkMark;
+            if (thumb is not null || scale is not null || active is not null)
+                _resolvedTemplate = template;
             return changed;
         }
-        private void OnLayoutUpdated(object? sender, EventArgs arguments) { if (ResolveParts()) Apply(); }
-        private void OnLoaded(object sender, RoutedEventArgs arguments) { _owner.ApplyTemplate(); _position.Snap(_owner.IsChecked == true ? 1 : 0); Apply(); }
+        private void OnLoaded(object sender, RoutedEventArgs arguments) { _resolvedTemplate = null; _owner.ApplyTemplate(); _position.Snap(_owner.IsChecked == true ? 1 : 0); Apply(); }
         private void OnUnloaded(object sender, RoutedEventArgs arguments) { _pointerDown = false; _press.Snap(0); }
         private void OnChecked(object sender, RoutedEventArgs arguments) {
             if (!ReferenceEquals(arguments.OriginalSource, _owner)) return;
@@ -136,7 +139,7 @@ public static class ToggleFeedback {
             _press.Snap(0);
             _position.Dispose(); _press.Dispose();
             _owner.Checked -= OnChecked; _owner.Unchecked -= OnChecked; _owner.Indeterminate -= OnChecked;
-            _owner.Loaded -= OnLoaded; _owner.Unloaded -= OnUnloaded; _owner.LayoutUpdated -= OnLayoutUpdated;
+            _owner.Loaded -= OnLoaded; _owner.Unloaded -= OnUnloaded;
             _owner.PreviewKeyDown -= OnKeyDown;
             _owner.PreviewMouseLeftButtonDown -= OnMouseDown; _owner.PreviewMouseLeftButtonUp -= OnMouseUp;
             _owner.LostMouseCapture -= OnLostCapture; _owner.MouseLeave -= OnMouseLeave; _owner.MouseEnter -= OnMouseEnter;

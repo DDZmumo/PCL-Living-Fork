@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MeloongCore;
 using PCLCS.Applications;
 using PCLLF.Wpf.Glass;
@@ -33,9 +34,7 @@ internal sealed class GlassShellRuntime : IDisposable {
     private string? _instanceLogo, _gameFolder;
     private McInstance? _loadRequested;
     private ImageSource? _instanceIcon;
-    private double _nextMetadataRefresh, _nextAccountRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
-    private string _accountName = "未登录";
-    private ImageSource? _accountAvatar, _avatarBack, _avatarFore;
+    private double _nextMetadataRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
     private RecentWorld? _recentWorld, _observedRecentTag;
     private ImageSource? _recentIcon, _observedRecentIcon;
     private string _recentName = string.Empty, _recentDetail = string.Empty;
@@ -97,10 +96,8 @@ internal sealed class GlassShellRuntime : IDisposable {
             _nextMetadataRefresh = now + 1;
             RefreshInstanceMetadata(instance);
         }
-        if (now >= _nextAccountRefresh) {
-            _nextAccountRefresh = now + 1;
-            RefreshAccountMetadata();
-        }
+        bool waitingForRole = GlassSkinSites.RoleSelectionPending;
+        var (accountName, accountAvatar) = ReadAccountAppearance(waitingForRole);
 
         // Read the real current session every refresh, rather than keeping a second launch state machine.
         LaunchApplicationSnapshot launch = LauncherApplicationServices.Launch.ReadSnapshot();
@@ -108,7 +105,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         bool hasInstance = instance is not null && ModModpackMode.AllowsInstance(instance.PathVersion);
         bool loadingInstances = ModMinecraft.McInstanceListLoader.State == ModBase.LoadState.Loading ||
                                 ModMinecraft.McFolderListLoader.State == ModBase.LoadState.Loading;
-        bool canLaunch = hasInstance && !loadingInstances && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!);
+        bool canLaunch = hasInstance && !loadingInstances && !waitingForRole && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!);
         int page = _owner.GlassPageCode;
         string title = _owner.GlassPageTitle ?? string.Empty;
         string? resourceTitle = page == (int)FormMain.PageType.Download ? ResourcePageTitle(_owner.PageRight) : null;
@@ -141,15 +138,15 @@ internal sealed class GlassShellRuntime : IDisposable {
             PageTitle = ShowLegacyHome && page == (int)FormMain.PageType.Launch ? "主页内容与启动日志" : resourceTitle ?? title,
             IsResourceList = resourceTitle is not null,
             CanGoBack = ShowLegacyHome || !string.IsNullOrEmpty(title),
-            AccountName = _accountName,
-            AccountAvatar = _accountAvatar,
+            AccountName = accountName,
+            AccountAvatar = accountAvatar,
             HasInstance = hasInstance,
             InstanceName = _instanceName,
             InstanceDescription = _instanceDescription,
             InstanceIcon = _instanceIcon,
             CanLaunch = canLaunch,
             IsLaunching = launching,
-            LaunchText = loadingInstances ? "正在加载" : "启动游戏",
+            LaunchText = waitingForRole ? "请先选择角色" : loadingInstances ? "正在加载" : "启动游戏",
             LaunchStatus = launchStatus,
             LaunchProgress = progress,
             DependencyCheckEnabled = Settings.Get<bool>("LaunchModDependencyCheck"),
@@ -204,27 +201,18 @@ internal sealed class GlassShellRuntime : IDisposable {
         string? logo = instance?.Logo;
         if (string.Equals(logo, _instanceLogo, StringComparison.Ordinal)) return;
         _instanceLogo = logo;
-        _instanceIcon = LoadInstanceIcon(logo);
+        _instanceIcon = LoadInstanceIcon(logo, instance?.PathVersion);
     }
 
-    private void RefreshAccountMetadata() {
+    private static (string Name, ImageSource? Avatar) ReadAccountAppearance(bool waitingForRole) {
+        if (waitingForRole) return ("等待选择角色", null);
         AccountApplicationSnapshot account = LauncherApplicationServices.Accounts.ReadSnapshot();
-        bool showIdentity = account.Provider == AccountProvider.Offline || account.Authenticated;
-        _accountName = showIdentity && !string.IsNullOrWhiteSpace(account.DisplayName)
-            ? OneLine(account.DisplayName, 100) : "未登录";
-        // Reuse already-rendered, local skin results. This never starts a skin loader or an account request.
-        MySkin? skin = !showIdentity ? null : account.Provider switch {
-            AccountProvider.Offline => ModMain.FrmLoginLegacy?.Skin,
-            AccountProvider.Microsoft => ModMain.FrmLoginMsSkin?.Skin,
-            AccountProvider.Nide => ModMain.FrmLoginNideSkin?.Skin,
-            AccountProvider.Auth => ModMain.FrmLoginAuthSkin?.Skin,
-            _ => null
+        string kind = account.Provider switch {
+            AccountProvider.Microsoft => "Ms", AccountProvider.Nide => "Nide", AccountProvider.Auth => "Auth", _ => "Legacy"
         };
-        ImageSource? back = skin?.ImgBack.Source, fore = skin?.ImgFore.Source;
-        if (ReferenceEquals(back, _avatarBack) && ReferenceEquals(fore, _avatarFore)) return;
-        _avatarBack = back; _avatarFore = fore;
-        if (back is null) { _accountAvatar = null; return; }
-        _accountAvatar = ComposeAccountAvatar(back, fore);
+        var request = LaunchPageRuntime.Skins.Input(kind);
+        string name = kind == "Legacy" ? LaunchPageRuntime.Skins.OfflineAccountName() : account.Authenticated ? request.Name : "";
+        return string.IsNullOrWhiteSpace(name) ? ("未登录", null) : (OneLine(name, 100), LaunchPageRuntime.Avatar(kind, request));
     }
 
     internal static DrawingImage ComposeAccountAvatar(ImageSource back, ImageSource? fore) {
@@ -343,7 +331,6 @@ internal sealed class GlassShellRuntime : IDisposable {
     }
     private void OnAccountRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
-        _nextAccountRefresh = 0;
         AccountRequested?.Invoke(this, EventArgs.Empty);
         Refresh();
     }
@@ -396,9 +383,13 @@ internal sealed class GlassShellRuntime : IDisposable {
         DateTime played = world.PlayedUtc.ToLocalTime();
         return (played.Date == DateTime.Today ? played.ToString("HH:mm") : played.ToString("MM/dd")) + " · " + instanceName;
     }
-    private static ImageSource? LoadInstanceIcon(string? address) {
+    private static ImageSource? LoadInstanceIcon(string? address, string? versionFolder = null) {
         if (string.IsNullOrWhiteSpace(address)) return null;
         try {
+            // A modpack's own icon or a custom one is stored relative to the instance folder (e.g. "PCL\Logo.png").
+            if (!string.IsNullOrEmpty(versionFolder) && !Path.IsPathRooted(address) && !address.Contains("://", StringComparison.Ordinal) &&
+                !address.StartsWith("/", StringComparison.Ordinal) && File.Exists(Path.Combine(versionFolder, address)))
+                return InstanceResourceStore.LoadImage(Path.Combine(versionFolder, address), 96);
             if (address.StartsWith("pack://", StringComparison.OrdinalIgnoreCase) || address.StartsWith("/LivingPCL;component/", StringComparison.OrdinalIgnoreCase)) {
                 ImageSource image = new MyBitmap(address);
                 if (image.CanFreeze) image.Freeze();

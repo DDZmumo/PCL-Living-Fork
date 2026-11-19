@@ -254,6 +254,7 @@ namespace PCL
         {
             Window = this,
             UsesGlassShell = () => GlassShellActive,
+            SuppressesLaunchKey = () => GlassAccountPageOpen,
             PanBack = () => PanBack, PanForm = () => PanForm, PanMain = () => PanMain,
             PanTitle = () => PanTitle, PanTitleMain = () => PanTitleMain, PanTitleInner = () => PanTitleInner, PanMsg = () => PanMsg,
             BorderForm = () => BorderForm, PanMainLeft = () => PanMainLeft, PanMainRight = () => PanMainRight,

@@ -22,12 +22,20 @@ internal sealed class GlassModalEffects : IDisposable {
     private readonly Border _scrim;
     private readonly FrameworkElement _dialog;
     private readonly BlurEffect _blur = new() { Radius = 0, RenderingBias = RenderingBias.Performance, KernelType = KernelType.Gaussian };
-    private readonly BitmapCache _blurCache = new() { EnableClearType = false, RenderAtScale = 0.5 };
+    // A light frost: enough to separate the dialog from the page without smearing the whole interface.
+    private readonly BitmapCache _blurCache = new() { EnableClearType = false, RenderAtScale = 1 };
+    private const double BlurPeak = 6;
+    // Dialog pop: grows from slightly smaller and lower with a soft iOS-like spring; leaves the same way back.
+    private readonly ScaleTransform _pop = new(1, 1);
+    private readonly TranslateTransform _lift = new();
     private readonly SpringMotion _motion;
     private readonly Effect? _originalEffect;
     private readonly CacheMode? _originalCacheMode;
     private object? _message;
     private bool _disposed;
+    private bool _warning;
+    private static readonly Color NeutralScrim = Color.FromRgb(0, 0, 0), WarningScrim = Color.FromRgb(120, 8, 10);
+    private readonly SolidColorBrush _scrimBrush = new(NeutralScrim);
     private DispatcherOperation? _snapshotRefresh;
     internal double Progress => _motion.Value;
     internal bool HasActiveMessage => _message is not null;
@@ -39,7 +47,8 @@ internal sealed class GlassModalEffects : IDisposable {
         _owner = owner; _background = background; _blurTarget = blurTarget; _scrim = scrim; _dialog = dialog;
         _originalEffect = blurTarget.Effect;
         _originalCacheMode = blurTarget.CacheMode;
-        _motion = new SpringMotion(owner, 0, Apply, new SpringParameters(.26, 1));
+        _motion = new SpringMotion(owner, 0, Apply, new SpringParameters(.42, .82)); // iOS-style spring: quick, one soft overshoot
+        _scrim.Background = _scrimBrush;
         blurTarget.SizeChanged += OnBackgroundSizeChanged;
     }
 
@@ -47,6 +56,14 @@ internal sealed class GlassModalEffects : IDisposable {
         if (_disposed || ReferenceEquals(_message, message)) return;
         _message = message;
         if (message is not null) {
+            bool warning = GlassModalState.IsWarning(message);
+            if (_motion.Value <= .001) _scrimBrush.Color = warning ? WarningScrim : NeutralScrim;
+            else if (warning != _warning)
+                _scrimBrush.BeginAnimation(SolidColorBrush.ColorProperty, new System.Windows.Media.Animation.ColorAnimation(warning ? WarningScrim : NeutralScrim, TimeSpan.FromMilliseconds(260)) {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+                }, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+            if (_motion.Value <= .001) _scrimBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            _warning = warning;
             _scrim.Visibility = Visibility.Visible;
             ImageSource? snapshot = Snapshot();
             GlassMaterial.SetIgnoreWallpaperHostEffect(_dialog, true);
@@ -98,8 +115,21 @@ internal sealed class GlassModalEffects : IDisposable {
 
     private void Apply(double value) {
         double p = Math.Clamp(value, 0, 1);
-        _blur.Radius = 12 * p;
-        _scrim.Opacity = .18 * p;
+        _blur.Radius = BlurPeak * p;
+        // The raw (overshooting) value drives the pop so the dialog settles with a slight bounce.
+        double v = Math.Max(0, value);
+        if (p >= .999 && Math.Abs(value - 1) < .002) {
+            if (_dialog.RenderTransform is not null) _dialog.RenderTransform = null; // crisp text at rest
+        } else {
+            if (_dialog.RenderTransform is null) {
+                _dialog.RenderTransformOrigin = new Point(.5, .5);
+                _dialog.RenderTransform = new TransformGroup { Children = { _pop, _lift } };
+            }
+            double scale = .9 + .1 * v;
+            _pop.ScaleX = _pop.ScaleY = scale;
+            _lift.Y = 22 * (1 - Math.Min(v, 1.05));
+        }
+        _scrim.Opacity = (_warning ? .30 : .18) * p;
         _scrim.Visibility = p > .001 || _message is not null ? Visibility.Visible : Visibility.Collapsed;
         _dialog.Opacity = p;
         if (p <= .001 && _message is null) {

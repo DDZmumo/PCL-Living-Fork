@@ -30,6 +30,8 @@ using PCLCS;
 using global::PCLLF.Presentation.Accounts;
 using ThrottleDebounce;
 
+using SkinLoader = PCL.ModLoader.LoaderTask<PCLLF.Presentation.Launch.LegacySkinRequest, string>;
+
 namespace PCL
 {
 
@@ -84,15 +86,15 @@ namespace PCL
             SetMsProfileJson = new Action<global::System.String>(Value => global::PCL.ModLaunch.McLoginMsLoader.Output.ProfileJson = Value),
             RequestRetry = global::PCL.LoginPageRuntime.RequestRetry
         };
-        internal static readonly global::PCLLF.Presentation.Accounts.LegacySkinServices<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>> Skins = new global::PCLLF.Presentation.Accounts.LegacySkinServices<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>(new global::PCLLF.Presentation.Accounts.LegacySkinHost<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>()
+        internal static readonly global::PCLLF.Presentation.Accounts.LegacySkinServices<ModLaunch.McLoginLegacy, ModLaunch.McLoginMs, ModLaunch.McLoginServer, SkinLoader> Skins = new(new()
         {
             Accounts = Accounts,
-            Task = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, global::PCLLF.Presentation.Accounts.LegacyLoginTaskPort>(Loader => TaskPort(() => Loader)),
-            Output = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, global::System.String>(Loader => Loader.Output),
-            Name = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, global::System.String>(Loader => Loader.Name),
-            SkinLoaders = new Func<global::System.Collections.Generic.IEnumerable<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>>(() => global::PCL.PageLaunchLeft.SkinLoaders),
-            LegacyLoader = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>(() => global::PCL.PageLaunchLeft.SkinLegacy),
-            MicrosoftLoader = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>(() => global::PCL.PageLaunchLeft.SkinMs),
+            Task = loader => TaskPort(() => loader),
+            Output = loader => loader.Output,
+            Name = loader => loader.Name,
+            SkinLoaders = () => PageLaunchLeft.SkinLoaders,
+            LegacyLoader = () => PageLaunchLeft.SkinLegacy,
+            MicrosoftLoader = () => PageLaunchLeft.SkinMs,
             ImagePath = new Func<global::System.String>(() => global::PCL.ModBase.PathImage),
             TempPath = new Func<global::System.String>(() => global::PCL.ModBase.PathTemp),
             CreateBitmap = new Func<global::System.String, global::PCLCS.LegacyBitmap>(Address => new global::PCL.MyBitmap(Address)),

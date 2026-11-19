@@ -165,7 +165,7 @@ namespace PCL
 
         // Reuse the display snapshot within a navigation dispatch. It grants no
         // write authority: tool pages and their backends re-read before actions.
-        private void EnsureInstanceContext()
+        internal void EnsureInstanceContext()
         {
             if (!ReferenceEquals(_contextOwner, Instance) ||
                 !PathUtils.IsSame(_contextPathVersion, Instance?.PathVersion ?? "") ||
@@ -324,7 +324,17 @@ namespace PCL
                 PageExit = new Action<global::PCL.MyPageRight>(Page => Page.PageOnExit()),
                 PageForceExit = new Action<global::PCL.MyPageRight>(Page => Page.PageOnForceExit()),
                 PageEnter = new Action<global::PCL.MyPageRight>(Page => Page.PageOnEnter()),
-                AnimatePage = new Action<global::System.Action, global::System.Int32, global::System.Action, global::System.Int32, global::System.Boolean, global::System.String>((First, FirstDelay, Second, SecondDelay, After, Name) => global::PCL.ModAnimation.AniStart(new[] { global::PCL.ModAnimation.AaCode(() => First(), FirstDelay), global::PCL.ModAnimation.AaCode(() => Second(), SecondDelay, After) }, Name))
+                AnimatePage = new Action<global::System.Action, global::System.Int32, global::System.Action, global::System.Int32, global::System.Boolean, global::System.String>((First, FirstDelay, Second, SecondDelay, After, Name) =>
+                {
+                    if (global::PCL.ModMain.FrmMain?.GlassShellActive == true)
+                    {
+                        global::PCL.ModAnimation.AniStop(Name);
+                        First();
+                        Second();
+                        return;
+                    }
+                    global::PCL.ModAnimation.AniStart(new[] { global::PCL.ModAnimation.AaCode(() => First(), FirstDelay), global::PCL.ModAnimation.AaCode(() => Second(), SecondDelay, After) }, Name);
+                })
             };
         }
 

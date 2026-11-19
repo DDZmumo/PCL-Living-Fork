@@ -279,7 +279,7 @@ public void McLoginServerStart(LegacyLaunchTask<TServer, ILegacyLaunchLoginResul
         McLaunchLog("登录方式：" + Input.Description);
         Data.Progress = 0.05;
         var Cached = host.AccountSnapshot("Cache" + Input.Token);
-        bool refresh = !Data.Input.ForceReselectProfile &&
+        bool refresh = !Data.Input.ForceReselectProfile && CanReuseAuthCache(Input, Cached) &&
             (Conversions.ToString(Cached["Cache" + Input.Token + "Username"]) ?? "") == (Data.Input.UserName ?? "") &&
             (Conversions.ToString(Cached["Cache" + Input.Token + "Pass"]) ?? "") == (Data.Input.Password ?? "") &&
             !string.IsNullOrEmpty(Conversions.ToString(Cached["Cache" + Input.Token + "Access"])) &&
@@ -322,6 +322,25 @@ public void McLoginServerStart(LegacyLaunchTask<TServer, ILegacyLaunchLoginResul
         catch { Logger.Error("保存第三方账号记录失败，原有记录已保留。", LogBehavior.Toast); }
     }
 
+private static bool CanReuseAuthCache(TServer input, Dictionary<string, object> cached) =>
+    input.Token != "Auth" || AuthlibEndpoint.Same(input.BaseUrl, cached.GetValueOrDefault(AuthlibEndpoint.CredentialServerSetting) as string);
+
+private Dictionary<string, object> ReadBoundServerCache(TServer input) {
+    var cached = host.AccountSnapshot("Cache" + input.Token);
+    if (!CanReuseAuthCache(input, cached)) throw new InvalidOperationException("认证服务器已改变，请重新登录当前服务器。");
+    return cached;
+}
+
+private void SaveServerLogin(LegacyLaunchTask<TServer, ILegacyLaunchLoginResult> data) {
+    string prefix = "Cache" + data.Input.Token;
+    var values = new Dictionary<string, object> {
+        [prefix + "Access"] = data.Output.AccessToken, [prefix + "Client"] = data.Output.ClientToken,
+        [prefix + "Uuid"] = data.Output.Uuid, [prefix + "Name"] = data.Output.Name,
+        [prefix + "Username"] = data.Input.UserName, [prefix + "Pass"] = data.Input.Password
+    };
+    if (data.Input.Token == "Auth") values[AuthlibEndpoint.CredentialServerSetting] = data.Input.BaseUrl;
+    host.SaveAccountGroup(values, () => data.IsCanceled);
+}
 
 public void McLoginLegacyStart(LegacyLaunchTask<TOffline, ILegacyLaunchLoginResult> Data)
     {
@@ -350,7 +369,7 @@ public void McLoginRequestValidate(LegacyLaunchTask<TServer, ILegacyLaunchLoginR
     {
         McLaunchLog("验证登录开始（Validate, " + Data.Input.Token + "）");
         // 提前缓存信息，否则如果在登录请求过程中退出登录，设置项目会被清空，导致输出存在空值
-        var Cached = host.AccountSnapshot("Cache" + Data.Input.Token);
+        var Cached = ReadBoundServerCache(Data.Input);
         string AccessToken = Conversions.ToString(Cached["Cache" + Data.Input.Token + "Access"]);
         string ClientToken = Conversions.ToString(Cached["Cache" + Data.Input.Token + "Client"]);
         string Uuid = Conversions.ToString(Cached["Cache" + Data.Input.Token + "Uuid"]);
@@ -372,7 +391,7 @@ public void McLoginRequestValidate(LegacyLaunchTask<TServer, ILegacyLaunchLoginR
 public void McLoginRequestRefresh(LegacyLaunchTask<TServer, ILegacyLaunchLoginResult> Data, bool RequestUser)
     {
         McLaunchLog("刷新登录开始（Refresh, " + Data.Input.Token + "）");
-        var Cached = host.AccountSnapshot("Cache" + Data.Input.Token);
+        var Cached = ReadBoundServerCache(Data.Input);
         JObject LoginJson = (JObject)SendRequest(Data.Input.BaseUrl + "/refresh", HttpMethod.Post, Content: new JObject(new JProperty("selectedProfile", new JObject(new JProperty("name", Conversions.ToString(Cached["Cache" + Data.Input.Token + "Name"])), new JProperty("id", Conversions.ToString(Cached["Cache" + Data.Input.Token + "Uuid"])))), new JProperty("accessToken", Conversions.ToString(Cached["Cache" + Data.Input.Token + "Access"])), new JProperty("requestUser", true)).ToString(Newtonsoft.Json.Formatting.None), Headers: new[,] { { "Accept-Language", "zh-CN" } }, ContentType: "application/json; charset=utf-8", RequireJson: true).DeserializeJson();
         // 将登录结果输出
         if (LoginJson["selectedProfile"] is null)
@@ -383,8 +402,7 @@ public void McLoginRequestRefresh(LegacyLaunchTask<TServer, ILegacyLaunchLoginRe
         Data.Output.Name = LoginJson["selectedProfile"]["name"].ToString();
         Data.Output.Type = Data.Input.Token;
         // 保存缓存
-        var CancellationSource = Data;
-        host.SaveAccountGroup(new Dictionary<string, object>() { { "Cache" + Data.Input.Token + "Access", Data.Output.AccessToken }, { "Cache" + Data.Input.Token + "Client", Data.Output.ClientToken }, { "Cache" + Data.Input.Token + "Uuid", Data.Output.Uuid }, { "Cache" + Data.Input.Token + "Name", Data.Output.Name }, { "Cache" + Data.Input.Token + "Username", Data.Input.UserName }, { "Cache" + Data.Input.Token + "Pass", Data.Input.Password } }, () => CancellationSource.IsCanceled);
+        SaveServerLogin(Data);
         McLaunchLog("刷新登录成功（Refresh, " + Data.Input.Token + "）");
     }
 
@@ -414,7 +432,8 @@ public bool McLoginRequestLogin(LegacyLaunchTask<TServer, ILegacyLaunchLoginResu
             {
                 // 要求选择档案；优先从缓存读取
                 NeedRefresh = true;
-                string CacheId = Setting<string>("Cache" + Data.Input.Token + "Uuid");
+                var cached = host.AccountSnapshot("Cache" + Data.Input.Token);
+                string CacheId = CanReuseAuthCache(Data.Input, cached) ? cached.GetValueOrDefault("Cache" + Data.Input.Token + "Uuid") as string : null;
                 foreach (var Profile in LoginJson["availableProfiles"])
                 {
                     if ((Profile["id"].ToString() ?? "") == (CacheId ?? ""))
@@ -450,8 +469,7 @@ public bool McLoginRequestLogin(LegacyLaunchTask<TServer, ILegacyLaunchLoginResu
             Data.Output.Uuid = SelectedId;
             Data.Output.Type = Data.Input.Token;
             // 保存缓存
-            var CancellationSource = Data;
-            host.SaveAccountGroup(new Dictionary<string, object>() { { "Cache" + Data.Input.Token + "Access", Data.Output.AccessToken }, { "Cache" + Data.Input.Token + "Client", Data.Output.ClientToken }, { "Cache" + Data.Input.Token + "Uuid", Data.Output.Uuid }, { "Cache" + Data.Input.Token + "Name", Data.Output.Name }, { "Cache" + Data.Input.Token + "Username", Data.Input.UserName }, { "Cache" + Data.Input.Token + "Pass", Data.Input.Password } }, () => CancellationSource.IsCanceled);
+            SaveServerLogin(Data);
             McLaunchLog("登录成功（Login, " + Data.Input.Token + "）");
             return NeedRefresh;
         }

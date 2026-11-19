@@ -33,6 +33,7 @@ public static class SmoothScroll {
 
     public static void SetIsEnabled(DependencyObject element, bool value) => element.SetValue(IsEnabledProperty, value);
     public static bool GetIsEnabled(DependencyObject element) => (bool)element.GetValue(IsEnabledProperty);
+    public static void Stop(ScrollViewer viewer) => (viewer.GetValue(StateProperty) as State)?.Stop();
 
     private static void OnIsEnabledChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) {
         if (element is not ScrollViewer scroll) return;
@@ -93,7 +94,7 @@ public static class SmoothScroll {
             if (Math.Abs(_scroll.VerticalOffset - _written) > 1) { _position = _target = _scroll.VerticalOffset; Stop(); }
         }
 
-        private void Stop() {
+        internal void Stop() {
             if (!_running) return;
             _running = false;
             if (_activeCount > 0) _activeCount--;

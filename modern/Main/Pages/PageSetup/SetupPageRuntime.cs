@@ -72,6 +72,12 @@ namespace PCL
         {
             Common = Common,
             CurrentUI = new Func<global::PCLCS.LegacyPageSetupUIController>(() => global::PCL.ModMain.FrmSetupUI is null ? (global::PCLCS.LegacyPageSetupUIController)(null) : (global::PCL.ModMain.FrmSetupUI.Controller)),
+            RefreshLauncherWallpaperControls = () =>
+            {
+                if (ModMain.FrmMain?.GlassShellActive != true) return false;
+                ModMain.FrmSetupUI?.Controller.RefreshLauncherWallpaperUI(File.Exists(GlassShellIntegration.ReadSelectedWallpaper()));
+                return true;
+            },
             ReadHiddenForceShow = global::PCL.PageSetupUI.ReadHiddenForceShow,
             WriteHiddenForceShow = global::PCL.PageSetupUI.WriteHiddenForceShow,
             HasMain = new Func<global::System.Boolean>(() => global::PCL.ModMain.FrmMain is not null),
@@ -124,7 +130,7 @@ namespace PCL
             SkinPath = new Func<global::PCL.ModMinecraft.McSkinInfo, global::System.String>(Skin => Skin.LocalFile),
             StartLegacySkin = new Action<global::System.Boolean>(Force => global::PCL.PageLaunchLeft.SkinLegacy.Start(IsForceRestart: Force)),
             SaveSkin = new Action(() => global::PCL.MySkin.Save(global::PCL.PageLaunchLeft.SkinLegacy)),
-            RefreshSkinCache = new Action(() => global::PCL.MySkin.RefreshCache((global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>)null)),
+            RefreshSkinCache = () => MySkin.RefreshCache(),
             StartJavaRefresh = new Action(() => global::PCL.ModJava.JavaListRefreshWorker.Start()),
             SearchJava = () => global::PCL.ModJava.ManuallySearchJava(),
             ImportJava = global::PCL.ModJava.ManuallyImportJava,
@@ -358,6 +364,8 @@ namespace PCL
 
         private static ImageBrush LoadBoundedBackgroundBrush(string path)
         {
+            if (global::PCL.GlassVideoWallpaper.IsVideo(path)) return global::PCL.GlassVideoWallpaper.Create(path);
+            global::PCL.GlassVideoWallpaper.Stop();
             if (TryLoadBoundedBitmap(path, 1920) is { } fastImage)
             {
                 // Keep ImageBrush unfrozen while its BitmapSource is frozen: LegacyMainWindowAppearance

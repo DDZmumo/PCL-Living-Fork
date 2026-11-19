@@ -40,6 +40,9 @@ public static class GlassMaterial {
     public static readonly DependencyProperty IgnoreWallpaperHostEffectProperty = DependencyProperty.RegisterAttached(
         "IgnoreWallpaperHostEffect", typeof(bool), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
+    public static readonly DependencyProperty DeferWallpaperBlurProperty = DependencyProperty.RegisterAttached(
+        "DeferWallpaperBlur", typeof(bool), typeof(GlassMaterial),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
 
     public static ImageSource? GetWallpaperSource(DependencyObject element) => (ImageSource?)element.GetValue(WallpaperSourceProperty);
     public static void SetWallpaperSource(DependencyObject element, ImageSource? value) => element.SetValue(WallpaperSourceProperty, value);
@@ -57,8 +60,14 @@ public static class GlassMaterial {
     public static void SetDesktopBackdropEnabled(DependencyObject element, bool value) => element.SetValue(DesktopBackdropEnabledProperty, value);
     public static bool GetIgnoreWallpaperHostEffect(DependencyObject element) => (bool)element.GetValue(IgnoreWallpaperHostEffectProperty);
     public static void SetIgnoreWallpaperHostEffect(DependencyObject element, bool value) => element.SetValue(IgnoreWallpaperHostEffectProperty, value);
+    public static bool GetDeferWallpaperBlur(DependencyObject element) => (bool)element.GetValue(DeferWallpaperBlurProperty);
+    public static void SetDeferWallpaperBlur(DependencyObject element, bool value) => element.SetValue(DeferWallpaperBlurProperty, value);
 
     private static void OnContextChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) {
+        // WriteableBitmap updates reach existing image brushes on the render thread. Only a different frame buffer
+        // needs to rebuild the surface's sampling state.
+        if (args.Property == WallpaperSourceProperty && args.NewValue is ImageSource source &&
+            ReferenceEquals(args.OldValue, source) && WallpaperBlurCache.IsVideoFrame(source)) return;
         if (element is GlassSurface surface) surface.InvalidateMaterial();
     }
 }

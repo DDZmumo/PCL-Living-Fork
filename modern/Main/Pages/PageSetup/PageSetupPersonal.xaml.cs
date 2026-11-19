@@ -91,8 +91,6 @@ public partial class PageSetupPersonal : MyPageRight {
             BtnSaveGlobal.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             CardSearch.Visibility = Visibility.Visible; PanGroups.Visibility = Visibility.Visible; LabEditScope.Visibility = Visibility.Visible;
             CardSearch.Title = IsInstanceContext ? "本版本设置与全局设置对照" : "当前版本与全局设置对照";
-            LabEditScope.Text = IsInstanceContext ? "跟随全局时不可编辑。选择不同步后，可修改左侧并点击“保存此版本个人设置”；右侧全局设置只读。"
-                : "左侧显示当前版本的实际设置，仅供对照；右侧修改先暂存，点击“保存全局设置”后生效，来源会标记为自定义。";
             BtnImport.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             PanGroups.IsEnabled = true;
             LabInstance.Text = instance?.Name ?? "尚未选择游戏版本";
@@ -102,6 +100,8 @@ public partial class PageSetupPersonal : MyPageRight {
             ComboCapture.SelectedIndex = PageSetting<bool>("LaunchPersonalOptionsCapture") ? 0 : 1;
             ComboPolicy.IsEnabled = instance is not null && !ModMinecraft.McInstanceLock.IsLocked(instance);
             ComboPolicy.SelectedIndex = Target is null ? -1 : Settings.Get<int>("VersionPersonalOptionsSync", Instance: Target);
+            LabEditScope.Text = !IsInstanceContext ? "右侧编辑共用方案，保存后供参与同步的版本在启动时使用。"
+                : ComboPolicy.SelectedIndex == 1 ? "修改左侧后保存。右侧全局方案供对照。" : "跟随全局时只读。选择不同步后可编辑本版本。";
             CurrentPreview = Target is null ? null : PersonalGameSettings.Preview(Target);
             JObject profile = PersonalGameSettings.Management.Profile();
             globalValues = (JObject)(profile["values"] as JObject)?.DeepClone() ?? new JObject();
@@ -135,10 +135,12 @@ public partial class PageSetupPersonal : MyPageRight {
                 ? ComboPolicy.SelectedIndex == 0 ? "有未保存修改。请选择不同步后保存，或放弃修改。" : "此版本有未保存修改，请点击“保存此版本个人设置”。"
                 : "全局设置有未保存修改，请点击“保存全局设置”。";
             string updated = (string)profile["updatedUtc"];
-            LabSummary.Text = $"已选择 {selected} 项，个人方案包含 {saved} 项对应值，本版本可用 {applicable} 项。" +
-                (DateTime.TryParse(updated, out var time) ? "  最近更新：" + time.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "");
-            if (!IsInstanceContext) LabSummary.Text = $"全局方案包含 {globalValues.Properties().Count(value => PersonalOptionsCatalog.Contains(value.Name))} 项基础设置。" +
-                (DateTime.TryParse(updated, out var globalTime) ? "  最近更新：" + globalTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "");
+            LabSummary.Text = IsInstanceContext
+                ? $"已选 {selected} 项 · 方案有值 {saved} 项 · 本版本可用 {applicable} 项"
+                : $"全局方案 {globalValues.Properties().Count(value => PersonalOptionsCatalog.Contains(value.Name))} 项基础设置";
+            bool hasUpdateTime = DateTime.TryParse(updated, out var updatedTime);
+            LabUpdated.Text = hasUpdateTime ? $"更新于 {updatedTime.ToLocalTime():yyyy-MM-dd HH:mm}" : string.Empty;
+            LabUpdated.Visibility = hasUpdateTime ? Visibility.Visible : Visibility.Collapsed;
             bool idle = !ModWatcher.HasRunningMinecraft && (instance is null || !ModMinecraft.McInstanceLock.IsLocked(instance));
             BtnImport.IsEnabled = idle && CurrentPreview?.HasFile == true && CurrentPreview.Current.Properties().Any(value => PersonalOptionsCatalog.Contains(value.Name));
             BtnSaveGlobal.IsEnabled = !IsInstanceContext && HasDraft && !ModWatcher.HasRunningMinecraft;
@@ -150,6 +152,9 @@ public partial class PageSetupPersonal : MyPageRight {
         } catch (Exception error) {
             CurrentPreview = null; BtnImport.IsEnabled = false; BtnApply.IsEnabled = false; BtnSaveGlobal.IsEnabled = false;
             PanGroups.IsEnabled = false;
+            LabSummary.Text = string.Empty;
+            LabUpdated.Visibility = Visibility.Collapsed;
+            LabEditScope.Visibility = Visibility.Collapsed;
             HintStatus.Text = "无法读取同步资料：" + error.Message;
         } finally { refreshing = false; }
     }

@@ -33,6 +33,7 @@ public sealed class LaunchApplicationCommands<TOptions, TInstance> where TOption
     public Action VerifyAccess = null!;
     public Func<bool> IsActive = null!;
     public Action ReportBusy = null!;
+    public Func<bool>? CanStart;
     public Func<TOptions?, TInstance?> ResolveTarget = null!;
     public Func<TOptions?, bool> Start = null!;
     public Action Cancel = null!;
@@ -54,6 +55,7 @@ public sealed class LaunchApplicationService<TOptions, TInstance, TTask, TOperat
         var previous = Runtime;
         admitting = true;
         try {
+            if (commands.CanStart?.Invoke() == false) return false;
             // A new attempt reuses the real root loader, not the previous session's process/operation references.
             Runtime = new() { Task = previous.Task, Target = commands.ResolveTarget(options) };
             bool accepted = commands.Start(options);

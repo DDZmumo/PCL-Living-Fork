@@ -20,6 +20,7 @@ public sealed class LfRegistryStorage {
         "LaunchPersonalOptionsSync", "LaunchPersonalOptionsKeys", "LaunchPersonalOptionsMouse", "LaunchPersonalOptionsView",
         "LaunchPersonalOptionsAccessibility", "LaunchPersonalOptionsAudio", "LaunchPersonalOptionsExcluded", "LaunchPersonalOptionsCapture",
         "LaunchRecentWorlds", "UiLaunchMoreSettings", "ToolLauncherUpdateIgnoredTag", "LivingPclSharedPreferencesMigrated",
+        "LfSkinSites", "LfSkinSiteActive", "LfSkinSiteSelection", "CacheAuthCredentialServer",
         "LoginMsJson_LF", "CacheMsOAuthRefresh_LF", "CacheMsAccess_LF", "CacheMsProfileJson_LF", "CacheMsUuid_LF", "CacheMsName_LF",
         "CacheMsV2Migrated_LF", "CacheMsV2OAuthRefresh_LF", "CacheMsV2Access_LF", "CacheMsV2ProfileJson_LF", "CacheMsV2Uuid_LF", "CacheMsV2Name_LF", "CacheMsV2Expires_LF"
     };

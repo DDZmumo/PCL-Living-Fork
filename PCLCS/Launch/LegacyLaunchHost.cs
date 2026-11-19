@@ -71,6 +71,7 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Action<string> SetGpuPreference = null!;
     public Func<string, bool> RunAdminTaskDone = null!;
     public Func<ProcessStartInfo, Process> StartProcess = null!;
+    public Func<ILegacyLaunchLoginResult, Java, ProcessStartInfo, CancellationToken, Applications.LocalSkinServiceProcess?>? PrepareLocalSkin;
     public Func<string, LegacyLaunchImage> LoadImage = null!;
     public Func<string, bool, string> ArgumentReplace = null!;
     public Func<string, char, string> FilterAccessToken = null!, FilterUserName = null!;

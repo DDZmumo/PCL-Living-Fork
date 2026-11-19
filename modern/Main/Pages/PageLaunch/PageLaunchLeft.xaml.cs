@@ -31,6 +31,7 @@ using Newtonsoft.Json.Linq;
 using PCLCS;
 using global::PCLLF.Presentation.Launch;
 using ThrottleDebounce;
+using SkinLoader = PCL.ModLoader.LoaderTask<PCLLF.Presentation.Launch.LegacySkinRequest, string>;
 
 namespace PCL
 {
@@ -40,7 +41,8 @@ namespace PCL
         public PageLaunchLeft()
         {
             __LfAttachOwnHandles();
-            this.Native = new global::PCLLF.Presentation.Launch.LegacyLaunchLeft<global::PCL.ModMinecraft.McInstance, global::PCL.ModAnimation.AniData>(this.CreateView(), this.CreateHost(), global::PCL.LaunchPageRuntime.Animations());
+            this.Native = new global::PCLLF.Presentation.Launch.LegacyLaunchLeft<global::PCL.ModMinecraft.McInstance, global::PCL.ModAnimation.AniData>(this.CreateView(), this.CreateHost(), global::PCL.LaunchPageRuntime.Animations(),
+                () => GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null);
             this.InitializeComponent();
             CheckMoreSettings.Checked = Settings.Get<bool>("UiLaunchMoreSettings");
             CheckMoreSettings.Change += (_, user) => {
@@ -179,52 +181,17 @@ namespace PCL
             this.Native.RadioChanged(raiseByMouse);
         }
 
-        public static global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> SkinMs = new global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>("Loader Skin Ms", global::PCL.PageLaunchLeft.SkinMsLoad, global::PCL.PageLaunchLeft.SkinMsInput, global::System.Threading.ThreadPriority.AboveNormal);
-        private static (global::System.String, global::System.String) SkinMsInput()
-        {
-            return global::PCL.LaunchPageRuntime.Skins.Input("Ms");
-        }
-
-        private static void SkinMsLoad(global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> Data)
-        {
-            global::PCL.LaunchPageRuntime.Skins.Official(Data, "Ms");
-        }
-
-        public static global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> SkinLegacy = new global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>("Loader Skin Legacy", global::PCL.PageLaunchLeft.SkinLegacyLoad, global::PCL.PageLaunchLeft.SkinLegacyInput, global::System.Threading.ThreadPriority.AboveNormal);
-        private static (global::System.String, global::System.String) SkinLegacyInput()
-        {
-            return global::PCL.LaunchPageRuntime.Skins.Input("Legacy");
-        }
-
-        private static void SkinLegacyLoad(global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> Data)
-        {
-            global::PCL.LaunchPageRuntime.Skins.Offline(Data);
-        }
-
-        public static global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> SkinNide = new global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>("Loader Skin Nide", global::PCL.PageLaunchLeft.SkinNideLoad, global::PCL.PageLaunchLeft.SkinNideInput, global::System.Threading.ThreadPriority.AboveNormal);
-        private static (global::System.String, global::System.String) SkinNideInput()
-        {
-            return global::PCL.LaunchPageRuntime.Skins.Input("Nide");
-        }
-
-        private static void SkinNideLoad(global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> Data)
-        {
-            global::PCL.LaunchPageRuntime.Skins.Official(Data, "Nide");
-        }
-
-        public static global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> SkinAuth = new global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>("Loader Skin Auth", global::PCL.PageLaunchLeft.SkinAuthLoad, global::PCL.PageLaunchLeft.SkinAuthInput, global::System.Threading.ThreadPriority.AboveNormal);
-        private static (global::System.String, global::System.String) SkinAuthInput()
-        {
-            return global::PCL.LaunchPageRuntime.Skins.Input("Auth");
-        }
-
-        private static void SkinAuthLoad(global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String> Data)
-        {
-            global::PCL.LaunchPageRuntime.Skins.Official(Data, "Auth");
-        }
+        public static SkinLoader SkinMs = new("Loader Skin Ms", task => LaunchPageRuntime.Skins.Official(task, "Ms"),
+            () => LaunchPageRuntime.Skins.Input("Ms"), ThreadPriority.AboveNormal);
+        public static SkinLoader SkinLegacy = new("Loader Skin Legacy", task => LaunchPageRuntime.Skins.Offline(task),
+            () => LaunchPageRuntime.Skins.Input("Legacy"), ThreadPriority.AboveNormal);
+        public static SkinLoader SkinNide = new("Loader Skin Nide", task => LaunchPageRuntime.Skins.Official(task, "Nide"),
+            () => LaunchPageRuntime.Skins.Input("Nide"), ThreadPriority.AboveNormal);
+        public static SkinLoader SkinAuth = new("Loader Skin Auth", task => LaunchPageRuntime.Skins.Official(task, "Auth"),
+            () => LaunchPageRuntime.Skins.Input("Auth"), ThreadPriority.AboveNormal);
 
         // 必须位于四个真实加载器之后，保留 LF 的静态初始化顺序与列表身份。
-        public static global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>> SkinLoaders = new global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>()
+        public static List<SkinLoader> SkinLoaders = new()
         {
             global::PCL.PageLaunchLeft.SkinMs,
             global::PCL.PageLaunchLeft.SkinLegacy,

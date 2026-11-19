@@ -31,6 +31,7 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
     private readonly Panel _source;
     private readonly Dictionary<Border, Toast> _toasts = new(ReferenceEqualityComparer.Instance);
     private readonly EventHandler _sourceLayoutUpdated;
+    private long _lastRefreshMs;
     private bool _dark = true;
     private bool _disposed;
 
@@ -41,8 +42,14 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
         IsHitTestVisible = false;
         MaxWidth = 380;
         AutomationProperties.SetLiveSetting(this, AutomationLiveSetting.Polite);
-        // Hints are added by the original runtime on the UI thread; its own layout pass makes the mirror immediate.
-        _sourceLayoutUpdated = (_, _) => Refresh();
+        // Hints are added by the original runtime on the UI thread; throttle layout bursts while keeping entrance immediate.
+        _sourceLayoutUpdated = (_, _) => {
+            if (_source.Children.Count == 0 && _toasts.Count == 0) return;
+            long now = Environment.TickCount64;
+            if (_toasts.Count > 0 && now - _lastRefreshMs < 32 && _toasts.Count == _source.Children.Count) return;
+            _lastRefreshMs = now;
+            Refresh();
+        };
         _source.LayoutUpdated += _sourceLayoutUpdated;
     }
 

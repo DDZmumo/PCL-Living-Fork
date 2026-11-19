@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+﻿// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) 2026 PCL Living Fork contributors.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,6 +9,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -21,8 +22,11 @@ using PCLLF.Wpf.Motion;
 namespace PCLLF.Wpf.Glass;
 
 /// <summary>Native visual shell; all launcher operations are supplied by its owner.</summary>
-public partial class GlassLauncherView : UserControl
+public partial class GlassLauncherView : UserControl, IDisposable
 {
+    internal static readonly DependencyProperty PreventWindowDragProperty = DependencyProperty.RegisterAttached(
+        "PreventWindowDrag", typeof(bool), typeof(GlassLauncherView), new PropertyMetadata(false));
+
     public const double RailCollapsedWidth = 64;
     public const double RailExpandedWidth = 168;
     public const double RailExpandDelta = RailExpandedWidth - RailCollapsedWidth;
@@ -37,7 +41,8 @@ public partial class GlassLauncherView : UserControl
     // Sidebar selection: a slightly underdamped spring so the overlay settles softly on the new row.
     private static readonly SpringParameters SelectionSpring = new(.3, .82);
     // Floating left rail expansion: fast iOS-style underdamped spring (response 0.25 s, damping 0.84).
-    private static readonly SpringParameters RailExpandSpring = new(.25, .84);
+    // iOS-like sheet spring: a 0.4 s response with damping 0.78 gives the rail weight and a small, soft overshoot.
+    private static readonly SpringParameters RailExpandSpring = new(.4, .78);
     // Page changes: a soft, slightly underdamped spring so the incoming page rises and settles rather than snapping.
     private static readonly SpringParameters PageSpring = new(.46, .86);
     // Pages enter from the direction of travel through the navigation order (down the list: from below).
@@ -73,13 +78,16 @@ public partial class GlassLauncherView : UserControl
     private double _homeProgress = 1;
     private double _pageProgress = 1;
     private ImageSource _fallbackInstanceIcon;
-    private ImageSource _fallbackAccountAvatar;
     private bool _homeTextShadowEnabled;
     private IReadOnlyList<GlassWindowRegion> _lastRegions = Array.Empty<GlassWindowRegion>();
     private FrameworkElement _surfaceMaskHost;
     private SolidColorBrush _wallpaperBaseBrush;
     private readonly RectangleGeometry _bodyContentClip = new();
     private readonly RectangleGeometry _controlsWallpaperClip = new();
+    private (Rect Body, Rect Cutout, double BodyRadius, double CutoutRadius)? _lastBodyClipKey;
+    // The body's notch under the window buttons (BodyFrame coordinates); the splash cuts it too, so the buttons' own
+    // frosted slice looks the same during the splash and after it (no jump when the normal clip takes over).
+    private (Rect Rect, double Radius)? _controlsCutout;
     private (bool DarkText, bool Wallpaper, bool Desktop, double Density, bool HighContrast, bool IsHome, Color? Hue)? _lastPalette;
 
     public event EventHandler StartRequested;
@@ -103,7 +111,7 @@ public partial class GlassLauncherView : UserControl
     public double LeftExpansionAllowance => _leftExpansionAllowance;
     private bool IsCompactViewport => ActualWidth - _leftExpansionAllowance < 960;
     /// <summary>True while a page transition, rail expansion or entrance cascade is playing; owners can defer heavy refreshes.</summary>
-    public bool IsTransitioning => _pageMotion.IsRunning || _railExpandMotion.IsRunning || StaggeredEntrance.IsPlaying;
+    public bool IsTransitioning => _pageMotion.IsRunning || _homeMotion.IsRunning || _railExpandMotion.IsRunning || (_workspaceMotion?.IsRunning == true) || StaggeredEntrance.IsPlaying;
     /// <summary>True between a section change and the arrival of that section's page; the current page should stay as displayed.</summary>
     public bool IsAwaitingSection => _titlesPending;
     public Geometry SurfaceClip => FrameClip;
@@ -127,8 +135,16 @@ public partial class GlassLauncherView : UserControl
         string actionText = expanded ? "收起导航栏" : "展开导航栏";
         RailToggleButton.ToolTip = actionText;
         AutomationProperties.SetName(RailToggleButton, actionText);
+        UpdateRailToolTips();
         _railExpandMotion.Retarget(expanded ? 1 : 0, immediate || ShouldSnapMotion);
         NotifyRegionsChanged();
+    }
+
+    private void UpdateRailToolTips()
+    {
+        bool showTips = !_railExpanded;
+        foreach (Button button in new[] { NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther, RailToggleButton, AccountButton })
+            ToolTipService.SetIsEnabled(button, showTips);
     }
 
     public void SetSurfaceMaskHost(FrameworkElement host)
@@ -163,6 +179,18 @@ public partial class GlassLauncherView : UserControl
         _titleMotion = new SpringMotion(this, 0, ApplyTitleTransition, MotionTokens.Reveal);
         _optionsMotion = new SpringMotion(this, 1, ApplyOptionsAvailability, MotionTokens.Reveal);
         Loaded += OnLoaded;
+        // Start the splash in the same pass the view loads (after OnLoaded has the logo), so the first frame the window
+        // shows is already the splash; if layout is not ready yet, try again right after it.
+        Loaded += (_, _) =>
+        {
+            StartSplash();
+            if (_splashRequested) Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => {
+                StartSplash();
+                if (_splashRequested) AbortSplash();
+            }));
+        };
+        Unloaded += OnUnloaded;
+        IsVisibleChanged += OnViewIsVisibleChanged;
         SizeChanged += OnSizeChanged;
         MainSurface.SizeChanged += OnSurfaceGeometryChanged;
         NavigationSurface.SizeChanged += OnSurfaceGeometryChanged;
@@ -172,6 +200,7 @@ public partial class GlassLauncherView : UserControl
         WindowControlsWallpaperFrost.SizeChanged += OnSurfaceGeometryChanged;
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
+        UpdateRailToolTips();
         SetState(_state);
     }
 
@@ -190,11 +219,19 @@ public partial class GlassLauncherView : UserControl
             _state.ReduceMotion != state.ReduceMotion ||
             string.IsNullOrWhiteSpace(_state.LaunchStatus) != string.IsNullOrWhiteSpace(state.LaunchStatus) ||
             string.IsNullOrWhiteSpace(_state.InstanceDescription) != string.IsNullOrWhiteSpace(state.InstanceDescription);
+        if (navigationChanged && _workspaceOpen)
+            SetAccountWorkspaceOpen(false);
         if (navigationChanged && !state.IsHome && !_state.IsHome && !ShouldSnapMotion)
             HoldTitles();
         if (navigationChanged)
             _pageDirection = Array.IndexOf(NavigationOrder, state.SelectedNavigationId) >= Array.IndexOf(NavigationOrder, _state.SelectedNavigationId) ? 1 : -1;
         _state = state;
+        if (homeChanged && ActualWidth > 0)
+        {
+            bool compact = IsCompactViewport;
+            double columnWidth = SecondaryWidth(state.IsHome || _workspaceOpen, compact);
+            SetSecondaryColumnWidth(columnWidth, animate: !ShouldSnapMotion);
+        }
         _updatingState = true;
         try
         {
@@ -213,7 +250,7 @@ public partial class GlassLauncherView : UserControl
             AccountNameText.Text = string.IsNullOrWhiteSpace(state.AccountName) ? "未登录" : state.AccountName;
             AccountButton.ToolTip = AccountNameText.Text;
             AutomationProperties.SetName(AccountButton, "当前账户：" + AccountNameText.Text);
-            ImageSource avatar = state.AccountAvatar ?? GetFallbackAccountAvatar();
+            ImageSource avatar = state.AccountAvatar;
             AccountAvatarImage.Source = avatar;
             AccountFallbackGlyph.Visibility = avatar is null ? Visibility.Visible : Visibility.Collapsed;
 
@@ -233,9 +270,12 @@ public partial class GlassLauncherView : UserControl
             ExpandButtonContainer.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
             LaunchButton.IsEnabled = state.IsLaunching || state.CanLaunch;
             LaunchButtonText.Text = state.IsLaunching ? "取消启动" : string.IsNullOrWhiteSpace(state.LaunchText) ? "启动游戏" : state.LaunchText;
-            LaunchGlyph.Data = state.IsLaunching ? Geometry.Parse("M5,5 H19 V19 H5 Z") : (Geometry)Resources["IconPlay"];
+            LaunchGlyph.Data = state.IsLaunching ? StopGlyph : (Geometry)Resources["IconPlay"];
             AutomationProperties.SetName(LaunchButton, LaunchButtonText.Text);
             LaunchStatusText.Text = state.LaunchStatus ?? string.Empty;
+            // Launch progress uses the same tide as signing in, on the launch card; the caption is the step in progress.
+            EnsureLaunchTide().Update(state.IsHome && state.IsLaunching, state.LaunchProgress,
+                string.IsNullOrWhiteSpace(state.LaunchStatus) ? "正在启动游戏" : state.LaunchStatus);
             LaunchStatusText.Visibility = state.IsLaunching && !string.IsNullOrWhiteSpace(state.LaunchStatus) ? Visibility.Visible : Visibility.Collapsed;
             // While launching, the button itself fills with progress (a hard stop between full and dimmed accent).
             LaunchProgressBar.Visibility = Visibility.Collapsed;
@@ -357,11 +397,34 @@ public partial class GlassLauncherView : UserControl
         ApplyTitles();
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Geometry> FrozenGlyphCache = new(StringComparer.Ordinal);
+    private static readonly Geometry StopGlyph = GetCachedGlyph("M5,5 H19 V19 H5 Z");
+
+    private static Geometry GetCachedGlyph(string data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return null;
+        return FrozenGlyphCache.GetOrAdd(data, static raw =>
+        {
+            try
+            {
+                Geometry parsed = Geometry.Parse(raw);
+                if (parsed.Bounds.IsEmpty) return null;
+                if (parsed.CanFreeze) parsed.Freeze();
+                return parsed;
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+        });
+    }
+
     public void SetPageContent(UIElement content)
     {
         if (ReferenceEquals(PageContent.Content, content)) return;
         ReleaseTitles();
-        bool animate = !ShouldSnapMotion && !_state.IsHome && _homeProgress < .999 && content != null;
+        // Home now has content of its own (the homepage cards): it arrives with the same rise and card cascade as any page.
+        bool animate = !ShouldSnapMotion && content != null && (_state.IsHome || _homeProgress < .999);
         BitmapSource previous = animate ? CapturePageLayer() : null;
         PageContent.Content = content;
         _hasPageSnapshot = previous != null;
@@ -369,16 +432,17 @@ public partial class GlassLauncherView : UserControl
         PageSnapshot.Visibility = _hasPageSnapshot ? Visibility.Visible : Visibility.Hidden;
         if (animate)
         {
-            // The page's cards and rows cascade in with the page. Build the tree now so their start state is applied
-            // before the first frame (no flash of finished content).
-            PageContent.UpdateLayout();
-            // Only the first screenful cascades; animating every row of a long page costs frames for items nobody sees.
-            if (StaggeredEntrance.FindItemsPanel(PageContent) is Panel itemsPanel)
-                StaggeredEntrance.Play(itemsPanel.Children.OfType<UIElement>().Where(item => item.Visibility == Visibility.Visible).Take(14));
-            // A different page has different content. Capture the current composite on rapid navigation
-            // so the replacement starts from exactly the displayed frame, with no stale completion callback.
+            // PageContent.Opacity is 0 for the first 38% of _pageMotion; start the spring immediately without blocking
+            // frame 0 on a synchronous UpdateLayout(), and arm row cascade once WPF's natural Loaded pass measures it.
             _pageMotion.Snap(0);
             _pageMotion.Retarget(1);
+            UIElement scheduled = content;
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (!ReferenceEquals(PageContent.Content, scheduled)) return;
+                if (StaggeredEntrance.FindItemsPanel(PageContent) is Panel itemsPanel)
+                    StaggeredEntrance.Play(itemsPanel.Children.OfType<UIElement>().Where(item => item.Visibility == Visibility.Visible).Take(14));
+            }));
         }
         else _pageMotion.Snap(1);
     }
@@ -446,15 +510,15 @@ public partial class GlassLauncherView : UserControl
     private void StartSidebarFlip()
     {
         // The whole sidebar panel (surface, title, rows and actions) moves as one card.
-        SecondarySurface.RenderTransform = _sidebarFlipOffset;
+        // Do not attach a BitmapCache to SecondarySurface: WallpaperBlurCache already holds the pre-blurred texture,
+        // whereas BitmapCache would freeze a displaced wallpaper slice onto the card instead of sampling live coordinates.
+        SecondarySurface.RenderTransform = new TransformGroup { Children = { _sidebarFlipOffset, _secondaryShift } }; // flip offset + account-page drift
         _sidebarFlipMotion ??= new SpringMotion(this, 1, ApplySidebarFlip, SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
         _sidebarFlipDirection = _pageDirection;
         if (ShouldSnapMotion) { _sidebarFlipMotion.Snap(1); return; }
         // Start from the offset position (keeping any in-flight velocity) and spring to rest.
         _sidebarFlipMotion.Snap(0);
         _sidebarFlipMotion.Retarget(1);
-        // Moving a frosted surface re-composes its blur every frame; cache it as a bitmap while it travels.
-        if (_sidebarFlipMotion.IsRunning) SecondarySurface.CacheMode ??= new BitmapCache { RenderAtScale = 1, SnapsToDevicePixels = true };
     }
 
     private DispatcherTimer? _sidebarRowsFallback;
@@ -483,7 +547,6 @@ public partial class GlassLauncherView : UserControl
         _sidebarFlipOffset.Y = SidebarFlipTravel * _sidebarFlipDirection * (1 - value);
         double fade = Math.Clamp(value / .6, 0, 1);
         SecondarySurface.Opacity = .4 + .6 * (1 - Math.Pow(1 - fade, 2));
-        if (_sidebarFlipMotion is { IsRunning: false } && SecondarySurface.CacheMode is not null) SecondarySurface.CacheMode = null;
     }
 
     private const string SelectedRowTag = "SidebarSelectedRow";
@@ -560,10 +623,8 @@ public partial class GlassLauncherView : UserControl
 
     private static Path SidebarGlyph(string data, double size)
     {
-        Geometry geometry = null;
-        try { if (!string.IsNullOrWhiteSpace(data)) geometry = Geometry.Parse(data); }
-        catch (FormatException) { }
-        if (geometry == null || geometry.Bounds.IsEmpty) return null;
+        Geometry geometry = GetCachedGlyph(data);
+        if (geometry == null) return null;
         var path = new Path { Data = geometry, Width = size, Height = size, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center };
         path.SetResourceReference(Shape.FillProperty, "GlassTextBrush");
         return path;
@@ -704,13 +765,15 @@ public partial class GlassLauncherView : UserControl
         return Color.FromArgb(darkText ? (byte)120 : (byte)110, (byte)((rr + m) * 255), (byte)((gg + m) * 255), (byte)((bb + m) * 255));
     }
 
-    public void SetWallpaper(ImageSource source)
+    public void SetWallpaper(ImageSource source) => SetWallpaperDisplay(source, source);
+
+    internal void SetWallpaperDisplay(ImageSource source, ImageSource? materialSource)
     {
         WallpaperImage.Source = source;
         WallpaperImage.Visibility = source is null ? Visibility.Collapsed : Visibility.Visible;
-        _wallpaperHue = source is null ? null : SampleWallpaperColor(source);
+        _wallpaperHue = source is not null && ReferenceEquals(source, materialSource) ? SampleWallpaperColor(source) : null;
         GlassMaterial.SetIsEnabled(ShellRoot, true);
-        GlassMaterial.SetWallpaperSource(ShellRoot, source);
+        SetWallpaperMaterialSource(materialSource);
         GlassMaterial.SetWallpaperHost(ShellRoot, WallpaperImage);
         // The rail has its own desktop material. A shared wallpaper must never leak
         // through inheritance or be sampled again by the rail's material layer.
@@ -720,6 +783,8 @@ public partial class GlassLauncherView : UserControl
         ApplyPalette(_state.UseDarkText);
         UpdateWallpaperClip();
     }
+
+    internal void SetWallpaperMaterialSource(ImageSource? source) => GlassMaterial.SetWallpaperSource(ShellRoot, source);
 
     public void SetDesktopBackdropActive(bool active)
     {
@@ -733,6 +798,8 @@ public partial class GlassLauncherView : UserControl
     {
         if (NavigationSurface.ActualWidth <= 0 || BodyFrame.ActualWidth <= 0 || WindowControlsSurface.ActualWidth <= 0 || ActualHeight <= 0)
             return Array.Empty<GlassWindowRegion>();
+        if (_splashActive || _splashRequested) return new[] { new GlassWindowRegion(new Rect(RenderSize), 0) };
+
         return new[] {
             new GlassWindowRegion(NavigationSurface.TransformToAncestor(this).TransformBounds(new Rect(NavigationSurface.RenderSize)), NavigationSurface.CornerRadius.TopLeft),
             new GlassWindowRegion(BodyFrame.TransformToAncestor(this).TransformBounds(new Rect(BodyFrame.RenderSize)), BodyFrame.CornerRadius.TopLeft),
@@ -740,11 +807,53 @@ public partial class GlassLauncherView : UserControl
         };
     }
 
-    public IReadOnlyList<GlassWindowRegion> GetDesktopBackdropRegions()
+    public IReadOnlyList<GlassWindowRegion> GetDesktopBackdropRegions() => GetDesktopBackdropRegions(RenderSize);
+
+    private IReadOnlyList<GlassWindowRegion> SplashBackdropRegions()
     {
+        var regions = new List<GlassWindowRegion>(2);
+        double fade = _splashFade is null ? 0 : Math.Clamp(_splashFade.Value, 0, 1);
+        if (fade > .001 && NavigationSurface.Clip is RectangleGeometry rail && !rail.Rect.IsEmpty)
+            regions.Add(new GlassWindowRegion(NavigationSurface.TransformToAncestor(this).TransformBounds(rail.Rect), NavigationSurface.CornerRadius.TopLeft, fade));
+        Rect body = SplashBodyRect();
+        if (!body.IsEmpty && body.Width > 1 && WallpaperImage.Source is null)
+            regions.Add(new GlassWindowRegion(BodyFrame.TransformToAncestor(this).TransformBounds(body), BodyFrame.CornerRadius.TopLeft));
+        // Window buttons: their blur fades in with them, together with the loading screen.
+        double buttons = _splashLogo is null ? 0 : Math.Clamp(_splashLogo.Value, 0, 1);
+        if (buttons > .001 && WindowControlsSurface.ActualWidth > 0)
+            regions.Add(new GlassWindowRegion(WindowControlsSurface.TransformToAncestor(this).TransformBounds(new Rect(WindowControlsSurface.RenderSize)),
+                WindowControlsChrome.CornerRadius.TopLeft, buttons));
+        return regions;
+    }
+
+    private IReadOnlyList<GlassWindowRegion> _lastSplashBackdrop = Array.Empty<GlassWindowRegion>();
+
+    public IReadOnlyList<GlassWindowRegion> GetDesktopBackdropRegions(Size clientSize)
+    {
+        // The backdrop host also asks on every move/resize: keep the splash shapes (or nothing) while it runs.
+        if (_splashActive) return SplashBackdropRegions();
+        if (_farewellActive) return FarewellBackdropRegions();
+        if (_splashRequested) return Array.Empty<GlassWindowRegion>();
         IReadOnlyList<GlassWindowRegion> surfaces = GetSurfaceRegions();
-        if (surfaces.Count < 3 || WallpaperImage.Source is null) return surfaces;
-        return new[] { surfaces[0], surfaces[2] };
+        if (surfaces.Count < 3) return surfaces;
+        GlassWindowRegion rail = surfaces[0], body = surfaces[1], controls = surfaces[2];
+        double widthDelta = clientSize.Width - RenderSize.Width;
+        double heightDelta = clientSize.Height - RenderSize.Height;
+        // The rail and body stretch vertically. The window controls keep their size and follow the right edge.
+        if (Math.Abs(widthDelta) > 0.5) {
+            Rect bounds = controls.Bounds;
+            bounds.Offset(widthDelta, 0);
+            controls = controls with { Bounds = bounds };
+            body = body with { Bounds = ResizeBounds(body.Bounds, widthDelta, 0) };
+        }
+        if (Math.Abs(heightDelta) > 0.5) {
+            rail = rail with { Bounds = ResizeBounds(rail.Bounds, 0, heightDelta) };
+            body = body with { Bounds = ResizeBounds(body.Bounds, 0, heightDelta) };
+        }
+        return WallpaperImage.Source is null ? new[] { rail, body, controls } : new[] { rail, controls };
+
+        static Rect ResizeBounds(Rect bounds, double widthDelta, double heightDelta) =>
+            new(bounds.Location, new Size(Math.Max(1, bounds.Width + widthDelta), Math.Max(1, bounds.Height + heightDelta)));
     }
 
     public IReadOnlyList<GlassWindowRegion> GetWindowHitRegions()
@@ -776,10 +885,15 @@ public partial class GlassLauncherView : UserControl
         bool translucent = wallpaper || desktop;
         // Colourless blur only (no tint), and never on the launch page, which has no page title.
         PageTitleBacking.Visibility = wallpaper && !_state.IsHome ? Visibility.Visible : Visibility.Collapsed;
-        WindowControlsWallpaperFrost.Visibility = wallpaper && !highContrast ? Visibility.Visible : Visibility.Collapsed;
+        bool controlsFrost = translucent && !highContrast && WindowControlsChrome.IsTransparencyActive;
+        WindowControlsWallpaperFrost.Visibility = controlsFrost ? Visibility.Visible : Visibility.Collapsed;
         double density = translucent ? Math.Clamp(GlassMaterial.GetOpacityMultiplier(this), 0, 1) : 1;
         var paletteKey = (darkText, wallpaper, desktop, density, highContrast, _state.IsHome, _wallpaperHue);
-        if (_lastPalette == paletteKey) return;
+        if (_lastPalette == paletteKey)
+        {
+            UpdateWallpaperClip();
+            return;
+        }
         _lastPalette = paletteKey;
 
         if (highContrast)
@@ -797,11 +911,14 @@ public partial class GlassLauncherView : UserControl
             SetBrush("GlassAccentTextBrush", SystemColors.HighlightTextColor);
             GlassMaterial.SetFallbackColor(ShellRoot, SystemColors.WindowColor);
             BodyFrame.Background = Brushes.Transparent;
+            WindowControlsBodyFrostBase.Background = Brushes.Transparent;
+            WindowControlsBodyFrostBase.BorderBrush = Brushes.Transparent;
             WallpaperImage.Visibility = Visibility.Hidden;
             WindowControlsWallpaperFrost.Visibility = Visibility.Hidden;
             WorkspaceSurface.Background = SystemColors.WindowBrush;
             ContextStrip.Background = SystemColors.WindowBrush;
             SetHomeTextShadow(false);
+            UpdateWallpaperClip();
             return;
         }
         NavigationSurface.TintOpacity = wallpaper ? 1 : .48;
@@ -842,6 +959,10 @@ public partial class GlassLauncherView : UserControl
         WorkspaceSurface.Background = Brushes.Transparent;
         ContextStrip.Background = Brushes.Transparent;
         ContextStrip.BorderBrush = _state.IsHome ? Brushes.Transparent : (Brush)Resources["GlassOutlineBrush"];
+        WindowControlsBodyFrostBase.Background = BodyFrame.Background;
+        WindowControlsBodyFrostBase.BorderBrush = (Brush)Resources["GlassOutlineBrush"];
+        WindowControlsBodyFrostBase.BorderThickness = new Thickness(0, 1, 1, 0);
+        UpdateWallpaperClip();
     }
 
     private void SetHomeTextShadow(bool enabled)
@@ -889,23 +1010,6 @@ public partial class GlassLauncherView : UserControl
             // An isolated preview can omit the main app resources. The adapter supplies real icons at runtime.
         }
         return _fallbackInstanceIcon;
-    }
-
-    private ImageSource GetFallbackAccountAvatar()
-    {
-        if (_fallbackAccountAvatar != null) return _fallbackAccountAvatar;
-        try
-        {
-            var resource = Application.GetResourceStream(new Uri("/LivingPCL;component/Images/Skins/Steve.png", UriKind.Relative));
-            if (resource is null) return null;
-            BitmapSource skin;
-            using (resource.Stream) skin = BitmapFrame.Create(resource.Stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-            int unit = Math.Max(1, skin.PixelWidth / 64);
-            var head = new CroppedBitmap(skin, new Int32Rect(8 * unit, 8 * unit, 8 * unit, 8 * unit));
-            head.Freeze(); _fallbackAccountAvatar = head;
-        }
-        catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or ArgumentException or NotSupportedException) { }
-        return _fallbackAccountAvatar;
     }
 
     private void ApplyExpansion(double value)
@@ -965,15 +1069,23 @@ public partial class GlassLauncherView : UserControl
         double width = Math.Clamp(RailCollapsedWidth + RailExpandDelta * value, RailCollapsedWidth - 4, RailCollapsedWidth + maxExtra);
         NavigationSurface.Width = width;
         RailToggleRotation.Angle = 180 * value;
-        double textProgress = Math.Clamp((value - .12) / .68, 0, 1);
-        bool showText = textProgress > MotionTokens.VisibilityThreshold || _railExpanded && value > .08;
-        Visibility labelVisibility = showText ? Visibility.Visible : Visibility.Collapsed;
-        if (Resources["RailLabelTranslation"] is TranslateTransform slide)
-            slide.X = 8 * (1 - textProgress);
-        foreach (TextBlock label in new[] { RailBrandText, NavLaunchText, NavDownloadText, NavFavoritesText, NavSettingsText, NavOtherText, RailToggleText, AccountNameText })
+        // Labels: expanding, they follow the growing width one after another from top to bottom (each slides in and
+        // settles); collapsing, they all leave quickly in the first part of the travel so the rail shrinks clean.
+        TextBlock[] labels = { RailBrandText, NavLaunchText, NavDownloadText, NavFavoritesText, NavSettingsText, NavOtherText, RailToggleText, AccountNameText };
+        if (Resources["RailLabelTranslation"] is TranslateTransform shared) shared.X = 0;
+        for (int index = 0; index < labels.Length; index++)
         {
-            label.Opacity = textProgress;
-            if (label.Visibility != labelVisibility) label.Visibility = labelVisibility;
+            TextBlock label = labels[index];
+            double progress = _railExpanded
+                ? Math.Clamp((value - .14 - .045 * index) / .5, 0, 1)
+                : Math.Clamp((value - .5) / .4, 0, 1);
+            double eased = 1 - Math.Pow(1 - progress, 3);
+            if (label.RenderTransform is not TranslateTransform own || ReferenceEquals(own, Resources["RailLabelTranslation"]))
+                label.RenderTransform = own = new TranslateTransform();
+            own.X = 14 * (1 - eased);
+            label.Opacity = eased;
+            Visibility visibility = progress > MotionTokens.VisibilityThreshold || _railExpanded && value > .08 ? Visibility.Visible : Visibility.Collapsed;
+            if (label.Visibility != visibility) label.Visibility = visibility;
         }
         if (IsLoaded) SyncSurfaceRegions();
     }
@@ -1002,11 +1114,13 @@ public partial class GlassLauncherView : UserControl
         ApplyExpansion(_expansionMotion?.Value ?? 0);
         PrimaryCard.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
         PrimaryCard.IsHitTestVisible = _state.IsHome;
-        PageScene.Opacity = 1 - _homeProgress;
+        // The home page's own content (the original homepage cards) also lives in the page scene: entering home it
+        // fades in after the previous page has cleared; leaving home it clears first.
+        PageScene.Opacity = _state.IsHome ? Math.Clamp((_homeProgress - .5) / .5, 0, 1) : 1 - _homeProgress;
         PageSceneTranslation.X = 0; // the page itself rises/falls with the page transition
-        PageScene.Visibility = !_state.IsHome || _homeProgress < 1 - MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
-        PageContent.Visibility = PageScene.Visibility;
-        PageContent.IsHitTestVisible = !_state.IsHome;
+        PageScene.Visibility = Visibility.Visible;
+        PageContent.Visibility = Visibility.Visible;
+        PageContent.IsHitTestVisible = true;
     }
 
     private void ApplyPageTransition(double value)
@@ -1063,11 +1177,12 @@ public partial class GlassLauncherView : UserControl
         if (PageLayer.ActualWidth <= 0 || PageLayer.ActualHeight <= 0 || !PageLayer.IsVisible) return null;
         try
         {
+            const double scale = 0.5;
             DpiScale dpi = VisualTreeHelper.GetDpi(PageLayer);
-            int width = (int)Math.Ceiling(PageLayer.ActualWidth * dpi.DpiScaleX);
-            int height = (int)Math.Ceiling(PageLayer.ActualHeight * dpi.DpiScaleY);
-            if (width < 1 || height < 1 || width > 8192 || height > 8192) return null;
-            var snapshot = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+            int width = Math.Max(1, (int)Math.Ceiling(PageLayer.ActualWidth * dpi.DpiScaleX * scale));
+            int height = Math.Max(1, (int)Math.Ceiling(PageLayer.ActualHeight * dpi.DpiScaleY * scale));
+            if (width > 4096 || height > 4096) return null;
+            var snapshot = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX * scale, dpi.PixelsPerInchY * scale, PixelFormats.Pbgra32);
             snapshot.Render(PageLayer);
             snapshot.Freeze();
             return snapshot;
@@ -1119,7 +1234,14 @@ public partial class GlassLauncherView : UserControl
         Button[] buttons = [NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther];
         TextBlock[] labels = [NavLaunchText, NavDownloadText, NavFavoritesText, NavSettingsText, NavOtherText];
         Button selected = buttons[index];
-        if (selected.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
+        // The account page owns the selection while it is open: the highlight slides down onto the avatar.
+        if (_workspaceOpen && AccountButton.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
+        {
+            index = -1;
+            NavSelection.Height = AccountButton.ActualHeight;
+            _navigationMotion.Retarget(AccountButton.TranslatePoint(new Point(0, 0), NavigationButtons).Y, immediate);
+        }
+        else if (selected.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
         {
             NavSelection.Height = selected.ActualHeight;
             Rect slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(selected);
@@ -1190,13 +1312,461 @@ public partial class GlassLauncherView : UserControl
         {
             _layoutPending = false;
             bool compact = IsCompactViewport;
-            double columnWidth = _state.IsHome ? (compact ? 284 : 304) : (compact ? 230 : 254);
-            if (!SecondaryColumn.Width.IsAbsolute || Math.Abs(SecondaryColumn.Width.Value - columnWidth) > .01)
-                SecondaryColumn.Width = new GridLength(columnWidth);
+            double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
+            SetSecondaryColumnWidth(columnWidth, animate: false);
             ArrangeHomeDeck();
             SetSelectedNavigation(ShouldSnapMotion);
             SyncSurfaceRegions();
         }));
+    }
+
+    // ---------- Startup splash ----------
+    //
+    // The window already has its final size; everything but the logo is transparent at first.
+    // 1. The logo tile fades in at the window's bottom-right corner.
+    // 2. It travels up the right edge to the top-right corner.
+    // 3. The rail extends down from it along the right edge, then the whole rail glides left to its place; the path it
+    //    sweeps becomes the body (solid frosted glass in the theme's tone).
+    // 4. The large logo pops in, "PCL Living Fork" rises under it, then the loader; once the shell reports everything
+    //    loaded (CompleteSplash), the splash fades into the real interface.
+    // Every stage is an iOS-style spring and starts when the previous one is mostly settled; the window's visible
+    // region follows the animated shapes frame by frame.
+
+    private static readonly SpringParameters SplashRevealSpring = new(.55, .8);
+    private static readonly SpringParameters SplashSlideSpring = new(.62, .84);
+    private static readonly SpringParameters SplashLogoSpring = new(.5, .68);
+    private static readonly SpringParameters SplashTextSpring = new(.45, .82);
+    private static readonly SpringParameters SplashExitSpring = new(.42, 1);
+    private const double SplashTile = 62;           // the rail header that holds the logo
+    private const double SplashMaxSeconds = 6;      // never hold the interface back longer than this
+
+    private bool _splashRequested, _splashActive, _splashReady, _splashExiting;
+    private System.Diagnostics.Stopwatch _splashClock;
+    private double _splashTime, _splashLastFrame = double.NaN;
+    private SpringMotion _splashFade, _splashRise, _splashReveal, _splashSlide, _splashLogo, _splashText, _splashLoader, _splashExit;
+    private readonly TranslateTransform _splashRailShift = new();
+    private double _splashStartX, _splashStartY;
+
+    /// <summary>True while the startup splash is showing.</summary>
+    public bool IsSplashing => _splashActive;
+    /// <summary>The splash has finished its entrance and is showing its loader.</summary>
+    public bool IsSplashLoading => _splashActive && !_splashExiting && _splashLoader is { Value: > .85 };
+    /// <summary>True from the splash request until it has finished (the native backdrop is held back meanwhile).</summary>
+    public bool HoldsBackdrop => _splashRequested && !_splashActive;
+    /// <summary>Raised when the splash has gone and the interface is fully shown.</summary>
+    public event EventHandler SplashFinished;
+    /// <summary>Raised when the splash starts drawing (its shapes now carry the native blur).</summary>
+    public event EventHandler SplashStarted;
+
+    /// <summary>Requests the startup splash; it starts when the view is loaded. Ignored with reduced motion.</summary>
+    public void BeginSplash()
+    {
+        if (_state.ReduceMotion || !MotionPreferences.AllowsAnimation) return;
+        _splashRequested = true;
+        Opacity = 0; // revealed by StartSplash with the splash's own first frame
+        if (IsLoaded) StartSplash();
+    }
+
+    /// <summary>Everything is loaded: the splash may leave (after its entrance has played).</summary>
+    public void CompleteSplash() => _splashReady = true;
+
+    // Closing: the window buttons fade away, the body folds leftwards into the rail and vanishes, then the rail fades
+    // out; the window closes once everything has gone. Each stage starts while the previous one is finishing.
+    private bool _farewellActive;
+    private SpringMotion _byeControls, _byeBody, _byeRail;
+    private Action _farewellDone;
+    private IReadOnlyList<GlassWindowRegion> _lastFarewellBackdrop = Array.Empty<GlassWindowRegion>();
+    public bool IsClosing => _farewellActive;
+    /// <summary>Raised each closing frame with how far the overlays above the interface should have faded (0..1).</summary>
+    public event Action<double> FarewellOverlayFade;
+
+    /// <summary>Plays the closing animation and then runs <paramref name="done"/>; false when it cannot play.</summary>
+    public bool BeginFarewell(Action done)
+    {
+        if (_farewellActive) return true;
+        if (_splashActive || !MotionPreferences.AllowsAnimation || !IsLoaded || BodyFrame.ActualWidth <= 0) return false;
+        _farewellActive = true;
+        _farewellDone = done;
+        IsHitTestVisible = false;
+        _byeControls = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.28, 1));
+        _byeBody = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.46, 1));
+        _byeRail = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.3, 1));
+        _byeControls.Retarget(1);
+        return true;
+    }
+
+    private void ApplyFarewell()
+    {
+        if (!_farewellActive || _byeControls is null || _byeBody is null || _byeRail is null) return;
+        double controls = Math.Clamp(_byeControls.Value, 0, 1), body = Math.Clamp(_byeBody.Value, 0, 1), rail = Math.Clamp(_byeRail.Value, 0, 1);
+        if (controls > .6 && _byeBody.Target < 1) _byeBody.Retarget(1);
+        if (body > .85 && _byeRail.Target < 1) _byeRail.Retarget(1);
+        // 1. The button capsule fades out (shrinking a little, like a bubble).
+        WindowControlsSurface.Opacity = 1 - controls;
+        if (WindowControlsSurface.RenderTransform is not ScaleTransform bubble)
+        {
+            WindowControlsSurface.RenderTransformOrigin = new Point(.5, .5);
+            WindowControlsSurface.RenderTransform = bubble = new ScaleTransform();
+        }
+        bubble.ScaleX = bubble.ScaleY = 1 - .22 * controls;
+        // 2. The body folds towards the rail: its right edge travels left, its content fading near the end.
+        Rect visible = FarewellBodyRect();
+        BodyFrame.Clip = visible.Width <= .5 ? Geometry.Empty : new RectangleGeometry(visible, BodyFrame.CornerRadius.TopLeft, BodyFrame.CornerRadius.TopLeft);
+        BodyContentRoot.Opacity = 1 - Math.Clamp((body - .45) / .5, 0, 1);
+        // Dialogs, toasts and floating buttons sit above the body: they leave with the button capsule and the body.
+        FarewellOverlayFade?.Invoke(Math.Max(controls, body));
+        // 3. The rail fades out last.
+        NavigationSurface.Opacity = 1 - rail;
+        IReadOnlyList<GlassWindowRegion> blur = FarewellBackdropRegions();
+        if (!blur.SequenceEqual(_lastFarewellBackdrop)) { _lastFarewellBackdrop = blur; RegionsChanged?.Invoke(this, EventArgs.Empty); }
+        if (rail > .985 && _farewellDone is { } done)
+        {
+            _farewellDone = null;
+            Dispatcher.BeginInvoke(done);
+        }
+    }
+
+    /// <summary>Brings the interface back when closing was refused after the animation (e.g. a file operation still running).</summary>
+    public void CancelFarewell()
+    {
+        if (!_farewellActive) return;
+        _farewellActive = false;
+        _farewellDone = null;
+        foreach (SpringMotion motion in new[] { _byeControls, _byeBody, _byeRail }) motion?.Dispose();
+        _byeControls = _byeBody = _byeRail = null;
+        WindowControlsSurface.Opacity = 1;
+        WindowControlsSurface.RenderTransform = null;
+        BodyContentRoot.Opacity = 1;
+        NavigationSurface.Opacity = 1;
+        FarewellOverlayFade?.Invoke(0);
+        BodyFrame.Clip = null;
+        _lastBodyClipKey = null;
+        _lastFarewellBackdrop = Array.Empty<GlassWindowRegion>();
+        IsHitTestVisible = true;
+        SyncSurfaceRegions();
+        RegionsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // The part of the body still shown, in BodyFrame coordinates: from its left edge to a right edge moving left.
+    private Rect FarewellBodyRect()
+    {
+        double body = _byeBody is null ? 0 : Math.Clamp(_byeBody.Value, 0, 1);
+        double width = BodyFrame.ActualWidth * (1 - body);
+        return width <= .5 ? Rect.Empty : new Rect(0, 0, width, BodyFrame.ActualHeight);
+    }
+
+    private IReadOnlyList<GlassWindowRegion> FarewellBackdropRegions()
+    {
+        IReadOnlyList<GlassWindowRegion> surfaces = GetSurfaceRegions();
+        if (surfaces.Count < 3) return surfaces;
+        double controls = Math.Clamp(_byeControls?.Value ?? 0, 0, 1), rail = Math.Clamp(_byeRail?.Value ?? 0, 0, 1);
+        var regions = new List<GlassWindowRegion>(3);
+        if (rail < .999) regions.Add(surfaces[0] with { Opacity = surfaces[0].Opacity * (1 - rail) });
+        Rect body = FarewellBodyRect();
+        if (!body.IsEmpty && body.Width > 1 && WallpaperImage.Source is null)
+            regions.Add(surfaces[1] with { Bounds = BodyFrame.TransformToAncestor(this).TransformBounds(body) });
+        if (controls < .999) regions.Add(surfaces[2] with { Opacity = surfaces[2].Opacity * (1 - controls) });
+        return regions;
+    }
+
+    private void StartSplash()
+    {
+        try { StartSplashCore(); }
+        catch (Exception) { AbortSplash(); }
+    }
+
+    // Whatever goes wrong, the interface comes up as if there had been no splash.
+    private void AbortSplash()
+    {
+        Opacity = 1;
+        try { FinishSplash(); }
+        catch (Exception error) { Logger.Warn(error, "恢复启动界面失败"); }
+    }
+
+    private void StartSplashCore()
+    {
+        if (!_splashRequested || _splashActive) return;
+        UpdateLayout();
+        if (NavigationSurface.ActualHeight <= 0 || BodyFrame.ActualWidth <= 0) return;
+        _splashRequested = false; // only once it can actually start (layout may not be ready on the first call)
+        _splashActive = true;
+        SetSplashUnderlay(0);
+        // Theme tone: solid dark glass in a dark theme, solid light glass in a light theme.
+        SplashGlass.Background = new SolidColorBrush(_state.UseDarkText ? Color.FromArgb(0xC8, 0xF4, 0xF5, 0xF8) : Color.FromArgb(0xB8, 0x14, 0x14, 0x16));
+        if (AppLogoImage.Source is null)
+        {
+            try { AppLogoImage.Source = (ImageSource)Application.LoadComponent(new Uri("/LivingPCL;component/Images/Branding/PCLLF.Logo.xaml", UriKind.Relative)); }
+            catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or NotSupportedException) { }
+        }
+        // A separate instance: the logo's colour is a DynamicResource, which resolves through the one element a drawing is
+        // attached to — sharing the rail's instance left the large logo without a brush (invisible).
+        try { SplashLogo.Source = (ImageSource)Application.LoadComponent(new Uri("/LivingPCL;component/Images/Branding/PCLLF.Logo.xaml", UriKind.Relative)); }
+        catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or NotSupportedException) { SplashLogo.Source = AppLogoImage.Source; }
+        SplashLayer.Visibility = Visibility.Visible;
+        SplashLayer.Opacity = 1;
+        // The travelling rail carries only the logo; its page icons, account and toggle arrive with the interface.
+        foreach (UIElement item in RailItems) item.Opacity = 0;
+        // Start: the rail stands against the body's right edge, its tile at the bottom.
+        Point railAt = NavigationSurface.TranslatePoint(new Point(0, 0), this);
+        Point bodyRight = BodyFrame.TranslatePoint(new Point(BodyFrame.ActualWidth, 0), this);
+        _splashStartX = bodyRight.X - NavigationSurface.ActualWidth - railAt.X;
+        _splashStartY = NavigationSurface.ActualHeight - SplashTile;
+        NavigationSurface.RenderTransform = _splashRailShift;
+        NavigationSurface.IsHitTestVisible = false;
+        // Cache the travelling rail's tint while the native blur follows its moving region underneath.
+        NavigationSurface.Background = SplashGlass.Background;
+        NavigationSurface.CacheMode = new BitmapCache { RenderAtScale = 1, SnapsToDevicePixels = true };
+        RegionsChanged?.Invoke(this, EventArgs.Empty);
+        WindowControlsSurface.Opacity = 0;
+        // Every spring advances at most one 40 fps step per rendered frame, so a busy startup pauses the splash
+        // instead of letting its first stages run out unseen.
+        const double frameCap = 1 / 40d;
+        _splashFade = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashRise = new SpringMotion(this, 0, _ => ApplySplash(), SplashSlideSpring) { MaxFrameSeconds = frameCap };
+        _splashReveal = new SpringMotion(this, 0, _ => ApplySplash(), SplashRevealSpring) { MaxFrameSeconds = frameCap };
+        _splashSlide = new SpringMotion(this, 0, _ => ApplySplash(), SplashSlideSpring) { MaxFrameSeconds = frameCap };
+        _splashLogo = new SpringMotion(this, 0, _ => ApplySplash(), SplashLogoSpring) { MaxFrameSeconds = frameCap };
+        _splashText = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashLoader = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashExit = new SpringMotion(this, 0, _ => ApplySplash(), SplashExitSpring) { MaxFrameSeconds = frameCap };
+        _splashClock = System.Diagnostics.Stopwatch.StartNew();
+        _splashTime = 0; _splashLastFrame = double.NaN;
+        ApplySplash();
+        Opacity = 1;
+        SplashStarted?.Invoke(this, EventArgs.Empty);
+        CompositionTarget.Rendering += OnSplashFrame;
+    }
+
+    // Starts each stage once the previous one is mostly in place, and the exit once loading has finished.
+    private void OnSplashFrame(object sender, EventArgs args)
+    {
+        try { SplashFrame(); }
+        catch (Exception) { AbortSplash(); }
+    }
+
+    private void SplashFrame()
+    {
+        // Splash time counts rendered frames (each at most 1/40 s), not wall-clock time.
+        double now = _splashClock.Elapsed.TotalSeconds;
+        if (!double.IsNaN(_splashLastFrame)) _splashTime += Math.Min(now - _splashLastFrame, 1 / 40d);
+        _splashLastFrame = now;
+        double t = _splashTime;
+        if (t > .12 && _splashFade.Target < 1) _splashFade.Retarget(1);
+        if (_splashFade.Value > .8 && _splashRise.Target < 1) _splashRise.Retarget(1);
+        if (_splashRise.Value > .85 && _splashReveal.Target < 1) _splashReveal.Retarget(1);
+        if (_splashReveal.Value > .85 && _splashSlide.Target < 1) _splashSlide.Retarget(1);
+        if (_splashSlide.Value > .78 && _splashLogo.Target < 1) _splashLogo.Retarget(1);
+        if (_splashLogo.Value > .55 && _splashText.Target < 1) _splashText.Retarget(1);
+        if (_splashText.Value > .6 && _splashLoader.Target < 1) { _splashLoader.Retarget(1); SplashLoader.IsActive = true; }
+        // While loading, the resting rail fills with water up to the load progress, its percentage written across it.
+        if (_splashLoader.Value > .5 && !_splashExiting)
+        {
+            if (_splashTide is null)
+            {
+                NavigationSurface.CacheMode = null; // the rail is at rest now; the water animates inside it
+                _splashTide = new global::PCL.GlassTideProgress(NavigationSurface.CornerRadius.TopLeft) { PercentSize = 15, IsHitTestVisible = false };
+                Grid.SetRow(_splashTide, 1); Grid.SetRowSpan(_splashTide, 2);
+                NavigationRailContent.Children.Insert(0, _splashTide);
+                _splashTideStart = t;
+                _splashTide.Update(true, 0, string.Empty); // the water starts empty
+            }
+            // Rises at a steady pace (full in about 1.6 s) but never above the real progress, so it always reads as a fill.
+            _splashTideShown = Math.Min(Math.Clamp(SplashProgress, 0, 1), (t - _splashTideStart) / 1.6);
+            _splashTide.Update(true, _splashTideShown, string.Empty);
+        }
+        bool entered = _splashLoader.Value > .85;
+        bool filled = _splashTideShown >= .995; // the rail's water shows the interface is ready
+        if (!_splashExiting && (entered && _splashReady && t > 2.2 && filled || now > SplashMaxSeconds + 4))
+        {
+            _splashExiting = true;
+            _splashTide?.Update(true, 1, string.Empty);
+            // The rail is at rest from here on: render it live again before the tone starts changing.
+            NavigationSurface.CacheMode = null;
+            _splashExit.Retarget(1);
+        }
+        if (_splashExiting && _splashExit.Value > .995) { FinishSplash(); return; }
+        ApplySplash();
+    }
+
+    private void ApplySplash()
+    {
+        if (!_splashActive || _splashFade is null || _splashRise is null || _splashReveal is null || _splashSlide is null || _splashLogo is null ||
+            _splashText is null || _splashLoader is null || _splashExit is null) return;
+        double reveal = _splashReveal.Value, slide = _splashSlide.Value;
+        // Stages 1-2: the tile fades in at the bottom-right and travels up the right edge.
+        NavigationSurface.Opacity = Math.Clamp(_splashFade.Value, 0, 1);
+        _splashRailShift.Y = _splashStartY * (1 - _splashRise.Value);
+        // Stage 3: the rail extends down from the tile, then glides left.
+        double height = NavigationSurface.ActualHeight;
+        double visible = SplashTile + (height - SplashTile) * Math.Clamp(reveal, 0, 1.04);
+        _splashRailShift.X = _splashStartX * (1 - slide);
+        NavigationSurface.Clip = new RectangleGeometry(new Rect(0, 0, NavigationSurface.ActualWidth, Math.Min(height, Math.Max(SplashTile, visible))),
+            NavigationSurface.CornerRadius.TopLeft, NavigationSurface.CornerRadius.TopLeft);
+        // Stage 2: the body unfolds to the right of the moving rail, growing to its full width as the rail arrives.
+        Rect body = SplashBodyRect();
+        if (body.Width <= 0) BodyFrame.Clip = Geometry.Empty;
+        else
+        {
+            Geometry revealed = new RectangleGeometry(body, BodyFrame.CornerRadius.TopLeft, BodyFrame.CornerRadius.TopLeft);
+            if (_controlsCutout is { } notch && body.IntersectsWith(notch.Rect))
+                revealed = new CombinedGeometry(GeometryCombineMode.Exclude, revealed, new RectangleGeometry(notch.Rect, notch.Radius, notch.Radius));
+            BodyFrame.Clip = revealed;
+        }
+        // Stage 3: brand.
+        double logo = _splashLogo.Value;
+        SplashLogo.Opacity = Math.Clamp(logo * 1.4, 0, 1);
+        SplashLogoScale.ScaleX = SplashLogoScale.ScaleY = .6 + .4 * logo;
+        double text = _splashText.Value;
+        SplashTitle.Opacity = Math.Clamp(text, 0, 1);
+        SplashTitleShift.Y = 14 * (1 - text);
+        SplashLoader.Opacity = Math.Clamp(_splashLoader.Value, 0, 1);
+        if (SplashStage.HasAnimatedProperties == false) SplashStage.Opacity = Math.Clamp(_splashLoader.Value, 0, 1);
+        // Stage 4: the splash fades into the interface; the window buttons come in with it.
+        double exit = Math.Clamp(_splashExit.Value, 0, 1);
+        SplashLayer.Opacity = 1 - exit;
+        SetSplashUnderlay(exit);
+        // The rail's tone glides from the splash glass to its own chrome while the splash leaves, so restoring the
+        // chrome resource at the end changes nothing visible (an abrupt swap read as a flash of the blur).
+        if (_splashExiting && SplashGlass.Background is SolidColorBrush from && TryFindResource("GlassChromeBrush") is SolidColorBrush to)
+            NavigationSurface.Background = new SolidColorBrush(LerpColor(from.Color, to.Color, exit));
+        WindowControlsSurface.Opacity = Math.Clamp(logo, 0, 1);
+        IReadOnlyList<GlassWindowRegion> blur = SplashBackdropRegions();
+        if (!blur.SequenceEqual(_lastSplashBackdrop)) { _lastSplashBackdrop = blur; RegionsChanged?.Invoke(this, EventArgs.Empty); }
+    }
+
+    private void SetSplashUnderlay(double opacity)
+    {
+        ApplicationBackdrop.Opacity = opacity;
+        WorkspaceContentLayer.Opacity = opacity;
+        WorkspaceContentLayer.IsHitTestVisible = opacity >= 1;
+    }
+
+    // The body's revealed part, in BodyFrame coordinates: the path the rail has swept, from its right edge to the
+    // body's right edge.
+    private Rect SplashBodyRect()
+    {
+        if (_splashSlide is null || _splashSlide.Value <= .001) return Rect.Empty;
+        double railRight = NavigationSurface.TranslatePoint(new Point(NavigationSurface.ActualWidth, 0), BodyFrame).X;
+        double left = Math.Clamp(railRight, 0, BodyFrame.ActualWidth);
+        double width = BodyFrame.ActualWidth - left;
+        return width <= 1 ? Rect.Empty : new Rect(left, 0, width, BodyFrame.ActualHeight);
+    }
+
+    private static Color LerpColor(Color from, Color to, double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        byte Mix(byte a, byte b) => (byte)Math.Round(a + (b - a) * t);
+        return Color.FromArgb(Mix(from.A, to.A), Mix(from.R, to.R), Mix(from.G, to.G), Mix(from.B, to.B));
+    }
+
+    private IReadOnlyList<GlassWindowRegion> SplashRegions()
+    {
+        var regions = new List<GlassWindowRegion>(2);
+        if (NavigationSurface.Clip is RectangleGeometry rail && !rail.Rect.IsEmpty)
+            regions.Add(new GlassWindowRegion(NavigationSurface.TransformToAncestor(this).TransformBounds(rail.Rect), NavigationSurface.CornerRadius.TopLeft));
+        Rect body = SplashBodyRect();
+        if (!body.IsEmpty && body.Width > 1)
+            regions.Add(new GlassWindowRegion(BodyFrame.TransformToAncestor(this).TransformBounds(body), BodyFrame.CornerRadius.TopLeft));
+        if (_splashExiting)
+            regions.Add(new GlassWindowRegion(WindowControlsSurface.TransformToAncestor(this).TransformBounds(new Rect(WindowControlsSurface.RenderSize)), WindowControlsChrome.CornerRadius.TopLeft));
+        return regions;
+    }
+
+    private void FinishSplash()
+    {
+        CompositionTarget.Rendering -= OnSplashFrame;
+        if (!_splashRequested && !_splashActive && SplashLayer.Visibility != Visibility.Visible) return;
+        _splashRequested = _splashActive = false;
+        SplashLayer.Visibility = Visibility.Collapsed;
+        SetSplashUnderlay(1);
+        try {
+            foreach (SpringMotion motion in new[] { _splashFade, _splashRise, _splashReveal, _splashSlide, _splashLogo, _splashText, _splashLoader, _splashExit }) motion?.Dispose();
+            NavigationSurface.Opacity = 1;
+            SplashLoader.IsActive = false;
+            NavigationSurface.ClearValue(UIElement.ClipProperty);
+            NavigationSurface.CacheMode = null;
+            NavigationSurface.SetResourceReference(Border.BackgroundProperty, "GlassChromeBrush");
+            NavigationSurface.RenderTransform = Transform.Identity;
+            NavigationSurface.IsHitTestVisible = true;
+            WindowControlsSurface.Opacity = 1;
+            if (_splashTide is global::PCL.GlassTideProgress tide)
+            {
+                _splashTide = null;
+                tide.Update(false, 1, string.Empty);
+                var removal = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                removal.Tick += (_, _) => { removal.Stop(); NavigationRailContent.Children.Remove(tide); };
+                removal.Start();
+            }
+            RevealRailItems();
+            BodyFrame.Clip = null;
+            _lastBodyClipKey = null; // let the window-controls cutout rebuild the body clip
+            SyncSurfaceRegions();
+            RegionsChanged?.Invoke(this, EventArgs.Empty);
+        } finally {
+            SplashFinished?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Loading progress shown by the splash (instance list, first page, preloads); set by the shell.</summary>
+    public double SplashProgress { get; set; }
+
+    /// <summary>The loading stage shown under the splash loader (crossfades when it changes).</summary>
+    public string SplashStageText
+    {
+        get => _splashStageTarget;
+        set
+        {
+            if (value == _splashStageTarget) return;
+            _splashStageTarget = value ?? string.Empty;
+            if (!_splashActive || !MotionPreferences.AllowsAnimation) { SplashStage.Text = _splashStageTarget; return; }
+            var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
+            fadeOut.Completed += (_, _) =>
+            {
+                SplashStage.Text = _splashStageTarget;
+                SplashStage.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(1, TimeSpan.FromMilliseconds(220)));
+            };
+            SplashStage.BeginAnimation(OpacityProperty, fadeOut);
+        }
+    }
+    private string _splashStageTarget = string.Empty;
+    private global::PCL.GlassTideProgress _splashTide;
+    private double _splashTideStart, _splashTideShown;
+
+    // The rail's own items, top to bottom: page icons, the selection box, the collapse toggle and the account.
+    private FrameworkElement[] RailItems => new FrameworkElement[] { NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther, NavSelection, RailToggleButton, AccountSurface };
+
+    // One after another from the top, each settles from slightly in front of the rail (larger, transparent) to its
+    // place on an iOS-like spring; elements that already carry their own transform only fade.
+    private void RevealRailItems()
+    {
+        FrameworkElement[] items = RailItems;
+        if (!MotionPreferences.AllowsAnimation) { foreach (UIElement item in items) item.Opacity = 1; return; }
+        for (int index = 0; index < items.Length; index++)
+        {
+            FrameworkElement item = items[index];
+            bool scalable = item.RenderTransform is null || item.RenderTransform == Transform.Identity;
+            ScaleTransform? depth = null;
+            if (scalable)
+            {
+                depth = new ScaleTransform(1.25, 1.25);
+                item.RenderTransformOrigin = new Point(.5, .5);
+                item.RenderTransform = depth;
+            }
+            SpringMotion? motion = null;
+            motion = new SpringMotion(item, 0, value =>
+            {
+                item.Opacity = Math.Clamp(value * 1.2, 0, 1);
+                if (depth is not null) depth.ScaleX = depth.ScaleY = 1.25 - .25 * value;
+                if (Math.Abs(value - 1) < .002 && motion is { IsRunning: false })
+                {
+                    if (depth is not null && ReferenceEquals(item.RenderTransform, depth)) item.RenderTransform = Transform.Identity;
+                    motion.Dispose();
+                }
+            }, new SpringParameters(.46, .8));
+            var delay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120 + 55 * index) };
+            delay.Tick += (_, _) => { delay.Stop(); motion.Retarget(1); };
+            delay.Start();
+        }
     }
 
     private void SyncSurfaceRegions()
@@ -1227,18 +1797,47 @@ public partial class GlassLauncherView : UserControl
         ScheduleLayout();
     }
 
+    private void OnUnloaded(object sender, RoutedEventArgs e) => WindowControlsBodyBrush.Visual = null;
+
+    private void OnViewIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible) UpdateWallpaperClip();
+        else WindowControlsBodyBrush.Visual = null;
+    }
+
+    private static double SecondaryWidth(bool wide, bool compact) => wide ? (compact ? 284 : 304) : (compact ? 230 : 254);
+
+    private SpringMotion _columnMotion;
+    private double _columnTarget = double.NaN;
+
+    /// <summary>
+    /// Sidebar column width (wider on the launch page). Entering or leaving home glides on the same spring family as the
+    /// sidebar flip instead of snapping the content area sideways; resizes and layout passes only retarget it.
+    /// </summary>
+    private void SetSecondaryColumnWidth(double width, bool animate)
+    {
+        if (!double.IsNaN(_columnTarget) && Math.Abs(_columnTarget - width) < .01) return;
+        _columnTarget = width;
+        double current = SecondaryColumn.Width.IsAbsolute ? SecondaryColumn.Width.Value : width;
+        _columnMotion ??= new SpringMotion(this, current, value => SecondaryColumn.Width = new GridLength(Math.Max(0, value)), SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
+        if (animate || _columnMotion.IsRunning) _columnMotion.Retarget(width);
+        else _columnMotion.Snap(width);
+    }
+
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         bool compact = IsCompactViewport;
         MainContentGrid.Margin = new Thickness(compact ? 16 : 24, 0, compact ? 16 : 24, 24);
         UpdateHeaderLayout();
-        double columnWidth = _state.IsHome ? (compact ? 284 : 304) : (compact ? 230 : 254);
-        if (!SecondaryColumn.Width.IsAbsolute || Math.Abs(SecondaryColumn.Width.Value - columnWidth) > .01)
-            SecondaryColumn.Width = new GridLength(columnWidth);
+        double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
+        SetSecondaryColumnWidth(columnWidth, animate: false);
         AccountPopover.HorizontalAlignment = HorizontalAlignment.Left;
         AccountPopover.VerticalAlignment = VerticalAlignment.Bottom;
         AccountPopover.Margin = new Thickness(84 + _leftExpansionAllowance, 0, 0, 16);
         AccountPopover.MaxHeight = Math.Max(160, ActualHeight - 40);
+        if (_workspaceOpen && _workspaceMotion is { IsRunning: false } && !_navigationMotion.IsRunning &&
+            AccountButton.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
+            _navigationMotion.Snap(AccountButton.TranslatePoint(new Point(0, 0), NavigationButtons).Y);
         SyncSurfaceRegions();
         ScheduleLayout();
     }
@@ -1271,15 +1870,67 @@ public partial class GlassLauncherView : UserControl
             if (!ReferenceEquals(BodyContentRoot.Clip, _bodyContentClip))
                 BodyContentRoot.Clip = _bodyContentClip;
         }
-        if (BodyFrame.ActualWidth > 0 && BodyFrame.ActualHeight > 0 &&
-            WindowControlsWallpaperFrost.ActualWidth > 0 && WindowControlsWallpaperFrost.ActualHeight > 0)
+        if (IsVisible && WindowControlsWallpaperFrost.Visibility == Visibility.Visible &&
+            BodyFrame.ActualWidth > 0 && BodyFrame.ActualHeight > 0 &&
+            BodyContentRoot.ActualWidth > 0 && BodyContentRoot.ActualHeight > 0 &&
+            WindowControlsSurface.ActualWidth > 0 && WindowControlsSurface.ActualHeight > 0)
         {
-            Rect bodyBounds = BodyFrame.TransformToVisual(WindowControlsWallpaperFrost).TransformBounds(new Rect(BodyFrame.RenderSize));
-            double radius = BodyFrame.CornerRadius.TopRight;
-            if (_controlsWallpaperClip.Rect != bodyBounds) _controlsWallpaperClip.Rect = bodyBounds;
-            if (_controlsWallpaperClip.RadiusX != radius) _controlsWallpaperClip.RadiusX = _controlsWallpaperClip.RadiusY = radius;
+            Rect capsuleBounds = new(WindowControlsSurface.RenderSize);
+            double capsuleRadius = WindowControlsChrome.CornerRadius.TopLeft;
+            if (_controlsWallpaperClip.Rect != capsuleBounds) _controlsWallpaperClip.Rect = capsuleBounds;
+            if (_controlsWallpaperClip.RadiusX != capsuleRadius) _controlsWallpaperClip.RadiusX = _controlsWallpaperClip.RadiusY = capsuleRadius;
             if (!ReferenceEquals(WindowControlsWallpaperFrost.Clip, _controlsWallpaperClip))
                 WindowControlsWallpaperFrost.Clip = _controlsWallpaperClip;
+
+            const double blurPad = 36;
+            Rect bodyInControls = BodyFrame.TransformToVisual(WindowControlsSurface).TransformBounds(new Rect(BodyFrame.RenderSize));
+            double sliceLeft = Math.Max(bodyInControls.Left, -blurPad);
+            double sliceTop = bodyInControls.Top;
+            double sliceRight = bodyInControls.Right;
+            double sliceBottom = Math.Min(bodyInControls.Bottom, capsuleBounds.Height + blurPad);
+            double sliceWidth = Math.Max(0, sliceRight - sliceLeft);
+            double sliceHeight = Math.Max(0, sliceBottom - sliceTop);
+            Canvas.SetLeft(WindowControlsBodyFrost, sliceLeft);
+            Canvas.SetTop(WindowControlsBodyFrost, sliceTop);
+            WindowControlsBodyFrost.Width = sliceWidth;
+            WindowControlsBodyFrost.Height = sliceHeight;
+            var bodyCorner = new CornerRadius(0, BodyFrame.CornerRadius.TopRight, 0, 0);
+            WindowControlsBodyFrostBase.CornerRadius = bodyCorner;
+            WindowControlsBodyFrostVisual.CornerRadius = bodyCorner;
+
+            Rect contentSlice = WindowControlsSurface.TransformToVisual(BodyBackdropLayer).TransformBounds(new Rect(sliceLeft, sliceTop, sliceWidth, sliceHeight));
+            if (!ReferenceEquals(WindowControlsBodyBrush.Visual, BodyBackdropLayer))
+                WindowControlsBodyBrush.Visual = BodyBackdropLayer;
+            if (WindowControlsBodyBrush.Viewbox != contentSlice)
+                WindowControlsBodyBrush.Viewbox = contentSlice;
+
+            Rect fullBody = new(BodyFrame.RenderSize);
+            Rect controlsInBody = WindowControlsSurface.TransformToVisual(BodyFrame).TransformBounds(capsuleBounds);
+            var insetCutout = new Rect(
+                controlsInBody.Left + 1,
+                controlsInBody.Top - 2,
+                Math.Max(0, controlsInBody.Width + 2),
+                Math.Max(0, controlsInBody.Height + 1));
+            double cutoutRadius = Math.Max(0, capsuleRadius - 1);
+            _controlsCutout = (insetCutout, cutoutRadius);
+            var bodyClipKey = (fullBody, insetCutout, BodyFrame.CornerRadius.TopRight, cutoutRadius);
+            if (_lastBodyClipKey != bodyClipKey)
+            {
+                _lastBodyClipKey = bodyClipKey;
+                var bodyCut = new CombinedGeometry(
+                    GeometryCombineMode.Exclude,
+                    new RectangleGeometry(fullBody, BodyFrame.CornerRadius.TopLeft, BodyFrame.CornerRadius.TopLeft),
+                    new RectangleGeometry(insetCutout, cutoutRadius, cutoutRadius));
+                bodyCut.Freeze();
+                if (!_splashActive && !_farewellActive) BodyFrame.Clip = bodyCut; // the splash / farewell own the body clip while they run
+            }
+        }
+        else
+        {
+            _lastBodyClipKey = null;
+            _controlsCutout = null;
+            if (WindowControlsBodyBrush.Visual is not null) WindowControlsBodyBrush.Visual = null;
+            if (BodyFrame.Clip is not null && !_splashActive && !_farewellActive) BodyFrame.Clip = null;
         }
     }
 
@@ -1311,6 +1962,22 @@ public partial class GlassLauncherView : UserControl
         _expansionMotion.Retarget(_expanded ? 1 : 0, ShouldSnapMotion);
     }
 
+    private global::PCL.GlassTideProgress _launchTide;
+
+    private global::PCL.GlassTideProgress EnsureLaunchTide()
+    {
+        if (_launchTide is not null) return _launchTide;
+        _launchTide = new global::PCL.GlassTideProgress(11, "终止启动") { Margin = new Thickness(-12, 0, -12, 0), Covers = InstanceCenter };
+        _launchTide.StopRequested += (_, _) => { if (_state.IsLaunching) CancelRequested?.Invoke(this, EventArgs.Empty); };
+        if (SecondarySurface.Child is Grid card)
+        {
+            Grid.SetRowSpan(_launchTide, Math.Max(1, card.RowDefinitions.Count));
+            Panel.SetZIndex(_launchTide, 3);
+            card.Children.Add(_launchTide);
+        }
+        return _launchTide;
+    }
+
     private void LaunchButton_Click(object sender, RoutedEventArgs e)
     {
         if (_state.IsLaunching) CancelRequested?.Invoke(this, EventArgs.Empty);
@@ -1320,18 +1987,98 @@ public partial class GlassLauncherView : UserControl
     private void NavigationButton_Click(object sender, RoutedEventArgs e)
     {
         SetAccountOpen(false);
+        SetAccountWorkspaceOpen(false);
         if (sender is Button button && int.TryParse(button.Tag?.ToString(), out int page)) NavigationRequested?.Invoke(page);
     }
 
     private void AccountButton_Click(object sender, RoutedEventArgs e)
     {
         AccountRequested?.Invoke(this, EventArgs.Empty);
+        // With a full account workspace supplied by the shell, the avatar opens that page instead of the small popover.
+        if (AccountSideHost.Content is not null && AccountSceneHost.Content is not null)
+        {
+            SetAccountWorkspaceOpen(!_workspaceOpen);
+            return;
+        }
         SetAccountOpen(!_accountOpen);
+    }
+
+    private bool _workspaceOpen;
+    private readonly TranslateTransform _secondaryShift = new();
+    private SpringMotion _workspaceMotion;
+
+    /// <summary>The signed-in account's display name, as shown on the rail avatar.</summary>
+    public string AccountNameLabel => _state.AccountName ?? string.Empty;
+    /// <summary>The signed-in account's avatar image, as shown on the rail.</summary>
+    public ImageSource AccountAvatarSource => AccountAvatarImage.Source;
+
+    /// <summary>True while the account workspace is shown over the secondary panel and main column.</summary>
+    public bool IsAccountWorkspaceOpen => _workspaceOpen;
+
+    /// <summary>Supplies the account workspace: a side card (replaces the secondary panel) and a main scene.</summary>
+    public void SetAccountWorkspace(FrameworkElement side, FrameworkElement scene)
+    {
+        AccountSideHost.Content = side;
+        AccountSceneHost.Content = scene;
+        if (side is null || scene is null) SetAccountWorkspaceOpen(false, immediate: true);
+    }
+
+    /// <summary>
+    /// Opens or closes the account workspace. The current page recedes and fades while the account side card and
+    /// scene rise into place on the sidebar spring; any navigation closes it again.
+    /// </summary>
+    public void SetAccountWorkspaceOpen(bool open, bool immediate = false)
+    {
+        open &= AccountSideHost.Content is not null && AccountSceneHost.Content is not null;
+        if (_workspaceOpen == open && !immediate) return;
+        _workspaceOpen = open;
+        if (open) { SetAccountOpen(false); AccountSideSurface.Visibility = AccountSceneHost.Visibility = Visibility.Visible; }
+        _workspaceMotion ??= new SpringMotion(this, 0, ApplyAccountWorkspace, SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
+        _workspaceMotion.Retarget(open ? 1 : 0, immediate || ShouldSnapMotion);
+        AutomationProperties.SetHelpText(AccountButton, open ? "账号页面已打开" : "打开账号页面");
+        AccountSideSurface.IsHitTestVisible = AccountSceneHost.IsHitTestVisible = open;
+        // The page underneath is not just hidden but inert: no clicks, focus or keyboard activation reach it.
+        MainColumn.IsHitTestVisible = !open; MainColumn.IsEnabled = !open;
+        if (SecondarySurface.Child is UIElement secondary) { secondary.IsHitTestVisible = !open; secondary.IsEnabled = !open; }
+        SetSelectedNavigation(ShouldSnapMotion || immediate);
+        SetSecondaryColumnWidth(SecondaryWidth(_state.IsHome || open, IsCompactViewport), animate: !(ShouldSnapMotion || immediate));
+    }
+
+    // Same rhythm as switching pages: the current page leaves first (fading and receding), then the account page
+    // arrives — the side card flips up from below like the sidebar, the scene rises — so the two never overlap.
+    private void ApplyAccountWorkspace(double value)
+    {
+        double outgoing = Math.Clamp(value / .38, 0, 1);
+        double incoming = Math.Clamp((value - .3) / .55, 0, 1);
+        double eased = 1 - Math.Pow(1 - incoming, 2);
+        double travel = Math.Clamp((value - .3) / .7, 0, 1.12); // keeps the spring's overshoot for the rise
+        AccountSideSurface.Opacity = eased;
+        AccountSideTranslation.Y = SidebarFlipTravel * (1 - travel);
+        AccountSceneHost.Opacity = eased;
+        AccountSceneTranslation.Y = PageRise * (1 - travel);
+        AccountSceneScale.ScaleX = AccountSceneScale.ScaleY = .97 + .03 * Math.Min(travel, 1);
+        double leave = 1 - outgoing * outgoing * (3 - 2 * outgoing);
+        MainColumn.Opacity = leave;
+        if (SecondarySurface.RenderTransform is not TransformGroup)
+            SecondarySurface.RenderTransform = new TransformGroup { Children = { _sidebarFlipOffset, _secondaryShift } };
+        // The whole previous sidebar card leaves (and returns) with the page, so nothing stays layered underneath.
+        SecondarySurface.Opacity = leave;
+        SecondarySurface.Visibility = leave <= MotionTokens.VisibilityThreshold ? Visibility.Hidden : Visibility.Visible;
+        _secondaryShift.Y = 24 * outgoing;
+        if (!_workspaceOpen && value <= MotionTokens.VisibilityThreshold)
+            AccountSideSurface.Visibility = AccountSceneHost.Visibility = Visibility.Hidden;
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         _keyboardInteraction = true;
+        if (e.Key == Key.Escape && _workspaceOpen)
+        {
+            SetAccountWorkspaceOpen(false);
+            AccountButton.Focus();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Escape && _accountOpen)
         {
             SetAccountOpenCore(false, true);
@@ -1356,22 +2103,23 @@ public partial class GlassLauncherView : UserControl
 
     private void Chrome_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left) return;
-        if (e.OriginalSource is DependencyObject source)
-        {
-            for (DependencyObject item = source; item != null && !ReferenceEquals(item, sender); item = item is Visual ? VisualTreeHelper.GetParent(item) : LogicalTreeHelper.GetParent(item))
-                if (item is System.Windows.Controls.Primitives.ButtonBase) return;
-        }
-        DragRequested?.Invoke(this, EventArgs.Empty);
-        e.Handled = true;
+        RequestWindowDrag((DependencyObject)sender, e);
     }
 
-    private void ShellRoot_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void AccountWorkspace_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != MouseButton.Left || e.OriginalSource is not DependencyObject source) return;
-        if (IsWithin(source, PageContent) || IsWithin(source, AccountPopover) || IsWithin(source, SideRail)) return;
-        for (DependencyObject item = source; item != null && !ReferenceEquals(item, ShellRoot); item = item is Visual ? VisualTreeHelper.GetParent(item) : LogicalTreeHelper.GetParent(item))
-            if (item is System.Windows.Controls.Primitives.ButtonBase) return;
+        if (_workspaceOpen) RequestWindowDrag((DependencyObject)sender, e);
+    }
+
+    private void RequestWindowDrag(DependencyObject boundary, MouseButtonEventArgs e)
+    {
+        if (e.Handled || e.ChangedButton != MouseButton.Left || e.OriginalSource is not DependencyObject source) return;
+        for (DependencyObject item = source; item != null && !ReferenceEquals(item, boundary);
+             item = item is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(item) : LogicalTreeHelper.GetParent(item))
+        {
+            if (item is ButtonBase or TextBoxBase or PasswordBox or Selector or RangeBase or Thumb or System.Windows.Documents.Hyperlink ||
+                (bool)item.GetValue(PreventWindowDragProperty)) return;
+        }
         DragRequested?.Invoke(this, EventArgs.Empty);
         e.Handled = true;
     }
@@ -1387,4 +2135,27 @@ public partial class GlassLauncherView : UserControl
     private void BackButton_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
     private void RailToggleButton_Click(object sender, RoutedEventArgs e) => SetRailExpanded(!_railExpanded);
     private void CloseAccountButton_Click(object sender, RoutedEventArgs e) { SetAccountOpen(false); AccountButton.Focus(); }
+
+    public void Dispose()
+    {
+        _titleFallback?.Stop();
+        _sidebarRowsFallback?.Stop();
+        WindowControlsBodyBrush.Visual = null;
+        _expansionMotion.Dispose();
+        _railMotion.Dispose();
+        _railExpandMotion.Dispose();
+        _navigationMotion.Dispose();
+        _sidebarSelectionMotion.Dispose();
+        _accountMotion.Dispose();
+        _homeMotion.Dispose();
+        _pageMotion.Dispose();
+        _titleMotion.Dispose();
+        _optionsMotion.Dispose();
+        _sidebarFlipMotion?.Dispose();
+        _titleSwapMotion?.Dispose();
+        _columnMotion?.Dispose();
+        _workspaceMotion?.Dispose();
+        foreach (SpringMotion hover in _navigationHoverMotions.Values) hover.Dispose();
+        _navigationHoverMotions.Clear();
+    }
 }

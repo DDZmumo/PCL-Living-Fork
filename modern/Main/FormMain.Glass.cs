@@ -11,9 +11,18 @@ using PCLLF.Wpf.Glass;
 namespace PCL;
 
 public partial class FormMain {
+    /// <summary>Builds a page's left panel ahead of its first visit (startup preload while the splash shows).</summary>
+    internal static void PrewarmPage(PageType page) {
+        try { EnsureLeftPage((int)page); }
+        catch (Exception error) { Logger.Warn(error, "预先构建页面失败"); }
+    }
+
     private GlassShellIntegration glassShell;
+    private bool _glassResizing, _saveGlassResize;
     internal static bool GlassShellPreferred => Settings.Get<int>("UiShellStyle") == 1;
     internal bool GlassShellActive => glassShell is not null;
+    /// <summary>The glass account page is open over the launch page.</summary>
+    internal bool GlassAccountPageOpen => glassShell?.View.IsAccountWorkspaceOpen == true;
     internal int GlassPageCode => (int)PageCurrent.Page;
     internal string GlassPageTitle => PageNameGet(PageCurrent);
     internal Func<GlassLauncherViewState> GlassPreviewState { get; set; }
@@ -83,4 +92,19 @@ public partial class FormMain {
     }
     private void AttachGlassShell() => glassShell?.Attach();
     internal void RefreshGlassShell() => glassShell?.Refresh(true);
+
+    internal void SetGlassResizing(bool resizing) {
+        if (_glassResizing == resizing) return;
+        _glassResizing = resizing;
+        if (resizing) {
+            _saveGlassResize = IsSizeSaveable;
+            IsSizeSaveable = false;
+        } else {
+            IsSizeSaveable = _saveGlassResize;
+            if (_saveGlassResize) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() => {
+                if (IsLoaded && !_glassResizing) FormMain_SizeChanged();
+            }));
+        }
+        glassShell?.SetWindowResizing(resizing);
+    }
 }

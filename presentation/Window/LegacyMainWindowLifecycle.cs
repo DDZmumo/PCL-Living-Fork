@@ -30,7 +30,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public void ConstructBeforeXaml() {
         host.WriteStartTick(host.Clock()); host.AssignGlobalWindow(); host.CreateLaunchLeft(); host.CreateLaunchRight();
         int last = host.ReadInteger("SystemLastVersionReg");
-        if (last < host.VersionCode) Upgrade(last); else if (last > host.VersionCode) Downgrade(last);
+        if (last < host.VersionCode) UpgradeCore(last, showUpdateLog: false); else if (last > host.VersionCode) Downgrade(last);
         if (!host.HasSaved("LaunchArgumentIndieV2")) {
             if (host.HasSaved("LaunchArgumentIndie")) {
                 Logger.Info("从老 PCL 迁移版本隔离"); host.WriteSetting("LaunchArgumentIndieV2", host.ReadInteger("LaunchArgumentIndie"));
@@ -110,7 +110,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
             case 2: host.OpenWebsite(host.ReleasesUrl()); break;
         }
     }, "Fork UpdateLog Output");
-    public void Upgrade(int lastVersion) {
+    public void Upgrade(int lastVersion) => UpgradeCore(lastVersion, showUpdateLog: true);
+    private void UpgradeCore(int lastVersion, bool showUpdateLog) {
         Logger.Info($"版本号从 {lastVersion} 升高到 {host.VersionCode}"); host.WriteSetting("SystemLastVersionReg", host.VersionCode);
         string settingKey = host.BuildType == 0 ? "SystemHighestAlphaVersionReg" : "SystemHighestBetaVersionReg";
         int highest = host.ReadInteger(settingKey);
@@ -133,7 +134,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         if (lastVersion <= 205) { host.WriteSetting("UiHiddenOtherHelp", false); Logger.Info("已解除帮助页面的隐藏"); }
         if (host.HasSaved("ToolDownloadTranslate") && !host.HasSaved("ToolDownloadTranslateV2")) { host.WriteSetting("ToolDownloadTranslateV2", checked(host.ReadInteger("ToolDownloadTranslate") + 1)); Logger.Info("已从老版本迁移 Mod 命名设置"); }
         if (lastVersion <= 381 && host.HasSaved("LaunchAdvanceJvm") && Operators.ConditionalCompareObjectEqual(host.ReadString("LaunchAdvanceJvm").ToString().Replace("-XX:+UseG1GC ", "").Replace("-XX:-UseAdaptiveSizePolicy ", "").Trim(), host.DefaultValue("LaunchAdvanceJvm"), false)) { host.ResetSetting("LaunchAdvanceJvm"); Logger.Info("已重置 JVM 参数设置"); }
-        if (lastVersion <= 0 || highest >= host.VersionCode) return;
+        if (!showUpdateLog || lastVersion <= 0 || highest >= host.VersionCode) return;
         ShowAutomaticUpdateLog();
     }
     public void Downgrade(int lastVersion) { Logger.Info($"版本号从 {lastVersion} 降低到 {host.VersionCode}"); host.WriteSetting("SystemLastVersionReg", host.VersionCode); }

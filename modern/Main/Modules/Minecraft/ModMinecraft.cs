@@ -52,7 +52,10 @@ namespace PCL
             add => LauncherApplicationServices.SelectionOwner.Changed += value;
             remove => LauncherApplicationServices.SelectionOwner.Changed -= value;
         }
-        internal static void ApplySelectionFromApplication(McInstance instance) => Service.SelectInstance(instance);
+        internal static void ApplySelectionFromApplication(McInstance instance) {
+            GlassSkinSites.MigrateSelection();
+            Service.SelectInstance(instance);
+        }
         public static global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder> McFolderList = new global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder>();
         public static global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>> McInstanceList = new global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>>();
         public static global::System.Boolean McInstanceListForceRefresh = false;
@@ -335,6 +338,7 @@ namespace PCL
         {
             return global::PCL.ModMinecraft.Service.McSkinGetAddress(UUID, Type);
         }
+        internal static string McSkinGetAddress(string uuid, string type, string server) => Service.McSkinGetAddress(uuid, type, server);
         public static global::System.String McSkinDownload(global::System.String Address)
         {
             return global::PCL.ModMinecraft.Service.McSkinDownload(Address);

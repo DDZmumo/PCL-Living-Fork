@@ -23,6 +23,7 @@ internal static class WallpaperBlurCache {
     private const int MaxCachedEntries = 6;
     private static readonly ConditionalWeakTable<FrameworkElement, HostCache> Hosts = new();
     private static readonly ConditionalWeakTable<ImageSource, SourceStamp> SourceStamps = new();
+    private static readonly ConditionalWeakTable<ImageSource, object> VideoFrames = new();
     private static readonly ImageSource EmptySource = EmptyImage();
     private static long _buildCount;
 
@@ -31,12 +32,16 @@ internal static class WallpaperBlurCache {
     /// <summary>Successful raster builds; cache hits and unblurred fallbacks do not increment it.</summary>
     internal static long BuildCount => Interlocked.Read(ref _buildCount);
 
+    internal static void RegisterVideoFrame(ImageSource source) => VideoFrames.Add(source, new object());
+    internal static bool IsVideoFrame(ImageSource source) => VideoFrames.TryGetValue(source, out _);
+
     internal static bool TryGet(FrameworkElement host, ImageSource source, Stretch stretch, double radius, out Frame frame) {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(source);
         host.Dispatcher.VerifyAccess();
         source.Dispatcher?.VerifyAccess();
 
+        if (IsVideoFrame(source)) { frame = new(source, 0); return true; }
         if (!TryBuildKey(host, source, stretch, radius, out Key key)) { frame = Unblurred(source); return true; }
         if (radius == 0) { frame = Unblurred(source); return true; }
         if (Hosts.TryGetValue(host, out HostCache? cache)) {
@@ -58,6 +63,7 @@ internal static class WallpaperBlurCache {
         host.Dispatcher.VerifyAccess();
         source.Dispatcher?.VerifyAccess();
 
+        if (IsVideoFrame(source)) return new(source, 0);
         if (!TryBuildKey(host, source, stretch, radius, out Key key) || radius == 0) return Unblurred(source);
         HostCache cache = Hosts.GetValue(host, static _ => new HostCache());
         for (int index = 0; index < cache.Entries.Count; index++) {
@@ -113,13 +119,15 @@ internal static class WallpaperBlurCache {
             Stretch = key.Stretch,
             AlignmentX = AlignmentX.Center,
             AlignmentY = AlignmentY.Center,
-            TileMode = TileMode.None
+            Viewport = new Rect(padding, padding, key.Size.Width, key.Size.Height),
+            ViewportUnits = BrushMappingMode.Absolute,
+            TileMode = TileMode.FlipXY
         };
         if (key.Source.IsFrozen) brush.Freeze();
         var visual = new DrawingVisual();
         RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.LowQuality);
         using (DrawingContext context = visual.RenderOpen()) {
-            context.DrawRectangle(brush, null, new Rect(padding, padding, key.Size.Width, key.Size.Height));
+            context.DrawRectangle(brush, null, new Rect(0, 0, width, height));
         }
         var raster = new RenderTargetBitmap(pixelWidth, pixelHeight, outputDpiX, outputDpiY, PixelFormats.Pbgra32);
         raster.Render(visual);
@@ -138,7 +146,7 @@ internal static class WallpaperBlurCache {
         return new Frame(bitmap, padding);
     }
 
-    private static unsafe void BlurPbgra32(byte[] pixels, int width, int height, double sigmaX, double sigmaY) {
+    internal static unsafe void BlurPbgra32(byte[] pixels, int width, int height, double sigmaX, double sigmaY) {
         if (width <= 1 && height <= 1) return;
         ComputeBoxRadii(sigmaX, out int rx0, out int rx1, out int rx2);
         ComputeBoxRadii(sigmaY, out int ry0, out int ry1, out int ry2);

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+﻿// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) 2026 PCL Living Fork contributors.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -87,17 +87,17 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
     internal void SetRegions(IReadOnlyList<GlassWindowRegion> regions, Matrix toDevice) {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_children is null || _compositor is null || _compositor5 is null || _compositor6 is null || _brush is null) return;
-        if (_surfaces.Count != regions.Count) {
-            Check(((delegate* unmanaged[Stdcall]<nint, int>)_children.Method(12))(_children.Pointer)); // RemoveAll.
-            foreach (var surface in _surfaces) surface.Dispose();
-            _surfaces.Clear();
-            for (var index = 0; index < regions.Count; index++) {
-                var surface = new SurfaceVisual(_compositor, _compositor5, _compositor6, _brush);
-                _surfaces.Add(surface);
-                SetObject(_children, 9, surface.Visual.Pointer); // InsertAtTop.
-            }
+        // Keep existing visuals when the number of regions changes: removing and recreating them all left one frame
+        // without any blur (a visible flash). Grow by adding visuals; park surplus ones fully transparent.
+        while (_surfaces.Count < regions.Count) {
+            var surface = new SurfaceVisual(_compositor, _compositor5, _compositor6, _brush);
+            _surfaces.Add(surface);
+            SetObject(_children, 9, surface.Visual.Pointer); // InsertAtTop.
         }
-        for (var index = 0; index < regions.Count; index++) _surfaces[index].Update(regions[index], toDevice);
+        for (var index = 0; index < _surfaces.Count; index++) {
+            if (index < regions.Count) _surfaces[index].Update(regions[index], toDevice);
+            else _surfaces[index].Update(_surfaces[index].Parked, toDevice);
+        }
     }
 
     public void Dispose() {
@@ -131,6 +131,8 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         private Matrix _lastToDevice;
         private bool _hasUpdated;
         internal ComReference Visual { get; }
+        /// <summary>The last shape, fully transparent: an unused visual waits like this instead of being destroyed.</summary>
+        internal GlassWindowRegion Parked => _hasUpdated ? _lastRegion with { Opacity = 0 } : new GlassWindowRegion(new System.Windows.Rect(0, 0, 1, 1), 0, 0);
 
         internal SurfaceVisual(ComReference compositor, ComReference compositor5, ComReference compositor6, ComReference brush) {
             _sprite = GetObject(compositor, 22); // ICompositor.CreateSpriteVisual.

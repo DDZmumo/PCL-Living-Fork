@@ -15,12 +15,19 @@ namespace PCL;
 /// <summary>Creates a new WPF presentation tree from live controller-facing page semantics.</summary>
 public static class GlassPresentation
 {
-    public static GlassPresentationSession Create(FrameworkElement source) => new(source);
+    public static GlassPresentationSession Create(FrameworkElement source) => new(source, null);
+    internal static GlassPresentationSession Create(FrameworkElement source, Func<MyCard, UIElement> cardSupplement) => new(source, cardSupplement);
 }
 
 /// <summary>The source remains in its hidden backend tree; no source visual is hosted by View.</summary>
 public sealed partial class GlassPresentationSession : IDisposable
 {
+    [ThreadStatic]
+    private static ResourceDictionary _sharedResources;
+
+    private static ResourceDictionary GetSharedResources() =>
+        _sharedResources ??= new ResourceDictionary { Source = new Uri("/LivingPCL;component/Glass/GlassPresentationResources.xaml", UriKind.Relative) };
+
     private static readonly DependencyProperty LifetimeProperty = DependencyProperty.RegisterAttached(
         "PresentationLifetime", typeof(Node), typeof(GlassPresentationSession));
     private readonly FrameworkElement _source;
@@ -30,19 +37,21 @@ public sealed partial class GlassPresentationSession : IDisposable
     private HashSet<DependencyObject> _alive;
     private bool _refreshing;
     private bool _disposed;
+    private readonly HashSet<StackPanel> _responsiveStacks = new(ReferenceEqualityComparer.Instance);
     private (bool HighContrast, bool Dark, bool Material, double Density, Color? Accent, Color? OnAccent)? _lastPalette;
     public FrameworkElement View => _root;
     /// <summary>Optional host-owned row placed first in a projected card (shell-only settings that have no legacy control).</summary>
     internal Func<MyCard, UIElement> CardSupplement { get; set; }
     public IReadOnlyCollection<string> UnsupportedTypes => _unsupported;
 
-    internal GlassPresentationSession(FrameworkElement source)
+    internal GlassPresentationSession(FrameworkElement source, Func<MyCard, UIElement> cardSupplement = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         source.Dispatcher.VerifyAccess();
         _source = source;
+        CardSupplement = cardSupplement;
         _root = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Focusable = false };
-        _root.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/LivingPCL;component/Glass/GlassPresentationResources.xaml", UriKind.Relative) });
+        _root.Resources.MergedDictionaries.Add(GetSharedResources());
         _root.Loaded += RootLoaded;
         _root.SizeChanged += RootSizeChanged;
         Refresh();
@@ -77,11 +86,18 @@ public sealed partial class GlassPresentationSession : IDisposable
         _root.SizeChanged -= RootSizeChanged;
         foreach (Node node in _nodes.Values) node.Dispose();
         _nodes.Clear();
+        _responsiveStacks.Clear();
         _root.Content = null;
     }
 
-    private void RootLoaded(object sender, RoutedEventArgs args) => Refresh();
-    private void RootSizeChanged(object sender, SizeChangedEventArgs args) { if (args.WidthChanged) Refresh(); }
+    private void RootLoaded(object sender, RoutedEventArgs args) => ApplyPalette();
+    private void RootSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (!args.WidthChanged || _responsiveStacks.Count == 0) return;
+        double width = args.NewSize.Width > 12 ? Math.Min(800, args.NewSize.Width - 12) : double.NaN;
+        foreach (StackPanel stack in _responsiveStacks)
+            stack.Width = width;
+    }
 
     private bool Live(DependencyObject target)
     {
@@ -112,7 +128,7 @@ public sealed partial class GlassPresentationSession : IDisposable
             if (source is FrameworkElement original)
             {
                 ApplyMetadata(original, node.View);
-                if (node.View is FrameworkElement presentation)
+                if (node.View is FrameworkElement presentation && LazyLoadBehavior.HasViewportAction(original))
                 {
                     IDisposable viewport = LazyLoadBehavior.BindPresentationViewport(original, presentation);
                     node.Cleanup.Add(viewport.Dispose);
@@ -142,13 +158,26 @@ public sealed partial class GlassPresentationSession : IDisposable
 
     private static bool Excluded(DependencyObject source)
     {
+        // The home page shows the original homepage content (PanCustom: preset, local or online cards) and the launch log
+        // card as glass cards; its bottom-left overlay (dependency checks, last played world) lives in the home panel.
+        if (source is FrameworkElement { Name: "PanMoreSettings" } && LogicalTreeHelper.GetParent(LogicalTreeHelper.GetParent(source)) is Grid { Parent: PageLaunchRight }) return true;
         if (GlassClientUiPolicy.Excludes(source)) return true;
         if (source is FrameworkElement { Name: "PanOfficialTheme" or "CardLogo" }) return true;
+        // Offline skins are managed in the skin library (account page) now; the original offline-skin card is retired.
+        if (source is FrameworkElement { Name: "CardSkin" } && InPage<PageSetupLaunch>(source)) return true;
         if (source is FrameworkElement { Name: "ShapeLine" } decoration && AncestorMessage(decoration)) return true;
         if (source is Grid row && row.Children.OfType<DependencyObject>().Any(child =>
-            (child is MyComboBox && SettingService.GetKey(child) == "UiShellStyle") ||
+            (child is MyComboBox && SettingService.GetKey(child) is "UiShellStyle" or "UiBackgroundMode") ||
+            child is MyButton { Name: "BtnBackgroundOpen" } ||
             (child is MySlider && SettingService.GetKey(child) == "UiLauncherTransparent"))) return true;
         return source is MyCheckBox checkbox && SettingService.GetKey(checkbox) is "UiLauncherLogo" or "UiBackgroundColorful";
+    }
+
+    private static bool InPage<TPage>(DependencyObject element)
+    {
+        for (DependencyObject? parent = element; parent is not null; parent = LogicalTreeHelper.GetParent(parent))
+            if (parent is TPage) return true;
+        return false;
     }
 
     private static bool AncestorMessage(FrameworkElement element)
@@ -179,7 +208,8 @@ public sealed partial class GlassPresentationSession : IDisposable
         if (!double.IsPositiveInfinity(source.MaxWidth)) target.MaxWidth = source.MaxWidth;
         if (!double.IsPositiveInfinity(source.MaxHeight)) target.MaxHeight = source.MaxHeight;
         if (Grid.GetIsSharedSizeScope(source)) Grid.SetIsSharedSizeScope(target, true);
-        if (source is ComboBox && SettingsContext(source)) {
+        if (source is ComboBox && SettingsContext(source) ||
+            source is TextBox { AcceptsReturn: false } && double.IsNaN(source.Width) && SettingService.GetKey(source) is "LaunchArgumentTitle" or "LaunchArgumentInfo") {
             target.Width = 220;
             target.MaxWidth = Math.Min(target.MaxWidth, 220);
             target.MinWidth = Math.Min(target.MinWidth, 220);
@@ -199,8 +229,9 @@ public sealed partial class GlassPresentationSession : IDisposable
     private static Thickness Spacing(FrameworkElement source)
     {
         Thickness margin = source.Margin;
+        if (source is PCLCS.KeybindingPageRow) return new Thickness();
         if (IsFloatingCommandBar(source)) return new Thickness(20, 0, 20, 18);
-        if (source is MyCard) return new Thickness(0, 0, 0, SettingsContext(source) ? 18 : 16);
+        if (source is MyCard and not MySearchBox) return new Thickness(0, 0, 0, SettingsContext(source) ? 18 : 16);
         if (source is StackPanel && margin.Left >= 20 && margin.Right >= 20) return new Thickness(0, Math.Min(12, margin.Top), 0, Math.Min(16, margin.Bottom));
         return new Thickness(Math.Min(24, Math.Max(0, margin.Left)), Math.Min(24, Math.Max(0, margin.Top)), Math.Min(24, Math.Max(0, margin.Right)), Math.Min(24, Math.Max(0, margin.Bottom)));
     }
@@ -254,6 +285,11 @@ public sealed partial class GlassPresentationSession : IDisposable
             SetBrush("GlassPresentationDockFill", SystemColors.WindowColor);
             SetBrush("GlassPresentationDockEdge", SystemColors.WindowTextColor);
             SetBrush("GlassPresentationDockBadgeFill", SystemColors.WindowColor);
+            SetBrush("GlassPresentationDialogFill", SystemColors.WindowColor);
+            SetBrush("GlassPresentationDialogEdge", SystemColors.WindowTextColor);
+            SetBrush("GlassPresentationWarnFill", SystemColors.WindowColor);
+            SetBrush("GlassPresentationWarnEdge", SystemColors.HighlightColor);
+            SetBrush("GlassPresentationWarnText", SystemColors.WindowTextColor);
             return;
         }
         Brush inherited = _root.TryFindResource("GlassTextBrush") as Brush;
@@ -281,6 +317,12 @@ public sealed partial class GlassPresentationSession : IDisposable
         SetBrush("GlassPresentationText", dark ? Color.FromRgb(244, 244, 244) : Color.FromRgb(36, 36, 36));
         SetBrush("GlassPresentationSecondary", dark ? Color.FromRgb(184, 184, 184) : Color.FromRgb(105, 105, 105));
         SetBrush("GlassPresentationFill", fill);
+        // Message dialogs: a denser frosted sheet with a lit top edge. Warnings use the same sheet tinted red.
+        SetBrush("GlassPresentationDialogFill", dark ? Color.FromArgb(206, 34, 34, 37) : Color.FromArgb(214, 250, 250, 251));
+        SetGradient("GlassPresentationDialogEdge", dark ? Color.FromArgb(46, 255, 255, 255) : Color.FromArgb(200, 255, 255, 255), dark ? Color.FromArgb(14, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0));
+        SetBrush("GlassPresentationWarnFill", dark ? Color.FromArgb(214, 54, 24, 27) : Color.FromArgb(222, 253, 237, 237));
+        SetGradient("GlassPresentationWarnEdge", dark ? Color.FromArgb(120, 255, 110, 105) : Color.FromArgb(120, 226, 84, 80), dark ? Color.FromArgb(40, 255, 110, 105) : Color.FromArgb(70, 200, 60, 60));
+        SetBrush("GlassPresentationWarnText", dark ? Color.FromRgb(255, 133, 126) : Color.FromRgb(196, 48, 46));
         // Controls have their own neutral filled surface, distinct from the section card.
         // The field is intentionally not another white/blue outlined card.
         // Fluent control ramp: rest / hover / pressed, plus a recessed surface while a text field has focus.

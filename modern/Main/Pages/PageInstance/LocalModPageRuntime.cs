@@ -52,7 +52,7 @@ namespace PCL
                 AnyLocked = () => ModMinecraft.McInstanceLock.IsAnyLocked,
                 ResetIndexLookups = ModDependencyAutoFill.ResetIndexLookups,
                 RebuildIndex = RebuildIndex,
-                RefreshLoaderWarning = (Item,Target) => Item.RefreshLoaderWarning(System.IO.Path.Combine(Target.PathIndie,"mods"),ModDependencyInspector.ContextForInstance(Target)),
+                RefreshLoaderWarning = RefreshCachedLoaderWarning,
                 GameFolder = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Value => Value.PathIndie),
                 InstanceName = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Value => Value.Name),
                 Modable = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Value => Value.Modable),
@@ -175,6 +175,31 @@ namespace PCL
                 Additional = new object[] { Project, new global::System.Collections.Generic.List<global::System.String>(), global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders, global::PCLCS.ResourceTypes.Mod }
             });
         }
+        private static global::PCL.ModMinecraft.McInstance _cachedWarningTarget;
+        private static string _cachedWarningVersionPath;
+        private static long _cachedWarningTick;
+        private static string _cachedWarningModsFolder;
+        private static global::PCL.ModDependencyInspector.InspectionContext _cachedWarningContext;
+
+        private static void RefreshCachedLoaderWarning(global::PCL.MyLocalModItem Item, global::PCL.ModMinecraft.McInstance Target)
+        {
+            if (Item is null || Target is null) return;
+            long now = Environment.TickCount64;
+            if (!ReferenceEquals(Target, _cachedWarningTarget) ||
+                !string.Equals(Target.PathVersion, _cachedWarningVersionPath, StringComparison.OrdinalIgnoreCase) ||
+                now - _cachedWarningTick > 250 ||
+                _cachedWarningModsFolder is null ||
+                _cachedWarningContext is null)
+            {
+                _cachedWarningTarget = Target;
+                _cachedWarningVersionPath = Target.PathVersion;
+                _cachedWarningTick = now;
+                _cachedWarningModsFolder = System.IO.Path.Combine(Target.PathIndie, "mods");
+                _cachedWarningContext = global::PCL.ModDependencyInspector.ContextForInstance(Target);
+            }
+            Item.RefreshLoaderWarning(_cachedWarningModsFolder, _cachedWarningContext);
+        }
+
         private static global::PCLLF.Presentation.Mods.LegacyModUpdateJob CreateUpdateJob(global::System.Func<global::System.String> Name, global::System.Collections.Generic.List<global::PCL.ModNet.NetFile> Files, global::System.Double Weight, global::System.Action Replace)
         {
             var Loaders = new global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderBase>() { new global::PCL.ModNet.LoaderDownload("下载新版 Mod 文件", (global::System.Collections.Generic.IEnumerable<global::PCL.ModNet.NetFile>)Files) { ProgressWeight = Weight }, new global::PCL.ModLoader.LoaderTask<global::System.Int32, global::System.Int32>("替换旧版 Mod 文件", _ => Replace()) };

@@ -70,6 +70,7 @@ public enum LegacySetupShellPage { Launch, InstanceSelect, InstanceSetup }
 public sealed class LegacySetupUiHost {
     public LegacySetupPageHost Common = null!;
     public Func<LegacyPageSetupUIController?> CurrentUI = null!;
+    public Func<bool>? RefreshLauncherWallpaperControls;
     public Func<bool> ReadHiddenForceShow = null!;
     public Action<bool> WriteHiddenForceShow = null!;
     public Func<bool> HasMain = null!;

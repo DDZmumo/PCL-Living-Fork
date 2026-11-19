@@ -15,6 +15,23 @@ namespace PCLCS;
 
 public enum KeybindingPageButtonState { Normal, Conflict, Capturing }
 
+public sealed record KeybindingPersonalState(string? DisplayKey, bool Participates);
+
+/// <summary>The row data and original editing action used by both presentations.</summary>
+public sealed class KeybindingPageRow : Grid {
+    public InstanceKeybindingData Entry { get; }
+    public string? Detail { get; }
+    public KeybindingPersonalState? Personal { get; }
+    public FrameworkElement KeyButton { get; }
+
+    internal KeybindingPageRow(InstanceKeybindingData entry, string? detail, KeybindingPersonalState? personal, FrameworkElement keyButton) {
+        Entry = entry;
+        Detail = detail;
+        Personal = personal;
+        KeyButton = keyButton;
+    }
+}
+
 public sealed class KeybindingPageButton {
     public FrameworkElement Element { get; }
     private readonly Action<string> setText;
@@ -63,7 +80,7 @@ public sealed class KeybindingPageHost<TInstance> where TInstance : class {
     public Func<string, string, string, string, bool, int> Message = null!;
     public Action<string, bool> Hint = null!;
     public Action<Exception, string> Warn = null!, Error = null!;
-    public Func<TInstance, IReadOnlyDictionary<string, string>>? PersonalBindingAnnotations;
+    public Func<TInstance, IReadOnlyDictionary<string, KeybindingPersonalState>>? PersonalBindingAnnotations;
     public bool CapturePersonalOnEdit = true;
 }
 
@@ -81,7 +98,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
     public bool ConflictsOnly;
     private int captureBarShownCount;
     public readonly Dictionary<string, KeybindingPageButton> KeyButtons = new(StringComparer.Ordinal);
-    private IReadOnlyDictionary<string, string> personalAnnotations = new Dictionary<string, string>();
+    private IReadOnlyDictionary<string, KeybindingPersonalState>? personalAnnotations;
 
     public KeybindingPageController(KeybindingPageView<TEntry> view, KeybindingPageHost<TInstance> host) {
         this.view = view; this.host = host;
@@ -130,7 +147,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
         if (view.Bindings is null) return;
         view.Bindings.Children.Clear();
         KeyButtons.Clear();
-        personalAnnotations = Owner is null ? new Dictionary<string, string>() : host.PersonalBindingAnnotations?.Invoke(Owner) ?? new Dictionary<string, string>();
+        personalAnnotations = Owner is null ? null : host.PersonalBindingAnnotations?.Invoke(Owner);
         string query = view.Search().Trim();
         InstanceKeybindingViewResult<TEntry> result = InstanceKeybindingView.BuildView(Entries, query, ConflictsOnly);
         view.SetAllText((query == "" ? "全部" : "搜索结果") + $" ({result.MatchingCount})");
@@ -148,22 +165,28 @@ public sealed class KeybindingPageController<TInstance, TEntry>
     }
 
     public Grid CreateBindingRow(TEntry entry) {
-        Grid row = new() { Height = 44, Margin = new Thickness(5, 2, 4, 4) };
+        string? detail = SameText(entry.Owners, "Minecraft") ? "" : entry.Owners;
+        if (!entry.Saved) detail = SameText(detail, "") ? "原版默认值 · 此项尚未保存" : detail + " · 原版默认值 · 此项尚未保存";
+        KeybindingPersonalState? personal = null;
+        if (entry.Key is not null) personalAnnotations?.TryGetValue(PersonalOptionsRules.CanonicalKey(entry.Key), out personal);
+        KeybindingPageButton button = view.CreateButton(entry, DisplayKey(entry.Normalized), entry.SharedCount > 1,
+            entry.Key + "\r\n" + entry.Owners + (!entry.Saved ? "\r\n原版默认键位" : ""), () => BeginCapture(entry));
+        var row = new KeybindingPageRow(entry, detail, personal, button.Element) { Height = 44, Margin = new Thickness(5, 2, 4, 4) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         StackPanel labels = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
         labels.Children.Add(new TextBlock { Text = entry.Name, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis });
-        string? detail = SameText(entry.Owners, "Minecraft") ? "" : entry.Owners;
-        if (!entry.Saved) detail = SameText(detail, "") ? "原版默认值 · 此项尚未保存" : detail + " · 原版默认值 · 此项尚未保存";
-        if (entry.Key is not null && personalAnnotations.TryGetValue(PersonalOptionsRules.CanonicalKey(entry.Key), out string? personal)) detail = SameText(detail, "") ? personal : detail + " · " + personal;
+        if (personal is not null) {
+            string caption = personal.DisplayKey is null ? "基础键位 · 个人方案未保存"
+                : $"个人方案：{personal.DisplayKey} · {(personal.Participates ? "参与同步" : "未参与同步")}";
+            detail = SameText(detail, "") ? caption : detail + " · " + caption;
+        }
         if (!SameText(detail, "")) {
             TextBlock description = new() { Text = detail, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };
             description.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray4");
             labels.Children.Add(description);
         }
         row.Children.Add(labels);
-        KeybindingPageButton button = view.CreateButton(entry, DisplayKey(entry.Normalized), entry.SharedCount > 1,
-            entry.Key + "\r\n" + entry.Owners + (!entry.Saved ? "\r\n原版默认键位" : ""), () => BeginCapture(entry));
         Grid.SetColumn(button.Element, 1);
         KeyButtons.Add(entry.Key!, button);
         row.Children.Add(button.Element);

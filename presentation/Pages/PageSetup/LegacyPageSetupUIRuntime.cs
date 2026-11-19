@@ -27,6 +27,7 @@ public sealed class LegacyPageSetupUIRuntime {
     private static Visibility Hidden(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
     public void BackgroundRefresh(bool isHint, bool refresh) {
         try {
+            if (Host.RefreshLauncherWallpaperControls?.Invoke() == true) return;
             if (Conversions.ToInteger(Common.Read("UiBackgroundMode")) == 1) {
                 if (Host.HasMain()) Host.ApplyBackground(Host.MainPanel(), Host.MainBackground());
                 if (Host.CurrentUI() is not null) Host.CurrentUI()!.BackgroundRefreshUI(false, 0);

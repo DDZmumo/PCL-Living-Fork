@@ -71,13 +71,19 @@ internal static partial class MmcLaunchChecks {
                         process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.yggdrasil.prefetched=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(metadata))), "Actual Main omitted Authlib live metadata/client bindings.");
                 }));
                 ModLaunch.McLoginLoader.Output.Type = "Auth"; Settings.Set("VersionServerAuthServer", expectedServer, instance); instance.Config.Save();
+                ModLaunch.McLoginLoader.Input = new ModLaunch.McLoginServer(ModLaunch.McLoginType.Auth) { Token = "Auth", BaseUrl = server.Url("/different-site/authserver") };
+                try {
+                    Native.Call(helper, "Capture", null, instance, ModLaunch.McLoginLoader.Output);
+                    throw new IOException("MMC accepted an account bound to another authentication endpoint.");
+                } catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_CHANGED") { }
+                ModLaunch.McLoginLoader.Input = new ModLaunch.McLoginServer(ModLaunch.McLoginType.Auth) { Token = "Auth", BaseUrl = expectedServer + "/authserver" };
                 Launch("authentication-authlib", false, false);
                 Native.Check(!File.Exists(AgentExecutionPath(children[currentSession])), "Verified Authlib exit retained its mutable execution agent.");
                 CheckAgentLog(metadata, expectedServer);
                 authMode = false; expectedServer = "synthetic-nide-id"; expectedHash = Convert.ToHexStringLower(SHA256.HashData(nide));
                 Settings.Set("VersionServerNide", expectedServer, instance); ModLaunch.McLoginLoader.Output.Type = "Nide"; instance.Config.Save();
-                object captured = Native.Call(helper, "Capture", null, instance, "Nide")!;
-                try { Native.Call(helper, "Revalidate", captured, instance, "Nide", new Java(Path.GetDirectoryName(java8)!, new Version(8, 0, 140))); throw new IOException("Old Nide Java was accepted."); }
+                object captured = Native.Call(helper, "Capture", null, instance, ModLaunch.McLoginLoader.Output)!;
+                try { Native.Call(helper, "Revalidate", captured, instance, ModLaunch.McLoginLoader.Output, new Java(Path.GetDirectoryName(java8)!, new Version(8, 0, 140))); throw new IOException("Old Nide Java was accepted."); }
                 catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_JAVA") { }
                 Launch("authentication-nide", false, false); CheckAgentLog(null, expectedServer);
                 Native.Check(!File.Exists(AgentExecutionPath(children[currentSession])), "Verified Nide exit retained its mutable execution agent.");

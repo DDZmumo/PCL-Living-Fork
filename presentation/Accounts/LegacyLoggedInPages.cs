@@ -49,9 +49,10 @@ public sealed class LegacyLoggedInPage<TLegacy, TMs, TServer> {
     }
     public TServer GetServerLoginData() {
         Dictionary<string, object?> cached = host.AccountSnapshot("Cache" + kind);
-        string? server = kind == "Auth" ? (host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerAuthServer") : Conversions.ToString(cached["CacheAuthServerServer"])) + "/authserver" :
+        string? server = kind == "Auth" ? PCLCS.AuthlibEndpoint.ForServer(host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerAuthServer") : Conversions.ToString(cached["CacheAuthServerServer"])) :
             "https://auth.mc-user.com:233/" + (host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerNide") : Conversions.ToString(cached["CacheNideServer"])) + "/authserver";
-        return host.CreateServer(new LegacyLoginInput { Token = kind, BaseUrl = server, UserName = Conversions.ToString(cached["Cache" + kind + "Username"]), Password = Conversions.ToString(cached["Cache" + kind + "Pass"]), Description = kind == "Auth" ? "Authlib-Injector" : "统一通行证" });
+        bool scoped = kind != "Auth" || PCLCS.AuthlibEndpoint.Same(server, cached.GetValueOrDefault(PCLCS.AuthlibEndpoint.CredentialServerSetting) as string);
+        return host.CreateServer(new LegacyLoginInput { Token = kind, BaseUrl = server, UserName = scoped ? Conversions.ToString(cached["Cache" + kind + "Username"]) : "", Password = scoped ? Conversions.ToString(cached["Cache" + kind + "Pass"]) : "", Description = kind == "Auth" ? "Authlib-Injector" : "统一通行证" });
     }
     public void ShowPanel() {
         if (kind == "MsV2") { Animations.Start(new[] { Animations.Opacity(view.ButtonsPanel(), 1 - view.ButtonsPanel().Opacity, new(120)) }, "PageLoginMsSkin Button"); return; }

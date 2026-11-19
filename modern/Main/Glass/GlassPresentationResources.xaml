@@ -27,6 +27,11 @@
     <SolidColorBrush x:Key="GlassPresentationDockFill" Color="#EBFCFDFF" />
     <SolidColorBrush x:Key="GlassPresentationDockEdge" Color="#2635475B" />
     <SolidColorBrush x:Key="GlassPresentationDockBadgeFill" Color="#18007AFF" />
+    <SolidColorBrush x:Key="GlassPresentationDialogFill" Color="#D6FAFAFB" />
+    <SolidColorBrush x:Key="GlassPresentationDialogEdge" Color="#2635475B" />
+    <SolidColorBrush x:Key="GlassPresentationWarnFill" Color="#DEFDEDED" />
+    <SolidColorBrush x:Key="GlassPresentationWarnEdge" Color="#78E25450" />
+    <SolidColorBrush x:Key="GlassPresentationWarnText" Color="#FFC4302E" />
     <FontFamily x:Key="GlassPresentationFont">Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI</FontFamily>
     <FontFamily x:Key="GlassPresentationDisplayFont">Segoe UI Variable Display, Microsoft YaHei UI, Segoe UI</FontFamily>
     <CornerRadius x:Key="GlassPresentationCardRadius">14</CornerRadius>
@@ -337,11 +342,15 @@
             <TextBox x:Name="PART_EditableTextBox" Visibility="Collapsed" Margin="12,0,36,0" Padding="0" Style="{x:Null}" Background="Transparent" BorderThickness="0" IsReadOnly="{TemplateBinding IsReadOnly}" VerticalContentAlignment="Center" Foreground="{TemplateBinding Foreground}" CaretBrush="{DynamicResource GlassPresentationText}" SelectionBrush="{DynamicResource GlassPresentationAccent}"><TextBox.Template><ControlTemplate TargetType="TextBox"><ScrollViewer x:Name="PART_ContentHost" /></ControlTemplate></TextBox.Template></TextBox>
             <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="None" HorizontalOffset="-12">
                 <Border x:Name="DropDownShadowHost" Padding="12,2,12,18" Background="Transparent">
-                    <Border x:Name="DropDownSurface" CornerRadius="10" Padding="4" Background="{DynamicResource GlassPresentationPopup}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="1" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="{TemplateBinding MaxDropDownHeight}" RenderTransformOrigin="0.5,0">
-                        <Border.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="6" Direction="270" Opacity="0.28" Color="Black" RenderingBias="Performance" /></Border.Effect>
-                        <Border.RenderTransform><TransformGroup><ScaleTransform x:Name="DropDownScale" /><TranslateTransform x:Name="DropDownTranslation" /></TransformGroup></Border.RenderTransform>
-                        <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" /></ScrollViewer>
-                    </Border>
+                    <Grid glass:GlassPopupBackdrop.Enable="True" glass:GlassPopupBackdrop.CornerRadius="10">
+                        <glass:GlassSurface x:Name="DropDownSurface" CornerRadius="10" Padding="4" BlurRadius="24" ExtendWallpaper="True"
+                               Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="1"
+                               MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="{TemplateBinding MaxDropDownHeight}" RenderTransformOrigin="0.5,0">
+                            <glass:GlassSurface.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="6" Direction="270" Opacity="0.28" Color="Black" RenderingBias="Performance" /></glass:GlassSurface.Effect>
+                            <glass:GlassSurface.RenderTransform><TransformGroup><ScaleTransform x:Name="DropDownScale" /><TranslateTransform x:Name="DropDownTranslation" /></TransformGroup></glass:GlassSurface.RenderTransform>
+                            <ScrollViewer x:Name="DropDownScroll" CanContentScroll="False" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" /></ScrollViewer>
+                        </glass:GlassSurface>
+                    </Grid>
                 </Border>
             </Popup>
         </Grid><ControlTemplate.Triggers>
@@ -426,6 +435,6 @@
         </ControlTemplate></Setter.Value></Setter>
         <Style.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto" /><Setter Property="Height" Value="9" /></Trigger></Style.Triggers>
     </Style>
-    <Style TargetType="ToolTip"><Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="Padding" Value="12,8" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToolTip"><Border CornerRadius="12" Padding="{TemplateBinding Padding}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7"><ContentPresenter /></Border></ControlTemplate></Setter.Value></Setter></Style>
+    <!-- Tooltips use the shell's implicit frosted ToolTip style (GlassCommandChrome.ToolTipStyle), light or dark. -->
     <Style TargetType="ListBoxItem"><Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="Padding" Value="10,8" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Row" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border><ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource GlassPresentationSelected}" /></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource GlassPresentationEdge}" /><Setter TargetName="Row" Property="BorderThickness" Value="0.6" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
 </ResourceDictionary>

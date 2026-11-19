@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MeloongCore;
 using PCLCS;
+using PCLCS.Applications;
 using PCLLF.MMCC.Core;
 
 namespace PCL;
@@ -21,6 +22,8 @@ internal sealed record MmcAuthenticationJavaRequirements(ImmutableArray<MmcJavaC
 internal sealed class MmcLaunchAuthentication {
     private readonly string loginType, server;
     private readonly MmcRuntimeAuthenticationKind? kind;
+    private readonly LocalSkinLaunch localAppearance;
+    private MmcRuntimeSupportArtifact localAgent;
     internal MmcRuntimeAuthenticationSnapshot Binding { get; private set; }
     internal ImmutableArray<MmcJavaConstraint> JavaConstraints => JavaRequirements(kind).Majors;
     internal Version MinimumJavaVersion => JavaRequirements(kind).MinimumVersion;
@@ -39,17 +42,28 @@ internal sealed class MmcLaunchAuthentication {
     internal static Func<MmcRuntimeAuthenticationKind, string, CancellationToken, Task<(ImmutableArray<string> Urls, string Digest)>> AgentSource { get; set; } =
         (kind, server, token) => ResolveAgentSourceAsync(kind, server, ModNet.StandardMetadataClient, token);
 
-    private MmcLaunchAuthentication(string loginType, string server, MmcRuntimeAuthenticationKind? kind) {
-        this.loginType = loginType; this.server = server; this.kind = kind;
+    private MmcLaunchAuthentication(string loginType, string server, MmcRuntimeAuthenticationKind? kind, LocalSkinLaunch localAppearance = null) {
+        this.loginType = loginType; this.server = server; this.kind = kind; this.localAppearance = localAppearance;
     }
-    internal static MmcLaunchAuthentication Capture(ModMinecraft.McInstance instance, string loginType) {
-        MmcRuntimeAuthenticationKind? kind = loginType switch { "Auth" => MmcRuntimeAuthenticationKind.AuthlibInjector, "Nide" => MmcRuntimeAuthenticationKind.Nide, _ => null };
+    internal static MmcLaunchAuthentication Capture(ModMinecraft.McInstance instance, ModLaunch.McLoginResult login) {
+        if (login.Type == "Legacy" && LocalSkinLaunchSupport.Capture(login.Name, login.Uuid) is { } appearance)
+            return new(login.Type, "", MmcRuntimeAuthenticationKind.AuthlibInjector, appearance);
+        MmcRuntimeAuthenticationKind? kind = login.Type switch { "Auth" => MmcRuntimeAuthenticationKind.AuthlibInjector, "Nide" => MmcRuntimeAuthenticationKind.Nide, _ => null };
         string server = ReadServer(instance, kind); ValidateServer(kind, server);
-        return new(loginType, server, kind);
+        ValidateLoginEndpoint(kind, server);
+        return new(login.Type, server, kind);
     }
     internal async Task PrepareAsync(MmcPreparedInstanceLaunch prepared, Java java, ProgressProvider progress, CancellationToken token) {
         ValidateJava(java);
         if (kind is null) { token.ThrowIfCancellationRequested(); return; }
+        if (localAppearance is not null) {
+            var agent = await LocalSkinLaunchSupport.ReadAgentAsync(token).ConfigureAwait(false);
+            var files = await MmcInstanceBackend<ModNet.NetFile>.PrepareLaunchSupportAsync(prepared,
+                [new(LocalSkinLaunchSupport.AgentFileName, agent.Bytes, agent.Sha256)], token).ConfigureAwait(false);
+            var file = files.Single();
+            localAgent = new(file.ActualPath, file.Sha256, file.SizeBytes);
+            return;
+        }
         var source = await AgentSource(kind.Value, server, token).ConfigureAwait(false);
         var owned = await MmcRuntimeAuthenticationSupport.PrepareAsync(prepared, kind.Value, source.Urls, source.Digest,
             MmcDownloads.BuildFile, (files, cancellation) => MmcDownloads.RunBatchAsync(files, cancellation, progress), token).ConfigureAwait(false);
@@ -57,9 +71,23 @@ internal sealed class MmcLaunchAuthentication {
             ? await ReadObjectAsync(server, ModNet.StandardMetadataClient, token, privateMetadata: true).ConfigureAwait(false) : null;
         Binding = new(kind.Value, owned, server, metadata);
     }
-    internal void Revalidate(ModMinecraft.McInstance instance, string actualLoginType, Java java) {
-        if (loginType != actualLoginType || server != ReadServer(instance, kind))
+    internal LocalSkinServiceProcess OpenLocalSession(CancellationToken token) {
+        if (localAppearance is null) return null;
+        var session = LocalSkinLaunchSupport.Start(localAppearance, token);
+        Binding = new(MmcRuntimeAuthenticationKind.AuthlibInjector, localAgent, session.Endpoint.Address.AbsoluteUri, session.Endpoint.Metadata);
+        return session;
+    }
+    internal void Revalidate(ModMinecraft.McInstance instance, ModLaunch.McLoginResult login, Java java) {
+        if (localAppearance is not null) {
+            if (login.Type != loginType || login.Name != localAppearance.Player || !Guid.TryParse(login.Uuid, out var id) || id != localAppearance.ProfileId)
+                throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_CHANGED", "离线角色在准备后发生变化，请重新启动。");
+            ValidateJava(java);
+            if (localAgent is null) throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_MISSING", "本地皮肤认证代理尚未准备完成。");
+            return;
+        }
+        if (loginType != login.Type || server != ReadServer(instance, kind))
             throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_CHANGED", "认证方式或服务器设置在准备后发生变化，请重新启动。");
+        ValidateLoginEndpoint(kind, server);
         ValidateJava(java);
         if (kind is not null && Binding is null) throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_MISSING", "认证代理尚未完成 owned 文件准备。");
     }
@@ -71,7 +99,7 @@ internal sealed class MmcLaunchAuthentication {
     }
     private static string ReadServer(ModMinecraft.McInstance instance, MmcRuntimeAuthenticationKind? kind) => kind switch {
         MmcRuntimeAuthenticationKind.Nide => Settings.Get<string>("VersionServerNide", instance),
-        MmcRuntimeAuthenticationKind.AuthlibInjector => Settings.Get<string>("VersionServerAuthServer", instance),
+        MmcRuntimeAuthenticationKind.AuthlibInjector => GlassSkinSites.CurrentForLaunch(instance)?.Site.Server ?? Settings.Get<string>("VersionServerAuthServer", instance),
         _ => ""
     };
     private static void ValidateServer(MmcRuntimeAuthenticationKind? kind, string server) {
@@ -81,6 +109,12 @@ internal sealed class MmcLaunchAuthentication {
         } else if (server is { Length: > 0 and <= 4096 } && !server.Any(char.IsControl) && Uri.TryCreate(server, UriKind.Absolute, out var uri) &&
             uri.Scheme is "https" or "http" && uri.UserInfo.Length == 0 && uri.Query.Length == 0 && uri.Fragment.Length == 0) return;
         throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_SERVER", "第三方认证服务器设置无效。");
+    }
+    private static void ValidateLoginEndpoint(MmcRuntimeAuthenticationKind? kind, string server) {
+        if (kind == MmcRuntimeAuthenticationKind.AuthlibInjector &&
+            (ModLaunch.McLoginLoader.Input is not ModLaunch.McLoginServer login ||
+             !AuthlibEndpoint.Same(login.BaseUrl, AuthlibEndpoint.ForServer(server))))
+            throw new MmcRuntimeLaunchException("MMC_AUTHENTICATION_CHANGED", "当前登录属于其他认证站点，请重新登录后启动。");
     }
 
     internal static async Task<(ImmutableArray<string> Urls, string Digest)> ResolveAgentSourceAsync(MmcRuntimeAuthenticationKind kind,

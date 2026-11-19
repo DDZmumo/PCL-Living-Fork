@@ -15,6 +15,32 @@
         <CornerRadius x:Key="GlassRadiusPopover">14</CornerRadius>
         <CornerRadius x:Key="GlassRadiusControl">10</CornerRadius>
         <Thickness x:Key="GlassPaddingMain">24</Thickness>
+        <Style x:Key="GlassPageTitleFrost" TargetType="glass:GlassSurface">
+            <Setter Property="Margin" Value="-14,-6,-16,-6" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="BlurRadius" Value="24" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="Effect"><Setter.Value><BlurEffect Radius="10" RenderingBias="Performance" /></Setter.Value></Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Path=(glass:GlassMaterial.WallpaperSource), RelativeSource={RelativeSource Self}}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="GlassAccountDeckContent" TargetType="Grid">
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(glass:GlassMaterial.WallpaperSource), RelativeSource={RelativeSource Self}}" Value="{x:Null}" />
+                        <Condition Binding="{Binding Path=(glass:GlassMaterial.DesktopBackdropEnabled), RelativeSource={RelativeSource Self}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Effect"><Setter.Value><BlurEffect Radius="16" RenderingBias="Performance" /></Setter.Value></Setter>
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
         <SolidColorBrush x:Key="GlassWindowBrush" Color="#FF181818" />
         <SolidColorBrush x:Key="GlassTextBrush" Color="#FFF4F4F4" />
         <SolidColorBrush x:Key="GlassSecondaryTextBrush" Color="#FFB8B8B8" />
@@ -266,11 +292,11 @@
                             <RowDefinition Height="*" />
                             <RowDefinition Height="62" />
                         </Grid.RowDefinitions>
-                        <Border x:Name="AccountSurface" Grid.Row="2" Height="62">
+                        <Border x:Name="AccountSurface" Grid.Row="2" Height="62" Panel.ZIndex="1">
                             <Button x:Name="AccountButton" Style="{StaticResource GlassCircleButton}" Width="{x:Static sys:Double.NaN}" Height="40" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Stretch" Margin="11,0,11,0" Padding="0" Click="AccountButton_Click" AutomationProperties.Name="当前账户">
                                 <Grid>
                                     <Grid Width="32" Height="32" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0,0,0" UseLayoutRounding="True" SnapsToDevicePixels="True">
-                                        <Path x:Name="AccountFallbackGlyph" Data="{StaticResource IconAccount}" Stroke="{DynamicResource GlassTextBrush}" StrokeThickness="1.6" Stretch="Uniform" Margin="3" />
+                                        <TextBlock x:Name="AccountFallbackGlyph" Text="?" Foreground="{DynamicResource GlassSecondaryTextBrush}" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <Image x:Name="AccountAvatarImage" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="NearestNeighbor" UseLayoutRounding="True" SnapsToDevicePixels="True" />
                                     </Grid>
                                     <TextBlock x:Name="AccountNameText" Style="{StaticResource GlassText}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" Margin="46,0,8,0" TextTrimming="CharacterEllipsis" Opacity="0" Visibility="Collapsed" RenderTransform="{StaticResource RailLabelTranslation}" />
@@ -293,7 +319,6 @@
                                 <Border.RenderTransform>
                                     <TranslateTransform x:Name="NavigationTranslation" />
                                 </Border.RenderTransform>
-                                <Border Width="3" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0" CornerRadius="1.5" Background="{DynamicResource GlassAccentBrush}" />
                             </Border>
                             <Button x:Name="NavLaunch" Grid.Row="0" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="0" Click="NavigationButton_Click" ToolTip="启动" AutomationProperties.Name="启动">
                                 <Grid>
@@ -366,12 +391,29 @@
                     </Grid>
                 </glass:GlassSurface>
                 <Border x:Name="BodyFrame" Grid.Column="2" CornerRadius="12" Background="Transparent" BorderBrush="{DynamicResource GlassOutlineBrush}" BorderThickness="1">
-                    <Grid x:Name="BodyContentRoot">
-                        <Grid x:Name="WallpaperViewport" ClipToBounds="True" IsHitTestVisible="False">
-                            <Image x:Name="WallpaperImage" Stretch="UniformToFill" IsHitTestVisible="False" Visibility="Collapsed" />
+                    <Grid x:Name="BodyContentRoot" Background="Transparent" MouseLeftButtonDown="AccountWorkspace_MouseLeftButtonDown">
+                        <Grid x:Name="BodyBackdropLayer" Background="Transparent" IsHitTestVisible="False">
+                            <Grid x:Name="WallpaperViewport" ClipToBounds="True" IsHitTestVisible="False">
+                                <Image x:Name="WallpaperImage" Stretch="UniformToFill" IsHitTestVisible="False" Visibility="Collapsed" />
+                            </Grid>
+                            <glass:GlassSurface x:Name="ApplicationBackdrop" Background="{DynamicResource GlassMainBrush}" BorderThickness="0" CornerRadius="11" BlurRadius="0" TintOpacity="1" HighlightOpacity="0" PaintsWallpaper="False" IsHitTestVisible="False" />
                         </Grid>
-                        <glass:GlassSurface x:Name="ApplicationBackdrop" Background="{DynamicResource GlassMainBrush}" BorderThickness="0" CornerRadius="11" BlurRadius="0" TintOpacity="1" HighlightOpacity="0" PaintsWallpaper="False" IsHitTestVisible="False" />
-                        <Grid>
+                        <!-- Startup splash: solid frosted glass in the theme's tone with the brand mark, name and a loader. Shown only while
+                             GlassLauncherView.BeginSplash runs; it sits above all body content and leaves once loading has finished. -->
+                        <Grid x:Name="SplashLayer" Panel.ZIndex="60" Visibility="Collapsed">
+                            <glass:GlassSurface x:Name="SplashGlass" CornerRadius="11" BorderThickness="0" BlurRadius="48" TintOpacity="1" HighlightOpacity="0" Background="#E8141416" />
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Image x:Name="SplashLogo" Width="96" Height="96" Stretch="Uniform" Opacity="0" RenderTransformOrigin="0.5,0.5">
+                                    <Image.RenderTransform><ScaleTransform x:Name="SplashLogoScale" ScaleX="0.6" ScaleY="0.6" /></Image.RenderTransform>
+                                </Image>
+                                <TextBlock x:Name="SplashTitle" Text="PCL Living Fork" FontFamily="{StaticResource GlassDisplayFont}" FontSize="26" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,22,0,0" Opacity="0" Foreground="{DynamicResource GlassTextBrush}">
+                                    <TextBlock.RenderTransform><TranslateTransform x:Name="SplashTitleShift" Y="14" /></TextBlock.RenderTransform>
+                                </TextBlock>
+                                <glass:BlockCurveLoader x:Name="SplashLoader" Width="40" Height="40" Margin="0,30,0,0" Opacity="0" IsActive="False" Foreground="{DynamicResource GlassTextBrush}" />
+                                <TextBlock x:Name="SplashStage" FontSize="13" Margin="0,14,0,0" HorizontalAlignment="Center" Opacity="0" Foreground="{DynamicResource GlassSecondaryTextBrush}" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid x:Name="WorkspaceContentLayer">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition x:Name="SecondaryColumn" Width="254" />
                                 <ColumnDefinition Width="*" />
@@ -415,7 +457,6 @@
                                                     <Border.RenderTransform>
                                                         <TranslateTransform x:Name="SidebarSelectionTranslation" />
                                                     </Border.RenderTransform>
-                                                    <Border Width="3" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0" CornerRadius="1.5" Background="{DynamicResource GlassAccentBrush}" />
                                                 </Border>
                                                 <StackPanel x:Name="SidebarPanel" />
                                             </Grid>
@@ -454,10 +495,10 @@
                                                 </StackPanel>
                                             </Button>
                                             <TextBlock x:Name="LaunchStatusText" Style="{StaticResource GlassText}" FontSize="11" TextAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,8,0,0" Visibility="Collapsed" />
-                                            <ProgressBar x:Name="LaunchProgressBar" Style="{StaticResource GlassProgress}" Width="210" Height="4" Maximum="1" Foreground="{DynamicResource GlassAccentBrush}" Background="{DynamicResource GlassControlBrush}" Margin="0,8,0,0" Visibility="Collapsed" />
+                                            <ProgressBar x:Name="LaunchProgressBar" Style="{StaticResource GlassProgress}" MaxWidth="210" HorizontalAlignment="Stretch" Height="4" Maximum="1" Foreground="{DynamicResource GlassAccentBrush}" Background="{DynamicResource GlassControlBrush}" Margin="0,8,0,0" Visibility="Collapsed" />
                                             <!-- Recent world lives under the launch button permanently: a compact glass row with the world thumbnail, its name
                                                  and a play affordance, styled as a secondary companion of the primary launch action. -->
-                                            <Border x:Name="RecentWorldCard" Width="252" HorizontalAlignment="Center" Margin="0,18,0,0">
+                                            <Border x:Name="RecentWorldCard" MaxWidth="252" HorizontalAlignment="Stretch" Margin="0,18,0,0">
                                                 <Grid>
                                                     <Button x:Name="RecentWorldButton" Cursor="Hand" Click="RecentWorldButton_Click" AutomationProperties.Name="继续上次游玩的世界" ToolTip="继续游玩">
                                                         <Button.Template>
@@ -509,7 +550,16 @@
                                     </Grid>
                                 </Grid>
                             </glass:GlassSurface>
-                            <Grid Grid.Column="1">
+                            <!-- Account workspace (opened from the rail avatar): a side card over the secondary panel and a scene
+                                 over the main column. Both stay hidden until the shell supplies content and opens it. -->
+                            <glass:GlassSurface x:Name="AccountSideSurface" Grid.Column="0" Panel.ZIndex="5" Margin="24,24,0,24" CornerRadius="12" Background="{DynamicResource GlassCardBrush}" BorderBrush="{DynamicResource GlassOutlineBrush}" BorderThickness="1" BlurRadius="36" TintOpacity="0.72" HighlightOpacity="0" Visibility="Hidden" Opacity="0" IsHitTestVisible="False">
+                                <glass:GlassSurface.RenderTransform><TranslateTransform x:Name="AccountSideTranslation" /></glass:GlassSurface.RenderTransform>
+                                <ContentControl x:Name="AccountSideHost" Focusable="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                            </glass:GlassSurface>
+                            <ContentControl x:Name="AccountSceneHost" Grid.Column="1" Panel.ZIndex="5" Margin="24,24,24,24" Focusable="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Visibility="Hidden" Opacity="0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+                                <ContentControl.RenderTransform><TransformGroup><ScaleTransform x:Name="AccountSceneScale" /><TranslateTransform x:Name="AccountSceneTranslation" /></TransformGroup></ContentControl.RenderTransform>
+                            </ContentControl>
+                            <Grid x:Name="MainColumn" Grid.Column="1">
                                 <Grid.RowDefinitions>
                                     <RowDefinition x:Name="PageHeaderRow" Height="60" />
                                     <RowDefinition Height="*" />
@@ -535,9 +585,7 @@
                                             </Grid>
                                             <Grid Grid.Column="1" HorizontalAlignment="Left">
                                                 <!-- Over a launcher wallpaper the title gets a feathered frosted backing so it stays readable. -->
-                                                <glass:GlassSurface x:Name="PageTitleBacking" Margin="-14,-6,-16,-6" CornerRadius="14" BorderThickness="0" BlurRadius="24" TintOpacity="1" HighlightOpacity="0" Background="Transparent" IsHitTestVisible="False" Visibility="Collapsed" Opacity="{Binding Opacity, ElementName=PageTitleText}">
-                                                    <glass:GlassSurface.Effect><BlurEffect Radius="10" RenderingBias="Performance" /></glass:GlassSurface.Effect>
-                                                </glass:GlassSurface>
+                                                <glass:GlassSurface x:Name="PageTitleBacking" Style="{StaticResource GlassPageTitleFrost}" Visibility="Collapsed" Opacity="{Binding Opacity, ElementName=PageTitleText}" />
                                                 <TextBlock x:Name="PageTitleText" Style="{StaticResource GlassText}" FontFamily="{StaticResource GlassDisplayFont}" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                             </Grid>
                                         </Grid>
@@ -573,7 +621,19 @@
                 </Border>
             </Grid>
             <Grid x:Name="WindowControlsSurface" Panel.ZIndex="5" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" MouseLeftButtonDown="Chrome_MouseLeftButtonDown">
-                <glass:GlassSurface x:Name="WindowControlsWallpaperFrost" CornerRadius="12" Background="Transparent" BorderThickness="0" BlurRadius="36" TintOpacity="1" HighlightOpacity="0" IsHitTestVisible="False" Visibility="Collapsed" />
+                <Canvas x:Name="WindowControlsWallpaperFrost" IsHitTestVisible="False" Visibility="Collapsed">
+                    <Grid x:Name="WindowControlsBodyFrost" IsHitTestVisible="False">
+                        <Grid.Effect>
+                            <BlurEffect Radius="24" KernelType="Gaussian" RenderingBias="Performance" />
+                        </Grid.Effect>
+                        <Border x:Name="WindowControlsBodyFrostBase" CornerRadius="0,12,0,0" />
+                        <Border x:Name="WindowControlsBodyFrostVisual" CornerRadius="0,12,0,0">
+                            <Border.Background>
+                                <VisualBrush x:Name="WindowControlsBodyBrush" Stretch="Fill" ViewboxUnits="Absolute" AlignmentX="Left" AlignmentY="Top" />
+                            </Border.Background>
+                        </Border>
+                    </Grid>
+                </Canvas>
                 <glass:GlassSurface x:Name="WindowControlsChrome" CornerRadius="12" Background="{DynamicResource GlassCardBrush}" BorderBrush="{DynamicResource GlassOutlineBrush}" BorderThickness="1" Padding="5" BlurRadius="0" TintOpacity="0.78" HighlightOpacity="0" PaintsWallpaper="False">
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="MinimizeButton" Style="{StaticResource GlassCircleButton}" Margin="0,0,4,0" Click="MinimizeButton_Click" ToolTip="最小化" AutomationProperties.Name="最小化窗口">

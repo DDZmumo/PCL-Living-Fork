@@ -68,7 +68,7 @@ internal sealed class GlassCompositionHost : IDisposable {
         UpdateRegions();
     }
 
-    internal void SyncBounds(Func<bool> shouldBeVisible) {
+    internal void SyncBounds(Func<bool> shouldBeVisible, Action<Size>? updateRegions = null) {
         if (_disposed || Handle == 0) return;
         if (!shouldBeVisible() || !IsWindowVisible(_owner) || IsIconic(_owner)) {
             // Reconcile the actual native state even after a reentrant show/hide sequence.
@@ -84,17 +84,19 @@ internal sealed class GlassCompositionHost : IDisposable {
             SetWindowPos(Handle, ownerTopmost ? new nint(-1) : new nint(-2), 0, 0, 0, 0, NoActivate | NoOwnerZOrder | 0x0001 | 0x0002);
         // Insert immediately after the main HWND, preserving its position relative to other apps.
         bool boundsChanged = !_lastClientBounds.Equals(bounds);
+        int width = bounds.Right - bounds.Left, height = bounds.Bottom - bounds.Top;
+        bool sizeChanged = width != _lastClientBounds.Right - _lastClientBounds.Left ||
+                           height != _lastClientBounds.Bottom - _lastClientBounds.Top;
+        if (width > 0 && height > 0) updateRegions?.Invoke(new Size(width, height));
         bool wasVisible = IsWindowVisible(Handle);
         if (boundsChanged || GetWindow(_owner, 2) != Handle || !wasVisible) {
             uint flags = NoActivate | NoOwnerZOrder | 0x0040; // SWP_SHOWWINDOW.
-            if (wasVisible) flags |= 0x0008; // SWP_NOREDRAW after initial show.
+            // Resizing must invalidate the newly exposed backdrop pixels. Only skip repainting for a move.
+            if (wasVisible && !sizeChanged) flags |= 0x0008; // SWP_NOREDRAW.
             if (!boundsChanged) flags |= 0x0001 | 0x0002; // SWP_NOSIZE | SWP_NOMOVE.
-            else if (_lastClientBounds.Right > _lastClientBounds.Left &&
-                     bounds.Right - bounds.Left == _lastClientBounds.Right - _lastClientBounds.Left &&
-                     bounds.Bottom - bounds.Top == _lastClientBounds.Bottom - _lastClientBounds.Top) {
-                flags |= 0x0001; // SWP_NOSIZE during pure window drags.
-            }
-            SetWindowPos(Handle, _owner, bounds.Left, bounds.Top, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, flags);
+            else if (!sizeChanged) flags |= 0x0001; // SWP_NOSIZE during pure window drags.
+            if (!SetWindowPos(Handle, _owner, bounds.Left, bounds.Top, width, height, flags))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         if (!shouldBeVisible() || !IsWindowVisible(_owner) || IsIconic(_owner)) {
             ShowWindow(Handle, 0);

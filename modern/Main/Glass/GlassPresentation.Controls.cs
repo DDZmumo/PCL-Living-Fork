@@ -39,13 +39,18 @@ public sealed partial class GlassPresentationSession
         {
             // Floating page actions (e.g. 开始下载) sit over the wallpaper with no card beneath: give the button its own
             // frosted layer, filling the whole chrome behind the label, so the translucent fill reads over a blur.
-            var frost = new GlassSurface { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(0), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0, IsHitTestVisible = false, Margin = new Thickness(-16, -6, -16, -6) };
+            var frost = new GlassSurface { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(0), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0, IsHitTestVisible = false };
             frost.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill");
             button.Content = null; // release the label before re-parenting it under the frost
+            // The frost fills the whole chrome: the button has no padding and stretches its content; the label carries
+            // the spacing itself and stays centred.
+            content.Margin = new Thickness(16, 6, 16, 6);
+            content.HorizontalAlignment = HorizontalAlignment.Center; content.VerticalAlignment = VerticalAlignment.Center;
             var layered = new Grid();
             layered.Children.Add(frost); layered.Children.Add(content);
             button.Content = layered;
-            button.Padding = new Thickness(16, 6, 16, 6);
+            button.Padding = new Thickness();
+            button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.VerticalContentAlignment = VerticalAlignment.Stretch;
             button.MinHeight = 38; button.FontWeight = FontWeights.SemiBold;
             // The frost covers the template's own hover layer, so hover lightens the frost itself.
             button.MouseEnter += (_, _) => frost.Opacity = .82; button.MouseLeave += (_, _) => frost.Opacity = 1;
@@ -278,6 +283,7 @@ public sealed partial class GlassPresentationSession
         }));
         ForwardKeys(combo, source);
         var node = new Node(combo);
+        RouteDropDownWheel(combo, node);
         node.Pull = () =>
         {
             pulling = true;
@@ -322,12 +328,59 @@ public sealed partial class GlassPresentationSession
         return node;
     }
 
+    private static void RouteDropDownWheel(ComboBox combo, Node node)
+    {
+        Window window = null;
+        UIElement popupContent = null;
+        ScrollViewer options = null;
+        MouseWheelEventHandler wheel = (_, args) =>
+        {
+            if (!combo.IsDropDownOpen || args.Handled) return;
+            if (options is not null)
+                options.ScrollToVerticalOffset(Math.Clamp(options.VerticalOffset - args.Delta / 120d * 72, 0, options.ScrollableHeight));
+            args.Handled = true;
+        };
+        void Detach()
+        {
+            window?.RemoveHandler(Mouse.PreviewMouseWheelEvent, wheel);
+            popupContent?.RemoveHandler(Mouse.PreviewMouseWheelEvent, wheel);
+            window = null;
+            popupContent = null;
+            options = null;
+        }
+        EventHandler opened = (_, _) =>
+        {
+            Detach();
+            options = combo.Template.FindName("DropDownScroll", combo) as ScrollViewer;
+            popupContent = (combo.Template.FindName("PART_Popup", combo) as Popup)?.Child;
+            window = Window.GetWindow(combo);
+            window?.AddHandler(Mouse.PreviewMouseWheelEvent, wheel);
+            popupContent?.AddHandler(Mouse.PreviewMouseWheelEvent, wheel);
+            // Freeze any scroll glide that was already moving the field's page when the list opened.
+            for (DependencyObject ancestor = combo; ancestor is Visual; ancestor = VisualTreeHelper.GetParent(ancestor))
+                if (ancestor is ScrollViewer viewer) SmoothScroll.Stop(viewer);
+        };
+        EventHandler closed = (_, _) => Detach();
+        RoutedEventHandler unloaded = (_, _) => Detach();
+        combo.DropDownOpened += opened;
+        combo.DropDownClosed += closed;
+        combo.Unloaded += unloaded;
+        node.Cleanup.Add(() =>
+        {
+            Detach();
+            combo.DropDownOpened -= opened;
+            combo.DropDownClosed -= closed;
+            combo.Unloaded -= unloaded;
+        });
+    }
+
     private Node ProjectListRow(MyListItem source)
     {
         bool flat = !NavigationRow(source);
         var host = new Grid { MinHeight = flat ? 52 : 38 }; host.ColumnDefinitions.Add(new ColumnDefinition()); host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var content = new Grid(); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition()); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var image = new Image { Width = 32, Height = 32, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
+        RoundIcon(image);
         var geometry = new Path { Width = 22, Height = 22, Margin = new Thickness(2, 0, 16, 0), Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center };
         geometry.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "GlassPresentationText"); content.Children.Add(image); content.Children.Add(geometry);
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(labels, 1); content.Children.Add(labels);
@@ -497,10 +550,30 @@ public sealed partial class GlassPresentationSession
         };
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Geometry> IconGeometryCache = new(StringComparer.Ordinal);
+
+    private static Geometry ParseIconGeometry(string data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return null;
+        return IconGeometryCache.GetOrAdd(data, static raw =>
+        {
+            try
+            {
+                Geometry parsed = Geometry.Parse(raw);
+                if (parsed.CanFreeze) parsed.Freeze();
+                return parsed;
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+        });
+    }
+
     private FrameworkElement Icon(string data)
     {
         var icon = new Path { Width = 16, Height = 16, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
-        try { if (!string.IsNullOrWhiteSpace(data)) icon.Data = Geometry.Parse(data); } catch (FormatException) { }
+        icon.Data = ParseIconGeometry(data);
         if (icon.Data is null) icon.Visibility = Visibility.Collapsed;
         icon.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "GlassPresentationText");
         return icon;

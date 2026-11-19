@@ -188,6 +188,40 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
         }
     }
 
+    private HttpClient? uncachedRequestClient;
+    private int httpCacheReset;
+    private HttpClient GetUncachedRequestClient()
+    {
+        lock (requestClientLock)
+            return uncachedRequestClient ??= new HttpClient(Host.WrapRedirects(CreateTransport(true)));
+    }
+
+    private static bool IsCorruptHttpCache(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+            // Thrown while CacheCow reads a stored response back (e.g. InvalidOperationException "Error parsing HTTP
+            // message header"), i.e. from the cache store, not from the network.
+            if ((current.StackTrace ?? string.Empty).Contains("CacheCow.Client.FileCacheStore", StringComparison.Ordinal) &&
+                current is InvalidOperationException or HttpRequestException or InvalidDataException or FormatException or IOException)
+                return true;
+        return false;
+    }
+
+    // Clears the HTTP response cache once per session after a damaged entry; later requests rebuild it.
+    private void ResetHttpCache()
+    {
+        if (Interlocked.Exchange(ref httpCacheReset, 1) == 1) return;
+        try
+        {
+            string folder = Host.TempFolder() + "Cache/Http/";
+            if (Directory.Exists(folder))
+                foreach (string file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                    try { File.Delete(file); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            Logger.Warn("HTTP 缓存中存在损坏的条目，已清空缓存并直接重新请求。");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
     /// <summary>Launcher-owned cached transport with its existing redirect/TLS policy and cookies disabled. Do not dispose or mutate defaults.</summary>
     public HttpClient GetStandardRequestClient() {
         Directory.CreateDirectory(Host.TempFolder() + "Cache\\Http\\");
@@ -236,6 +270,15 @@ public sealed partial class LegacyNetworkRuntime<TSource, TThread, TFile, TDownl
                 try
                 {
                     response = Host.Waiter.Result(standardClient.SendAsync(clone, HttpCompletionOption.ResponseHeadersRead, cancelToken.Token), cancelToken, Timeout);
+                }
+                catch (Exception error) when (IsCorruptHttpCache(error))
+                {
+                    // A damaged entry in the on-disk HTTP cache fails while being read back, before any network access
+                    // ("Error parsing HTTP message header ..."). Drop the cache and fetch this request directly.
+                    ResetHttpCache();
+                    HttpRequestMessage direct = request.Clone();
+                    try { response = Host.Waiter.Result(GetUncachedRequestClient().SendAsync(direct, HttpCompletionOption.ResponseHeadersRead, cancelToken.Token), cancelToken, Timeout); }
+                    finally { direct.Dispose(); }
                 }
                 finally
                 {

@@ -242,6 +242,7 @@ namespace PCL
 
         public class McLoginServer : global::PCL.ModLaunch.McLoginData, global::PCLCS.ILegacyLaunchServerData
         {
+            internal SkinSiteCharacter? SkinSite;
 
             /// <summary>
         /// 登录用户名。
@@ -274,7 +275,8 @@ namespace PCL
             }
             public override global::System.Int32 GetHashCode()
             {
-                return global::PCLCS.LegacyLaunchIdentity.ServerHash(this.UserName, this.Password, this.BaseUrl, this.Token, (global::System.Int32)this.Type);
+                int legacy = global::PCLCS.LegacyLaunchIdentity.ServerHash(this.UserName, this.Password, this.BaseUrl, this.Token, (global::System.Int32)this.Type);
+                return SkinSite is null ? legacy : HashCode.Combine(legacy, SkinSite.Profile.Id, SkinSite.Account.AccessToken);
             }
 
 
@@ -547,6 +549,7 @@ namespace PCL
                 SetGpuPreference = global::PCL.ModMain.SetGPUPreference,
                 RunAdminTaskDone = new Func<global::System.String, global::System.Boolean>(Arguments => ((global::PCL.ModBase.RunAsAdmin(Arguments)) == (global::System.Int32)(global::PCL.ModBase.ProcessReturnValues.TaskDone))),
                 StartProcess = new Func<global::System.Diagnostics.ProcessStartInfo, global::System.Diagnostics.Process>(Info => global::PCL.ModBase.StartProcess(Info)),
+                PrepareLocalSkin = LocalSkinLaunchSupport.PrepareNative,
                 LoadImage = global::PCL.ModLaunch.LoadLaunchImage,
                 ArgumentReplace = new Func<global::System.String, global::System.Boolean, global::System.String>((Text, ReplaceTime) => global::PCL.ModMain.ArgumentReplace(Text, ReplaceTime: ReplaceTime)),
                 FilterAccessToken = global::PCL.ModMinecraft.FilterAccessToken,
@@ -770,7 +773,7 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return global::PCL.ModMain.FrmLoginAuth.IsVaild();
+                        return GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null ? "" : PageLoginAuth.IsVaild(PageLoginAuth.GetLoginData());
                     }
 
                 default:
@@ -797,7 +800,8 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return global::PCL.PageLoginAuth.IsVaild((global::PCL.ModLaunch.McLoginServer)Data);
+                        var login = (McLoginServer)Data;
+                        return login.SkinSite is not null ? "" : PageLoginAuth.IsVaild(login);
                     }
 
                 default:
@@ -824,7 +828,14 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return (Skin) ? (global::PCL.PageLoginAuthSkin.GetLoginData()) : (global::PCL.PageLoginAuth.GetLoginData());
+                        if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) {
+                            return new McLoginServer(McLoginType.Auth) {
+                                SkinSite = character, Token = "Auth", UserName = character.Account.Username,
+                                BaseUrl = global::PCLCS.AuthlibEndpoint.ForServer(character.Site.Server), Description = "外置登录"
+                            };
+                        }
+                        if (Skin && PageLoginAuthSkin.GetLoginData() is { UserName.Length: > 0 } known) return known;
+                        return PageLoginAuth.GetLoginData();
                     }
 
                 default:
@@ -996,6 +1007,7 @@ namespace PCL
         }
         public static global::System.String McLoginName()
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) return character.Profile.Name;
             return global::PCL.ModLaunch.Service.McLoginName();
         }
         public static global::System.String McLoginAble()
@@ -1020,7 +1032,14 @@ namespace PCL
         }
         private static void McLoginServerStart(global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> Data)
         {
-            global::PCL.ModLaunch.Service.McLoginServerStart(LoginPort(Data));
+            var task = LoginPort(Data);
+            if (Data.Input.SkinSite is { } character) {
+                task.Progress = .1;
+                Data.Output = GlassSkinSites.LoginForLaunch(character, () => task.IsCanceled).GetAwaiter().GetResult();
+                task.Progress = .95;
+                return;
+            }
+            global::PCL.ModLaunch.Service.McLoginServerStart(task);
         }
         private static void McLoginLegacyStart(global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult> Data)
         {

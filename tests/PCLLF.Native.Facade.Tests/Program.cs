@@ -112,6 +112,8 @@ internal static class Program
         ["pack-root-install"] = PackRootInstallChecks.Run,
         ["account-ui"] = environment => AccountUiChecks.Run(environment),
         ["glass-account-ui"] = environment => AccountUiChecks.Run(environment, true),
+        ["skin-site-authentication"] = SkinSiteAuthenticationChecks.Run,
+        ["skin-library"] = SkinLibraryChecks.Run,
         ["mod-favorites"] = ModFavoriteChecks.Run,
         ["update-log-prompt"] = UpdateLogPromptChecks.Run,
         ["instance-sidebar"] = InstanceSidebarChecks.Run,

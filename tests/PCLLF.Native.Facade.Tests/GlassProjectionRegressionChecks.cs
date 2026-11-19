@@ -26,10 +26,182 @@ internal static class GlassProjectionRegressionChecks
         using var scope = new VisualAssetChecks.Scope(environment, "glass-projection-regressions");
         int animation = ModAnimation.AniControlEnabled;
         ModAnimation.AniControlEnabled++;
-        try { LaunchSettingsViewport(); ExportOptionCaptions(environment.Data); InlineTitlesAndContextActions(); LazyHelpCardToggle(); FirstManagementInteractions(environment); FloatingSelectionDockLayout(); Main150ControlsProjection(); }
+        try
+        {
+            SettingsCardInsets();
+            KeybindingColumns(environment.Data);
+            LaunchSettingsViewport();
+            ExportOptionCaptions(environment.Data);
+            InlineTitlesAndContextActions();
+            LazyHelpCardToggle();
+            FirstManagementInteractions(environment);
+            FloatingSelectionDockLayout();
+            Main150ControlsProjection();
+        }
         finally { ModAnimation.AniControlEnabled = animation; }
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS projection regressions: genuine launch settings viewport, export option/header text and actions, source inline titles, original instance/mod right-click actions and disposal.");
+    }
+
+    private static void SettingsCardInsets()
+    {
+        var overview = new PageInstanceOverall();
+        ((FrameworkElement)overview.FindName("PanBack")).Visibility = Visibility.Visible;
+        var adoption = (MyButton)overview.FindName("BtnMmcLegacyAdoption");
+        using var overviewSession = GlassPresentation.Create(overview);
+        var personal = new PageSetupPersonal();
+        foreach (string name in new[] { "BtnImport", "BtnSaveGlobal", "ComboCapture", "LabCaptureCaption" })
+            ((UIElement)personal.FindName(name)).Visibility = Visibility.Collapsed;
+        var scope = (TextBlock)personal.FindName("LabEditScope");
+        scope.Text = "跟随全局时只读。选择不同步后可编辑本版本。";
+        scope.Visibility = Visibility.Visible;
+        ((TextBlock)personal.FindName("LabSummary")).Text = "已选 41 项 · 方案有值 41 项 · 本版本可用 41 项";
+        var updated = (TextBlock)personal.FindName("LabUpdated");
+        updated.Text = "更新于 2026-11-17 17:58";
+        updated.Visibility = Visibility.Visible;
+        using var personalSession = GlassPresentation.Create(personal);
+        var differences = new List<string>();
+        Window? window = null;
+        void Layout()
+        {
+            window!.UpdateLayout(); VisualAssetChecks.Drain(); window.UpdateLayout();
+        }
+        void CheckInsets(FrameworkElement view, string cardName, Func<FrameworkElement, bool> isContent)
+        {
+            var surface = Tree(view).OfType<PCLLF.Wpf.Glass.GlassSurface>()
+                .SingleOrDefault(element => element.Name == cardName || element.Name == cardName + "Surface")
+                ?? throw new InvalidOperationException($"Projected card is missing: {cardName}");
+            Rect[] content = Visuals(surface).OfType<FrameworkElement>()
+                .Where(element => element.IsVisible && isContent(element))
+                .Select(element => element.TransformToAncestor(surface).TransformBounds(new Rect(element.RenderSize)))
+                .ToArray();
+            double top = content.Min(rect => rect.Top);
+            double bottom = surface.ActualHeight - content.Max(rect => rect.Bottom);
+            if (Math.Abs(top - bottom) > 1.1 || Math.Min(top, bottom) < 12)
+                differences.Add($"{cardName} at {window!.Width}: top={top:0.##}, bottom={bottom:0.##}");
+        }
+        try
+        {
+            window = Host(overviewSession.View);
+            foreach (int width in new[] { 820, 480 })
+            {
+                window.Width = width;
+                foreach (Visibility visibility in new[] { Visibility.Visible, Visibility.Collapsed })
+                {
+                    adoption.Visibility = visibility;
+                    overviewSession.Refresh(); Layout();
+                    CheckInsets(overviewSession.View, "PanFolder", element => element is Button && element.Name.StartsWith("BtnFolder", StringComparison.Ordinal));
+                    CheckInsets(overviewSession.View, "PanManage", element => element is Button && (element.Name.StartsWith("BtnManage", StringComparison.Ordinal) || element.Name == adoption.Name));
+                }
+            }
+            window.Content = personalSession.View;
+            foreach (int width in new[] { 820, 480 })
+            {
+                window.Width = width;
+                Layout();
+                CheckInsets(personalSession.View, "CardSearch", element => element is TextBox { Name: "TextSearchInput" });
+                var surface = Visuals(personalSession.View).OfType<Border>().Single(element => element.Name == "CardSearchSurface");
+                var search = Visuals(surface).OfType<TextBox>().Single(element => element.Name == "TextSearchInput");
+                Rect field = search.TransformToAncestor(surface).TransformBounds(new Rect(search.RenderSize));
+                double remaining = surface.ActualWidth - field.Right;
+                Native.Check(remaining >= 14 && Math.Abs(field.Left - remaining) <= 1.1,
+                    $"The personal settings search is horizontally clipped at width {width}: left={field.Left:0.##}, right={remaining:0.##}.");
+                Rect Bounds(string name)
+                {
+                    var element = Visuals(personalSession.View).OfType<FrameworkElement>().Single(item => item.Name == name);
+                    return element.TransformToAncestor(personalSession.View).TransformBounds(new Rect(element.RenderSize));
+                }
+                Rect save = Bounds("BtnApply"), refresh = Bounds("BtnRefresh"), policy = Bounds("ComboPolicy"), note = Bounds("LabEditScope");
+                Native.Check(Math.Abs(save.Top - refresh.Top) <= 1 && refresh.Left - save.Right is >= 5 and <= 10 &&
+                    note.Top >= policy.Bottom - 1 && note.Bottom <= save.Top + 1,
+                    $"Personal settings buttons are too far apart or their help text is separated from the policy at width {width}.");
+                Native.Check(Bounds("LabSummary").Right <= personalSession.View.ActualWidth + 1 && Bounds("LabUpdated").Right <= personalSession.View.ActualWidth + 1,
+                    $"The personal settings summary overflows at width {width}.");
+            }
+            Native.Check(differences.Count == 0, "Uneven settings card insets: " + string.Join("; ", differences));
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void KeybindingColumns(string fixtureRoot)
+    {
+        var page = new PageInstanceKeybindings();
+        ((FrameworkElement)page.FindName("PanBack")).Visibility = Visibility.Visible;
+        var entriesProperty = Native.Property(typeof(PageInstanceKeybindings), "Entries");
+        var entries = (IList)Activator.CreateInstance(entriesProperty.PropertyType)!;
+        Type bindingType = entriesProperty.PropertyType.GetGenericArguments()[0];
+        foreach (var (key, name, owner, physicalKey, count) in new[]
+        {
+            ("key_key.left", "向左", "Minecraft", "a", 2),
+            ("key_debug.example", "调试按键", "调试模组", "a", 2),
+            ("key_key.jump", "跳跃", "Minecraft", "space", 1)
+        })
+        {
+            var entry = (InstanceKeybindingData)Activator.CreateInstance(bindingType, true)!;
+            entry.Key = key;
+            entry.Name = name;
+            entry.Owners = owner;
+            entry.Value = entry.Normalized = "key.keyboard." + physicalKey;
+            entry.Saved = true;
+            entry.SharedCount = count;
+            entries.Add(entry);
+        }
+        entriesProperty.SetValue(page, entries);
+        object controller = Native.Get(page, "Controller")!;
+        object host = Native.Get(controller, "host")!;
+        Native.Set(controller, "Owner", new ModMinecraft.McInstance(Path.Combine(fixtureRoot, "keybinding-layout-fixture")));
+        Native.Set(host, "PersonalBindingAnnotations", (Func<ModMinecraft.McInstance, IReadOnlyDictionary<string, KeybindingPersonalState>>)(_ =>
+            new Dictionary<string, KeybindingPersonalState> { ["key_key.left"] = new("Q", true), ["key_key.jump"] = new(null, false) }));
+        Native.Set(host, "HasRunningGame", (Func<bool>)(() => false));
+        Native.Set(host, "IsLocked", (Func<ModMinecraft.McInstance, bool>)(_ => false));
+        Native.Call(typeof(PageInstanceKeybindings), "RenderList", page);
+
+        using var session = GlassPresentation.Create(page);
+        Window? window = null;
+        try
+        {
+            window = Host(session.View);
+            Button KeyButton(object entry) => Visuals(session.View).OfType<Button>().Single(button => ReferenceEquals(button.Tag, entry));
+            void Layout()
+            {
+                session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain(); window.UpdateLayout();
+            }
+            static Point Origin(FrameworkElement control, FrameworkElement root) => control.TransformToAncestor(root).Transform(new Point());
+            foreach (int width in new[] { 820, 420 })
+            {
+                window.Width = width;
+                ((MyRadioButton)page.FindName("BtnFilterAll")).Checked = true;
+                Layout();
+                Button normal = KeyButton(entries[0]!);
+                var columns = (Grid)normal.Parent;
+                var profile = columns.Children.OfType<TextBlock>().Single(text => text.Text == "Q");
+                var sync = columns.Children.OfType<Border>().Single(badge => badge.Child is TextBlock { Text: "参与" });
+                var names = columns.Children.OfType<StackPanel>().Single();
+                double rowHeight = ((FrameworkElement)columns.Parent).ActualHeight;
+                double buttonX = Origin(normal, session.View).X;
+                Native.Check(rowHeight >= 50 && Origin(names, columns).X + names.ActualWidth <= Origin(profile, columns).X + 1 &&
+                    Origin(profile, columns).X + profile.ActualWidth <= Origin(sync, columns).X + 1 &&
+                    Origin(sync, columns).X + sync.ActualWidth <= Origin(normal, columns).X + 1 &&
+                    !Visuals(names).OfType<TextBlock>().Any(t => t.Text.Contains("个人方案", StringComparison.Ordinal)),
+                    $"Personal key and sync status overlap or fall below the keybinding name at width {width}.");
+                Native.Check(((Grid)KeyButton(entries[2]!).Parent).Children.OfType<TextBlock>().Any(text => text.Text == "未保存"),
+                    "An unset personal binding was confused with an enabled sync state.");
+
+                ((MyRadioButton)page.FindName("BtnFilterConflicts")).Checked = true;
+                Layout();
+                Button grouped = KeyButton(entries[0]!);
+                var groupedColumns = (Grid)grouped.Parent;
+                Native.Check(Math.Abs(Origin(grouped, session.View).X - buttonX) <= 1 &&
+                    Math.Abs(((FrameworkElement)groupedColumns.Parent).ActualHeight - rowHeight) <= 1 &&
+                    groupedColumns.Children.OfType<TextBlock>().Any(text => text.Text == "Q") &&
+                    Visuals(session.View).OfType<TextBlock>().Any(text => text.Text.Contains("与 1 项共用", StringComparison.Ordinal)),
+                    $"The conflict list lost its grouping or diverges from the normal row geometry at width {width}.");
+                Invoke(grouped);
+                Native.Check(ReferenceEquals(Native.Get(controller, "Captured"), entries[0]), "The projected key button did not enter the original capture flow.");
+                Native.Call(controller.GetType(), "CancelCapture", controller);
+            }
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }
 
     private static void LaunchSettingsViewport()
@@ -41,16 +213,21 @@ internal static class GlassProjectionRegressionChecks
         try
         {
             window = Host(session.View);
+            window.Width = 1000; window.UpdateLayout(); VisualAssetChecks.Drain(); window.UpdateLayout();
+            FrameworkElement argumentCard = Visuals(session.View).OfType<FrameworkElement>().First(item => item.Name == "CardArgument");
+            Native.Check(argumentCard.ActualWidth >= 750,
+                $"Settings section stack stayed shrink-wrapped after initial 0 -> 1000 layout pass without manual Refresh(): width={argumentCard.ActualWidth:0.##}.");
             foreach (int width in new[] { 1000, 810 })
             {
-                window.Width = width; window.UpdateLayout(); session.Refresh(); VisualAssetChecks.Drain(); window.UpdateLayout();
+                window.Width = width; window.UpdateLayout(); VisualAssetChecks.Drain(); window.UpdateLayout();
                 TextBox input = Visuals(session.View).OfType<TextBox>().Single(text => ReferenceEquals(BindingOperations.GetBinding(text, TextBox.TextProperty)?.Source, original));
                 input.UpdateLayout();
                 Rect glyph = input.GetRectFromCharacterIndex(0, true);
                 var viewport = (ScrollViewer)input.Template.FindName("PART_ContentHost", input);
                 Native.Check(input.Text == "PCL" && input.ActualHeight >= 34 && input.ActualHeight <= 38 &&
+                    Math.Abs(input.ActualWidth - 220) < 2 &&
                     !glyph.IsEmpty && glyph.Height > 10 && viewport.ViewportHeight >= glyph.Height - .75,
-                    $"Actual launch information text is vertically clipped at {width}: glyph={glyph.Height}, viewport={viewport.ViewportHeight}.");
+                    $"Actual launch information text is vertically clipped or misaligned at {width}: width={input.ActualWidth}, glyph={glyph.Height}, viewport={viewport.ViewportHeight}.");
             }
             Native.Check(!page.IsLoaded && !original.IsLoaded, "Measuring the new launch settings ran the source page's Loaded workflow.");
         }

@@ -49,7 +49,7 @@ internal sealed class GlassWallpaperSettingRow : Grid {
         _clear = ActionButton("清除", "清除启动器壁纸", clear);
         _clear.Margin = new Thickness(0, 0, 8, 0);
         actions.Children.Add(_clear);
-        actions.Children.Add(ActionButton("选择图片…", "选择启动器壁纸图片", choose));
+        actions.Children.Add(ActionButton("选择文件…", "选择启动器壁纸图片或视频", choose));
         Children.Add(actions);
         Refresh();
     }

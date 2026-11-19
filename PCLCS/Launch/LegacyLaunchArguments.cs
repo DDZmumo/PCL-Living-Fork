@@ -153,7 +153,10 @@ public List<string> McLaunchArgumentsJVM()
         {
             if (McLaunchJavaSelected.Version.Major >= 6)
                 Args.Add("-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"); // 信任系统根证书（5252#）
-            string Server = Setting<string>("VersionServerAuthServer", Instance: McInstanceSelected);
+            if (McLoginLoader.Input is not ILegacyLaunchServerData { BaseUrl: { } endpoint } ||
+                !endpoint.EndsWith(AuthlibEndpoint.AuthPath, StringComparison.Ordinal) || !AuthlibEndpoint.TryParse(endpoint, out _))
+                throw new InvalidOperationException("缺少此次登录的 Authlib-Injector 认证地址，请重新登录后启动。");
+            string Server = endpoint[..^AuthlibEndpoint.AuthPath.Length];
             try
             {
                 McLaunchLog($"开始 Authlib Injector Prefetch");

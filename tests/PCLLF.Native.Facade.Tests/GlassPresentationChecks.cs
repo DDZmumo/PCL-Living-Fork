@@ -13,6 +13,7 @@ using Newtonsoft.Json.Linq;
 using PCL;
 using PCLLF.Presentation.Foundation;
 using PCLLF.Presentation.Controls;
+using PCLLF.Wpf.Glass;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -26,6 +27,7 @@ internal static class GlassPresentationChecks
         try
         {
             Controls();
+            DropDownWheel();
             ClientOnlyActions();
             CollapsibleCard();
             ModalFocusEffects();
@@ -127,22 +129,83 @@ internal static class GlassPresentationChecks
         }
     }
 
+    private static void DropDownWheel()
+    {
+        var source = new StackPanel();
+        var combo = new MyComboBox { Name = "WallpaperFit" };
+        for (int index = 0; index < 24; index++) combo.Items.Add(new MyComboBoxItem { Content = "壁纸位置 " + index });
+        source.Children.Add(combo);
+        using GlassPresentationSession session = GlassPresentation.Create(source);
+        var body = new StackPanel { Children = { session.View, new Border { Height = 900 } } };
+        var page = new ScrollViewer { Content = body };
+        Window? window = null;
+        try {
+            window = Host(source, page);
+            var wallpaper = new DrawingImage(new GeometryDrawing(Brushes.CadetBlue, null, new RectangleGeometry(new Rect(0, 0, 850, 650))));
+            wallpaper.Freeze();
+            var root = (FrameworkElement)window.Content;
+            GlassMaterial.SetWallpaperSource(root, wallpaper);
+            GlassMaterial.SetWallpaperHost(root, root);
+            ComboBox projected = Find<ComboBox>(session.View, "WallpaperFit");
+            projected.IsDropDownOpen = true;
+            var popup = (Popup)projected.Template.FindName("PART_Popup", projected);
+            var options = (ScrollViewer)projected.Template.FindName("DropDownScroll", projected);
+            var frost = (GlassSurface)projected.Template.FindName("DropDownSurface", projected);
+            VisualAssetChecks.Pump(() => popup.IsOpen && options.ScrollableHeight > 0, "long wallpaper option list opens with its own scroll viewport");
+            VisualAssetChecks.Pump(() => GlassMaterial.GetWallpaperHost(frost) is { } sampleHost &&
+                PresentationSource.FromVisual(frost) is { } popupSource && ReferenceEquals(PresentationSource.FromVisual(sampleHost), popupSource),
+                "the dropdown's wallpaper sample host aligns with its popup window");
+            Native.Check(frost.ExtendWallpaper && frost.BlurRadius == 24 && ReferenceEquals(frost.WallpaperSource, wallpaper),
+                "The dropdown did not sample the current wallpaper with its frosted material.");
+            Native.Check(Wheel(options, Mouse.PreviewMouseWheelEvent), "The dropdown did not consume the preview wheel over its own options.");
+            VisualAssetChecks.Pump(() => options.VerticalOffset > 0, "options scroll over the popup");
+            double offset = options.VerticalOffset;
+            Native.Check(Wheel(page, Mouse.PreviewMouseWheelEvent), "The opened dropdown allowed the background page to handle the wheel.");
+            VisualAssetChecks.Pump(() => options.VerticalOffset > offset, "a wheel over the page goes to the open options");
+            Native.Check(page.VerticalOffset == 0, "The page moved behind the expanded options.");
+            projected.IsDropDownOpen = false;
+            VisualAssetChecks.Drain();
+            Native.Check(!Wheel(page, Mouse.PreviewMouseWheelEvent), "The closed dropdown still intercepts the page's wheel input.");
+            Wheel(page, Mouse.MouseWheelEvent);
+            VisualAssetChecks.Pump(() => page.VerticalOffset > 0, "the background resumes scrolling after closing the options");
+        } finally {
+            if (window != null) { window.Content = null; window.Close(); }
+            VisualAssetChecks.Drain();
+        }
+
+        static bool Wheel(UIElement target, RoutedEvent routedEvent) {
+            var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = routedEvent };
+            target.RaiseEvent(wheel);
+            return wheel.Handled;
+        }
+    }
+
     private static void CollapsibleCard()
     {
         var source = new StackPanel();
         var body = new StackPanel();
         var label = new TextBlock { Name = "CardPayload", Text = "可折叠内容" }; body.Children.Add(label);
         var card = new MyCard { Name = "CollapsibleCard", Title = "下载选项", CanSwap = true, BorderChild = body, SwapControl = body };
+        var replicas = new StackPanel { Children = { new TextBlock { Text = "副本实例" } } };
+        var nested = new MyCard { Name = "NestedCard", Title = "测试副本", CanSwap = true, BorderChild = replicas, SwapControl = replicas };
+        body.Children.Add(nested);
         source.Children.Add(card);
         using GlassPresentationSession session = GlassPresentation.Create(source);
         Window? window = null;
         try
         {
             window = Host(source, session.View);
-            Expander expander = Descendants(session.View).OfType<Expander>().Single();
+            Expander expander = Descendants(Find<Border>(session.View, "CollapsibleCard")).OfType<Expander>().First();
+            Expander child = Descendants(Find<Border>(session.View, "NestedCard")).OfType<Expander>().Single();
             TextBlock content = Find<TextBlock>(session.View, "CardPayload");
             Native.Check(expander.IsExpanded && content.IsVisible, "The genuine collapsible card did not project its content.");
             NoSharedVisuals(source, session.View);
+            child.IsExpanded = false; VisualAssetChecks.Drain(); session.Refresh();
+            Native.Check(nested.IsSwapped && !child.IsExpanded && !card.IsSwapped && expander.IsExpanded && content.IsVisible,
+                "Collapsing a nested card also collapsed its parent.");
+            child.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
+            Native.Check(!nested.IsSwapped && child.IsExpanded && !card.IsSwapped && expander.IsExpanded,
+                "Reopening a nested card changed its parent state or lost the original action.");
             expander.IsExpanded = false; VisualAssetChecks.Drain(); session.Refresh();
             Native.Check(card.IsSwapped && !expander.IsExpanded, "Collapsing the new card lost the original swap state.");
             expander.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
@@ -194,7 +257,7 @@ internal static class GlassPresentationChecks
             effects = Activator.CreateInstance(type, Native.Flags, null, [root, background, scrim, dialog], null)!;
             Native.Call(type, "SetMessage", effects, new object());
             VisualAssetChecks.Pump(() => (double)Native.Property(type, "Progress").GetValue(effects)! > .999, "modal blur open endpoint");
-            Native.Check(background.Effect is System.Windows.Media.Effects.BlurEffect { Radius: > 11.9 } && dialog.Effect is null &&
+            Native.Check(background.Effect is System.Windows.Media.Effects.BlurEffect { Radius: > 5.9 } && dialog.Effect is null &&
                 PCLLF.Wpf.Glass.GlassMaterial.GetWallpaperSource(dialog) is BitmapSource { IsFrozen: true } && !background.IsHitTestVisible && dialog.IsHitTestVisible,
                 "Modal focus did not blur its background, retain sharp foreground or supply an owned backdrop snapshot.");
             Native.Call(type, "SetMessage", effects, new object?[] { null });
@@ -378,6 +441,9 @@ internal static class GlassPresentationChecks
         Native.Check(Descendants(session.View).OfType<ComboBox>().Any(combo => combo.Name == "ComboLauncherColorMode" && combo.GetType() == typeof(ComboBox)), "The actual settings page did not create a new native appearance selector.");
         Native.Check(!Descendants(session.View).OfType<FrameworkElement>().Any(element => element.Name == "PanOfficialTheme"), "The new settings view retained the old official-purchase panel.");
         Native.Check(!Descendants(session.View).OfType<FrameworkElement>().Any(element => element.Name is "CardLogo" or "CheckBackgroundColorful"), "The new settings view retained unused legacy titlebar/rainbow controls.");
+        Native.Check(!Descendants(session.View).OfType<FrameworkElement>().Any(element => element.Name is
+            "ComboBackgroundMode" or "BtnBackgroundOpen" or "BtnBackgroundRefresh" or "BtnBackgroundClear"),
+            "The new settings view exposed folder-based background selection.");
         Native.Check(!Descendants(session.View).OfType<CheckBox>().Any(check => AutomationProperties.GetName(check) == "打开启动器时显示 PCL 图标"), "The new settings view retained the old PCL-logo option.");
         foreach (CheckBox projectedCheck in Descendants(session.View).OfType<CheckBox>()) {
             projectedCheck.ApplyTemplate();

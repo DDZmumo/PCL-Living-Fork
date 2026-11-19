@@ -43,6 +43,9 @@ internal static class GlassWindowIntegrationChecks {
         Native.Cache("UiGlassWallpaperPath", "");
         string wallpaper = Path.Combine(scope.Root, "preview-wallpaper.png");
         WriteWallpaper(wallpaper);
+        string legacyPictures = Path.Combine(AppContext.BaseDirectory, "PCL", "Pictures");
+        Directory.CreateDirectory(legacyPictures);
+        File.Copy(wallpaper, Path.Combine(legacyPictures, "legacy-wallpaper.png"));
         int previewPage = 0;
         bool previewDependencies = true, previewAutoFill = true;
         try {
@@ -178,6 +181,7 @@ internal static class GlassWindowIntegrationChecks {
                 "The workspace did not display its configured launcher wallpaper.");
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "Wallpaper mode created a native desktop-blur companion.");
+            CheckWallpaperToolTip(window, view, source);
             var boundedBrush = (ImageBrush)Native.Call(Native.Type("PCL.SetupPageRuntime"), "LoadBoundedBackgroundBrush", null, wallpaper)!;
             Native.Check(!boundedBrush.IsFrozen && boundedBrush.ImageSource is { IsFrozen: true },
                 "Pictures background brush must remain mutable for suit/alignment updates while keeping a frozen BitmapSource.");
@@ -185,9 +189,15 @@ internal static class GlassWindowIntegrationChecks {
             Brush? oldImgBack = imgBack.Background;
             try {
                 imgBack.Background = boundedBrush;
+                PageSetupUI.BackgroundRefresh(false, true);
+                Native.Check(ReferenceEquals(imgBack.Background, boundedBrush), "Glass refreshed a wallpaper from the legacy folder.");
+                Native.Cache("UiGlassWallpaperPath", "");
                 window.UpdateBackgroundAndTitleBar();
+                Native.Check(Part<Image>(view, "WallpaperImage").Source is null,
+                    "Clearing the selection exposed the wallpaper from the legacy folder.");
             } finally { imgBack.Background = oldImgBack; }
-            Native.Cache("UiGlassWallpaperPath", ""); Refresh(window); VisualAssetChecks.Drain();
+            Refresh(window); VisualAssetChecks.Drain();
+            var refreshTimer = (System.Windows.Threading.DispatcherTimer)Native.Get(Native.Get(window, "glassShell")!, "_refreshTimer")!;
             window.WindowState = WindowState.Minimized; VisualAssetChecks.Observe(100);
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows, "Minimize created a desktop backdrop.");
             nint mainHandle = new WindowInteropHelper(window).Handle;
@@ -195,6 +205,7 @@ internal static class GlassWindowIntegrationChecks {
             // Restoring before it commits can be ignored, then the delayed minimize wins.
             VisualAssetChecks.Pump(() => IsIconic(mainHandle) && window.WindowState == WindowState.Minimized,
                 "actual FormMain native minimize completion", 5000);
+            Native.Check(!refreshTimer.IsEnabled, "The minimized workspace kept polling its UI state.");
             window.WindowState = WindowState.Normal; window.UpdateLayout();
             long? restoredSince = null;
             VisualAssetChecks.Pump(() => {
@@ -205,6 +216,7 @@ internal static class GlassWindowIntegrationChecks {
                 restoredSince ??= Environment.TickCount64;
                 return Environment.TickCount64 - restoredSince.Value >= 150;
             }, "stable actual FormMain native restore completion", 5000);
+            Native.Check(refreshTimer.IsEnabled, "The restored workspace did not resume refreshing its UI state.");
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows, "Restore created a desktop backdrop.");
             CheckSurfaces(view);
             if (interactive) {
@@ -260,6 +272,43 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(host.HiddenForceShow() != previousHidden, "The classic shell lost its original F12 visibility shortcut.");
         }
         finally { view.UsesGlassShell = previousMode; host.WriteHiddenForceShow(previousHidden); }
+    }
+
+    private static void CheckWallpaperToolTip(FormMain window, GlassLauncherView view, ImageSource wallpaper) {
+        var owner = Part<Button>(view, "NavDownload");
+        Native.Check(!MeloongCore.Wpf.ModernTooltipService.GetUseModernTooltip(owner),
+            "The legacy hover renderer still overrides workbench tooltips.");
+        int previousMode = Settings.Get<int>("UiLauncherColorMode");
+        try {
+            foreach (int mode in new[] { 0, 1 }) {
+                Native.Cache("UiLauncherColorMode", mode);
+                Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
+                Refresh(window);
+                var tooltip = new ToolTip { Content = "资源中心提示", PlacementTarget = owner };
+                try {
+                    tooltip.IsOpen = true;
+                    VisualAssetChecks.Pump(() => tooltip.IsLoaded && VisualTreeHelper.GetChildrenCount(tooltip) > 0,
+                        "The workbench tooltip did not show its native popup.");
+                    VisualAssetChecks.Drain();
+                    var pane = (Panel)VisualTreeHelper.GetChild(tooltip, 0);
+                    var frost = pane.Children.OfType<GlassSurface>().Single();
+                    FrameworkElement? host = GlassMaterial.GetWallpaperHost(frost);
+                    Native.Check(frost.BlurRadius == 24 && ReferenceEquals(GlassMaterial.GetWallpaperSource(frost), wallpaper) &&
+                        host is not null && ReferenceEquals(PresentationSource.FromVisual(host), PresentationSource.FromVisual(tooltip)),
+                        "The tooltip did not align a frosted copy of the current wallpaper to its popup.");
+                    if (!SystemParameters.HighContrast) {
+                        var text = ((SolidColorBrush)tooltip.Foreground).Color;
+                        Native.Check((text.R + text.G + text.B > 450) == (mode == 1), "Tooltip text did not follow the current appearance.");
+                    }
+                }
+                finally { tooltip.IsOpen = false; VisualAssetChecks.Drain(); }
+            }
+        }
+        finally {
+            Native.Cache("UiLauncherColorMode", previousMode);
+            Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
+            Refresh(window);
+        }
     }
 
     private static void Refresh(FormMain window) => Native.Call(typeof(FormMain), "RefreshGlassShell", window);

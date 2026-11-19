@@ -19,6 +19,10 @@ namespace PCL
         private static readonly DependencyProperty IsInViewportProperty = DependencyProperty.RegisterAttached("IsInViewport", typeof(Action), typeof(LazyLoadBehavior), new PropertyMetadata(null, OnIsInViewportChanged));
         private static readonly DependencyProperty CompletedActionProperty = DependencyProperty.RegisterAttached("CompletedAction", typeof(Action), typeof(LazyLoadBehavior));
 
+        internal static bool HasViewportAction(DependencyObject obj) =>
+            obj.GetValue(IsInViewportProperty) is Action action &&
+            !ReferenceEquals(obj.GetValue(CompletedActionProperty), action);
+
         /// <summary>Observes a replacement presentation while keeping lazy work owned by the source.</summary>
         public static IDisposable BindPresentationViewport(FrameworkElement source, FrameworkElement presentation)
             => new PresentationViewport(source, presentation);
@@ -26,6 +30,7 @@ namespace PCL
         private sealed class PresentationViewport : IDisposable
         {
             private readonly FrameworkElement source, presentation;
+            private bool subscribed = true;
             internal PresentationViewport(FrameworkElement source, FrameworkElement presentation)
             {
                 this.source = source; this.presentation = presentation;
@@ -34,15 +39,25 @@ namespace PCL
             private void Check(object sender, EventArgs args)
             {
                 if (source.GetValue(IsInViewportProperty) is not Action action ||
-                    ReferenceEquals(source.GetValue(CompletedActionProperty), action) ||
-                    !presentation.IsVisible || presentation.RenderSize.Width <= 0) return;
+                    ReferenceEquals(source.GetValue(CompletedActionProperty), action))
+                {
+                    Dispose();
+                    return;
+                }
+                if (!presentation.IsVisible || presentation.RenderSize.Width <= 0) return;
                 var scroll = FindParentScrollViewer(presentation);
                 if (scroll is null || !new Rect(0, 0, scroll.ViewportWidth, scroll.ViewportHeight).IntersectsWith(
                     presentation.TransformToAncestor(scroll).TransformBounds(new Rect(presentation.RenderSize)))) return;
                 source.SetValue(CompletedActionProperty, action);
+                Dispose();
                 action();
             }
-            public void Dispose() => presentation.LayoutUpdated -= Check;
+            public void Dispose()
+            {
+                if (!subscribed) return;
+                subscribed = false;
+                presentation.LayoutUpdated -= Check;
+            }
         }
 
         private static void OnIsInViewportChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

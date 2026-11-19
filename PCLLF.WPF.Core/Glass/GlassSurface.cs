@@ -35,6 +35,8 @@ public sealed class GlassSurface : Border {
     /// </summary>
     public static readonly DependencyProperty PaintsWallpaperProperty = DependencyProperty.Register(
         nameof(PaintsWallpaper), typeof(bool), typeof(GlassSurface), new FrameworkPropertyMetadata(true, OnMaterialPropertyChanged));
+    public static readonly DependencyProperty ExtendWallpaperProperty = DependencyProperty.Register(
+        nameof(ExtendWallpaper), typeof(bool), typeof(GlassSurface), new FrameworkPropertyMetadata(false, OnMaterialPropertyChanged));
     public static readonly DependencyProperty HighlightOpacityProperty = DependencyProperty.Register(
         nameof(HighlightOpacity), typeof(double), typeof(GlassSurface), new FrameworkPropertyMetadata(0d, OnMaterialPropertyChanged),
         value => value is double number && double.IsFinite(number) && number >= 0 && number <= 1);
@@ -77,7 +79,9 @@ public sealed class GlassSurface : Border {
     public double BlurRadius { get => (double)GetValue(BlurRadiusProperty); set => SetValue(BlurRadiusProperty, value); }
     public double TintOpacity { get => (double)GetValue(TintOpacityProperty); set => SetValue(TintOpacityProperty, value); }
     public bool PaintsWallpaper { get => (bool)GetValue(PaintsWallpaperProperty); set => SetValue(PaintsWallpaperProperty, value); }
+    public bool ExtendWallpaper { get => (bool)GetValue(ExtendWallpaperProperty); set => SetValue(ExtendWallpaperProperty, value); }
     public double HighlightOpacity { get => (double)GetValue(HighlightOpacityProperty); set => SetValue(HighlightOpacityProperty, value); }
+    public bool IsTransparencyActive => CanUseTransparency;
 
     internal bool CanUseTransparency => IsMaterialEnabled && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled &&
         (WallpaperSource is not null || GlassMaterial.GetDesktopBackdropEnabled(this));
@@ -308,6 +312,7 @@ public sealed class GlassSurface : Border {
         private DispatcherOperation? _prepare;
         private (FrameworkElement Host, ImageSource Source, Size Size, double Radius, Stretch Stretch, DpiScale Dpi)? _prepared;
         private Size _outerSize;
+        private Size _arrangedSize;
         private CornerRadius _outerCorners;
         private Geometry? _outerGeometry;
         private bool _hasWallpaperClip;
@@ -353,6 +358,12 @@ public sealed class GlassSurface : Border {
         internal void PrepareWallpaper() {
             if (!_owner.IsLoaded || !_owner.PaintsWallpaper || !_owner.CanUseTransparency || _owner.WallpaperSource is not { } source) { ReleaseWallpaper(); return; }
             if (!_owner.IsVisible) return;
+            // Keep sampling the last blurred frame while the wallpaper viewport is moving every frame.
+            if (_prepared.HasValue && GlassMaterial.GetDeferWallpaperBlur(_owner)) {
+                if (_prepare?.Status == DispatcherOperationStatus.Pending) _prepare.Abort();
+                _prepare = null;
+                return;
+            }
             FrameworkElement host = _owner.WallpaperCoordinateHost;
             if (host.RenderSize.Width <= 0 || host.RenderSize.Height <= 0) return;
             double radius = _owner.EffectiveBlurRadius;
@@ -403,6 +414,11 @@ public sealed class GlassSurface : Border {
             _wallpaper.Arrange(new Rect(finalSize));
             _finish.Arrange(new Rect(finalSize));
             UpdateMask(finalSize, _wallpaper.Visibility == Visibility.Visible);
+            if (_arrangedSize != finalSize) {
+                _arrangedSize = finalSize;
+                _wallpaper.InvalidateVisual();
+                _finish.InvalidateVisual();
+            }
             return finalSize;
         }
 
@@ -435,10 +451,12 @@ public sealed class GlassSurface : Border {
             _brush ??= new ImageBrush {
                 AlignmentX = AlignmentX.Center,
                 AlignmentY = AlignmentY.Center,
-                ViewportUnits = BrushMappingMode.Absolute,
-                TileMode = TileMode.None
+                ViewportUnits = BrushMappingMode.Absolute
             };
             _brush.ImageSource = prepared?.Source ?? source;
+            // Popups can straddle the launcher edge. Reflect the sample through that edge so the
+            // fade into the rest of the wallpaper does not become a straight opaque seam.
+            _brush.TileMode = _owner.ExtendWallpaper ? TileMode.FlipXY : TileMode.None;
             _brush.Stretch = prepared is { Padding: > 0 } ? Stretch.Fill : _owner.ImageStretch;
             _brush.Viewport = wallpaperBounds;
             Color color = GlassMaterial.GetFallbackColor(_owner);

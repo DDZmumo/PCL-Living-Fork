@@ -183,7 +183,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
             if(host.Output()!.Contains(mod)){int index=host.Output()!.IndexOf(mod);host.Output()!.RemoveAt(index);host.Output()!.Insert(index,replacement);}
             if(searchResult is not null&&searchResult.Contains(mod)){int index=searchResult.IndexOf(mod);searchResult.Remove(mod);searchResult.Insert(index,replacement);}
             replacement.DeclaredModIds=mod.DeclaredModIds;if(host.Selected().Remove(mod.StorageKey))host.Selected().Add(replacement.StorageKey);host.Items().TryRemove(mod.StorageKey,out _);TItem newItem=MakeItem(replacement);host.Items()[replacement.StorageKey]=newItem;
-            int ui=view.List()!.Children.IndexOf(view.List()!.Children.OfType<TItem>().FirstOrDefault(item=>ReferenceEquals(host.Entry(item),mod)));if(ui==-1)continue;view.List()!.Children.RemoveAt(ui);view.List()!.Children.Insert(ui,newItem);newItem.UpdateLayout();
+            int ui=view.List()!.Children.IndexOf(view.List()!.Children.OfType<TItem>().FirstOrDefault(item=>ReferenceEquals(host.Entry(item),mod)));if(ui==-1)continue;view.List()!.Children.RemoveAt(ui);view.List()!.Children.Insert(ui,newItem);if(view.List()!.IsVisible)newItem.UpdateLayout();
         }
         if(success)RefreshBars();else{host.Hint("由于文件被占用，Mod 的状态切换失败，请尝试关闭正在运行的游戏后再试！",1,true);ReloadModList(true);}host.LoaderRun(2);
     }

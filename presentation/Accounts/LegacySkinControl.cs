@@ -111,26 +111,31 @@ public sealed class LegacySkinControl<TLegacy, TMs, TServer, TLoader> where TLoa
     public void Save() => services.Save(view.Loader());
     public void SaveChecked() => view.SetSaveEnabled(string.IsNullOrEmpty(Address));
     public void RefreshClick() => services.RefreshCache(view.Loader());
-    public void Load() {
+    public void Load() => Load(Host.Output(view.Loader()));
+    public bool Load(string? path) {
+        Clear();
         try {
-            Address = Host.Output(view.Loader());
-            if (string.IsNullOrEmpty(Address)) throw new Exception("皮肤加载器 " + Host.Name(view.Loader()) + " 没有输出");
-            if (!Address!.StartsWithF(Host.ImagePath()) && !FileUtils.Exists(Address!)) throw new FileNotFoundException("皮肤文件未找到", Address);
+            if (string.IsNullOrEmpty(path)) throw new Exception("皮肤加载器 " + Host.Name(view.Loader()) + " 没有输出");
+            if (!path.StartsWithF(Host.ImagePath()) && !FileUtils.Exists(path)) throw new FileNotFoundException("皮肤文件未找到", path);
             LegacyBitmap image;
-            try { image = Host.CreateBitmap(Address!); }
-            catch (Exception error) { Logger.Error(error, $"皮肤文件已损坏：{Address}", LogBehavior.Toast); FileUtils.Delete(Address!); return; }
-            view.SetBackTag(Address);
+            try { image = Host.CreateBitmap(path); }
+            catch (Exception error) { Logger.Error(error, $"皮肤文件已损坏：{path}", LogBehavior.Toast); FileUtils.Delete(path); return false; }
             int scale = Conversions.ToInteger(image.Pic!.Width / 64d);
-            if (image.Pic.Width < 32 || image.Pic.Height < 32) { view.SetFore(null); view.SetBack(null); throw new Exception("图片大小不足，长为 " + image.Pic.Height + "，宽为 " + image.Pic.Width); }
+            if (image.Pic.Width < 32 || image.Pic.Height < 32) throw new Exception("图片大小不足，长为 " + image.Pic.Height + "，宽为 " + image.Pic.Width);
+            ImageSource? fore = null;
             if (image.Pic.Width >= 64 && image.Pic.Height >= 32) {
                 if ((image.Pic.GetPixel(1, 1).A == 0 || image.Pic.GetPixel(image.Pic.Width - 1, image.Pic.Height - 1).A == 0 || image.Pic.GetPixel(image.Pic.Width - 2, Conversions.ToInteger(image.Pic.Height / 2d - 2)).A == 0) ||
-                    (image.Pic.GetPixel(1, 1) != image.Pic.GetPixel(scale * 41, scale * 9) && image.Pic.GetPixel(image.Pic.Width - 1, image.Pic.Height - 1) != image.Pic.GetPixel(scale * 41, scale * 9) && image.Pic.GetPixel(image.Pic.Width - 2, Conversions.ToInteger(image.Pic.Height / 2d - 2)) != image.Pic.GetPixel(scale * 41, scale * 9))) view.SetFore(image.Clip(scale * 40, scale * 8, scale * 8, scale * 8).ToImageSource());
-                else view.SetFore(null);
-            } else view.SetFore(null);
-            view.SetBack(image.Clip(scale * 8, scale * 8, scale * 8, scale * 8).ToImageSource()); Logger.Info($"载入头像成功：{Host.Name(view.Loader())}");
-        } catch (Exception error) { Logger.Error(error, $"载入头像失败（{Address ?? "null"},{Host.Name(view.Loader())}）", LogBehavior.Toast); }
+                    (image.Pic.GetPixel(1, 1) != image.Pic.GetPixel(scale * 41, scale * 9) && image.Pic.GetPixel(image.Pic.Width - 1, image.Pic.Height - 1) != image.Pic.GetPixel(scale * 41, scale * 9) && image.Pic.GetPixel(image.Pic.Width - 2, Conversions.ToInteger(image.Pic.Height / 2d - 2)) != image.Pic.GetPixel(scale * 41, scale * 9))) fore = image.Clip(scale * 40, scale * 8, scale * 8, scale * 8).ToImageSource();
+            }
+            ImageSource back = image.Clip(scale * 8, scale * 8, scale * 8, scale * 8).ToImageSource();
+            view.SetFore(fore); view.SetBack(back);
+            Address = path;
+            view.SetBackTag(path);
+            Logger.Info($"载入头像成功：{Host.Name(view.Loader())}");
+            return true;
+        } catch (Exception error) { Logger.Error(error, $"载入头像失败（{path ?? "null"},{Host.Name(view.Loader())}）", LogBehavior.Toast); return false; }
     }
-    public void Clear() { Address = ""; view.SetFore(null); view.SetBack(null); }
+    public void Clear() { Address = ""; view.SetBackTag(null); view.SetFore(null); view.SetBack(null); }
     public void ChangeCape() {
         if (isChanging) { Accounts.Hint("正在更改披风中，请稍候！", LegacyLoginHint.Default); return; }
         if (Accounts.MsLogin.State() == LegacyLoginTaskState.Failed) { Accounts.Hint("登录失败，无法更改披风！", LegacyLoginHint.Red); return; }

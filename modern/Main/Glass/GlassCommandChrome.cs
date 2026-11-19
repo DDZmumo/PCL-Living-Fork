@@ -65,51 +65,88 @@ internal static class GlassCommandChrome {
     internal static Brush Brush(string value) {
         var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(value)!; brush.Freeze(); return brush;
     }
-    internal static void CopyMaterial(FrameworkElement source, FrameworkElement target) {
+    internal static void CopyMaterial(FrameworkElement source, FrameworkElement target, bool allowDesktopBackdrop = false) {
+        // A tooltip over the desktop rail uses that rail's material. Wallpaper popups sample their nearest image owner.
+        bool desktop = allowDesktopBackdrop && GlassMaterial.GetWallpaperSource(source) is null && GlassMaterial.GetDesktopBackdropEnabled(source);
+        if (!desktop) source = MaterialOwner(source);
         GlassMaterial.SetWallpaperSource(target, GlassMaterial.GetWallpaperSource(source));
         GlassMaterial.SetWallpaperHost(target, GlassMaterial.GetWallpaperHost(source));
         GlassMaterial.SetWallpaperStretch(target, GlassMaterial.GetWallpaperStretch(source));
         GlassMaterial.SetOpacityMultiplier(target, GlassMaterial.GetOpacityMultiplier(source));
         GlassMaterial.SetIsEnabled(target, GlassMaterial.GetIsEnabled(source));
         GlassMaterial.SetFallbackColor(target, GlassMaterial.GetFallbackColor(source));
-        GlassMaterial.SetDesktopBackdropEnabled(target, false);
+        GlassMaterial.SetDesktopBackdropEnabled(target, desktop);
     }
-    internal static FrameworkElementFactory PopupRoot(FrameworkElementFactory content, bool darkText, double radius, Thickness padding) {
+    private static FrameworkElement MaterialOwner(FrameworkElement element) {
+        for (DependencyObject? current = element; current is not null; current = current is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(current) : LogicalTreeHelper.GetParent(current))
+            if (current is FrameworkElement candidate && GlassMaterial.GetWallpaperSource(candidate) is not null) return candidate;
+        return element;
+    }
+    internal static FrameworkElementFactory PopupRoot(FrameworkElementFactory content, bool darkText, double radius, Thickness padding, bool allowDesktopBackdrop = false) {
         var root = new FrameworkElementFactory(typeof(Grid));
-        root.SetValue(WallpaperPopupContext.EnableProperty, true);
-        root.SetValue(WallpaperPopupContext.CornerRadiusProperty, radius);
+        if (allowDesktopBackdrop) {
+            root.SetValue(GlassPopupBackdrop.EnableProperty, true);
+            root.SetValue(GlassPopupBackdrop.CornerRadiusProperty, radius);
+        } else {
+            root.SetValue(WallpaperPopupContext.EnableProperty, true);
+            root.SetValue(WallpaperPopupContext.CornerRadiusProperty, radius);
+        }
         root.SetValue(GlassMaterial.FallbackColorProperty, darkText ? Color.FromRgb(246, 248, 252) : Color.FromRgb(32, 32, 32));
         var surface = new FrameworkElementFactory(typeof(GlassSurface));
         surface.SetValue(GlassSurface.CornerRadiusProperty, new CornerRadius(radius));
-        surface.SetValue(GlassSurface.BackgroundProperty, Brush(darkText ? "#F2F6F8FC" : "#E8202020"));
+        surface.SetValue(GlassSurface.ExtendWallpaperProperty, true);
+        // Light enough a tint that the sampled wallpaper blur reads through (a frosted pane, not a solid card).
+        surface.SetValue(GlassSurface.BackgroundProperty, Brush(darkText ? "#C8F6F8FC" : "#B0202020"));
         surface.SetValue(GlassSurface.BorderBrushProperty, Brush(darkText ? "#24172330" : "#20FFFFFF"));
         surface.SetValue(GlassSurface.BorderThicknessProperty, new Thickness(.8));
         surface.SetValue(GlassSurface.PaddingProperty, padding);
         surface.SetValue(GlassSurface.HighlightOpacityProperty, 0d);
-        surface.SetValue(GlassSurface.BlurRadiusProperty, 16d);
-        surface.SetValue(GlassSurface.TintOpacityProperty, .72d);
+        surface.SetValue(GlassSurface.BlurRadiusProperty, allowDesktopBackdrop ? 24d : 16d);
+        surface.SetValue(GlassSurface.TintOpacityProperty, allowDesktopBackdrop ? 1d : .72d);
         surface.AppendChild(content); root.AppendChild(surface); return root;
     }
-    internal static ToolTip ToolTip(FrameworkElement owner, bool darkText) {
-        var tooltip = new ToolTip {
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Top,
-            Background = Brushes.Transparent, Foreground = Brush(darkText ? "#F21F2B33" : "#F8FFFFFF"),
-            BorderThickness = new Thickness(), Padding = new Thickness(), MaxWidth = 360,
-            FontFamily = new FontFamily("Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI"), FontSize = 12
-        };
+    /// <summary>
+    /// Implicit frosted tooltip for every plain <c>ToolTip="…"</c> in the shell and its pages (light or dark). The popup
+    /// samples the launcher wallpaper through the owner's material; text ignores the application-wide TextBlock style.
+    /// </summary>
+    internal static Style ToolTipStyle(bool darkText) {
+        var style = new Style(typeof(ToolTip));
+        style.Setters.Add(new Setter(System.Windows.Controls.ToolTip.PlacementProperty, System.Windows.Controls.Primitives.PlacementMode.Top));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Brush(darkText ? "#F21F2B33" : "#F8FFFFFF")));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness()));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness()));
+        style.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, 360d));
+        style.Setters.Add(new Setter(Control.FontFamilyProperty, new FontFamily("Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI")));
+        style.Setters.Add(new Setter(Control.FontSizeProperty, 12d));
+        style.Setters.Add(new Setter(System.Windows.Controls.ToolTip.HasDropShadowProperty, false));
         if (SystemParameters.HighContrast) {
-            RefreshContrastResources(tooltip.Resources);
-            tooltip.SetResourceReference(Control.ForegroundProperty, ContrastTextKey);
+            RefreshContrastResources(style.Resources);
+            style.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension(ContrastTextKey)));
         }
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
-        tooltip.Template = new ControlTemplate(typeof(ToolTip)) { VisualTree = PopupRoot(presenter, darkText, 12, new Thickness(12, 9, 12, 9)) };
-        tooltip.Opened += (_, _) => {
-            if (SystemParameters.HighContrast) RefreshContrastResources(tooltip.Resources);
-            CopyMaterial(owner, tooltip);
-        };
-        return tooltip;
+        style.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(ToolTip)) {
+            VisualTree = PopupRoot(presenter, darkText, 10, new Thickness(11, 7, 11, 8), allowDesktopBackdrop: true)
+        }));
+        style.Setters.Add(new EventSetter(System.Windows.Controls.ToolTip.OpenedEvent, new RoutedEventHandler(OnToolTipOpened)));
+        return style;
     }
+    private static void OnToolTipOpened(object sender, RoutedEventArgs args) {
+        if (sender is not ToolTip tooltip) return;
+        if (SystemParameters.HighContrast) RefreshContrastResources(tooltip.Resources);
+        if (tooltip.PlacementTarget is FrameworkElement owner) CopyMaterial(owner, tooltip, allowDesktopBackdrop: true);
+        // String content becomes a TextBlock that would pick up the application's themed TextBlock style; keep the
+        // tooltip's own foreground and wrap long descriptions.
+        if (!tooltip.Resources.Contains(typeof(TextBlock))) {
+            var text = new Style(typeof(TextBlock));
+            text.Setters.Add(new Setter(TextBlock.ForegroundProperty, new Binding(nameof(Control.Foreground)) { Source = tooltip }));
+            text.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
+            text.Setters.Add(new Setter(TextBlock.FontSizeProperty, 12d));
+            tooltip.Resources[typeof(TextBlock)] = text;
+        }
+    }
+    internal static ToolTip ToolTip(FrameworkElement owner, bool darkText) => new() { PlacementTarget = owner, Style = ToolTipStyle(darkText) };
     private static Style BuildButton(bool darkText, bool highContrast) {
         var style = new Style(typeof(GlassCommandButton));
         style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(darkText ? "#EAF2F4F8" : "#D9232B38")));

@@ -189,7 +189,7 @@ public static class MmcLaunch {
             if (loginTask.State == ModBase.LoadState.Canceled) throw new OperationCanceledException(token);
             if (loginTask.State != ModBase.LoadState.Finished || string.IsNullOrEmpty(loginTask.Output.Type))
                 throw new IOException("现有账户登录尚未成功完成，无法绑定 MMC 启动身份。");
-            authentication = MmcLaunchAuthentication.Capture(instance, ModLaunch.McLoginLoader.Output.Type);
+            authentication = MmcLaunchAuthentication.Capture(instance, loginTask.Output);
             java = await MmcLaunchJava.SelectAsync(instance, primary.Definition, saved.Resolved.Resolution.Profile,
                 preferences.JavaPreference, token, authentication.JavaConstraints, minimumVersion: authentication.MinimumJavaVersion).ConfigureAwait(false);
             initJavaProgress?.Set(0.5);
@@ -272,7 +272,8 @@ public static class MmcLaunch {
             CancellationToken token = task.CreateCancellationToken(); token.ThrowIfCancellationRequested();
             QuiescedAdmission admission = null;
             var login = ModLaunch.McLoginLoader.Output;
-            authentication.Revalidate(instance, login.Type, java.Java);
+            authentication.Revalidate(instance, login, java.Java);
+            using var localSkin = authentication.OpenLocalSession(token);
             var account = new MmcRuntimeAccountSnapshot(login.Name, login.Uuid, login.AccessToken,
                 "token:" + login.AccessToken + ":" + login.Uuid, login.Type == "Microsoft" ? "msa" : "legacy", "{}", login.ClientToken,
                 javaConstraints: authentication.JavaConstraints);
@@ -290,7 +291,7 @@ public static class MmcLaunch {
                 admission = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, token);
                 MmcInstanceBackend<ModNet.NetFile>.ValidatePreparedLaunch(admission.Lease, prepared);
                 MmcLaunchPreferences.Revalidate(instance, preferences);
-                authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
+                authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output, java.Java);
                 runtime = MmcRuntimeLaunchBuilder.BuildAsync(request, token).GetAwaiter().GetResult();
                 var classes = MmcClasspathInspector.ObserveAsync(runtime, token).GetAwaiter().GetResult();
                 string wrapperHash = Support("JavaWrapper.jar")?.Sha256 ?? Convert.ToHexStringLower(SHA256.HashData("PCLLF:direct-main:v1"u8));
@@ -330,7 +331,7 @@ public static class MmcLaunch {
                 // registration window, which the contract requires to hold one uninterrupted lease.
                 admission = AcquireQuiescedAdmission(prepared.Paths.InstanceRoot, prepared.Definition.InstanceId, token);
                 MmcLaunchPreferences.Revalidate(instance, preferences);
-                authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
+                authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output, java.Java);
                 ProcessStartInfo startInfo = runtime.CreateStartInfo(out int nonceArgumentIndex);
                 MmcExecutableIdentity wrapperIdentity = wrapperManaged
                     ? MmcSessions.ObserveExecutable(MmcSessions.ResolveExecutablePath(startInfo.FileName, startInfo.WorkingDirectory))
@@ -342,7 +343,7 @@ public static class MmcLaunch {
                     }, () => {
                         token.ThrowIfCancellationRequested();
                         MmcLaunchPreferences.Revalidate(instance, preferences);
-                        authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output.Type, java.Java);
+                        authentication.Revalidate(instance, ModLaunch.McLoginLoader.Output, java.Java);
                         MmcRuntimeLaunchBuilder.ValidateFinalInputs(admission.Lease, prepared, runtime, token);
                         MmcClasspathInspector.RevalidateManifestInputs(runtime, classes, token);
                     }, (id, identity) => pins.Acquire(id, identity, prepared.Definition.InstanceId, prepared.Paths.InstanceRoot, token));
@@ -380,6 +381,7 @@ public static class MmcLaunch {
                 }, CommandRedactionSecrets());
             ModLaunch.McLaunchProcess = session.Process;
             try {
+                localSkin?.Attach(session.Process, token);
                 ProcessCreated?.Invoke(sessionId, session.Process);
                 var watchTask = new ModLoader.LoaderTask<Process, int>("MMC 窗口监控", _ => { }) { Input = session.Process };
                 watcher = new ModWatcher.Watcher(watchTask, instance, "", game => {

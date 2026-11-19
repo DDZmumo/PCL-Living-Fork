@@ -22,11 +22,17 @@ public static class LauncherApplicationServices {
         VerifyAccess = VerifyUiAccess,
         IsActive = IsLaunchActive,
         ReportBusy = () => ModMain.Hint("启动任务尚未结束，请稍后重试。", ModMain.HintType.Red),
+        CanStart = CheckLaunchAccount,
         ResolveTarget = options => options?.Instance ?? SelectionOwner.Runtime.Instance,
         Start = options => ModLaunch.StartFromApplication(options),
         Cancel = CancelLaunch,
         Read = ReadLaunch
     });
+    private static bool CheckLaunchAccount() {
+        if (!GlassSkinSites.RoleSelectionPending) return true;
+        ModMain.Hint("请先在账号页选择皮肤站角色。", ModMain.HintType.Red);
+        return false;
+    }
     private static AccountOwner CreateAccountService() => new(new() {
         VerifyAccess = VerifyUiAccess,
         Read = ReadAccount,
@@ -60,6 +66,7 @@ public static class LauncherApplicationServices {
     public static IAccountApplicationService<ModLaunch.McLoginData> Accounts {
         get { ModLaunch.EnsureApplicationServicesInitialized(); return AccountOwner; }
     }
+    public static SkinLibraryApplicationService SkinLibrary { get; } = new();
     public static IInstanceSelectionApplicationService<ModMinecraft.McInstance> Instances {
         get { ModMinecraft.EnsureApplicationServicesInitialized(); return SelectionOwner; }
     }
@@ -113,11 +120,18 @@ public static class LauncherApplicationServices {
     private static AccountApplicationSnapshot ReadAccount() {
         AccountProvider provider = CurrentProvider();
         ModLoader.LoaderBase task = IsTaskActive(AccountOwner.Runtime.Login) ? AccountOwner.Runtime.Login : ProviderTask(provider);
+        if (provider == AccountProvider.Auth && GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character)
+            return new(provider, character.Profile.Name, ReadTask(task), true);
         string? marker = provider switch {
             AccountProvider.Microsoft => "CacheMsV2OAuthRefresh", AccountProvider.Auth => "CacheAuthAccess",
             AccountProvider.Nide => "CacheNideAccess", _ => null
         };
         bool authenticated = marker is not null && !string.IsNullOrEmpty(Settings.Get<string>(marker));
+        if (authenticated && provider == AccountProvider.Auth) {
+            var instance = ModMinecraft.McInstanceSelected;
+            string server = instance is null ? Settings.Get<string>("CacheAuthServerServer") : Settings.Get<string>("VersionServerAuthServer", instance);
+            authenticated = PCLCS.AuthlibEndpoint.Same(PCLCS.AuthlibEndpoint.ForServer(server), Settings.Get<string>(PCLCS.AuthlibEndpoint.CredentialServerSetting));
+        }
         string nameKey = provider switch {
             AccountProvider.Microsoft => "CacheMsV2Name", AccountProvider.Auth => "CacheAuthName",
             AccountProvider.Nide => "CacheNideName", _ => "LoginLegacyName"

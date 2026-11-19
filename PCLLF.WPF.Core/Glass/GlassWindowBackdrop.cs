@@ -38,6 +38,8 @@ public sealed class GlassBackdropOptions {
     /// surfaces inside its own mask, so this controller keeps the window background transparent.
     /// </summary>
     public bool ManageWindowRegion { get; init; } = true;
+    /// <summary>Resolves the composition clips from the current native client size in DIPs, before WPF has arranged its content.</summary>
+    public Func<Size, IReadOnlyList<GlassWindowRegion>>? RegionsForClientSize { get; init; }
     public Color LightFallbackColor { get; init; } = Color.FromRgb(242, 245, 248);
     public Color DarkFallbackColor { get; init; } = Color.FromRgb(31, 37, 43);
 }
@@ -136,6 +138,22 @@ public sealed class GlassWindowBackdrop : IDisposable {
     /// With window-region management enabled, only points inside these shapes receive
     /// mouse input, so include any desired resize grip.
     /// </summary>
+    /// <summary>
+    /// How present the native backdrop is (0 hidden … 1 full), multiplied into every region's opacity. The backdrop is
+    /// drawn by a separate host window that Windows shows at once, while the WPF content needs a render pass; holding it
+    /// at 0 until the content is up (startup, restore from minimized) and then fading it in keeps the blur from arriving
+    /// before the interface.
+    /// </summary>
+    public double Presence { get; private set; } = 1;
+
+    public void SetPresence(double presence) {
+        VerifyUsable();
+        presence = Math.Clamp(double.IsFinite(presence) ? presence : 1, 0, 1);
+        if (Math.Abs(presence - Presence) < .001) return;
+        Presence = presence;
+        SyncCompositionHost();
+    }
+
     public void SetRegions(IEnumerable<GlassWindowRegion>? regions) {
         VerifyUsable();
         var snapshot = regions?.ToArray() ?? [];
@@ -149,6 +167,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
         if (_regions.SequenceEqual(snapshot)) return;
         _regions = snapshot;
         ApplyRegions();
+        SyncCompositionHost();
     }
 
     public void Refresh() {
@@ -287,7 +306,17 @@ public sealed class GlassWindowBackdrop : IDisposable {
     private void OnWindowStatePropertyChanged(object? sender, EventArgs args) => SyncCompositionHost();
     private void SyncCompositionHost() {
         if (_disposed) return;
-        UseCompositionHost(host => host.SyncBounds(() => !_disposed && Backend == GlassBackdropBackend.HostBackdropComposition && _window.IsVisible && _window.WindowState != WindowState.Minimized));
+        UseCompositionHost(host => host.SyncBounds(
+            () => !_disposed && Presence > .001 && Backend == GlassBackdropBackend.HostBackdropComposition && _window.IsVisible && _window.WindowState != WindowState.Minimized,
+            pixels => {
+                if (_source?.CompositionTarget is not { } target) return;
+                Matrix toDevice = target.TransformToDevice;
+                Size clientSize = new(pixels.Width / toDevice.M11, pixels.Height / toDevice.M22);
+                IReadOnlyList<GlassWindowRegion>? regions = _options.RegionsForClientSize?.Invoke(clientSize);
+                IReadOnlyList<GlassWindowRegion> shown = regions is { Count: > 0 } ? regions : _regions;
+                double presence = Presence;
+                host.SetRegions(presence >= .999 ? shown : shown.Select(region => region with { Opacity = region.Opacity * presence }).ToArray(), toDevice);
+            }));
     }
 
     private void UseCompositionHost(Action<GlassCompositionHost> operation) {
@@ -343,7 +372,6 @@ public sealed class GlassWindowBackdrop : IDisposable {
     private void ApplyRegions() {
         if (_handle == 0 || _source?.CompositionTarget is not { } target) return;
         var transform = target.TransformToDevice;
-        UseCompositionHost(host => host.SetRegions(_regions, transform));
         if (!_options.ManageWindowRegion) {
             LastRegionError = 0;
             return;

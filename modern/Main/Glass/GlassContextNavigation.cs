@@ -24,11 +24,13 @@ internal static class GlassContextNavigation
             page.Width != 0 && page.MaxWidth > 0 && page.Children.Count > 0;
     }
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Geometry, string> GeometryStringCache = new();
+
     internal static IReadOnlyList<GlassSidebarItem> Build(MyPageLeft page)
     {
         if (!RequiresSidebar(page)) return Array.Empty<GlassSidebarItem>();
         page.Dispatcher.VerifyAccess();
-        if (page is PageInstanceLeft instanceLeft) instanceLeft.SyncInstanceContext();
+        if (page is PageInstanceLeft instanceLeft) instanceLeft.EnsureInstanceContext();
         var result = new List<GlassSidebarItem>();
         var visited = new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance);
         Collect(page, visited, result);
@@ -128,7 +130,7 @@ internal static class GlassContextNavigation
         geometry = null;
         image = null;
         if (logo is Path { Data: { } data } && !data.Bounds.IsEmpty)
-            geometry = data.ToString(CultureInfo.InvariantCulture);
+            geometry = GeometryStringCache.GetValue(data, static g => g.ToString(CultureInfo.InvariantCulture));
         else if (logo is Image bitmap)
             image = bitmap.Source;
         else if (logo is Panel { Background: ImageBrush brush })

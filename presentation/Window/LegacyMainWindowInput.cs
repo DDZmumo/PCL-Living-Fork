@@ -34,7 +34,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         if (args.Key == Key.F11 && IsPage(PageCurrent, LegacyMainPage.InstanceSelect)) { host.WriteHiddenVersions(!host.HiddenVersions()); host.ReloadInstanceList(true); return; }
         if (args.Key == Key.F12 && view.UsesGlassShell?.Invoke() != true) { host.WriteHiddenForceShow(!host.HiddenForceShow()); Hint(host.HiddenForceShow() ? "功能隐藏设置已暂时关闭！" : "功能隐藏设置已重新开启！", LegacyMainHint.Green); host.RefreshHidden(); return; }
         if (args.Key == Key.F5) { if (host.CanRefresh(PageLeft)) host.Refresh(PageLeft); if (host.CanRefresh(PageRight)) host.Refresh(PageRight); return; }
-        if (args.Key == Key.Enter && IsPage(PageCurrent, LegacyMainPage.Launch)) { if (host.AprilEnabled() && !host.AprilGivenUp()) Hint("木大！"); else host.LaunchButton(); }
+        if (args.Key == Key.Enter && IsPage(PageCurrent, LegacyMainPage.Launch) && view.SuppressesLaunchKey?.Invoke() != true) { if (host.AprilEnabled() && !host.AprilGivenUp()) Hint("木大！"); else host.LaunchButton(); }
     }
     public void MouseDown(MouseButtonEventArgs args) {
         if (host.GlobalMessageCount() > 0 || host.WaitingMessages()) return;
