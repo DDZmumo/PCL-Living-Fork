@@ -30,9 +30,12 @@ internal static class CoreBoundaryTests {
             "Only the existing white-box regression host may receive Core friend access.");
         Require(core.GetTypes().All(type => type.Namespace is null || !type.Namespace.StartsWith("PCLLF.Presentation", StringComparison.Ordinal)),
             "Presentation types leaked into Core.");
-        string[] resources = [@"Launch\JavaWrapper.jar", @"Launch\LwjglUnsafeAgent.jar", @"Resource\WikiEntries.txt", @"Minecraft\OptiFineHashes.json"];
+        string[] resources = [
+            @"Launch\JavaWrapper.jar", @"Launch\LwjglUnsafeAgent.jar", @"Launch\ModKeybindPatch.jar",
+            @"Resource\WikiEntries.txt", @"Minecraft\OptiFineHashes.json"
+        ];
         Require(core.GetManifestResourceNames().Order().SequenceEqual(resources.Order()),
-            "The four existing resource names must stay on the Core assembly. Actual: " + string.Join(", ", core.GetManifestResourceNames()));
+            "Core must expose the expected runtime resources. Actual: " + string.Join(", ", core.GetManifestResourceNames()));
         foreach (string name in resources) {
             using Stream resource = core.GetManifestResourceStream(name)!;
             Require(resource is not null && resource.Length > 0, "Missing Core resource: " + name);

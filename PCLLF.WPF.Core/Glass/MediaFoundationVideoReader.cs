@@ -120,7 +120,7 @@ internal sealed unsafe class MediaFoundationVideoReader : IDisposable {
 
     private void CopyBuffer(nint buffer, byte[] pixels, int stride) {
         Guid key = Buffer2D;
-        if (Marshal.QueryInterface(buffer, ref key, out nint rows) >= 0) {
+        if (Marshal.QueryInterface(buffer, in key, out nint rows) >= 0) {
             try {
                 nint top = 0, start = 0;
                 int pitch = 0;
