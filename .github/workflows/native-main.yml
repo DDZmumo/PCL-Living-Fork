@@ -333,6 +333,22 @@ jobs:
             Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'smoke.log')
           if ($LASTEXITCODE -ne 0) { throw 'Actual native cold startup/WM_CLOSE/reopen is failed or pending; inspect the retained evidence.' }
 
+      - name: Upload small actual native startup evidence
+        if: always() && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-startup-evidence-${{ matrix.configuration }}-${{ github.run_attempt }}
+          path: |
+            artifacts/native-main/${{ matrix.configuration }}/smoke.log
+            artifacts/native-main/${{ matrix.configuration }}/smoke/**/evidence.json
+            artifacts/native-main/${{ matrix.configuration }}/smoke/**/*-diagnostics.json
+            artifacts/native-main/${{ matrix.configuration }}/smoke/**/PCL/Log*.txt
+            artifacts/native-main/${{ matrix.configuration }}/smoke/**/startup-*.log
+            artifacts/native-main/${{ matrix.configuration }}/smoke/**/main-*.png
+          if-no-files-found: warn
+          compression-level: 9
+          retention-days: 7
+
       - name: Qualify only the real Release package identity and cold entry for the fresh-host upgrade
         id: upgrade_qualification
         # Data-only facade failures remain workflow failures, but do not revoke
@@ -502,21 +518,6 @@ jobs:
               runtime = $index.runtime; artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
               Set-Content -LiteralPath (Join-Path $public 'release-receipt.json') -Encoding utf8
           }
-
-      - name: Upload small actual native startup evidence
-        if: always() && matrix.configuration == 'Release'
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-startup-evidence-${{ matrix.configuration }}
-          path: |
-            artifacts/native-main/${{ matrix.configuration }}/smoke/**/evidence.json
-            artifacts/native-main/${{ matrix.configuration }}/smoke/**/*-diagnostics.json
-            artifacts/native-main/${{ matrix.configuration }}/smoke/**/PCL/Log*.txt
-            artifacts/native-main/${{ matrix.configuration }}/smoke/**/startup-*.log
-            artifacts/native-main/${{ matrix.configuration }}/smoke/**/main-*.png
-          if-no-files-found: warn
-          compression-level: 9
-          retention-days: 7
 
       - name: Upload small actual Main interaction evidence
         if: always() && matrix.configuration == 'Release'

@@ -138,7 +138,7 @@ try {
  if($LASTEXITCODE -ne 0){throw 'Actual native entry inspector strict build failed.'}
  & $DotNetPath (Join-Path $tools 'NativeInspector/NativeSmokeFixture.dll') --self-test-notice-metadata
  if($LASTEXITCODE -ne 0){throw 'Metadata-only startup notice route regression failed.'}
- $json=& $DotNetPath (Join-Path $tools 'NativeInspector/NativeSmokeFixture.dll') $NativeExecutablePath;if($LASTEXITCODE -ne 0){throw 'Not genuine actual native PCL.Application.Main/full resources.'};$nativeProof=($json -join "`n")|ConvertFrom-Json
+ $json=& $DotNetPath (Join-Path $tools 'NativeInspector/NativeSmokeFixture.dll') $NativeExecutablePath;if($LASTEXITCODE -ne 0){throw 'Not a genuine native launcher entry with the full product resources.'};$nativeProof=($json -join "`n")|ConvertFrom-Json
  if($nativeProof.buildType -notin @(0,50)){Pending 'Only actual Release/Snapshot builds are reviewed for entry execution.'}
  $json=& $DotNetPath (Join-Path $tools 'Descriptor/NativeUpdateFixture.dll') legacy $LegacyExecutablePath;if($LASTEXITCODE -ne 0){throw 'Not genuine actual legacy Main.'};$legacyProof=($json -join "`n")|ConvertFrom-Json
  if($legacyProof.details.versionBaseName -cne '1.3.4'){throw 'Pinned old product version is not actual 1.3.4.'}
