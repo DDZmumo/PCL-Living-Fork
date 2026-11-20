@@ -131,6 +131,7 @@ dotnet restore .\PCL-Living-Fork.Modern.slnx
 
 - **原作与上游**：原作作者为 **龙腾猫跃** 及 PCL 原项目贡献者，原作版权归 **成都瓜皮龙科技有限公司** 所有。本项目以 [Plain Craft Launcher (PCL)](https://github.com/Meloong-Git/PCL) `2.14.0.0` 为起点独立演进。
 - **迁移参考与来源**：在完成全量 **C# / .NET 10** 现代化架构迁移与部分兼容实现的过程中，本项目以社区版 [PCL-CE (PCL Community Edition)](https://github.com/PCL-Community/PCL-CE) 作为同源迁移工程示例与结构参考，感谢 **PCL-Community** 及相关贡献者的开源工作。
+- **新版 WPF 皮肤库**参考 PCL Symbio Edition（PCLSE）的实现。来自 PCLSE 并按 **CC BY-NC（署名-非商业性使用）** 提供的内容适用该许可。[PCLSE 上游项目](https://github.com/Hydrogen-Peroxide/PCL-Symbio-Edition)
 - **许可与署名**：本项目完整保留 PCL 原作、PCL-CE 参考实现及各第三方组件的署名、版权声明与对应分发/开源许可。
 
 - [上游 PCL 仓库](https://github.com/Meloong-Git/PCL) · [PCL-CE 仓库](https://github.com/PCL-Community/PCL-CE) · [来源与版权声明](NOTICE.md) · [许可与使用指南](LICENCE) · [爱发电支持原作者](https://meloong.com/afd/a/LTCat)
