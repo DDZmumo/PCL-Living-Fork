@@ -386,6 +386,33 @@ jobs:
           Move-Item -LiteralPath $temporary -Destination (Join-Path $root 'native-upgrade-qualification.json')
           Write-Output 'PASS same-run Release upgrade qualification; independent data checks retain their own outcomes.'
 
+      - name: Verify actual Main safe navigation theme focus and wheel
+        id: interaction
+        # Independent fresh profile/fixture after the original cold receipt.
+        # Surface real UI failures before the longer isolated facade suite.
+        if: ${{ !cancelled() && matrix.configuration == 'Release' && steps.cold_entry.outcome == 'success' && steps.package_roles.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell -NoProfile -STA -File scripts/native-smoke/interaction/Test-NativeLauncherInteraction.ps1 -ExecutablePath "$env:NATIVE_EXE" -WorkspaceRoot "$env:GITHUB_WORKSPACE" -EvidenceRoot (Join-Path $env:NATIVE_LOG_DIRECTORY 'interaction') 2>&1 |
+            Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'interaction.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Main continuous interaction is failed or pending; original cold qualification retains its independent outcome.' }
+
+      - name: Upload small actual Main interaction evidence
+        if: always() && matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-interaction-evidence-${{ matrix.configuration }}-${{ github.run_attempt }}
+          path: |
+            artifacts/native-main/${{ matrix.configuration }}/interaction.log
+            artifacts/native-main/${{ matrix.configuration }}/interaction/**/evidence.json
+            artifacts/native-main/${{ matrix.configuration }}/interaction/**/interaction-*.json
+            artifacts/native-main/${{ matrix.configuration }}/interaction/**/interaction-*.png
+            artifacts/native-main/${{ matrix.configuration }}/interaction/**/startup-*.log
+            artifacts/native-main/${{ matrix.configuration }}/interaction/**/PCL/Log*.txt
+          if-no-files-found: warn
+          compression-level: 9
+          retention-days: 7
+
       - name: Verify real Registry account migration in a fresh owned namespace
         # Explicit solo family uses real Main/Windows stores and refuses unknown
         # existing keys. The genuine cold entry runs first and cleans its profile.
@@ -410,7 +437,9 @@ jobs:
           if (-not [IO.Directory]::Exists($env:RUNNER_TEMP)) { throw 'Runner temp base is missing.' }
           $env:TEMP = $env:RUNNER_TEMP
           $env:TMP = $env:RUNNER_TEMP
-          $registeredJson = & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --list-groups
+          $facadeExe = Join-Path $env:GITHUB_WORKSPACE "tests/PCLLF.Native.Facade.Tests/bin/$env:NATIVE_CONFIGURATION/net10.0-windows/PCLLF.Native.Facade.Tests.exe"
+          if (-not [IO.File]::Exists($facadeExe)) { throw 'The compiled native facade apphost is missing.' }
+          $registeredJson = & $facadeExe --list-groups
           if ($LASTEXITCODE -ne 0) { throw 'The real facade host did not enumerate its registered groups.' }
           $registered = @(($registeredJson -join "`n") | ConvertFrom-Json)
           if ($registered.Count -eq 0 -or $registered -notcontains 'registry-data' -or @($registered | Where-Object { $_ -notmatch '^[a-z0-9-]+$' }).Count -ne 0 -or @($registered | Select-Object -Unique).Count -ne $registered.Count) { throw 'The facade group registry is empty or invalid.' }
@@ -418,7 +447,7 @@ jobs:
           $missingWorkspace = @($workspaceGroups | Where-Object { $_ -notin $registered })
           if ($missingWorkspace.Count -ne 0) { throw ('Missing required WPF coverage: ' + ($missingWorkspace -join ', ')) }
           $javaGroups = @('launch-relaunch', 'mmc-launch-replay', 'mmc-phase2-launch')
-          $explicitJson = & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --list-explicit-groups
+          $explicitJson = & $facadeExe --list-explicit-groups
           if ($LASTEXITCODE -ne 0) { throw 'The installed-JVM group registry could not be read.' }
           $explicit = @(($explicitJson -join "`n") | ConvertFrom-Json)
           if (@($javaGroups | Where-Object { $_ -notin $explicit }).Count -ne 0) { throw 'A required startup case is missing.' }
@@ -427,7 +456,7 @@ jobs:
           foreach ($group in $groups) {
             # Every family owns its real STA child and temporary state. A
             # failed theme family must not hide file/dependency acceptance.
-            & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --groups $group 2>&1 |
+            & $facadeExe --groups $group 2>&1 |
               Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY ("facade-" + $group + '.log'))
             if ($LASTEXITCODE -ne 0) { $failedGroups += $group }
           }
@@ -445,17 +474,6 @@ jobs:
           & dotnet run --project tests/PCLLF.Mmc.Export.Tests/PCLLF.Mmc.Export.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build 2>&1 |
             Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'mmc-export-runtime.log')
           if ($LASTEXITCODE -ne 0) { throw 'Managed MMC export/import roundtrip or ownership/cancellation acceptance failed.' }
-
-      - name: Verify actual Main safe navigation theme focus and wheel
-        id: interaction
-        # Independent fresh profile/fixture after the original cold receipt;
-        # this new UI result cannot replace that receipt or qualify a package.
-        if: ${{ !cancelled() && matrix.configuration == 'Release' && steps.cold_entry.outcome == 'success' && steps.package_roles.outcome == 'success' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & powershell -NoProfile -STA -File scripts/native-smoke/interaction/Test-NativeLauncherInteraction.ps1 -ExecutablePath "$env:NATIVE_EXE" -WorkspaceRoot "$env:GITHUB_WORKSPACE" -EvidenceRoot (Join-Path $env:NATIVE_LOG_DIRECTORY 'interaction') 2>&1 |
-            Tee-Object -FilePath (Join-Path $env:NATIVE_LOG_DIRECTORY 'interaction.log')
-          if ($LASTEXITCODE -ne 0) { throw 'Actual Main continuous interaction is failed or pending; original cold qualification retains its independent outcome.' }
 
       - name: Compile the original optional LegacyLink mode without running services
         id: legacy_link_compile
@@ -518,22 +536,6 @@ jobs:
               runtime = $index.runtime; artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
               Set-Content -LiteralPath (Join-Path $public 'release-receipt.json') -Encoding utf8
           }
-
-      - name: Upload small actual Main interaction evidence
-        if: always() && matrix.configuration == 'Release'
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-interaction-evidence-${{ matrix.configuration }}
-          path: |
-            artifacts/native-main/${{ matrix.configuration }}/interaction.log
-            artifacts/native-main/${{ matrix.configuration }}/interaction/**/evidence.json
-            artifacts/native-main/${{ matrix.configuration }}/interaction/**/interaction-*.json
-            artifacts/native-main/${{ matrix.configuration }}/interaction/**/interaction-*.png
-            artifacts/native-main/${{ matrix.configuration }}/interaction/**/startup-*.log
-            artifacts/native-main/${{ matrix.configuration }}/interaction/**/PCL/Log*.txt
-          if-no-files-found: warn
-          compression-level: 9
-          retention-days: 7
 
       - name: Upload native build packages and bounded runtime evidence
         if: always()

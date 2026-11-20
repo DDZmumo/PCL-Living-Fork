@@ -214,7 +214,15 @@ internal static class LaunchRelaunchChecks {
         string file = Path.Combine(directory, name + ".java");
         File.WriteAllText(file, contents);
         using Process process = Start(javac, directory, "--release", release, "-d", directory, file);
-        Native.Check(process.WaitForExit(10_000) && process.ExitCode == 0, "Could not compile relay fixture " + name);
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(20_000)) {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            process.WaitForExit(5_000);
+            throw new TimeoutException("Timed out compiling relay fixture " + name);
+        }
+        Native.Check(process.ExitCode == 0, $"Could not compile relay fixture {name} (exit {process.ExitCode}): " +
+            stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
     }
 
     private const string BootstrapSource = """

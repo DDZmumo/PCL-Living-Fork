@@ -41,6 +41,9 @@ public sealed partial class MmcInstanceBackend<TNetFile> where TNetFile : notnul
                 }
                 prepared.Add((input.FileName, staged, relative, digest, bytes.LongLength));
             }
+            // The instance reload can leave an owned preference write in progress.
+            // Drain it using the same gate ordering as launch preparation.
+            using var quiet = MmcConfigurationCoordinator.Quiesce(snapshot.Paths.InstanceRoot, cancellationToken);
             using var publication = MmcAdmissionGate.Acquire(snapshot.Paths.InstanceRoot, snapshot.Definition.InstanceId, TimeSpan.Zero, cancellationToken);
             ValidatePreparedLaunch(publication, snapshot, cancellationToken);
             var result = ImmutableArray.CreateBuilder<MmcInstanceLaunchSupport>(prepared.Count);
