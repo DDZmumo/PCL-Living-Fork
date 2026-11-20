@@ -29,9 +29,12 @@ internal static class ApplicationServiceChecks {
         Native.Check(typeof(ModMinecraft).GetField("_McInstanceSelected", Native.Flags) is null &&
             typeof(ModLoader).GetField("LoaderTaskbar", Native.Flags) is null, "An obsolete module state field remains authoritative.");
 
-        var first = new ModMinecraft.McInstance(Path.Combine(folder, "versions", "owned-first"));
-        var second = new ModMinecraft.McInstance(Path.Combine(folder, "versions", "owned-second"));
-        Directory.CreateDirectory(first.PathVersion); Directory.CreateDirectory(second.PathVersion);
+        string firstPath = Path.Combine(folder, "versions", "owned-first");
+        string secondPath = Path.Combine(folder, "versions", "owned-second");
+        Directory.CreateDirectory(firstPath);
+        Directory.CreateDirectory(secondPath);
+        var first = new ModMinecraft.McInstance(firstPath);
+        var second = new ModMinecraft.McInstance(secondPath);
         int changes = 0;
         Action changed = () => { Native.Check(ReferenceEquals(instances.ReadSnapshot().Instance, ModMinecraft.McInstanceSelected), "Selection notification preceded its actual state."); changes++; };
         instances.Changed += changed;
