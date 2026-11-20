@@ -91,7 +91,7 @@ internal static class ModpackUpdateFlowChecks
         TraceStage("common-barrier-enter");
         using (DeadlineGuard deadlineGuard = new(DateTime.UtcNow.AddSeconds(10), "common actual-task completion barrier")) scope.FinishActualTasks();
         TraceStage("common-barrier-return");
-        accounts.AssertUsed(); TraceStage("account-read-contract-return");
+        accounts.AssertReloadReads(); TraceStage("account-read-contract-return");
         environment.AssertNoForbiddenIo();
     }
 
@@ -385,10 +385,10 @@ internal static class ModpackUpdateFlowChecks
         Console.WriteLine("PASS automatic origins " + (more ? "6-10" : "1-5") + ": five genuine native workflow cases; exact source/project/version and primary archive, existing-hash verification, personal edits, transaction/cancellation and schema-2 no-repeat.");
     }
 
-    // The real SelectInstance evaluates CacheNideServer/CacheAuthServerServer
-    // before VersionServerLogin. LF50 deliberately bypasses account ValueCache.
-    // Scope ONLY those two physical reads to owned synthetic ciphertext files;
-    // unknown keys/paths still invoke FixtureEnvironment's original hard guard.
+    // SelectInstance reads the Nide comparison cache for this neutral login fixture.
+    // Authlib credentials are scoped to the endpoint of a configured external login;
+    // an ordinary reload must not consult the old Auth server cache. Keep the owned
+    // Auth ciphertext as a sentinel and keep the genuine decryption check on Nide.
     private sealed class ReloadAccountStore : IDisposable
     {
         private const string LogicalPath = @"HKEY_CURRENT_USER\Software\PCL";
@@ -452,13 +452,15 @@ internal static class ModpackUpdateFlowChecks
             foreach (var record in records.Values)
                 Native.Check((File.GetAttributes(record.File) & FileAttributes.ReparsePoint) == 0 && File.ReadAllBytes(record.File).SequenceEqual(record.Bytes), "Read-only reload account ciphertext changed.");
         }
-        internal void AssertUsed()
+        internal void AssertReloadReads()
         {
             ValidateOwned();
-            foreach (var pair in records)
-                Check(reads.TryGetValue(pair.Key, out int count) && count > 0 &&
-                    Equals(Settings.Entries[pair.Key].ValueCache[""], pair.Value.Plain),
-                    "FLOW-08-account-" + pair.Key, "actual setter did not read/decrypt its isolated account store; cache bypass/fallback cannot pass");
+            const string nide = "CacheNideServer", auth = "CacheAuthServerServer";
+            Check(reads.TryGetValue(nide, out int count) && count > 0 &&
+                Equals(Settings.Entries[nide].ValueCache[""], records[nide].Plain),
+                "FLOW-08-account-" + nide, "actual setter did not read/decrypt its isolated comparison cache");
+            Check(!reads.ContainsKey(auth), "FLOW-08-account-" + auth,
+                "reloading an instance without external login consulted the unrelated Auth server cache");
         }
         public void Dispose()
         {
