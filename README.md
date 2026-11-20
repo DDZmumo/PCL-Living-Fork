@@ -1,13 +1,6 @@
 <div align="center">
 
-<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.5.1"><img src="Plain Craft Launcher 2/Images/Branding/LivingPCL-256.png" alt="PCL Living Fork 正式版图标" width="90" height="90"></a>
-&nbsp;&nbsp;
-<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-1">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pcllf-preview-dark.svg">
-    <img src="modern/Main/Images/Branding/PCLLF.svg" alt="PCL Living Fork 新版 WPF 图标" width="90" height="90">
-  </picture>
-</a>
+<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.5.1"><img src="Plain Craft Launcher 2/Images/Branding/LivingPCL-256.png" alt="PCL Living Fork 正式版图标" width="90" height="90"></a>&nbsp;&nbsp;<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-1"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/pcllf-preview-dark.svg"><img src="modern/Main/Images/Branding/PCLLF.svg" alt="PCL Living Fork 新版 WPF 图标" width="90" height="90"></picture></a>
 
 # PCL Living Fork
 
