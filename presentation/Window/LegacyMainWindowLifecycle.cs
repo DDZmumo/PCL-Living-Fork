@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 整合包更新支持配置键值合并，同一键冲突可在预览选择\r\n- 批量更新模组前核对必需前置，完善 NeoForge 内嵌库识别\r\n- 修复拖拽安装模组时的线程错误\r\n- 保护受影响 Forge／NeoForge 实例的自定义键位和组合键\r\n- 修复 GTNH 等整合包接力启动时的崩溃误报\r\n- Windows x64 版需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置\r\n- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡\r\n- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());

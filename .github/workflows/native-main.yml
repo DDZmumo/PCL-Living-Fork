@@ -120,6 +120,29 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install controlled JVMs for startup acceptance
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          architecture: x64
+          java-version: |
+            8
+            17
+            21
+          set-default: false
+
+      - name: Bind the launch fixture JVM paths
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($major in @(8, 17, 21)) {
+            $jdk = [Environment]::GetEnvironmentVariable("JAVA_HOME_${major}_X64")
+            if ([string]::IsNullOrWhiteSpace($jdk)) { throw "Test JDK $major is missing." }
+            $java = Join-Path $jdk 'bin/java.exe'
+            if (-not [IO.File]::Exists($java)) { throw "Test JVM $major is missing." }
+            "PCLLF_MMC_TEST_JAVA$major=$java" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          "PCLLF_GLASS_INTERACTIVE=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Record the actual source and toolchain
         run: |
           $ErrorActionPreference = 'Stop'
@@ -142,7 +165,7 @@ jobs:
             credentials = 'Optional original LF build inputs; empty public fallback is valid. Exact packaged Main/bundle checked; no external publication.'
             coldEntry = if ($env:NATIVE_CONFIGURATION -eq 'Release') { 'Required: genuine native startup, normal WM_CLOSE and reopen.' } else { 'Not executed: the current bounded smoke accepts LF BuildType 0/50; Debug BuildType 100 remains a separate runtime gap.' }
             mainWarningPolicy = 'Main conversion warnings remain visible; zero errors required. Core/Presentation/tools/facade tests keep warnings-as-errors.'
-            facade = 'Required in both configurations: 28 separately isolated actual Main data/UI/task/process/install families; account-ui requires its own fresh configuration child. Controlled process/HTTP/store samples are not real authentication or Minecraft. Actual product entry/continuous interaction have independent receipts.'
+            facade = 'Required in both configurations: actual Main acceptance in separately isolated children, including the WPF workspace, native input and real Java handoff. Controlled process/HTTP/store samples are not real authentication or Minecraft. Actual product entry/continuous interaction have independent receipts.'
           } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $logDirectory 'context.json')
 
       - name: Stamp only the original Main CommitHash constant
@@ -375,8 +398,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The real facade host did not enumerate its registered groups.' }
           $registered = @(($registeredJson -join "`n") | ConvertFrom-Json)
           if ($registered.Count -eq 0 -or $registered -notcontains 'registry-data' -or @($registered | Where-Object { $_ -notmatch '^[a-z0-9-]+$' }).Count -ne 0 -or @($registered | Select-Object -Unique).Count -ne $registered.Count) { throw 'The facade group registry is empty or invalid.' }
+          $workspaceGroups = @('glass-shell', 'glass-window', 'glass-context-navigation', 'glass-presentation', 'glass-projection-regressions', 'glass-reported-regressions', 'glass-modal-lifecycle', 'theme-transition', 'glass-account-ui', 'skin-site-authentication', 'skin-library', 'workbench-commands')
+          $missingWorkspace = @($workspaceGroups | Where-Object { $_ -notin $registered })
+          if ($missingWorkspace.Count -ne 0) { throw ('Missing required WPF coverage: ' + ($missingWorkspace -join ', ')) }
+          $javaGroups = @('launch-relaunch', 'mmc-launch-replay', 'mmc-phase2-launch')
+          $explicitJson = & dotnet run --project tests/PCLLF.Native.Facade.Tests/PCLLF.Native.Facade.Tests.csproj --configuration $env:NATIVE_CONFIGURATION --no-build -- --list-explicit-groups
+          if ($LASTEXITCODE -ne 0) { throw 'The installed-JVM group registry could not be read.' }
+          $explicit = @(($explicitJson -join "`n") | ConvertFrom-Json)
+          if (@($javaGroups | Where-Object { $_ -notin $explicit }).Count -ne 0) { throw 'A required startup case is missing.' }
           # Registry data owns its dedicated fresh-profile step above.
-          $groups = @($registered | Where-Object { $_ -ne 'registry-data' })
+          $groups = @($registered | Where-Object { $_ -ne 'registry-data' }) + $javaGroups
           foreach ($group in $groups) {
             # Every family owns its real STA child and temporary state. A
             # failed theme family must not hide file/dependency acceptance.
@@ -426,11 +457,20 @@ jobs:
 
       - name: Require public slim EXE legacy identity and exact ZIP payload
         if: matrix.configuration == 'Release'
+        env:
+          PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
         run: |
           $ErrorActionPreference = 'Stop'
           $output = Join-Path $env:RUNNER_TEMP 'lf-public-slim-compatibility'
-          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source
+          $baseline = [IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'modern/Main/Modules/Base/ModBase.cs'))
+          $version = [regex]::Match($baseline, 'const string ReleaseBaselineVersion = "([^"]+)"').Groups[1].Value
+          $preview = $baseline -cmatch 'const bool ReleaseBaselineIsPrerelease = true;'
+          $official = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
+          if ($official -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
+          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease:$official
           $index = Get-Content -LiteralPath (Join-Path $output 'SlimRelease.Artifacts.json') -Raw | ConvertFrom-Json
+          if ($official -and $index.productVersion -cne $version) { throw 'Official preview identity does not match the source version.' }
           if ($index.selfContained -isnot [bool] -or $index.selfContained -or $index.legacyBridgeIncluded -isnot [bool] -or -not $index.legacyBridgeIncluded) { throw 'Public slim package lost legacy compatibility or bundled a runtime.' }
           $exe = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-exe').fileName
           $zipPath = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-zip').fileName
@@ -454,6 +494,14 @@ jobs:
             if ($actual -cne $artifact.sha256) { throw 'Public package receipt hash mismatch.' }
           }
           [ordered]@{ kind = 'PCLLF.PublicSlimCompatibility'; productVersion = $index.productVersion; embeddedPayloadSha256 = $embeddedHash; legacyManagedIdentity = $true; zipPayloadIdentical = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:NATIVE_LOG_DIRECTORY 'public-slim-compatibility.json') -Encoding utf8
+          if ($official) {
+            $public = Join-Path $env:NATIVE_LOG_DIRECTORY 'public-prerelease'
+            New-Item -ItemType Directory -Path $public | Out-Null
+            Copy-Item -LiteralPath @($exe, $zipPath, (Join-Path $output 'SHA256SUMS.txt')) -Destination $public
+            [ordered]@{ kind = 'PCLLF.PublicPrerelease'; version = $version; sourceSha = $env:GITHUB_SHA; selfContained = $false;
+              runtime = $index.runtime; artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
+              Set-Content -LiteralPath (Join-Path $public 'release-receipt.json') -Encoding utf8
+          }
 
       - name: Upload small actual native startup evidence
         if: always() && matrix.configuration == 'Release'
