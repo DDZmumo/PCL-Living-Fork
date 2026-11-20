@@ -43,6 +43,57 @@ internal sealed class GlassTideProgress : Grid
     internal double PercentSize { get => _percent.FontSize; set => _percent.FontSize = value; }
     internal event EventHandler? StopRequested;
 
+    /// <summary>
+    /// Narrow hosts (the splash rail): the percentage is set like a poster — turned on its side, fixed in the middle of
+    /// the host — as a solid figure over an offset outline echo of itself, with a small "%"; it pops when it changes.
+    /// </summary>
+    internal bool PosterFigure
+    {
+        get => _poster;
+        set
+        {
+            _poster = value;
+            _center.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            _posterHost.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (value) RenderPoster("0.00");
+        }
+    }
+    private bool _poster;
+    private readonly Grid _posterHost = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+    private readonly Path _posterSolid = new(), _posterEcho = new() { StrokeThickness = 1.1, Opacity = .45 };
+    private readonly ScaleTransform _ridePop = new(1, 1);
+    private SpringMotion? _popMotion;
+    private string _posterText = "";
+    private int _lastPoppedPercent = -1;
+    private static readonly Typeface PosterTypeface = new(new FontFamily("Segoe UI Variable Display, Bahnschrift, Segoe UI"),
+        FontStyles.Normal, FontWeights.Bold, FontStretches.SemiCondensed);
+
+    // The figure as outlines: digits large, "%" small and raised, laid out left to right, then the whole group turned
+    // a quarter so it reads bottom to top along the rail. The echo is the same outline, stroked only, offset down-right.
+    private void RenderPoster(string figure)
+    {
+        if (figure == _posterText) return;
+        _posterText = figure;
+        double pixels = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        int dot = figure.IndexOf('.');
+        FormattedText Format(string text, double size) => new(text, System.Globalization.CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, PosterTypeface, size, Brushes.Black, pixels);
+        var digits = Format(figure[..dot], 40);
+        var decimals = Format(figure[dot..], 26);
+        var unit = Format("%", 16);
+        var group = new GeometryGroup { FillRule = FillRule.Nonzero };
+        group.Children.Add(digits.BuildGeometry(new Point(0, 0)));
+        double decimalsStart = digits.WidthIncludingTrailingWhitespace + 1;
+        group.Children.Add(decimals.BuildGeometry(new Point(decimalsStart, digits.Baseline - decimals.Baseline)));
+        group.Children.Add(unit.BuildGeometry(new Point(decimalsStart + decimals.WidthIncludingTrailingWhitespace + 2, digits.Baseline - unit.Baseline - 1)));
+        // Glyph outlines carry the font's side bearings and line space; move the ink itself to the origin so centring
+        // (after the quarter turn) centres the figure, not its text box.
+        Rect ink = group.Bounds;
+        group.Transform = new TranslateTransform(-ink.X, -ink.Y);
+        group.Freeze();
+        _posterSolid.Data = group; _posterEcho.Data = group;
+    }
+
     internal GlassTideProgress(double cornerRadius, string? stopText = null)
     {
         _radius = cornerRadius;
@@ -59,6 +110,14 @@ internal sealed class GlassTideProgress : Grid
         _stop.Click += (_, _) => StopRequested?.Invoke(this, EventArgs.Empty);
         _center.Children.Add(_stop);
         Children.Add(_center);
+        _posterSolid.SetResourceReference(Shape.FillProperty, "GlassTextBrush");
+        _posterEcho.SetResourceReference(Shape.StrokeProperty, "GlassTextBrush");
+        _posterEcho.RenderTransform = new TranslateTransform(4, 4);
+        _posterHost.Children.Add(_posterEcho); _posterHost.Children.Add(_posterSolid);
+        _posterHost.RenderTransformOrigin = new Point(.5, .5);
+        _posterHost.LayoutTransform = new RotateTransform(-90);
+        _posterHost.RenderTransform = _ridePop;
+        Children.Add(_posterHost);
         SizeChanged += (_, _) => { Clip = new RectangleGeometry(new Rect(RenderSize), _radius, _radius); Draw(); };
         _level = new SpringMotion(this, 0, _ => { if (!_rendering) Draw(); }, new SpringParameters(.9, 1)) { MaxFrameSeconds = 1 / 30d };
         _presence = new SpringMotion(this, 0, ApplyPresence, new SpringParameters(.35, 1));
@@ -73,8 +132,22 @@ internal sealed class GlassTideProgress : Grid
         bool snap = !MotionPreferences.AllowsAnimation || !IsLoaded;
         if (active)
         {
-            double value = Math.Clamp(progress ?? 0, 0, 1);
-            _percent.Text = Math.Floor(value * 100) + "%";
+            double value = progress is double amount && double.IsFinite(amount) ? Math.Clamp(amount, 0, 1) : 0;
+            int hundredths = value == 1 ? 10000 : Math.Min(9999, (int)((decimal)value * 10000));
+            string figure = (hundredths / 100d).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+            _percent.Text = figure + "%";
+            if (_poster && _posterText != figure)
+            {
+                RenderPoster(figure);
+                int wholePercent = hundredths / 100;
+                bool wholePercentChanged = wholePercent != _lastPoppedPercent;
+                _lastPoppedPercent = wholePercent;
+                if (wholePercentChanged && MotionPreferences.AllowsAnimation && IsLoaded)
+                {
+                    _popMotion ??= new SpringMotion(this, 1, v => _ridePop.ScaleX = _ridePop.ScaleY = v, new SpringParameters(.28, .55));
+                    _popMotion.Snap(1.14); _popMotion.Retarget(1);
+                }
+            }
             _caption.Text = caption;
             _caption.Visibility = string.IsNullOrWhiteSpace(caption) ? Visibility.Collapsed : Visibility.Visible;
             AutomationProperties.SetName(this, $"{caption} {_percent.Text}");
@@ -119,7 +192,9 @@ internal sealed class GlassTideProgress : Grid
     {
         double width = ActualWidth, height = ActualHeight;
         if (width <= 0 || height <= 0) return;
-        double level = height * (1 - Math.Clamp(_level.Value, 0, 1));
+        // The swells reach 9 px either side of the level: at 100 % the whole surface clears the top edge.
+        const double swell = 10;
+        double level = (height + swell) * (1 - Math.Clamp(_level.Value, 0, 1)) - swell;
         for (int i = 0; i <= 32; i++)
         {
             double t = i / 32d;

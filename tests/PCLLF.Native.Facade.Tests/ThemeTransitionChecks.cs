@@ -2,7 +2,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using PCL;
+using PCLLF.Wpf.Glass;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -68,6 +70,11 @@ internal static class ThemeTransitionChecks {
             Native.Cache("SystemDebugAnim", 9); ModAnimation.AniControlEnabled = 1;
             Apply(Brushes.MidnightBlue);
             Native.Check(Overlay() is null, "Native animation suppression was ignored by theme transitions.");
+            ModAnimation.AniControlEnabled = 0;
+            Native.Cache("SystemDebugAnim", 9);
+            VisualAssetChecks.Pump(() => root.IsLoaded && root.IsVisible, "reattach the theme fixture");
+            CheckWorkspacePalette(root);
+
             Native.Check(!window.IsActive, "Offscreen transition fixture took desktop focus.");
             environment.AssertNoForbiddenIo();
             Console.WriteLine("PASS theme crossfade: real WPF opacity interpolation, immediate underlying changes, rapid-toggle replacement, completed/hidden/resized/unloaded cleanup, native disabled/reduced motion and input passthrough.");
@@ -75,6 +82,78 @@ internal static class ThemeTransitionChecks {
             window.Content = null; window.Close(); app.MainWindow = previousMain; app.ShutdownMode = previousMode;
             cache.Clear(); foreach (var entry in saved) cache.Add(entry.Key, entry.Value);
             ModAnimation.AniControlEnabled = suppression;
+        }
+    }
+
+    private static void CheckWorkspacePalette(Grid root)
+    {
+        var panel = new GlassSurface { Width = 80, Height = 60, HorizontalAlignment = HorizontalAlignment.Right };
+        GlassMaterial.SetIsEnabled(panel, false);
+        root.Children.Add(panel);
+        Color dark = Color.FromRgb(24, 24, 24), light = Color.FromRgb(242, 245, 248);
+        var brush = new SolidColorBrush(dark);
+        brush.Freeze();
+
+        void Switch(Color target, bool animate)
+        {
+            brush = (SolidColorBrush)Native.Static("PCL.ThemeTransition", "BlendPaletteBrush", brush, target, animate)!;
+            GlassMaterial.SetFallbackColor(root, target);
+            GlassMaterial.SetFallbackBrush(root, brush);
+        }
+        byte Sample()
+        {
+            root.UpdateLayout();
+            Point point = panel.TranslatePoint(new Point(panel.ActualWidth / 2, panel.ActualHeight / 2), root);
+            var capture = new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth), (int)Math.Ceiling(root.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            capture.Render(root);
+            byte[] pixel = new byte[4];
+            capture.CopyPixels(new Int32Rect((int)point.X, (int)point.Y, 1, 1), pixel, 4, 0);
+            return pixel[2];
+        }
+
+        try
+        {
+            Switch(dark, false);
+            VisualAssetChecks.Pump(() => panel.IsLoaded && panel.ActualWidth > 0 && panel.ActualHeight > 0, "load the glass palette sample");
+            if (!SystemParameters.HighContrast)
+            {
+                byte start = Sample();
+                Native.Check(start == dark.R,
+                    $"The glass panel did not draw the original fallback palette (red={start}, inherited brush={ReferenceEquals(GlassMaterial.GetFallbackBrush(panel), brush)}).");
+            }
+
+            bool animate = SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast;
+            Switch(light, animate);
+            Native.Check(!root.Children.OfType<Image>().Any() && !root.Children.OfType<Border>().Any(border => Equals(border.Tag, "glass-theme-fade")),
+                "Workspace color changes put a veil or screenshot over the controls.");
+            if (animate)
+            {
+                Native.Check(brush.Color == dark && Equals(Native.Static("PCL.ThemeTransition", "PaletteTarget", brush), light),
+                    "The workspace jumped to its target before its first color frame.");
+                VisualAssetChecks.Pump(() => brush.Color.R > dark.R && brush.Color.R < light.R, "live intermediate theme color");
+                byte sample = Sample();
+                Native.Check(sample > dark.R && sample < light.R, "The fallback glass paint skipped the intermediate palette.");
+                Color displayed = brush.Color;
+                var sameBrush = brush;
+                Switch(dark, true);
+                Native.Check(ReferenceEquals(sameBrush, brush) && brush.Color == displayed,
+                    "Rapid switching snapped the workspace instead of reversing from its displayed color.");
+                VisualAssetChecks.Pump(() => brush.Color == dark && !brush.HasAnimatedProperties, "finish the reversed palette");
+            }
+            else
+            {
+                Native.Check(brush.Color == light && !brush.HasAnimatedProperties, "Reduced motion started a workspace color animation.");
+            }
+            Switch(light, animate: false);
+            Native.Check(brush.Color == light && !brush.HasAnimatedProperties,
+                "An immediate change left an obsolete color animation.");
+            if (!SystemParameters.HighContrast) Native.Check(Sample() == light.R, "Glass fallback did not adopt the final palette.");
+        }
+        finally
+        {
+            root.Children.Remove(panel);
+            root.ClearValue(GlassMaterial.FallbackBrushProperty);
+            root.ClearValue(GlassMaterial.FallbackColorProperty);
         }
     }
 }

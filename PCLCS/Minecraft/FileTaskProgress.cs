@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,6 +11,7 @@ namespace PCLCS;
 // LF 50b028da5fcad2226d74d901a41d8c43a249bfb2,
 // Plain Craft Launcher 2/Modules/Base/FileTaskProgress.vb; same real byte I/O policy.
 public static class FileTaskProgress {
+    private const int BufferSize = 128 * 1024;
     private static long totalRead, totalWritten;
     public static long ReadBytes => Interlocked.Read(ref totalRead);
     public static long WrittenBytes => Interlocked.Read(ref totalWritten);
@@ -47,44 +49,45 @@ public static class FileTaskProgress {
         if (!File.Exists(address)) return null;
         using FileStream input = File.OpenRead(address);
         using SHA1 algorithm = SHA1.Create();
-        byte[] buffer = new byte[131072]; Action<long>? update = Bytes(input.Length, report);
-        while (true) {
-            token.ThrowIfCancellationRequested();
-            int count = input.Read(buffer, 0, buffer.Length);
-            RecordRead(count);
-            if (count == 0) break;
-            algorithm.TransformBlock(buffer, 0, count, buffer, 0);
-            update?.Invoke(count);
-        }
-        algorithm.TransformFinalBlock(new byte[] { }, 0, 0);
+        Action<long>? update = report is null ? null : Bytes(input.Length, report);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        try {
+            while (true) {
+                token.ThrowIfCancellationRequested();
+                int count = input.Read(buffer, 0, BufferSize);
+                RecordRead(count);
+                if (count == 0) break;
+                algorithm.TransformBlock(buffer, 0, count, buffer, 0);
+                update?.Invoke(count);
+            }
+            algorithm.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        } finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
         report?.Invoke(1);
         return "sha1:" + BitConverter.ToString(algorithm.Hash!).Replace("-", "").ToLowerInvariant();
     }
     public static void Copy(string source, string destination, CancellationToken token, Action<double>? report) {
         using (FileStream input = File.OpenRead(source))
         using (FileStream output = new(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
-            byte[] buffer = new byte[131072]; Action<long>? update = Bytes(input.Length, report);
+            CopyStream(input, output, token, report is null ? null : Bytes(input.Length, report));
+            output.Flush();
+        }
+        report?.Invoke(1);
+    }
+    public static void CopyStream(Stream input, Stream output, CancellationToken token) => CopyStream(input, output, token, null);
+
+    private static void CopyStream(Stream input, Stream output, CancellationToken token, Action<long>? update) {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        try {
             while (true) {
                 token.ThrowIfCancellationRequested();
-                int count = input.Read(buffer, 0, buffer.Length);
+                int count = input.Read(buffer, 0, BufferSize);
                 RecordRead(count);
                 if (count == 0) break;
                 output.Write(buffer, 0, count);
                 RecordWrite(count);
                 update?.Invoke(count);
             }
-            output.Flush();
-        }
-        report?.Invoke(1);
-    }
-    public static void CopyStream(Stream input, Stream output, CancellationToken token) {
-        byte[] buffer = new byte[131072];
-        while (true) {
-            token.ThrowIfCancellationRequested();
-            int count = input.Read(buffer, 0, buffer.Length); RecordRead(count);
-            if (count == 0) break;
-            output.Write(buffer, 0, count); RecordWrite(count);
-        }
+        } finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
     }
     // Same LF task-local clamp, adapted to actual Loader getter/setter primitives.
     public static Action<double> ForTask(Func<double> read, Action<double> write) =>

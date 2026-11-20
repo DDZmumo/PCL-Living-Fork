@@ -104,7 +104,7 @@ public sealed partial class GlassPresentationSession
         Bind(pages, UIElement.VisibilityProperty, source.CardPages, nameof(UIElement.Visibility)); results.Children.Add(pages);
         Bind(pages, UIElement.IsEnabledProperty, source.CardPages, nameof(UIElement.IsEnabled));
         var content = new Grid();
-        var scroller = new ScrollViewer { Name = "ResourceResultsScroll", Content = results, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
+        var scroller = new ScrollViewer { Name = "ResourceResultsScroll", Style = Style("GlassPresentationScrollViewer"), Content = results, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
         SmoothScroll.SetIsEnabled(scroller, true);
         var resultsHost = new ScrollEdgeFade(scroller);
         // Rows are not inside a card, so the list gets one frosted plate of its own; text stays readable over any wallpaper.
@@ -118,12 +118,13 @@ public sealed partial class GlassPresentationSession
         resultsHost.Margin = new Thickness(6, 4, 2, 4);
         resultsPlate.Children.Add(resultsHost);
         Bind(resultsPlate, UIElement.VisibilityProperty, source.PanContent, nameof(UIElement.Visibility)); content.Children.Add(resultsPlate);
-        // Results replace the loader on every search or page change: fade the plate in and cascade the first rows,
-        // instead of the whole list appearing in one frame.
-        bool cascadeArmed = false; DateTime cascadeDeadline = default;
+        // The first results belong to the page entrance. Later search and pagination updates can animate in place.
+        bool resultsShown = false, cascadeArmed = false; DateTime cascadeDeadline = default;
         resultsPlate.IsVisibleChanged += (_, args) =>
         {
-            if (args.NewValue is not true || !Live(resultsPlate) || !MotionPreferences.AllowsAnimation) return;
+            if (args.NewValue is not true || !Live(resultsPlate)) return;
+            if (!resultsShown) { resultsShown = true; return; }
+            if (!MotionPreferences.AllowsAnimation) return;
             plateBackground.Opacity = 0;
             var plateFade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
             plateBackground.BeginAnimation(UIElement.OpacityProperty, plateFade);

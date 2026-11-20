@@ -128,6 +128,13 @@ public sealed class GlassWindowBackdrop : IDisposable {
         VerifyUsable();
         if (_darkTheme == enabled) return;
         _darkTheme = enabled;
+        // A clipped host composition already has a live blur. This shell paints its own
+        // theme tints, so leave that host and the extended window frame in place.
+        if (!_options.ManageWindowRegion && Backend != GlassBackdropBackend.DwmSystemBackdrop) {
+            int dark = enabled ? 1 : 0;
+            DwmSetWindowAttribute(_handle, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int));
+            return;
+        }
         Refresh();
     }
 

@@ -5,6 +5,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable enable
 using System;
+using System.Buffers.Binary;
+using System.IO;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -71,7 +73,10 @@ internal static class GlassSkinSites
     private static readonly object StoreGate = new();
     private static readonly HttpClient Http = CreateClient(followRedirects: false);
     private static readonly HttpClient Skins = CreateClient(followRedirects: true);
-    private static readonly ConcurrentDictionary<string, Task<BitmapSource?>> Heads = new();
+    private const int MaxProfileBytes = 256 * 1024;
+    private const int MaxSkinBytes = 8 * 1024 * 1024;
+    private static readonly SemaphoreSlim HeadSlots = new(3);
+    private static readonly ConcurrentDictionary<string, Lazy<Task<BitmapSource?>>> Heads = new();
     private static object? _roleSelectionOwner;
 
     // The selection is an in-session UI operation. It stays pending even if the account page is hidden.
@@ -212,18 +217,22 @@ internal static class GlassSkinSites
         throw new SkinSiteException("外置登录需要有效的 HTTPS 验证地址。");
     }
 
-    internal static async Task<(string Server, string Name, string Register)> Resolve(string input, HttpClient? transport = null)
+    private static Uri EnteredEndpoint(string input)
     {
         string address = input.Trim();
         if (address.Length == 0) throw new SkinSiteException("请填写 Yggdrasil 地址。");
-        if (!address.Contains("://", StringComparison.Ordinal)) address = "https://" + address;
-        Uri uri = RequireSecureUri(address);
+        return RequireSecureUri(address.Contains("://", StringComparison.Ordinal) ? address : "https://" + address);
+    }
+
+    internal static async Task<(string Server, string Name, string Register)> Resolve(string input, HttpClient? transport = null)
+    {
+        Uri uri = EnteredEndpoint(input);
         transport ??= Http;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try
         {
             for (int hop = 0; hop < 6; hop++) {
-                using HttpResponseMessage response = await transport.GetAsync(uri, deadline.Token).ConfigureAwait(false);
+                using HttpResponseMessage response = await transport.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
                 string? location = (int)response.StatusCode is >= 300 and < 400 ? response.Headers.Location?.OriginalString :
                     response.Headers.TryGetValues("X-Authlib-Injector-API-Location", out var locations) ? locations.FirstOrDefault() : null;
                 if (!string.IsNullOrWhiteSpace(location)) {
@@ -232,7 +241,7 @@ internal static class GlassSkinSites
                     if (next != uri) { uri = next; continue; }
                 }
                 response.EnsureSuccessStatusCode();
-                JObject root = JObject.Parse(await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false));
+                JObject root = JObject.Parse(Encoding.UTF8.GetString(await ReadBounded(response.Content, MaxProfileBytes, deadline.Token).ConfigureAwait(false)));
                 if (root["meta"] is not JObject meta) throw new SkinSiteException("这个地址不是 Yggdrasil 验证服务器。");
                 return (uri.AbsoluteUri.TrimEnd('/'), meta["serverName"]?.ToString() ?? "", meta["links"]?["register"]?.ToString() ?? "");
             }
@@ -241,6 +250,19 @@ internal static class GlassSkinSites
         catch (SkinSiteException) { throw; }
         catch (JsonException error) { throw new SkinSiteException("这个地址不是 Yggdrasil 验证服务器。", error); }
         catch (Exception error) { throw new SkinSiteException("无法连接到验证服务器：" + error.Message, error); }
+    }
+
+    internal static async Task<(string Server, string Name, string Register, SkinSiteAccount Account)?> SignIn(
+        string input, string username, string password, bool rememberPassword, Func<Uri, Uri, bool> approveCrossOrigin, HttpClient? transport = null)
+    {
+        var initial = EnteredEndpoint(input);
+        var (server, name, register) = await Resolve(initial.AbsoluteUri, transport);
+        var resolved = RequireSecureUri(server);
+        if ((!string.Equals(initial.IdnHost, resolved.IdnHost, StringComparison.OrdinalIgnoreCase) || initial.Port != resolved.Port) &&
+            !approveCrossOrigin(initial, resolved)) return null;
+        SkinSiteAccount account = await Authenticate(server, username, password, transport);
+        if (rememberPassword) account.Password = password;
+        return (server, name, register, account);
     }
 
     /// <summary>Signs in with the account's credentials; the result lists its characters.</summary>
@@ -255,7 +277,7 @@ internal static class GlassSkinSites
         JObject response = await Post(server, "authenticate", request, transport).ConfigureAwait(false);
         var account = new SkinSiteAccount
         {
-            Username = username, Password = password,
+            Username = username,
             AccessToken = response["accessToken"]?.ToString() ?? "", ClientToken = response["clientToken"]?.ToString() ?? "",
             SelectedId = response["selectedProfile"]?["id"]?.ToString() ?? "",
             Profiles = (response["availableProfiles"] as JArray ?? new JArray()).OfType<JObject>()
@@ -318,10 +340,14 @@ internal static class GlassSkinSites
         Uri url = CredentialUri(server, operation);
         try
         {
-            using var content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
-            using HttpResponseMessage response = await (transport ?? Http).PostAsync(url, content).ConfigureAwait(false);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json")
+            };
+            using HttpResponseMessage response = await (transport ?? Http).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
             if ((int)response.StatusCode is >= 300 and < 400) throw new SkinSiteException("验证服务器重定向了登录请求，请填写最终的 HTTPS API 地址。");
-            string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            string text = Encoding.UTF8.GetString(await ReadBounded(response.Content, 4 * MaxProfileBytes, deadline.Token).ConfigureAwait(false));
             JObject? json = null;
             try { json = JObject.Parse(text); } catch (JsonException) { }
             if (!response.IsSuccessStatusCode || json is null)
@@ -340,39 +366,80 @@ internal static class GlassSkinSites
     // ---------- Heads ----------
 
     /// <summary>The character's head with its hat layer (cached per site and character); null when it has no skin.</summary>
-    internal static Task<BitmapSource?> Head(string server, string uuid) {
+    internal static Task<BitmapSource?> Head(string server, string uuid, CancellationToken cancellationToken = default) {
         var request = new LegacySkinRequest("", uuid, server, UsesSkinSite: true);
         if (GlassSkinHead.LastGood("Auth", request) is { } known) return Task.FromResult<BitmapSource?>(known);
+        if (cancellationToken.CanBeCanceled) return LoadHead(request, cancellationToken);
         string key = server + "|" + uuid;
-        if (Heads.TryGetValue(key, out var previous) && previous.IsCompletedSuccessfully && previous.Result is null)
-            Heads.TryRemove(new KeyValuePair<string, Task<BitmapSource?>>(key, previous));
-        return Heads.GetOrAdd(key, _ => LoadHead(request));
+        if (Heads.TryGetValue(key, out var previous) && previous.IsValueCreated && previous.Value.IsCompleted)
+            Heads.TryRemove(new KeyValuePair<string, Lazy<Task<BitmapSource?>>>(key, previous));
+        return Heads.GetOrAdd(key, _ => new Lazy<Task<BitmapSource?>>(() => LoadHead(request, default))).Value;
     }
 
-    private static async Task<BitmapSource?> LoadHead(LegacySkinRequest request)
+    private static async Task<BitmapSource?> LoadHead(LegacySkinRequest request, CancellationToken cancellationToken)
     {
+        bool entered = false;
         try
         {
-            string? skinUrl = await SkinAddress(request.Server, request.Id);
+            await HeadSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            entered = true;
+            string? skinUrl = await SkinAddress(request.Server, request.Id, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrEmpty(skinUrl)) return GlassSkinHead.LastGood("Auth", request);
-            byte[] bytes = await Skins.GetByteArrayAsync(skinUrl);
-            var head = await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                var image = new BitmapImage();
-                image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.StreamSource = new System.IO.MemoryStream(bytes); image.EndInit(); image.Freeze();
-                double unit = image.PixelWidth / 64d;
-                BitmapSource Crop(int x, int y) { var crop = new CroppedBitmap(image, new Int32Rect((int)(x * unit), (int)(y * unit), (int)(8 * unit), (int)(8 * unit))); crop.Freeze(); return crop; }
-                return GlassSkinHead.Render(Crop(8, 8), Crop(40, 8));
-            });
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(TimeSpan.FromSeconds(20));
+            using HttpResponseMessage response = await Skins.GetAsync(skinUrl, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            byte[] bytes = await ReadBounded(response.Content, MaxSkinBytes, deadline.Token).ConfigureAwait(false);
+            var head = await Task.Run(() => DecodeHead(bytes), cancellationToken).ConfigureAwait(false);
             if (head is not null) GlassSkinHead.Remember("Auth", request, head);
             return head ?? GlassSkinHead.LastGood("Auth", request);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return null; }
         catch (Exception error) { Logger.Info(error, "读取外置登录角色头像失败"); return GlassSkinHead.LastGood("Auth", request); }
+        finally { if (entered) HeadSlots.Release(); }
     }
 
-    internal static async Task<string?> SkinAddress(string server, string uuid) {
+    private static readonly byte[] PngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+
+    internal static BitmapSource? DecodeHead(byte[] png)
+    {
+        ReadOnlySpan<byte> header = png;
+        if (png.Length is < 33 or > MaxSkinBytes || !header[..8].SequenceEqual(PngSignature) ||
+            BinaryPrimitives.ReadInt32BigEndian(header[8..12]) != 13 || !header[12..16].SequenceEqual("IHDR"u8)) return null;
+        int width = BinaryPrimitives.ReadInt32BigEndian(header[16..20]);
+        int height = BinaryPrimitives.ReadInt32BigEndian(header[20..24]);
+        if (width is < 64 or > 2048 || width % 64 != 0 || (height != width && height != width / 2)) return null;
+        using var stream = new MemoryStream(png, writable: false);
+        BitmapSource image = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        if (image.PixelWidth != width || image.PixelHeight != height) return null;
+        int unit = width / 64;
+        BitmapSource Crop(int x) => new CroppedBitmap(image, new Int32Rect(x * unit, 8 * unit, 8 * unit, 8 * unit));
+        return GlassSkinHead.Render(Crop(8), Crop(40));
+    }
+
+    private static async Task<byte[]> ReadBounded(HttpContent content, int maximum, CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength > maximum) throw new SkinSiteException("验证服务器返回的数据太大。");
+        using Stream input = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var output = new MemoryStream();
+        byte[] buffer = new byte[8192];
+        while (true)
+        {
+            int count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (count == 0) return output.ToArray();
+            if (output.Length + count > maximum) throw new SkinSiteException("验证服务器返回的数据太大。");
+            output.Write(buffer, 0, count);
+        }
+    }
+
+    internal static async Task<string?> SkinAddress(string server, string uuid, CancellationToken cancellationToken = default) {
         Uri root = RequireSecureUri(server);
-        JObject profile = JObject.Parse(await Skins.GetStringAsync(root.AbsoluteUri.TrimEnd('/') + "/sessionserver/session/minecraft/profile/" + Uri.EscapeDataString(uuid)).ConfigureAwait(false));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        using HttpResponseMessage response = await Skins.GetAsync(root.AbsoluteUri.TrimEnd('/') + "/sessionserver/session/minecraft/profile/" + Uri.EscapeDataString(uuid),
+            HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        JObject profile = JObject.Parse(Encoding.UTF8.GetString(await ReadBounded(response.Content, MaxProfileBytes, deadline.Token).ConfigureAwait(false)));
         string? encoded = (profile["properties"] as JArray)?.OfType<JObject>().FirstOrDefault(item => item["name"]?.ToString() == "textures")?["value"]?.ToString();
         if (encoded is null) return null;
         return JObject.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(encoded)))["textures"]?["SKIN"]?["url"]?.ToString();

@@ -143,7 +143,8 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
                 TButton delete=view.CreateJavaButton(false); delete.IsEnabled=!official; delete.ToolTip=delete.IsEnabled ? "从列表中移除" : "无法移除官方 Java"; view.OnButtonClick(delete,()=>host.RemoveJava(entry)); ToolTipService.SetShowOnDisabled(delete,true);
                 TButton open=view.CreateJavaButton(true); open.ToolTip="打开文件夹"; view.OnButtonClick(open,()=>host.Explorer(entry.JavaExePath)); view.SetButtons(item,new List<TButton>{delete,open});
             }
-            TItem import=view.CreateJavaItem(null," 导入电脑中已有的 Java…"); import.MouseLeftButtonUp+=(_,e)=> { e.Handled=true; host.ImportJava(); }; view.JavaSelect.Items.Add(import);
+            TItem import=view.CreateJavaItem(null," 导入电脑中已有的 Java…"); import.MouseLeftButtonUp+=(_,e)=>e.Handled=true;
+            view.OnJavaClick(import, host.ImportJava); view.JavaSelect.Items.Add(import);
         } catch (Exception ex) { host.Error(ex,"更新 Java 下拉框失败"); }
     }
     public void SearchJava() => host.SearchJava();

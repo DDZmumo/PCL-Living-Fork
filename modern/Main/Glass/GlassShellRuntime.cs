@@ -35,6 +35,7 @@ internal sealed class GlassShellRuntime : IDisposable {
     private McInstance? _loadRequested;
     private ImageSource? _instanceIcon;
     private double _nextMetadataRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
+    private int _emptyRecentRetries;
     private RecentWorld? _recentWorld, _observedRecentTag;
     private ImageSource? _recentIcon, _observedRecentIcon;
     private string _recentName = string.Empty, _recentDetail = string.Empty;
@@ -105,7 +106,9 @@ internal sealed class GlassShellRuntime : IDisposable {
         bool hasInstance = instance is not null && ModModpackMode.AllowsInstance(instance.PathVersion);
         bool loadingInstances = ModMinecraft.McInstanceListLoader.State == ModBase.LoadState.Loading ||
                                 ModMinecraft.McFolderListLoader.State == ModBase.LoadState.Loading;
-        bool canLaunch = hasInstance && !loadingInstances && !waitingForRole && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!);
+        bool downloadRequired = !hasInstance && CanOfferInstall();
+        bool canLaunch = !loadingInstances && !waitingForRole &&
+            (downloadRequired || (hasInstance && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!)));
         int page = _owner.GlassPageCode;
         string title = _owner.GlassPageTitle ?? string.Empty;
         string? resourceTitle = page == (int)FormMain.PageType.Download ? ResourcePageTitle(_owner.PageRight) : null;
@@ -146,7 +149,7 @@ internal sealed class GlassShellRuntime : IDisposable {
             InstanceIcon = _instanceIcon,
             CanLaunch = canLaunch,
             IsLaunching = launching,
-            LaunchText = waitingForRole ? "请先选择角色" : loadingInstances ? "正在加载" : "启动游戏",
+            LaunchText = waitingForRole ? "请先选择角色" : loadingInstances ? "正在加载" : downloadRequired ? "下载游戏" : "启动游戏",
             LaunchStatus = launchStatus,
             LaunchProgress = progress,
             DependencyCheckEnabled = Settings.Get<bool>("LaunchModDependencyCheck"),
@@ -271,7 +274,11 @@ internal sealed class GlassShellRuntime : IDisposable {
                     SetRecentPresentation(world, icon);
                     // At startup the original launch page discovers existing worlds a moment after the first read, so
                     // an empty result is retried quickly instead of waiting the normal five seconds.
-                    if (world is null) _nextRecentRefresh = Math.Min(_nextRecentRefresh, Timestamp() + .8);
+                    if (world is null && _emptyRecentRetries < 3)
+                    {
+                        _emptyRecentRetries++;
+                        _nextRecentRefresh = Math.Min(_nextRecentRefresh, Timestamp() + .8);
+                    }
                     _recentImagePath = imagePath;
                     _recentImageStamp = imageStamp;
                     Refresh();
@@ -298,10 +305,22 @@ internal sealed class GlassShellRuntime : IDisposable {
         _recentImageStamp = default;
         _nextRecentRefresh = 0;
         _nextRecentPresentationRefresh = 0;
+        _emptyRecentRetries = 0;
     }
+
+    private static bool CanOfferInstall() => !ModModpackMode.Enabled &&
+        (!Settings.Get<bool>("UiHiddenPageDownload") || PageSetupUI.HiddenForceShow);
 
     private void OnStartRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
+        if (!LauncherApplicationServices.IsLaunchActive() && !GlassSkinSites.RoleSelectionPending &&
+            (ModMinecraft.McInstanceSelected is not { } selected || !ModModpackMode.AllowsInstance(selected.PathVersion)) &&
+            CanOfferInstall() && ModMinecraft.McInstanceListLoader.State != ModBase.LoadState.Loading &&
+            ModMinecraft.McFolderListLoader.State != ModBase.LoadState.Loading)
+        {
+            _owner.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadInstall);
+            return;
+        }
         LauncherApplicationServices.Launch.Start();
         Refresh();
     }

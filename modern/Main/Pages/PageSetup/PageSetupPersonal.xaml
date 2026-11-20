@@ -30,8 +30,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
                             <local:MyComboBoxItem Content="跟随全局设置"/>
                             <local:MyComboBoxItem Content="不同步，保留此版本的个人设置"/>
                         </local:MyComboBox>
-                        <TextBlock x:Name="LabCaptureCaption" Text="共用方案回写" Grid.Row="3" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                        <local:MyComboBox x:Name="ComboCapture" Grid.Row="3" Grid.Column="1" Height="28">
+                        <TextBlock x:Name="LabCaptureCaption" Text="共用方案回写" Grid.Row="3" VerticalAlignment="Center" Margin="0,8,20,0"/>
+                        <local:MyComboBox x:Name="ComboCapture" Grid.Row="3" Grid.Column="1" Height="28" Margin="0,8,0,0">
                             <local:MyComboBoxItem Content="保存游戏中的个人设置修改"/>
                             <local:MyComboBoxItem Content="保留个人方案，仅在启动前应用"/>
                         </local:MyComboBox>

@@ -15,6 +15,7 @@ internal static class Program
         ["glass-portals"] = GlassPortalChecks.Run,
         ["glass-presentation"] = GlassPresentationChecks.Run,
         ["glass-projection-regressions"] = GlassProjectionRegressionChecks.Run,
+        ["glass-reported-regressions"] = GlassProjectionRegressionChecks.ReportedRegressions,
         ["glass-modal-lifecycle"] = GlassModalLifecycleChecks.Run,
         ["workbench-commands"] = WorkbenchCommandChecks.Run,
         ["instance-delete"] = InstanceDeletionChecks.Run,

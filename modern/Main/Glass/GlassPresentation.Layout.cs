@@ -47,6 +47,7 @@ public sealed partial class GlassPresentationSession
             MyCard group when group.Parent is StackPanel { Name: "PanBindings" } => ProjectKeybindingGroup(group),
             MyCard card => ProjectCard(card),
             MyHintView hint => ProjectHint(hint),
+            TextBlock { Name: "FavoriteStatus" or "LabEmpty" } empty => ProjectEmptyState(empty),
             MyLoadingView loading => ProjectLoading(loading),
             ComboBox combo => ProjectCombo(combo),
             TextBox input => ProjectTextInput(input),
@@ -89,6 +90,15 @@ public sealed partial class GlassPresentationSession
 
     private Node ProjectGrid(Grid source)
     {
+        if (source.Name == "PanManageButtons" && InPage<PageInstanceResources>(source))
+        {
+            var commands = new WrapPanel();
+            return new Node(commands) { Pull = () =>
+            {
+                Children(commands, source.Children.OfType<DependencyObject>().Select(item => Project(item)).Where(item => item != null).ToArray());
+                foreach (Button button in commands.Children.OfType<Button>()) button.Margin = new Thickness(0, 4, 10, 4);
+            }};
+        }
         var grid = new Grid();
         bool homeChoices = SettingsContext(source) && source.Children.OfType<MyRadioBox>().Any(item => item.Name == "RadioCustomType0");
         bool settingsRow = SettingsContext(source) && source.ColumnDefinitions.Count == 2 && source.Children.Count == 2 &&
@@ -134,7 +144,7 @@ public sealed partial class GlassPresentationSession
                 grid.MinHeight = 40;
             Children(grid, source.Children.OfType<DependencyObject>().Select(child => Project(child)).Where(child => child != null).ToArray());
             // Java list: the original paints its summary over an empty drop-down; keep both in one full-width field.
-            if (source.Name == "PanAdvanceJava")
+            if (source.Name is "PanAdvanceJava" or "PanArgumentJavaSelect")
             {
                 foreach (ComboBox field in grid.Children.OfType<ComboBox>())
                 { field.Width = double.NaN; field.MaxWidth = double.PositiveInfinity; field.HorizontalAlignment = HorizontalAlignment.Stretch; }
@@ -317,12 +327,13 @@ public sealed partial class GlassPresentationSession
             ApplyHomepagePalette(source, stack, ref lastText);
             pull();
             var fresh = stack.Children.OfType<UIElement>().Where(child => seen.Add(child)).ToList();
-            // The first build belongs to the page entrance (it cascades the page's items itself).
+            // The first build moves with the page. Only later additions get their own entrance.
             if (!primed) { primed = true; return; }
             var visible = fresh.Where(child => child.Visibility == Visibility.Visible).Take(14).ToList();
             if (visible.Count == 0) return;
             stack.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
             {
+                if (!Live(stack)) return;
                 // A homepage is usually one root panel holding the cards: cascade the cards inside it.
                 var cards = visible.Count == 1 && PCLLF.Wpf.Motion.StaggeredEntrance.FindItemsPanel(visible[0]) is Panel items
                     ? items.Children.OfType<UIElement>().Where(card => card.Visibility == Visibility.Visible).Take(14).ToList()
@@ -369,6 +380,43 @@ public sealed partial class GlassPresentationSession
         image.Clip = clip;
     }
 
+    // "Nothing here" notices (empty favourites, empty resource folders, no backups…): the hexagon writes a ?, the
+    // message sits under it, centred.
+    private Node ProjectEmptyState(TextBlock source)
+    {
+        var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(16, 18, 16, 14) };
+        stack.Children.Add(new GlassStatusGlyph(GlassStatusGlyph.Kind.Empty, 52) { HorizontalAlignment = HorizontalAlignment.Center });
+        var text = PlainText(source.Text);
+        Bind(text, TextBlock.TextProperty, source, nameof(source.Text));
+        text.TextWrapping = TextWrapping.Wrap; text.TextAlignment = TextAlignment.Center; text.MaxWidth = 420; text.Margin = new Thickness(0, 12, 0, 0);
+        text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+        stack.Children.Add(text);
+        // Favourites: the notice is the whole page's content, so it is centred in the visible area below its card's top.
+        if (source.Name == "FavoriteStatus")
+        {
+            var frame = new Grid();
+            stack.VerticalAlignment = VerticalAlignment.Center;
+            frame.Children.Add(stack);
+            void Fit()
+            {
+                ScrollViewer? scroll = null;
+                for (DependencyObject? item = frame; item is not null; item = VisualTreeHelper.GetParent(item))
+                    if (item is ScrollViewer found) { scroll = found; break; }
+                if (scroll is null || !frame.IsLoaded) return;
+                double top;
+                try { top = frame.TransformToAncestor(scroll).Transform(new Point()).Y + scroll.VerticalOffset; }
+                catch (InvalidOperationException) { return; }
+                double room = Math.Max(0, scroll.ViewportHeight - top - 40);
+                if (Math.Abs(frame.MinHeight - room) > 1) frame.MinHeight = room;
+            }
+            // Header and viewport sizes can both change after the empty state first appears.
+            // Fit is a no-op unless the free space changes.
+            frame.LayoutUpdated += (_, _) => Fit();
+            return new Node(frame);
+        }
+        return new Node(stack);
+    }
+
     private Node ProjectStack(StackPanel source)
     {
         var stack = new StackPanel { Orientation = source.Orientation };
@@ -395,7 +443,7 @@ public sealed partial class GlassPresentationSession
             // Stream long item lists progressively during live interactive navigation so frame 0 renders the first
             // screenful in < 5ms instead of building 50-300 rows at once. Headless/test sessions stay synchronous.
             bool canStream = source.Orientation == Orientation.Vertical && raw.Length > 20 &&
-                _root.IsLoaded && ModAnimation.AniControlEnabled == 0 &&
+                (_pageAppearance is not null || (_root.IsLoaded && ModAnimation.AniControlEnabled == 0)) &&
                 raw[0] is MyLocalModItem or MyListItem or MyResourceItem;
 
             if (!canStream)
@@ -437,15 +485,18 @@ public sealed partial class GlassPresentationSession
                     {
                         streamOperation = null;
                         if (_disposed || !Live(stack) || activeRevision != streamRevision) return;
-                        int end = Math.Min(raw.Length, cursor + 18);
-                        for (; cursor < end; cursor++)
+                        int start = cursor, end = Math.Min(raw.Length, cursor + 18);
+                        long started = Stopwatch.GetTimestamp();
+                        for (; cursor < end; )
                         {
-                            DependencyObject item = raw[cursor];
+                            if (cursor > start && Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 3) break;
+                            int index = cursor++;
+                            DependencyObject item = raw[index];
                             if (source.Children.IndexOf(item as UIElement) < 0) continue;
                             if (Project(item) is not UIElement projected || stack.Children.Contains(projected)) continue;
                             // Insert in source order: rows realized earlier (beyond this batch) must stay after it.
                             int position = 0;
-                            for (int before = cursor - 1; before >= 0; before--)
+                            for (int before = index - 1; before >= 0; before--)
                                 if (_nodes.TryGetValue(raw[before], out Node previous) && stack.Children.IndexOf(previous.View) is int found and >= 0)
                                 { position = found + 1; break; }
                             stack.Children.Insert(position, projected);
@@ -555,6 +606,11 @@ public sealed partial class GlassPresentationSession
             };
         }
         else border = new Border { Padding = source.Padding, CornerRadius = new CornerRadius(14) };
+        if (InPage<MyScreenshotItem>(source))
+        {
+            border.ClipToBounds = true;
+            border.SetResourceReference(Border.BackgroundProperty, "GlassPresentationField");
+        }
         var node = new Node(border);
         node.Pull = () =>
         {
@@ -756,7 +812,7 @@ public sealed partial class GlassPresentationSession
     }
     private Node ProjectScroll(ScrollViewer source)
     {
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = source.VerticalScrollBarVisibility, HorizontalScrollBarVisibility = source.HorizontalScrollBarVisibility, PanningMode = PanningMode.VerticalOnly };
+        var scroll = new ScrollViewer { Style = Style("GlassPresentationScrollViewer"), VerticalScrollBarVisibility = source.VerticalScrollBarVisibility, HorizontalScrollBarVisibility = source.HorizontalScrollBarVisibility, PanningMode = PanningMode.VerticalOnly };
         SmoothScroll.SetIsEnabled(scroll, true);
         double expectedSource = double.NaN, expectedTarget = double.NaN;
         // The homepage is never laid out in its original page while the shell shows it, so its offsets mean nothing:
@@ -1157,6 +1213,8 @@ public sealed partial class GlassPresentationSession
     private Node ProjectCard(MyCard source)
     {
         if (IsFloatingCommandBar(source)) return ProjectFloatingCommandBar(source);
+        if (source.Name == "CardMinecraft" && SourceAncestor<PageDownloadModify>(source) is { } modify)
+            return ProjectMinecraftChange(source, modify);
         var body = new StackPanel();
         bool settingsSection = SettingsContext(source) && !source.CanSwap && source.SwapControl is null;
         var header = PlainText(source.Title); header.FontSize = settingsSection ? 16 : 15; header.FontWeight = FontWeights.SemiBold; header.Margin = new Thickness(0, 0, 0, 12);
@@ -1175,16 +1233,23 @@ public sealed partial class GlassPresentationSession
         }
         var node = new Node(view);
         GlassResourceInfo detailInfo = null;
+        bool bodyRealized = !source.CanSwap || !InPage<PageOtherAbout>(source);
         // Install components (Forge, Fabric, OptiFine...): the original shows the chosen version, "可以添加" or the reason it
         // cannot be chosen in a small info row plus a clear button. Those move into the header (see InstallStatus).
         Grid installInfo = source.CanSwap ? source.Children.OfType<Grid>().FirstOrDefault(grid => grid.Name.StartsWith("Pan", StringComparison.Ordinal) && grid.Name.EndsWith("Info", StringComparison.Ordinal) && grid.Children.OfType<TextBlock>().Any()) : null;
         FrameworkElement installClear = installInfo is null ? null : source.Children.OfType<FrameworkElement>().FirstOrDefault(child => child.Name.EndsWith("Clear", StringComparison.Ordinal));
+        FrameworkElement syncStatus = source.CanSwap && InPage<PageSetupPersonal>(source)
+            ? source.Children.OfType<FrameworkElement>().FirstOrDefault(child => child.Tag is string tag &&
+                (tag.StartsWith("sync-state:", StringComparison.Ordinal) || tag.StartsWith("sync-category:", StringComparison.Ordinal)))
+            : null;
         node.Pull = () =>
         {
             string caption = new TextRange(source.MainTextBlock.ContentStart, source.MainTextBlock.ContentEnd).Text;
             header.SetCurrentValue(TextBlock.TextProperty, caption);
             header.Visibility = string.IsNullOrWhiteSpace(caption) ? Visibility.Collapsed : Visibility.Visible;
-            var children = source.Children.Cast<UIElement>().Skip(3).Where(child => !ReferenceEquals(child, installInfo) && !ReferenceEquals(child, installClear)).OfType<DependencyObject>().ToList();
+            if (!bodyRealized && source.IsSwapped) return;
+            bodyRealized = true;
+            var children = source.Children.Cast<UIElement>().Skip(3).Where(child => !ReferenceEquals(child, installInfo) && !ReferenceEquals(child, installClear) && !ReferenceEquals(child, syncStatus)).OfType<DependencyObject>().ToList();
             if (source.BorderChild is DependencyObject inner) children.Insert(0, inner);
             var projected = children.Select(child => Project(child, true)).Where(child => child != null).ToList();
             if (CardSupplement?.Invoke(source) is UIElement supplement) projected.Insert(0, supplement);
@@ -1214,6 +1279,25 @@ public sealed partial class GlassPresentationSession
             object headerContent = header;
             Action<Expander> pullStatus = null;
             if (installInfo is not null) (headerContent, pullStatus) = InstallStatus(source, header, installInfo, installClear);
+            else if (syncStatus is not null)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                header.VerticalAlignment = VerticalAlignment.Center;
+                header.TextTrimming = TextTrimming.CharacterEllipsis;
+                row.Children.Add(header);
+                headerContent = row;
+                pullStatus = _ =>
+                {
+                    if (Project(syncStatus, true) is not FrameworkElement status) return;
+                    status.Margin = new Thickness(12, 0, 0, 0);
+                    status.VerticalAlignment = VerticalAlignment.Center;
+                    if (status is TextBlock text) text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+                    Grid.SetColumn(status, 1);
+                    if (!row.Children.Contains(status)) row.Children.Add(status);
+                };
+            }
             var expander = new Expander { Style = Style("GlassPresentationExpander"), Header = headerContent, Content = body, IsExpanded = !source.IsSwapped, Padding = new Thickness() };
             surface.Child = expander;
             if (pullStatus is not null)
@@ -1247,6 +1331,124 @@ public sealed partial class GlassPresentationSession
         }
         return node;
     }
+
+    private Node ProjectMinecraftChange(MyCard source, PageDownloadModify page)
+    {
+        var versionInfo = source.Children.OfType<Grid>().Single(grid => grid.Name == "PanMinecraftInfo");
+        var current = versionInfo.Children.OfType<TextBlock>().Single();
+        var compare = source.Children.OfType<Grid>().Single(grid => grid.Name == "PanMinecraftCompare");
+        var versions = compare.Children.OfType<DockPanel>().SelectMany(panel => panel.Children.OfType<TextBlock>()).ToArray();
+        var change = source.Children.OfType<Grid>().Single(grid => grid.Name == "PanMinecraftChange");
+        var restore = source.Children.OfType<MyIconButton>().Single(button => button.Name == "BtnMinecraftRestore");
+
+        var title = PlainText(source.Title);
+        title.FontSize = 15; title.FontWeight = FontWeights.SemiBold; title.VerticalAlignment = VerticalAlignment.Center;
+        var version = PlainText("");
+        version.FontSize = 12.5; version.TextTrimming = TextTrimming.CharacterEllipsis; version.TextWrapping = TextWrapping.NoWrap;
+        var badge = new Border { Child = version, MaxWidth = 260, Margin = new Thickness(10, 0, 12, 0), Padding = new Thickness(10, 3, 10, 3),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(11) };
+        badge.SetResourceReference(Border.BackgroundProperty, "GlassPresentationSelected");
+        var restoreSlot = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(title); Grid.SetColumn(badge, 1); header.Children.Add(badge);
+        Grid.SetColumn(restoreSlot, 2); header.Children.Add(restoreSlot);
+
+        var body = new StackPanel();
+        var expander = new Expander { Name = "MinecraftVersionPicker", Style = Style("GlassPresentationExpander"), Header = header, Content = body };
+        AutomationProperties.SetName(expander, "更换 Minecraft 版本");
+        var search = new TextBox { Name = "MinecraftVersionSearch", Style = Style("GlassPresentationTextBox"), Height = 34 };
+        AutomationProperties.SetName(search, "搜索 Minecraft 版本");
+        var searchHint = PlainText("搜索版本");
+        searchHint.Margin = new Thickness(14, 0, 0, 0); searchHint.VerticalAlignment = VerticalAlignment.Center;
+        searchHint.IsHitTestVisible = false;
+        searchHint.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+        var searchHost = new Grid { Margin = new Thickness(0, 2, 0, 8), Children = { search, searchHint } };
+        body.Children.Add(searchHost);
+        var list = new ListBox { Name = "MinecraftVersionOptions", Style = Style("GlassPresentationPickerList"), MaxHeight = 260, BorderThickness = new Thickness(), Background = Brushes.Transparent };
+        ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetCanContentScroll(list, true);
+        VirtualizingPanel.SetIsVirtualizing(list, true);
+        VirtualizingPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
+        AutomationProperties.SetName(list, "可选 Minecraft 版本");
+        body.Children.Add(list);
+        var empty = PlainText("没有符合条件的版本");
+        empty.Margin = new Thickness(10, 8, 10, 8); empty.Visibility = Visibility.Collapsed;
+        body.Children.Add(empty);
+
+        JArray? catalog = null;
+        MinecraftVersionChoice[] choices = Array.Empty<MinecraftVersionChoice>();
+        void FillChoices()
+        {
+            if (!ReferenceEquals(catalog, page.MinecraftVersions))
+            {
+                catalog = page.MinecraftVersions;
+                choices = catalog?.OfType<JObject>()
+                    .Where(entry => !string.IsNullOrWhiteSpace((string?)entry["id"]) && !string.IsNullOrWhiteSpace((string?)entry["url"]))
+                    .Select(entry => new MinecraftVersionChoice((string)entry["id"]!, entry)).ToArray() ?? Array.Empty<MinecraftVersionChoice>();
+            }
+            string query = search.Text.Trim();
+            var filtered = query.Length == 0 ? choices : choices.Where(choice => choice.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+            list.ItemsSource = filtered;
+            empty.Text = choices.Length == 0 ? "版本列表暂不可用" : "没有符合条件的版本";
+            empty.Visibility = filtered.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            searchHint.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        void Choose(MinecraftVersionChoice choice)
+        {
+            if (!Live(expander) || !expander.IsExpanded || !expander.IsEnabled || change.Visibility != Visibility.Visible ||
+                !ReferenceEquals(catalog, page.MinecraftVersions) || !page.ChooseMinecraftInPlace(choice.Entry)) return;
+            expander.IsExpanded = false;
+            Refresh();
+        }
+        var itemButton = new FrameworkElementFactory(typeof(Button));
+        itemButton.SetValue(FrameworkElement.StyleProperty, Style("GlassPresentationBandRow"));
+        itemButton.SetValue(FrameworkElement.MinHeightProperty, 32d);
+        itemButton.SetValue(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left);
+        itemButton.SetValue(Control.PaddingProperty, new Thickness(10, 0, 10, 0));
+        itemButton.SetBinding(ContentControl.ContentProperty, new Binding(nameof(MinecraftVersionChoice.Name)));
+        itemButton.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((sender, _) =>
+        {
+            if (sender is Button { DataContext: MinecraftVersionChoice choice }) Choose(choice);
+        }));
+        list.ItemTemplate = new DataTemplate { VisualTree = itemButton };
+        list.PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key != Key.Enter || args.OriginalSource is Button || list.SelectedItem is not MinecraftVersionChoice choice) return;
+            args.Handled = true; Choose(choice);
+        };
+        search.TextChanged += (_, _) => { if (expander.IsExpanded) FillChoices(); };
+        expander.Expanded += (_, args) =>
+        {
+            if (!ReferenceEquals(args.OriginalSource, expander) || !Live(expander)) return;
+            FillChoices();
+        };
+        var surface = new GlassSurface { CornerRadius = new CornerRadius(14), Padding = new Thickness(18, 10, 18, 10),
+            Child = expander, BorderThickness = new Thickness(.7), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0 };
+        surface.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill");
+        surface.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationEdge");
+        return new Node(surface) { Pull = () =>
+        {
+            version.Text = compare.Visibility == Visibility.Visible ? string.Join(" → ", versions.Select(label => label.Text)) : current.Text;
+            badge.ToolTip = version.Text;
+            bool canChange = change.Visibility == Visibility.Visible && source.IsHitTestVisible;
+            expander.IsEnabled = canChange;
+            if (!canChange) expander.IsExpanded = false;
+            else if (expander.IsExpanded && !ReferenceEquals(catalog, page.MinecraftVersions)) FillChoices();
+            UIElement projectedRestore = Project(restore, true);
+            if (projectedRestore is FrameworkElement item)
+            {
+                item.Margin = new Thickness(6, 0, 0, 0);
+                item.Width = item.Height = item.MinHeight = 30;
+            }
+            if (!ReferenceEquals(restoreSlot.Content, projectedRestore)) restoreSlot.Content = projectedRestore;
+        }};
+    }
+
+    private sealed record MinecraftVersionChoice(string Name, JObject Entry);
 
     private static readonly Geometry CheckGlyph = FrozenGeometry("M1,5 L4,8 10,1");
     private static readonly Geometry LockGlyph = FrozenGeometry("M2.5,6 V4 A3.5,3.5 0 0 1 9.5,4 V6 M1,6 H11 V12 H1 Z");
@@ -1391,6 +1593,9 @@ public sealed partial class GlassPresentationSession
         // Indeterminate work shows the block-curve loader; known progress keeps a thin accent bar under it.
         var loader = new BlockCurveLoader { Width = 48, Height = 48, HorizontalAlignment = HorizontalAlignment.Center };
         loader.SetResourceReference(BlockCurveLoader.ForegroundProperty, "GlassPresentationAccent"); stack.Children.Add(loader);
+        // Loading failed: the hexagon writes an × (it replays each time the failure appears).
+        var failed = new GlassStatusGlyph(GlassStatusGlyph.Kind.Failed, 52) { HorizontalAlignment = HorizontalAlignment.Center, Visibility = Visibility.Collapsed };
+        stack.Children.Add(failed);
         var progress = new ProgressBar { Width = 140, Height = 3, Margin = new Thickness(0, 12, 0, 0), BorderThickness = new Thickness(), Visibility = Visibility.Collapsed };
         progress.SetResourceReference(RangeBase.ForegroundProperty, "GlassPresentationAccent"); progress.SetResourceReference(Control.BackgroundProperty, "GlassPresentationTrack"); stack.Children.Add(progress);
         var text = PlainText(source.Text); text.Margin = new Thickness(0, 14, 0, 0); text.TextAlignment = TextAlignment.Center; stack.Children.Add(text);
@@ -1407,6 +1612,7 @@ public sealed partial class GlassPresentationSession
             bool running = source.State.LoadingState == MyLoadingView.MyLoadingState.Run;
             loader.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
             loader.IsActive = running;
+            failed.Visibility = source.State.LoadingState == MyLoadingView.MyLoadingState.Error ? Visibility.Visible : Visibility.Collapsed;
             progress.Maximum = 1; progress.Value = source.State.Progress;
             progress.Visibility = running && source.ShowProgress ? Visibility.Visible : Visibility.Collapsed;
         };
@@ -1427,7 +1633,14 @@ public sealed partial class GlassPresentationSession
         var details = new Button { Style = Style("GlassPresentationBandRow"), Content = detailsContent, HorizontalContentAlignment = HorizontalAlignment.Stretch, Height = 52 };
         Grid.SetColumn(details, 1); row.Children.Add(details);
         HoverBand(row);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(actions, 2); row.Children.Add(actions);
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetName(actions, "资源操作");
+        Grid.SetColumn(actions, 2); row.Children.Add(actions);
         var separator = RowSeparator(76); Grid.SetColumnSpan(separator, 3); row.Children.Add(separator);
         RoutedEventHandler selection = (_, _) => { if (!Live(checkbox) || source.Checked == (checkbox.IsChecked == true)) return; source.EnsureActions(); source.Checked = checkbox.IsChecked == true; Refresh(); };
         checkbox.Checked += selection; checkbox.Unchecked += selection;
@@ -1435,19 +1648,23 @@ public sealed partial class GlassPresentationSession
         ForwardContextClick(details, source, source.EnsureActions);
         ForwardContextClick(checkbox, source, source.EnsureActions);
         var node = new Node(row);
-        row.MouseEnter += (_, _) =>
+        bool pointerInside = false, keyboardReveal = false;
+        void UpdateActionVisibility()
         {
-            if (!Live(row) || source.Buttons is not null) return;
+            bool reveal = pointerInside || (keyboardReveal && row.IsKeyboardFocusWithin);
+            actions.Visibility = reveal ? Visibility.Visible : Visibility.Collapsed;
+            if (!reveal || !Live(row) || source.Buttons is not null) return;
             source.EnsureActions();
             node.Pull?.Invoke();
-        };
+        }
+        row.MouseEnter += (_, _) => { pointerInside = true; UpdateActionVisibility(); };
+        row.MouseLeave += (_, _) => { pointerInside = false; UpdateActionVisibility(); };
+        row.PreviewMouseDown += (_, _) => { keyboardReveal = false; UpdateActionVisibility(); };
+        row.PreviewKeyDown += (_, _) => { keyboardReveal = true; UpdateActionVisibility(); };
         row.IsKeyboardFocusWithinChanged += (_, args) =>
         {
-            if (args.NewValue is true && Live(row) && source.Buttons is null)
-            {
-                source.EnsureActions();
-                node.Pull?.Invoke();
-            }
+            keyboardReveal = args.NewValue is true && InputManager.Current.MostRecentInputDevice is KeyboardDevice;
+            UpdateActionVisibility();
         };
         details.PreviewMouseLeftButtonDown += (_, args) => {
             if (!Live(details) || args.ClickCount != 2 || source.ResourceFolderRequested is null || source.ResourceEntry?.IsDirectory != true) return;
@@ -1580,6 +1797,8 @@ public sealed partial class GlassPresentationSession
         text.TextWrapping = source.TextWrapping; text.TextTrimming = source.TextTrimming; text.TextAlignment = source.TextAlignment;
         text.FontSize = Math.Clamp(source.FontSize, 11, 28); text.FontWeight = source.FontWeight;
         if (source.Opacity < .9 && source.Opacity > 0) text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+        if (source.Name is "LabValidation" or "LabCloneValidation")
+            text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationDanger");
         // Message dialog title: a calm semibold heading; red for warnings.
         if (source.Name == "LabTitle" && AncestorMessage(source))
         {

@@ -23,7 +23,7 @@ namespace PCL
         {
             __LfAttachOwnHandles();
             this.IsLoad = false;
-            this.RightCards = new Dictionary<string, MyCard>();
+            this.RightCards = new Dictionary<ModLoader.LoaderBase, MyCard>(ReferenceEqualityComparer.Instance);
             this.InitializeComponent();
             UpdateMetricLayout(ModBase.ModeDebug);
         }
@@ -55,7 +55,19 @@ namespace PCL
         }
 
         // 定时器任务
-        private readonly Dictionary<string, MyCard> RightCards;
+        private readonly Dictionary<ModLoader.LoaderBase, MyCard> RightCards;
+
+        internal IEnumerable<ModLoader.LoaderBase> FailedTasks() =>
+            RightCards.Keys.Concat(MmcImportCards.Keys).Where(loader => loader.State == ModBase.LoadState.Failed);
+
+        internal bool TryCancelTask(ModLoader.LoaderBase loader)
+        {
+            if (!RightCards.TryGetValue(loader, out var card) && !MmcImportCards.TryGetValue(loader, out card)) return false;
+            var button = card.Children.OfType<MyIconButton>().FirstOrDefault(item => item.Name == "BtnCancel");
+            if (button is null) return false;
+            if (button.IsEnabled) button.PerformClick();
+            return true;
+        }
         private void Watcher()
         {
             if (!(ModMain.FrmMain.PageCurrent == (FormMain.PageStackData)FormMain.PageType.TaskManager))
@@ -116,10 +128,10 @@ namespace PCL
                 // 获取实际加载器列表
                 List<ModLoader.LoaderBase> LoaderList = (List<ModLoader.LoaderBase>)NewLateBinding.LateGet(Loader, null, "GetLoaderList", Array.Empty<object>(), null, null, null);
                 var PackStages = ModpackUpdateFlow.GetStageSnapshot(LoaderList);
-                if (RightCards.ContainsKey(Loader.Name))
+                if (RightCards.TryGetValue(Loader, out var currentCard))
                 {
                     // 已有此卡片
-                    Grid Card = RightCards[Loader.Name];
+                    Grid Card = currentCard;
                     if (PackStages is not null && Loader.State is ModBase.LoadState.Loading or ModBase.LoadState.Waiting or ModBase.LoadState.Failed &&
                         Card.Children.Count > 3 && Card.Children[3] is Grid PackStageRows)
                     {
@@ -169,6 +181,7 @@ namespace PCL
                             case ModBase.LoadState.Canceled:
                             {
 #region 完成或中断，销毁卡片并返回
+                                RightCards.Remove(Loader);
                                 ModAnimation.AniDispose((MyCard)Card.Parent, true, (_) => TryReturnToHome());
                                 break;
                             }
@@ -308,7 +321,7 @@ namespace PCL
                         }
 
                         ModMain.FrmSpeedRight.PanMain.Children.Insert(0, Card);
-                        RightCards.Add(Loader.Name, Card);
+                        RightCards.Add(Loader, Card);
                         Logger.Info($"新建任务管理卡片：{Loader.Name}");
                         // 添加取消按钮
                         var Cancel = new MyIconButton()
@@ -330,7 +343,7 @@ namespace PCL
                                 if (ModMain.FrmSpeedRight.PanMain.Children.Count == 0 && ModMain.FrmMain.PageCurrent == (FormMain.PageStackData)FormMain.PageType.TaskManager)
                                     ModMain.FrmMain.PageBack();
                             });
-                            RightCards.Remove(Loader.Name);
+                            RightCards.Remove(Loader);
                             ModLoader.LoaderTaskbar.Remove(Loader);
                             Logger.Info($"关闭任务管理卡片：{Loader.Name}，且移出任务列表");
                             ModBase.RunInThread(() => Loader.Cancel());
@@ -360,17 +373,13 @@ namespace PCL
         public void TaskRemove(object Loader)
         {
             if (TryRemoveMmcImport(Loader)) return;
-            if (RightCards.ContainsKey(Conversions.ToString(Conversions.ToString(NewLateBinding.LateGet(Loader, null, "Name", Array.Empty<object>(), null, null, null)))))
+            if (Loader is not ModLoader.LoaderBase loader) return;
+            ModBase.RunInUiWait(() =>
             {
-                ModBase.RunInUiWait(() =>
-                {
-                    // 移除已有的卡片
-                    Grid Card = RightCards[Conversions.ToString(Conversions.ToString(NewLateBinding.LateGet(Loader, null, "Name", Array.Empty<object>(), null, null, null)))];
-                    ModMain.FrmSpeedRight.PanMain.Children.Remove(Card);
-                    RightCards.Remove(Conversions.ToString(Conversions.ToString(NewLateBinding.LateGet(Loader, null, "Name", Array.Empty<object>(), null, null, null))));
-                    Logger.Info($"移除任务管理卡片：{Conversions.ToString(NewLateBinding.LateGet(Loader, null, "Name", Array.Empty<object>(), null, null, null))}");
-                });
-            }
+                if (!RightCards.Remove(loader, out var card)) return;
+                ModMain.FrmSpeedRight?.PanMain.Children.Remove(card);
+                Logger.Info($"移除任务管理卡片：{loader.Name}");
+            });
         }
 
         /// <summary>

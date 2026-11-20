@@ -21,7 +21,7 @@ internal static partial class MmcImportRecoveryUiChecks {
     }
     internal static void RunProgressCancellation(FixtureEnvironment environment) {
         using var scope = new Scope(environment, "mmc-import-progress-cancel");
-        scope.ImportCancellationCard(); scope.PublicationCancellationCard(); scope.OrdinaryCancellationCard(); scope.Finish();
+        scope.ImportCancellationCard(); scope.PublicationCancellationCard(); scope.OrdinaryCancellationCard(); scope.SameTitleProjectedCancellation(); scope.Finish();
         Console.WriteLine("PASS mmc-import-progress-cancel: actual native cancel button retains extraction/publication cards as Loading with Cancelling stage until real producers drain and automatic rollback finishes; unstarted cancellation creates no producer; ordinary tasks retain their close behavior. No game launch or desktop interaction.");
     }
     internal static void RunCompletionBoundary(FixtureEnvironment environment) {
@@ -135,7 +135,11 @@ internal static partial class MmcImportRecoveryUiChecks {
                     !value.Text.Contains("MMC 导入恢复", StringComparison.Ordinal)) &&
                 !Directory.EnumerateDirectories(Path.Combine(game, "versions"), ".pcllf-mmc-import-*").Any(),
                 "Backend failure lost its active stage/error or left an unowned-looking version requiring manual recovery.");
-            left.TaskRemove(task); ModLoader.LoaderTaskbar.Remove(task);
+            ModLoader.LoaderTaskbar.Remove(task);
+            using var presentation = GlassPresentation.Create(right);
+            Native.Check(ProjectedTree(presentation.View).OfType<TextBlock>().Any(item => item.Text.Contains("owned runtime preparation failure", StringComparison.Ordinal)),
+                "Removing the last failed task from the live pool removed its projected diagnostic.");
+            left.TaskRemove(task);
         }
 
         internal void PublishedCompletionBoundary() {
@@ -265,6 +269,41 @@ internal static partial class MmcImportRecoveryUiChecks {
             Native.Check(!Directory.Exists(Path.Combine(game, "versions", "progress-publication-cancel")) &&
                 !Directory.EnumerateDirectories(Path.Combine(game, "versions"), ".pcllf-mmc-import-*").Any(), "Cancelled publication left a partial version requiring manual recovery.");
         }
+        private static IEnumerable<DependencyObject> ProjectedTree(DependencyObject root)
+        {
+            yield return root;
+            foreach (DependencyObject child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                foreach (DependencyObject node in ProjectedTree(child)) yield return node;
+        }
+
+        internal void SameTitleProjectedCancellation()
+        {
+            var (left, right) = TaskPages();
+            var first = Waiting("first distinct step");
+            var second = Waiting("second distinct step");
+            using var session = GlassPresentation.Create(right);
+            var root = ProjectedTree(session.View).OfType<ScrollViewer>().Single();
+            var body = (StackPanel)root.Content;
+            var cards = body.Children.OfType<StackPanel>().Single();
+            Native.Check(cards.Children.Count == 2, "The new task page merged distinct tasks with one title.");
+            var cancel = ProjectedTree(cards.Children[1]).OfType<Button>().Single(item => Equals(item.Content, "取消"));
+            cancel.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Until(() => first.State == ModBase.LoadState.Canceled, "Cancelling the older of two same-name tasks did not reach its own loader.");
+            Native.Check(ModLoader.LoaderTaskbar.Contains(second) && second.State == ModBase.LoadState.Waiting, "Cancelling one task affected the other task.");
+            left.TaskRemove(second);
+            ModLoader.LoaderTaskbar.Remove(second);
+
+            ModLoader.LoaderCombo<string> Waiting(string step)
+            {
+                var task = new ModLoader.LoaderCombo<string>("same title", [new ModLoader.LoaderTask<string, int>(step, _ =>
+                    throw new IOException("An unstarted test producer must not run."))]);
+                tasks.Add(task);
+                ModLoader.LoaderTaskbarAdd(task);
+                left.TaskRefresh(task);
+                return task;
+            }
+        }
+
         internal void OrdinaryCancellationCard() {
             var (left, right) = TaskPages();
             var ordinary = new ModLoader.LoaderCombo<string>("ordinary pack task fixture", [new ModLoader.LoaderTask<string, int>("ordinary extraction", _ => throw new IOException("Unstarted ordinary fixture must not execute."))]);

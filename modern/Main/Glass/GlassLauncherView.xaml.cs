@@ -18,6 +18,7 @@ using Path = System.Windows.Shapes.Path;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using PCLLF.Wpf.Motion;
+using ThemeTransition = PCL.ThemeTransition;
 
 namespace PCLLF.Wpf.Glass;
 
@@ -47,6 +48,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private static readonly SpringParameters PageSpring = new(.46, .86);
     // Pages enter from the direction of travel through the navigation order (down the list: from below).
     private const double PageRise = 22;
+    private const double PageExitTravel = 16;
+    private const double PageExitScale = .94;
+    private const double PageExitEnd = .68;
+    private const double PageEntryDelay = .34;
+    private const double PageEntryFadeEnd = .86;
     private const double TransitionFrameCap = 1 / 40d;
     // When the section changes, the original pages swap a moment later; titles wait for them so a new title never
     // sits over the previous section's content. The fallback releases them if nothing arrives.
@@ -56,8 +62,6 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private string _sidebarSignature = string.Empty;
     private int _sidebarSelectedIndex = -1;
     private static readonly int[] NavigationOrder = { 0, 1, 10, 3, 4 };
-    private readonly TranslateTransform _snapshotTranslation = new();
-    private readonly ScaleTransform _snapshotScale = new(1, 1);
     private readonly Dictionary<Button, SpringMotion> _navigationHoverMotions = new();
     private readonly SpringMotion _accountMotion;
     private readonly SpringMotion _homeMotion;
@@ -70,18 +74,21 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private bool _railExpanded;
     private bool _lastRailAnimating;
     private double _leftExpansionAllowance;
+    private bool _railExpansionAvailable = true;
     private bool _hasSidebar;
     private bool _accountOpen;
     private bool _layoutPending;
     private bool _keyboardInteraction;
-    private bool _hasPageSnapshot;
     private double _homeProgress = 1;
-    private double _pageProgress = 1;
+    private PageSlot _currentPage, _alternatePage;
+    private PagePose _entryStart, _exitStart;
+    private double _entryDelay, _transitionDirection;
     private ImageSource _fallbackInstanceIcon;
     private bool _homeTextShadowEnabled;
     private IReadOnlyList<GlassWindowRegion> _lastRegions = Array.Empty<GlassWindowRegion>();
     private FrameworkElement _surfaceMaskHost;
-    private SolidColorBrush _wallpaperBaseBrush;
+    private SolidColorBrush _wallpaperBaseBrush, _materialFallbackBrush;
+    private bool _blendPalette;
     private readonly RectangleGeometry _bodyContentClip = new();
     private readonly RectangleGeometry _controlsWallpaperClip = new();
     private (Rect Body, Rect Cutout, double BodyRadius, double CutoutRadius)? _lastBodyClipKey;
@@ -95,6 +102,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public event EventHandler SelectInstanceRequested;
     public event EventHandler InstanceSettingsRequested;
     public event EventHandler AccountRequested;
+    public event EventHandler ThemeToggleRequested;
     public event EventHandler MinimizeRequested;
     public event EventHandler CloseRequested;
     public event EventHandler RecentWorldRequested;
@@ -104,8 +112,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public event Action<bool> DependencyCheckChanged;
     public event Action<bool> AutoFillChanged;
     public event Action<int> NavigationRequested;
+    internal event Action<UIElement> PageContentReleased;
 
-    public ContentControl PageContentHost => PageContent;
+    public ContentControl PageContentHost => _currentPage.Host;
     public bool IsRailExpanded => _railExpanded;
     public bool IsRailAnimating => _railExpandMotion.IsRunning;
     public double LeftExpansionAllowance => _leftExpansionAllowance;
@@ -128,8 +137,17 @@ public partial class GlassLauncherView : UserControl, IDisposable
         ScheduleLayout();
     }
 
+    internal void SetRailExpansionAvailable(bool available)
+    {
+        if (_railExpansionAvailable == available) return;
+        _railExpansionAvailable = available;
+        RailToggleButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        if (!available) SetRailExpanded(false, immediate: true);
+    }
+
     public void SetRailExpanded(bool expanded, bool immediate = false)
     {
+        if (expanded && !_railExpansionAvailable) return;
         if (_railExpanded == expanded && !immediate) return;
         _railExpanded = expanded;
         string actionText = expanded ? "收起导航栏" : "展开导航栏";
@@ -150,15 +168,26 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public void SetSurfaceMaskHost(FrameworkElement host)
     {
         ArgumentNullException.ThrowIfNull(host);
-        if (_surfaceMaskHost != null && !ReferenceEquals(_surfaceMaskHost, host)) _surfaceMaskHost.OpacityMask = null;
+        if (_surfaceMaskHost != null && !ReferenceEquals(_surfaceMaskHost, host))
+        {
+            _surfaceMaskHost.OpacityMask = null;
+            if (_materialFallbackBrush is not null)
+            {
+                _surfaceMaskHost.ClearValue(GlassMaterial.FallbackBrushProperty);
+                _surfaceMaskHost.ClearValue(GlassMaterial.FallbackColorProperty);
+            }
+        }
         _surfaceMaskHost = host;
         host.OpacityMask = FrameMask;
+        if (ThemeTransition.PaletteTarget(_materialFallbackBrush) is Color color) SetMaterialFallback(color);
         UpdateWallpaperClip();
     }
 
     public GlassLauncherView()
     {
         InitializeComponent();
+        SidebarScroller.Style = global::PCL.GlassPresentationSession.ShellScrollStyle;
+        SidebarScroller.SetResourceReference(Control.ForegroundProperty, "GlassSecondaryTextBrush");
         _surfaceMaskHost = MainSurface;
         _expansionMotion = new SpringMotion(this, 0, ApplyExpansion, MotionTokens.Spatial);
         _railMotion = new SpringMotion(this, 0, ApplyRail, MotionTokens.Spatial);
@@ -172,10 +201,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _sidebarSelectionMotion.MaxFrameSeconds = TransitionFrameCap;
         _accountMotion = new SpringMotion(this, 0, ApplyAccountPopover, MotionTokens.Reveal);
         _homeMotion = new SpringMotion(this, 1, ApplyHomeTransition, MotionTokens.Reveal);
+        _currentPage = new PageSlot(PageContent);
+        _alternatePage = new PageSlot(AlternatePageContent);
         _pageMotion = new SpringMotion(this, 1, ApplyPageTransition, PageSpring) { MaxFrameSeconds = TransitionFrameCap };
-        // The outgoing page recedes into depth: it shrinks about its centre while drifting and fading.
-        PageSnapshot.RenderTransformOrigin = new Point(.5, .42);
-        PageSnapshot.RenderTransform = new TransformGroup { Children = { _snapshotScale, _snapshotTranslation } };
         _titleMotion = new SpringMotion(this, 0, ApplyTitleTransition, MotionTokens.Reveal);
         _optionsMotion = new SpringMotion(this, 1, ApplyOptionsAvailability, MotionTokens.Reveal);
         Loaded += OnLoaded;
@@ -230,7 +258,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         {
             bool compact = IsCompactViewport;
             double columnWidth = SecondaryWidth(state.IsHome || _workspaceOpen, compact);
-            SetSecondaryColumnWidth(columnWidth, animate: !ShouldSnapMotion);
+            // Page motion already runs on render transforms. Resizing this column throughout it remeasures both pages.
+            SetSecondaryColumnWidth(columnWidth, animate: false);
         }
         _updatingState = true;
         try
@@ -421,30 +450,79 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     public void SetPageContent(UIElement content)
     {
-        if (ReferenceEquals(PageContent.Content, content)) return;
+        if (ReferenceEquals(PageContentHost.Content, content)) return;
         ReleaseTitles();
-        // Home now has content of its own (the homepage cards): it arrives with the same rise and card cascade as any page.
-        bool animate = !ShouldSnapMotion && content != null && (_state.IsHome || _homeProgress < .999);
-        BitmapSource previous = animate ? CapturePageLayer() : null;
-        PageContent.Content = content;
-        _hasPageSnapshot = previous != null;
-        PageSnapshot.Source = previous;
-        PageSnapshot.Visibility = _hasPageSnapshot ? Visibility.Visible : Visibility.Hidden;
-        if (animate)
+        bool animate = !ShouldSnapMotion && content is not null;
+        bool returning = content is not null && ReferenceEquals(_alternatePage.Host.Content, content);
+        // If the replacement arrives mid-transition, keep whichever old page the user can still see.
+        if (returning || animate && _currentPage.Host.Content is not null &&
+            (_alternatePage.Host.Content is null || _currentPage.Pose.Opacity >= _alternatePage.Pose.Opacity))
+            (_currentPage, _alternatePage) = (_alternatePage, _currentPage);
+
+        if (!returning)
         {
-            // PageContent.Opacity is 0 for the first 38% of _pageMotion; start the spring immediately without blocking
-            // frame 0 on a synchronous UpdateLayout(), and arm row cascade once WPF's natural Loaded pass measures it.
-            _pageMotion.Snap(0);
-            _pageMotion.Retarget(1);
-            UIElement scheduled = content;
-            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-            {
-                if (!ReferenceEquals(PageContent.Content, scheduled)) return;
-                if (StaggeredEntrance.FindItemsPanel(PageContent) is Panel itemsPanel)
-                    StaggeredEntrance.Play(itemsPanel.Children.OfType<UIElement>().Where(item => item.Visibility == Visibility.Visible).Take(14));
-            }));
+            ReleasePage(_currentPage);
+            _currentPage.Host.Content = content;
+            _currentPage.Apply(animate ? new PagePose(0, MotionTokens.RevealScale, PageRise * _pageDirection) : PagePose.Rest);
         }
-        else _pageMotion.Snap(1);
+        Panel.SetZIndex(_currentPage.Host, 1);
+        Panel.SetZIndex(_alternatePage.Host, 0);
+        _currentPage.Host.Visibility = content is null ? Visibility.Hidden : Visibility.Visible;
+        _currentPage.SetInputEnabled(content is not null);
+        _alternatePage.SetInputEnabled(false);
+        if (_alternatePage.Host.IsKeyboardFocusWithin && content is not null) _currentPage.Host.Focus();
+
+        _entryStart = _currentPage.Pose;
+        _exitStart = _alternatePage.Pose;
+        _transitionDirection = _pageDirection;
+        _entryDelay = !returning && _exitStart.Opacity > MotionTokens.VisibilityThreshold && _alternatePage.Host.Content is not null ? PageEntryDelay : 0;
+        if (!animate) { _pageMotion.Snap(1); return; }
+        _pageMotion.Snap(0);
+        _pageMotion.Retarget(1);
+    }
+
+    private void ReleasePage(PageSlot page)
+    {
+        if (page.Host.Content is not UIElement content) return;
+        page.Host.Content = null;
+        page.Host.Visibility = Visibility.Hidden;
+        page.SetInputEnabled(false);
+        PageContentReleased?.Invoke(content);
+    }
+
+    private readonly record struct PagePose(double Opacity, double Scale, double Offset)
+    {
+        internal static readonly PagePose Rest = new(1, 1, 0);
+    }
+
+    private sealed class PageSlot
+    {
+        private readonly ScaleTransform _scale = new(1, 1);
+        private readonly TranslateTransform _offset = new();
+        internal ContentControl Host { get; }
+        internal PagePose Pose { get; private set; } = PagePose.Rest;
+
+        internal PageSlot(ContentControl host)
+        {
+            Host = host;
+            host.RenderTransformOrigin = new Point(.5, .42);
+            host.RenderTransform = new TransformGroup { Children = { _scale, _offset } };
+        }
+
+        internal void Apply(PagePose pose)
+        {
+            Pose = pose;
+            Host.Opacity = pose.Opacity;
+            _scale.ScaleX = _scale.ScaleY = pose.Scale;
+            _offset.Y = pose.Offset;
+        }
+
+        internal void SetInputEnabled(bool enabled)
+        {
+            Host.IsHitTestVisible = enabled;
+            KeyboardNavigation.SetTabNavigation(Host, enabled ? KeyboardNavigationMode.Continue : KeyboardNavigationMode.None);
+            KeyboardNavigation.SetDirectionalNavigation(Host, enabled ? KeyboardNavigationMode.Continue : KeyboardNavigationMode.None);
+        }
     }
 
     private UIElement _sidebarCustom;
@@ -894,7 +972,13 @@ public partial class GlassLauncherView : UserControl, IDisposable
             UpdateWallpaperClip();
             return;
         }
+        _blendPalette = _lastPalette is { HighContrast: false } old && old.DarkText != darkText && !highContrast &&
+            !ShouldSnapMotion && IsVisible && !IsSplashing && !HoldsBackdrop && !IsClosing && ThemeTransition.CanBlendPalette;
         _lastPalette = paletteKey;
+        ThemeToggleGlyph.Data = (Geometry)Resources[darkText ? "IconThemeMoon" : "IconThemeSun"];
+        string themeAction = darkText ? "切换到深色主题" : "切换到浅色主题";
+        ThemeToggleButton.ToolTip = themeAction;
+        AutomationProperties.SetName(ThemeToggleButton, themeAction);
 
         if (highContrast)
         {
@@ -909,7 +993,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
             SetBrush("GlassNavHoverOutlineBrush", SystemColors.WindowTextColor);
             SetBrush("GlassAccentBrush", SystemColors.HighlightColor);
             SetBrush("GlassAccentTextBrush", SystemColors.HighlightTextColor);
-            GlassMaterial.SetFallbackColor(ShellRoot, SystemColors.WindowColor);
+            SetMaterialFallback(SystemColors.WindowColor);
             BodyFrame.Background = Brushes.Transparent;
             WindowControlsBodyFrostBase.Background = Brushes.Transparent;
             WindowControlsBodyFrostBase.BorderBrush = Brushes.Transparent;
@@ -930,7 +1014,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         Color mainBase = darkText ? Color.FromRgb(241, 243, 246) : Color.FromRgb(24, 24, 24);
         SetBrush("GlassMainBrush", wallpaper ? Colors.Transparent : mainBase);
         // Keep an opaque dark/theme base behind the wallpaper so lowering wallpaper opacity fades to it rather than the desktop.
-        BodyFrame.Background = wallpaper ? FreezeSolidBrush(ref _wallpaperBaseBrush, mainBase) : Brushes.Transparent;
+        if (wallpaper) _wallpaperBaseBrush = ThemeTransition.BlendPaletteBrush(_wallpaperBaseBrush, mainBase, _blendPalette);
+        BodyFrame.Background = wallpaper ? _wallpaperBaseBrush : Brushes.Transparent;
         Color card = darkText ? Color.FromRgb(255, 255, 255) : Color.FromRgb(32, 32, 32);
         card.A = translucent ? (byte)Math.Round(224 * density) : (byte)255;
         SetBrush("GlassCardBrush", card);
@@ -954,7 +1039,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         SetBrush("GlassAccentTextBrush", darkText ? Colors.White : Color.FromRgb(26, 26, 26));
         SetBrush("HomeTextBrush", darkText ? Color.FromRgb(32, 43, 58) : Color.FromRgb(248, 250, 253));
         SetBrush("HomeSecondaryTextBrush", darkText ? Color.FromRgb(83, 101, 122) : Color.FromRgb(221, 221, 221));
-        GlassMaterial.SetFallbackColor(ShellRoot, darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
+        SetMaterialFallback(darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
         SetHomeTextShadow(false);
         WorkspaceSurface.Background = Brushes.Transparent;
         ContextStrip.Background = Brushes.Transparent;
@@ -980,20 +1065,19 @@ public partial class GlassLauncherView : UserControl, IDisposable
         LaunchStatusText.Effect = effect;
     }
 
-    private static SolidColorBrush FreezeSolidBrush(ref SolidColorBrush cache, Color color)
+    private void SetMaterialFallback(Color color)
     {
-        if (cache is not null && cache.Color == color) return cache;
-        cache = new SolidColorBrush(color);
-        cache.Freeze();
-        return cache;
+        _materialFallbackBrush = ThemeTransition.BlendPaletteBrush(_materialFallbackBrush, color, _blendPalette);
+        if (GlassMaterial.GetFallbackColor(_surfaceMaskHost) != color)
+            GlassMaterial.SetFallbackColor(_surfaceMaskHost, color);
+        GlassMaterial.SetFallbackBrush(_surfaceMaskHost, _materialFallbackBrush);
     }
 
     private void SetBrush(string key, Color newColor)
     {
-        if (Resources[key] is SolidColorBrush existing && existing.Color == newColor) return;
-        var brush = new SolidColorBrush(newColor);
-        brush.Freeze();
-        Resources[key] = brush;
+        var old = Resources[key] as SolidColorBrush;
+        var next = ThemeTransition.BlendPaletteBrush(old, newColor, _blendPalette);
+        if (!ReferenceEquals(old, next)) Resources[key] = next;
     }
 
     private ImageSource GetFallbackInstanceIcon()
@@ -1114,38 +1198,30 @@ public partial class GlassLauncherView : UserControl, IDisposable
         ApplyExpansion(_expansionMotion?.Value ?? 0);
         PrimaryCard.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
         PrimaryCard.IsHitTestVisible = _state.IsHome;
-        // The home page's own content (the original homepage cards) also lives in the page scene: entering home it
-        // fades in after the previous page has cleared; leaving home it clears first.
-        PageScene.Opacity = _state.IsHome ? Math.Clamp((_homeProgress - .5) / .5, 0, 1) : 1 - _homeProgress;
-        PageSceneTranslation.X = 0; // the page itself rises/falls with the page transition
-        PageScene.Visibility = Visibility.Visible;
-        PageContent.Visibility = Visibility.Visible;
-        PageContent.IsHitTestVisible = true;
     }
 
     private void ApplyPageTransition(double value)
     {
-        _pageProgress = Math.Clamp(value, 0, 1);
-        // Cross-fade on eased curves: the outgoing frame leaves early and drifts up a little, the incoming page
-        // rises from below and may overshoot by a pixel or two with the spring before it settles.
-        // Mostly sequential: the old page eases out over the first half (a visible exit, not a blink) and the new page
-        // starts at 30 %, when the old one is already faint, so two pages' text never overlap at readable strength.
-        // Strictly sequential: the new page only starts once the old one has fully gone, so their text never overlaps.
-        double fadeOut = Math.Clamp(value / .38, 0, 1), fadeIn = Math.Clamp((value - .38) / .45, 0, 1);
-        PageContent.Opacity = fadeIn * fadeIn * (3 - 2 * fadeIn);
-        PageEntryTranslation.X = 0;
-        PageEntryTranslation.Y = PageRise * _pageDirection * (1 - value);
-        PageSnapshot.Opacity = 1 - fadeOut * fadeOut * (3 - 2 * fadeOut);
-        _snapshotTranslation.Y = -16 * _pageDirection * fadeOut;
-        double recede = 1 - Math.Pow(1 - fadeOut, 2);
-        _snapshotScale.ScaleX = _snapshotScale.ScaleY = 1 - .06 * recede;
-        if (_hasPageSnapshot && _pageProgress >= 1 - MotionTokens.VisibilityThreshold)
+        if (_currentPage.Host.Content is not null)
         {
-            _hasPageSnapshot = false;
-            PageSnapshot.Source = null;
+            double travel = Math.Clamp((value - _entryDelay) / (1 - _entryDelay), 0, 1.10);
+            double fade = Math.Clamp((value - _entryDelay) / (PageEntryFadeEnd - _entryDelay), 0, 1);
+            _currentPage.Apply(new PagePose(
+                _entryStart.Opacity + (1 - _entryStart.Opacity) * SmoothPageFade(fade),
+                _entryStart.Scale + (1 - _entryStart.Scale) * travel,
+                _entryStart.Offset * (1 - travel)));
         }
-        PageSnapshot.Visibility = _hasPageSnapshot ? Visibility.Visible : Visibility.Hidden;
+        if (_alternatePage.Host.Content is null) return;
+        double exit = Math.Clamp(value / PageExitEnd, 0, 1);
+        double recede = 1 - (1 - exit) * (1 - exit);
+        _alternatePage.Apply(new PagePose(
+            _exitStart.Opacity * (1 - SmoothPageFade(exit)),
+            _exitStart.Scale + (PageExitScale - _exitStart.Scale) * recede,
+            _exitStart.Offset + (-PageExitTravel * _transitionDirection - _exitStart.Offset) * recede));
+        if (exit >= 1) ReleasePage(_alternatePage);
     }
+
+    private static double SmoothPageFade(double value) => value * value * (3 - 2 * value);
 
     private void ApplyTitleTransition(double value)
     {
@@ -1170,28 +1246,6 @@ public partial class GlassLauncherView : UserControl, IDisposable
         ExpandAvailabilityScale.ScaleX = ExpandAvailabilityScale.ScaleY = 1;
         ExpandButton.Visibility = _state.LaunchOptionsAvailable || p > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
         ExpandButtonContainer.IsHitTestVisible = _state.IsHome && _state.LaunchOptionsAvailable;
-    }
-
-    private BitmapSource CapturePageLayer()
-    {
-        if (PageLayer.ActualWidth <= 0 || PageLayer.ActualHeight <= 0 || !PageLayer.IsVisible) return null;
-        try
-        {
-            const double scale = 0.5;
-            DpiScale dpi = VisualTreeHelper.GetDpi(PageLayer);
-            int width = Math.Max(1, (int)Math.Ceiling(PageLayer.ActualWidth * dpi.DpiScaleX * scale));
-            int height = Math.Max(1, (int)Math.Ceiling(PageLayer.ActualHeight * dpi.DpiScaleY * scale));
-            if (width > 4096 || height > 4096) return null;
-            var snapshot = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX * scale, dpi.PixelsPerInchY * scale, PixelFormats.Pbgra32);
-            snapshot.Render(PageLayer);
-            snapshot.Freeze();
-            return snapshot;
-        }
-        catch (Exception error) when (error is InvalidOperationException or ArgumentException or NotSupportedException)
-        {
-            // A disappearing/unrenderable visual must never delay actual page navigation.
-            return null;
-        }
     }
 
     private void ArrangeHomeDeck()
@@ -1346,6 +1400,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private SpringMotion _splashFade, _splashRise, _splashReveal, _splashSlide, _splashLogo, _splashText, _splashLoader, _splashExit;
     private readonly TranslateTransform _splashRailShift = new();
     private double _splashStartX, _splashStartY;
+    private SolidColorBrush _splashRailTone;
 
     /// <summary>True while the startup splash is showing.</summary>
     public bool IsSplashing => _splashActive;
@@ -1373,6 +1428,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     // Closing: the window buttons fade away, the body folds leftwards into the rail and vanishes, then the rail fades
     // out; the window closes once everything has gone. Each stage starts while the previous one is finishing.
     private bool _farewellActive;
+    private DispatcherOperation _farewellDraw;
     private SpringMotion _byeControls, _byeBody, _byeRail;
     private Action _farewellDone;
     private IReadOnlyList<GlassWindowRegion> _lastFarewellBackdrop = Array.Empty<GlassWindowRegion>();
@@ -1388,11 +1444,21 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _farewellActive = true;
         _farewellDone = done;
         IsHitTestVisible = false;
-        _byeControls = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.28, 1));
-        _byeBody = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.46, 1));
-        _byeRail = new SpringMotion(this, 0, _ => ApplyFarewell(), new SpringParameters(.3, 1));
+        _byeControls = new SpringMotion(this, 0, _ => QueueFarewellDraw(), new SpringParameters(.28, 1));
+        _byeBody = new SpringMotion(this, 0, _ => QueueFarewellDraw(), new SpringParameters(.46, 1));
+        _byeRail = new SpringMotion(this, 0, _ => QueueFarewellDraw(), new SpringParameters(.3, 1));
         _byeControls.Retarget(1);
         return true;
+    }
+
+    private void QueueFarewellDraw()
+    {
+        if (!_farewellActive || _farewellDraw?.Status == DispatcherOperationStatus.Pending) return;
+        _farewellDraw = Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+        {
+            _farewellDraw = null;
+            ApplyFarewell();
+        }));
     }
 
     private void ApplyFarewell()
@@ -1431,6 +1497,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         if (!_farewellActive) return;
         _farewellActive = false;
+        if (_farewellDraw?.Status == DispatcherOperationStatus.Pending) _farewellDraw.Abort();
+        _farewellDraw = null;
         _farewellDone = null;
         foreach (SpringMotion motion in new[] { _byeControls, _byeBody, _byeRail }) motion?.Dispose();
         _byeControls = _byeBody = _byeRail = null;
@@ -1504,6 +1572,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         catch (Exception error) when (error is System.IO.IOException or InvalidOperationException or NotSupportedException) { SplashLogo.Source = AppLogoImage.Source; }
         SplashLayer.Visibility = Visibility.Visible;
         SplashLayer.Opacity = 1;
+        SplashGlass.Opacity = 1;
+        SplashStatusContent.Opacity = 1;
         // The travelling rail carries only the logo; its page icons, account and toggle arrive with the interface.
         foreach (UIElement item in RailItems) item.Opacity = 0;
         // Start: the rail stands against the body's right edge, its tile at the bottom.
@@ -1521,14 +1591,15 @@ public partial class GlassLauncherView : UserControl, IDisposable
         // Every spring advances at most one 40 fps step per rendered frame, so a busy startup pauses the splash
         // instead of letting its first stages run out unseen.
         const double frameCap = 1 / 40d;
-        _splashFade = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
-        _splashRise = new SpringMotion(this, 0, _ => ApplySplash(), SplashSlideSpring) { MaxFrameSeconds = frameCap };
-        _splashReveal = new SpringMotion(this, 0, _ => ApplySplash(), SplashRevealSpring) { MaxFrameSeconds = frameCap };
-        _splashSlide = new SpringMotion(this, 0, _ => ApplySplash(), SplashSlideSpring) { MaxFrameSeconds = frameCap };
-        _splashLogo = new SpringMotion(this, 0, _ => ApplySplash(), SplashLogoSpring) { MaxFrameSeconds = frameCap };
-        _splashText = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
-        _splashLoader = new SpringMotion(this, 0, _ => ApplySplash(), SplashTextSpring) { MaxFrameSeconds = frameCap };
-        _splashExit = new SpringMotion(this, 0, _ => ApplySplash(), SplashExitSpring) { MaxFrameSeconds = frameCap };
+        // SplashFrame commits visuals once. Each spring only advances its own state.
+        _splashFade = new SpringMotion(this, 0, static _ => { }, SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashRise = new SpringMotion(this, 0, static _ => { }, SplashSlideSpring) { MaxFrameSeconds = frameCap };
+        _splashReveal = new SpringMotion(this, 0, static _ => { }, SplashRevealSpring) { MaxFrameSeconds = frameCap };
+        _splashSlide = new SpringMotion(this, 0, static _ => { }, SplashSlideSpring) { MaxFrameSeconds = frameCap };
+        _splashLogo = new SpringMotion(this, 0, static _ => { }, SplashLogoSpring) { MaxFrameSeconds = frameCap };
+        _splashText = new SpringMotion(this, 0, static _ => { }, SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashLoader = new SpringMotion(this, 0, static _ => { }, SplashTextSpring) { MaxFrameSeconds = frameCap };
+        _splashExit = new SpringMotion(this, 0, static _ => { }, SplashExitSpring) { MaxFrameSeconds = frameCap };
         _splashClock = System.Diagnostics.Stopwatch.StartNew();
         _splashTime = 0; _splashLastFrame = double.NaN;
         ApplySplash();
@@ -1564,8 +1635,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
             if (_splashTide is null)
             {
                 NavigationSurface.CacheMode = null; // the rail is at rest now; the water animates inside it
-                _splashTide = new global::PCL.GlassTideProgress(NavigationSurface.CornerRadius.TopLeft) { PercentSize = 15, IsHitTestVisible = false };
-                Grid.SetRow(_splashTide, 1); Grid.SetRowSpan(_splashTide, 2);
+                // The water fills the whole rail (behind the logo); the figure stands on its side in the rail's middle.
+                _splashTide = new global::PCL.GlassTideProgress(NavigationSurface.CornerRadius.TopLeft) { IsHitTestVisible = false, PosterFigure = true };
+                Grid.SetRow(_splashTide, 0); Grid.SetRowSpan(_splashTide, 3);
                 NavigationRailContent.Children.Insert(0, _splashTide);
                 _splashTideStart = t;
                 _splashTide.Update(true, 0, string.Empty); // the water starts empty
@@ -1582,6 +1654,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
             _splashTide?.Update(true, 1, string.Empty);
             // The rail is at rest from here on: render it live again before the tone starts changing.
             NavigationSurface.CacheMode = null;
+            if (SplashGlass.Background is SolidColorBrush tone)
+                NavigationSurface.Background = _splashRailTone = new SolidColorBrush(tone.Color);
             _splashExit.Retarget(1);
         }
         if (_splashExiting && _splashExit.Value > .995) { FinishSplash(); return; }
@@ -1612,27 +1686,32 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 revealed = new CombinedGeometry(GeometryCombineMode.Exclude, revealed, new RectangleGeometry(notch.Rect, notch.Radius, notch.Radius));
             BodyFrame.Clip = revealed;
         }
-        // Stage 3: brand.
+        // The existing exit spring drives both the logo's depth pose and the staggered workspace reveal.
+        double exit = Math.Clamp(_splashExit.Value, 0, 1);
+        double logoDepth = SplashSegment(exit, 0, .72);
+        double workspace = SplashSegment(exit, .50, 1);
         double logo = _splashLogo.Value;
-        SplashLogo.Opacity = Math.Clamp(logo * 1.4, 0, 1);
-        SplashLogoScale.ScaleX = SplashLogoScale.ScaleY = .6 + .4 * logo;
+        SplashLogo.Opacity = Math.Clamp(logo * 1.4, 0, 1) * (1 - SplashSegment(exit, .10, .72));
+        SplashLogoScale.ScaleX = SplashLogoScale.ScaleY = (.6 + .4 * logo) * (1 + .68 * logoDepth);
+        SplashStatusContent.Opacity = 1 - SplashSegment(exit, 0, .48);
         double text = _splashText.Value;
         SplashTitle.Opacity = Math.Clamp(text, 0, 1);
         SplashTitleShift.Y = 14 * (1 - text);
         SplashLoader.Opacity = Math.Clamp(_splashLoader.Value, 0, 1);
         if (SplashStage.HasAnimatedProperties == false) SplashStage.Opacity = Math.Clamp(_splashLoader.Value, 0, 1);
-        // Stage 4: the splash fades into the interface; the window buttons come in with it.
-        double exit = Math.Clamp(_splashExit.Value, 0, 1);
-        SplashLayer.Opacity = 1 - exit;
-        SetSplashUnderlay(exit);
+        // The loader gives way first. As the enlarged logo disappears, reveal the workspace in place.
+        SplashGlass.Opacity = 1 - workspace;
+        SetSplashUnderlay(workspace);
         // The rail's tone glides from the splash glass to its own chrome while the splash leaves, so restoring the
         // chrome resource at the end changes nothing visible (an abrupt swap read as a flash of the blur).
-        if (_splashExiting && SplashGlass.Background is SolidColorBrush from && TryFindResource("GlassChromeBrush") is SolidColorBrush to)
-            NavigationSurface.Background = new SolidColorBrush(LerpColor(from.Color, to.Color, exit));
+        if (_splashRailTone is not null && SplashGlass.Background is SolidColorBrush from && TryFindResource("GlassChromeBrush") is SolidColorBrush to)
+            _splashRailTone.Color = LerpColor(from.Color, to.Color, workspace);
         WindowControlsSurface.Opacity = Math.Clamp(logo, 0, 1);
         IReadOnlyList<GlassWindowRegion> blur = SplashBackdropRegions();
         if (!blur.SequenceEqual(_lastSplashBackdrop)) { _lastSplashBackdrop = blur; RegionsChanged?.Invoke(this, EventArgs.Empty); }
     }
+
+    private static double SplashSegment(double progress, double start, double end) => Math.Clamp((progress - start) / (end - start), 0, 1);
 
     private void SetSplashUnderlay(double opacity)
     {
@@ -1676,7 +1755,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         CompositionTarget.Rendering -= OnSplashFrame;
         if (!_splashRequested && !_splashActive && SplashLayer.Visibility != Visibility.Visible) return;
-        _splashRequested = _splashActive = false;
+        _splashRequested = _splashActive = _splashExiting = false;
+        _splashRailTone = null;
         SplashLayer.Visibility = Visibility.Collapsed;
         SetSplashUnderlay(1);
         try {
@@ -1816,12 +1896,18 @@ public partial class GlassLauncherView : UserControl, IDisposable
     /// </summary>
     private void SetSecondaryColumnWidth(double width, bool animate)
     {
-        if (!double.IsNaN(_columnTarget) && Math.Abs(_columnTarget - width) < .01) return;
+        if (!double.IsNaN(_columnTarget) && Math.Abs(_columnTarget - width) < .01 &&
+            (animate || _columnMotion?.IsRunning != true)) return;
         _columnTarget = width;
+        if (!animate)
+        {
+            if (_columnMotion is not null) _columnMotion.Snap(width);
+            else SecondaryColumn.Width = new GridLength(width);
+            return;
+        }
         double current = SecondaryColumn.Width.IsAbsolute ? SecondaryColumn.Width.Value : width;
         _columnMotion ??= new SpringMotion(this, current, value => SecondaryColumn.Width = new GridLength(Math.Max(0, value)), SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
-        if (animate || _columnMotion.IsRunning) _columnMotion.Retarget(width);
-        else _columnMotion.Snap(width);
+        _columnMotion.Retarget(width);
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -2129,6 +2215,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private void SelectInstanceButton_Click(object sender, RoutedEventArgs e) => SelectInstanceRequested?.Invoke(this, EventArgs.Empty);
     private void InstanceSettingsButton_Click(object sender, RoutedEventArgs e) => InstanceSettingsRequested?.Invoke(this, EventArgs.Empty);
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
+    private void ThemeToggleButton_Click(object sender, RoutedEventArgs e) => ThemeToggleRequested?.Invoke(this, EventArgs.Empty);
     private void CloseButton_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void RecentWorldButton_Click(object sender, RoutedEventArgs e) => RecentWorldRequested?.Invoke(this, EventArgs.Empty);
 
@@ -2149,6 +2236,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _accountMotion.Dispose();
         _homeMotion.Dispose();
         _pageMotion.Dispose();
+        ReleasePage(_currentPage);
+        ReleasePage(_alternatePage);
         _titleMotion.Dispose();
         _optionsMotion.Dispose();
         _sidebarFlipMotion?.Dispose();

@@ -48,9 +48,10 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
         foreach (FrameworkElement control in host.AnimationControls(view.Select)) { control.Opacity = 1; if (control.RenderTransform is null || control.RenderTransform is TranslateTransform) control.RenderTransform = new TranslateTransform(); }
     }
     public void EnterSelectPage() {
-        if (State.IsInSelectPage) return; State.AutoSelectedFabricApi = false; State.AutoSelectedOptiFabric = false; PrepareSelectPage();
-        if (McVersion.IsStandardFormat(State.VanillaName)) host.StartForge(State.VanillaName!);
-        host.FabricApi.Start(); host.OptiFabric.Start();
+        if (State.IsInSelectPage) return;
+        State.AutoSelectedFabricApi = false; State.AutoSelectedOptiFabric = false;
+        PrepareSelectPage();
+        StartMinecraftComponentLoads();
         DownloadInstallPageView view = host.View();
         animation.Start(new[] {
             animation.Opacity(view.Minecraft, -view.Minecraft.Opacity, 70, 10, DownloadPageEase.None),
@@ -75,9 +76,41 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
             animation.Code(() => { view.Select.Visibility = Visibility.Collapsed; view.Back.IsHitTestVisible = true; }, 0, true)
         }, "FrmDownloadInstall SelectPageSwitch", false);
     }
-    public void MinecraftSelected(FrameworkElement row, MouseButtonEventArgs? args) { State.VanillaName = host.RowTitle(row); State.VanillaData = (JObject)row.Tag; State.VanillaIcon = host.RowLogo(row); host.View().MinecraftVersion.Text = State.VanillaName; EnterSelectPage(); }
+    public void MinecraftSelected(FrameworkElement row, MouseButtonEventArgs? args) {
+        SetMinecraftChoice(row);
+        EnterSelectPage();
+    }
+
+    public void ChangeMinecraftInPlace(FrameworkElement row) {
+        if (!State.IsInSelectPage) return;
+        SetMinecraftChoice(row);
+        ClearSelectedComponents();
+        State.AutoSelectedFabricApi = false;
+        State.AutoSelectedOptiFabric = false;
+        foreach (DownloadInstallComponent kind in Enum.GetValues<DownloadInstallComponent>()) Component(kind).SetSwapped(true);
+        StartMinecraftComponentLoads();
+        ReloadComponentLists();
+    }
+
+    private void SetMinecraftChoice(FrameworkElement row) {
+        State.VanillaName = host.RowTitle(row);
+        State.VanillaData = (JObject)row.Tag;
+        State.VanillaIcon = host.RowLogo(row);
+        host.View().MinecraftVersion.Text = State.VanillaName;
+    }
+
+    private void StartMinecraftComponentLoads() {
+        if (McVersion.IsStandardFormat(State.VanillaName)) host.StartForge(State.VanillaName!);
+        host.FabricApi.Start();
+        host.OptiFabric.Start();
+    }
     public void ClearSelected() {
-        State.VanillaName = null; State.VanillaData = null; State.VanillaIcon = null; State.SelectedOptiFine = null; State.SelectedLiteLoader = null; State.SelectedForge = null; State.SelectedNeoForge = null; State.SelectedFabric = null; State.SelectedFabricApi = null; State.SelectedOptiFabric = null;
+        State.VanillaName = null; State.VanillaData = null; State.VanillaIcon = null;
+        ClearSelectedComponents();
+    }
+    private void ClearSelectedComponents() {
+        State.SelectedOptiFine = null; State.SelectedLiteLoader = null; State.SelectedForge = null; State.SelectedNeoForge = null;
+        State.SelectedFabric = null; State.SelectedFabricApi = null; State.SelectedOptiFabric = null;
         foreach (DownloadInstallComponent kind in Enum.GetValues(typeof(DownloadInstallComponent))) Component(kind).Clear.Visibility = Visibility.Collapsed;
     }
     public void SetPanelVisibility(Grid panel, bool visible) {

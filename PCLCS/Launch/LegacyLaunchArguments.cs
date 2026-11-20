@@ -36,8 +36,11 @@ public void McLaunchJava(LegacyLaunchTask<int, int> Task)
     }
 
 
-public void McLaunchArgumentMain(LegacyLaunchTask<string, int> Loader)
+    private int? launchRamMiB;
+
+    public void McLaunchArgumentMain(LegacyLaunchTask<string, int> Loader)
     {
+        launchRamMiB = null;
         // 获取基础参数
         var Arguments = new List<string>();
         McLaunchLog("参数获取开始");
@@ -216,6 +219,7 @@ public List<string> McLaunchArgumentsJVM()
 
         McLaunchLog("当前剩余内存：" + Math.Round(host.AvailablePhysicalMemory() / 1024d / 1024d / 1024d * 10d) / 10 + "G");
         int TargetRam = Conversions.ToInteger(Math.Floor(host.RamGb(McInstanceSelected) * 1024d));
+        launchRamMiB = TargetRam;
         Args.Add("-Xmx" + TargetRam + "m");
 
         // 获取设置的管理方式

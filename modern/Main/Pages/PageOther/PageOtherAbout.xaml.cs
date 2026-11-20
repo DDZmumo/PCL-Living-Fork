@@ -25,8 +25,15 @@ namespace PCL
         {
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            CardLicenses.Swap += LoadLicenseDetails;
+            CardOfflineLicenses.Swap += LoadOfflineLicenses;
+        }
+
+        private void LoadLicenseDetails(object sender, ModBase.RouteEventArgs e)
+        {
+            if (CardLicenses.IsSwapped) return;
+            CardLicenses.Swap -= LoadLicenseDetails;
             LabMarkdigLicense.Text = ReadLicense("Markdig.txt");
-            LabThirdPartyLicenses.Text = ReadLicense("ThirdParty.txt");
             LabMeloongCoreLicense.Text = ReadLicense("MeloongCore.txt");
             LabDotNetLicense.Text = ReadLicense("dotnet-runtime.txt");
             LabJavaWrapperLicense.Text = ReadLicense("JavaLaunchWrapper/NOTICE.txt") + "\n" + ReadLicense("JavaLaunchWrapper/LICENSE.txt");
@@ -34,6 +41,13 @@ namespace PCL
             LabTransformerLicense.Text = ReadLicense("HMCLTransformerDiscoveryService/NOTICE.txt") + "\n"
                 + ReadLicense("HMCLTransformerDiscoveryService/LICENSE") + "\n"
                 + ReadLicense("HMCLTransformerDiscoveryService/ADDITIONAL_TERMS.md");
+        }
+
+        private void LoadOfflineLicenses(object sender, ModBase.RouteEventArgs e)
+        {
+            if (CardOfflineLicenses.IsSwapped) return;
+            CardOfflineLicenses.Swap -= LoadOfflineLicenses;
+            LabThirdPartyLicenses.Text = ReadLicense("ThirdParty.txt");
         }
 
         private static string ReadLicense(string name)

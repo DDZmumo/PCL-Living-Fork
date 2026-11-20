@@ -139,14 +139,23 @@ public sealed class VideoWallpaperPlayback : IDisposable {
         try {
             using var timer = new PlaybackTimer(_wake);
             long? start = null;
+            int consecutiveLateFrames = 0;
             while (TakeBufferedFrame(start is null, out var video)) {
                 bool transferred = false;
                 try {
                     start ??= PlaybackTicks();
                     long due = start.Value + video.Offset;
                     if (!WaitUntil(due, timer)) return;
-                    // Decoder seeks may run alongside delivery of the frames already buffered.
-                    if (PlaybackTicks() - due <= TimeSpan.TicksPerMillisecond * 50) transferred = Enqueue(video.Pair);
+                    // Skip occasional late frames. If decoding cannot catch the old clock, resync
+                    // after a short burst so the wallpaper keeps updating as a paired texture.
+                    long now = PlaybackTicks();
+                    if (now - due > TimeSpan.TicksPerMillisecond * 50)
+                    {
+                        if (++consecutiveLateFrames < 3) continue;
+                        start = now - video.Offset;
+                    }
+                    consecutiveLateFrames = 0;
+                    transferred = Enqueue(video.Pair);
                 } finally { if (!transferred) video.Pair.Release(); }
             }
         } catch (Exception error) when (error is InvalidOperationException or ArgumentException or DllNotFoundException or EntryPointNotFoundException) {

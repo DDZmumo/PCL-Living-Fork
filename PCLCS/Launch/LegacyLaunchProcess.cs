@@ -92,19 +92,6 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
     }
 
     public void McLaunchWait(LegacyLaunchTask<Process, int> loader) {
-        McLaunchLog(""); McLaunchLog("~ 基础参数 ~");
-        McLaunchLog("PCL 版本：" + host.VersionDisplay() + " (" + host.VersionCode() + ")");
-        McLaunchLog($"游戏版本：{McInstanceSelected.VersionDisplayName()}（{McInstanceSelected.Version.Vanilla}，Drop {McInstanceSelected.Version.Drop}{(McInstanceSelected.Version.Reliable ? "" : "，无法完全确定")}）");
-        McLaunchLog("资源版本：" + host.AssetsIndexName(McInstanceSelected));
-        McLaunchLog("版本继承：" + (McInstanceSelected.InheritName == "" ? "无" : McInstanceSelected.InheritName));
-        McLaunchLog("分配的内存：" + host.RamGb(McInstanceSelected) + " GB（" + Math.Round(host.RamGb(McInstanceSelected) * 1024) + " MB）");
-        McLaunchLog("MC 文件夹：" + host.SelectedFolder()); McLaunchLog("版本文件夹：" + McInstanceSelected.PathVersion);
-        McLaunchLog("版本隔离：" + (McInstanceSelected.PathIndie == McInstanceSelected.PathVersion)); McLaunchLog("HMCL 格式：" + McInstanceSelected.IsHmclFormatJson);
-        McLaunchLog("Java 信息：" + (McLaunchJavaSelected != null ? McLaunchJavaSelected.ToString() : "无可用 Java"));
-        McLaunchLog("Natives 文件夹：" + GetNativesFolder()); McLaunchLog(""); McLaunchLog("~ 登录参数 ~");
-        McLaunchLog("玩家用户名：" + McLoginLoader.Output.Name); McLaunchLog("AccessToken：" + McLoginLoader.Output.AccessToken);
-        McLaunchLog("ClientToken：" + McLoginLoader.Output.ClientToken); McLaunchLog("UUID：" + McLoginLoader.Output.Uuid);
-        McLaunchLog("登录方式：" + McLoginLoader.Output.Type); McLaunchLog("");
         string title = Setting<string>("VersionArgumentTitle", McInstanceSelected);
         if (string.IsNullOrEmpty(title)) title = Setting<string>("LaunchArgumentTitle"); title = ArgumentReplace(title, ReplaceTime: false);
         PersonalOptionsSessionData personal = CurrentLaunchOptions.PersonalOptions;
@@ -119,8 +106,30 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
             host.Dispatch(host.RefreshRecentWorlds); host.Dispatch(host.RefreshKeybindings);
         }, CurrentLaunchOptions.EnvironmentPoint);
         host.StoreWatcher(watcher);
-        while (host.WatcherState(watcher) == 0) Thread.Sleep(100);
-        if (host.WatcherState(watcher) == 2) throw new OperationCanceledException();
+        // Attach stdout and begin probing before gathering the diagnostic header.
+        McLaunchLog(""); McLaunchLog("~ 基础参数 ~");
+        McLaunchLog("PCL 版本：" + host.VersionDisplay() + " (" + host.VersionCode() + ")");
+        McLaunchLog($"游戏版本：{McInstanceSelected.VersionDisplayName()}（{McInstanceSelected.Version.Vanilla}，Drop {McInstanceSelected.Version.Drop}{(McInstanceSelected.Version.Reliable ? "" : "，无法完全确定")}）");
+        McLaunchLog("资源版本：" + host.AssetsIndexName(McInstanceSelected));
+        McLaunchLog("版本继承：" + (McInstanceSelected.InheritName == "" ? "无" : McInstanceSelected.InheritName));
+        double ramMiB = launchRamMiB ?? Math.Round(host.RamGb(McInstanceSelected) * 1024);
+        McLaunchLog($"分配的内存：{ramMiB / 1024:0.##} GB（{ramMiB:0} MB）");
+        McLaunchLog("MC 文件夹：" + host.SelectedFolder()); McLaunchLog("版本文件夹：" + McInstanceSelected.PathVersion);
+        McLaunchLog("版本隔离：" + (McInstanceSelected.PathIndie == McInstanceSelected.PathVersion)); McLaunchLog("HMCL 格式：" + McInstanceSelected.IsHmclFormatJson);
+        McLaunchLog("Java 信息：" + (McLaunchJavaSelected != null ? McLaunchJavaSelected.ToString() : "无可用 Java"));
+        McLaunchLog("Natives 文件夹：" + GetNativesFolder()); McLaunchLog(""); McLaunchLog("~ 登录参数 ~");
+        McLaunchLog("玩家用户名：" + McLoginLoader.Output.Name); McLaunchLog("AccessToken：" + McLoginLoader.Output.AccessToken);
+        McLaunchLog("ClientToken：" + McLoginLoader.Output.ClientToken); McLaunchLog("UUID：" + McLoginLoader.Output.Uuid);
+        McLaunchLog("登录方式：" + McLoginLoader.Output.Type); McLaunchLog("");
+        int state = host.WatcherState(watcher);
+        while (state == 0) {
+            if (host.WaitForWatcherStartup is { } wait) state = wait(watcher, 100);
+            else {
+                Thread.Sleep(100);
+                state = host.WatcherState(watcher);
+            }
+        }
+        if (state is 2 or 4) throw new OperationCanceledException();
     }
 
     public void McLaunchEnd() {

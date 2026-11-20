@@ -163,7 +163,7 @@
                     </StackPanel>
                 </StackPanel>
             </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="许可与版权声明" IsSwapped="True" CanSwap="True">
+            <local:MyCard Margin="0,0,0,15" x:Name="CardLicenses" Title="许可与版权声明" IsSwapped="True" CanSwap="True">
                 <Grid Margin="25,42,23,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -322,7 +322,7 @@
                     </Expander>
                 </Grid>
             </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="离线许可与来源" IsSwapped="True" CanSwap="True">
+            <local:MyCard Margin="0,0,0,15" x:Name="CardOfflineLicenses" Title="离线许可与来源" IsSwapped="True" CanSwap="True">
                 <StackPanel Margin="25,40,25,20">
                     <TextBlock Text="包含 PCLLF 原创代码的 MPL-2.0 范围、PCL／第三方来源与完整许可，以及仍待核实的授权项目。对应源码可从项目仓库按发行标签或提交取得。" TextWrapping="Wrap" Margin="0,0,0,12"/>
                     <local:MyTextBox x:Name="LabThirdPartyLicenses" IsReadOnly="True" IsUndoEnabled="False" AcceptsReturn="True"

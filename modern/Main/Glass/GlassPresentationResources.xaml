@@ -419,12 +419,19 @@
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger>
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
-    <Style TargetType="ScrollBar">
-        <Setter Property="Width" Value="9" /><Setter Property="MinWidth" Value="0" /><Setter Property="Background" Value="Transparent" />
+    <Style x:Key="GlassPresentationScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="12" /><Setter Property="MinWidth" Value="0" />
+        <Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource GlassPresentationSecondary}" />
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
             <Grid Background="Transparent"><Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True">
                 <Track.DecreaseRepeatButton><RepeatButton x:Name="DecreasePage" Command="{x:Static ScrollBar.PageUpCommand}" Opacity="0" Focusable="False" /></Track.DecreaseRepeatButton>
-                <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{DynamicResource GlassPresentationSecondary}" Opacity="0.4" CornerRadius="3" Margin="2" /></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+                <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ThumbSurface" Background="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ScrollBar}}" Opacity="0.64" CornerRadius="4" Margin="2" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ThumbSurface" Property="Opacity" Value="0.9" /></Trigger>
+                        <Trigger Property="IsDragging" Value="True"><Setter TargetName="ThumbSurface" Property="Opacity" Value="1" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
                 <Track.IncreaseRepeatButton><RepeatButton x:Name="IncreasePage" Command="{x:Static ScrollBar.PageDownCommand}" Opacity="0" Focusable="False" /></Track.IncreaseRepeatButton>
             </Track></Grid>
             <ControlTemplate.Triggers><Trigger Property="Orientation" Value="Horizontal">
@@ -433,7 +440,42 @@
                 <Setter TargetName="IncreasePage" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}" />
             </Trigger></ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
-        <Style.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto" /><Setter Property="Height" Value="9" /></Trigger></Style.Triggers>
+        <Style.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto" /><Setter Property="Height" Value="12" /></Trigger></Style.Triggers>
+    </Style>
+    <Style TargetType="ScrollBar" BasedOn="{StaticResource GlassPresentationScrollBar}" />
+    <Style x:Key="GlassPresentationScrollViewer" TargetType="ScrollViewer">
+        <Setter Property="Foreground" Value="{DynamicResource GlassPresentationSecondary}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Margin="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" CanContentScroll="{TemplateBinding CanContentScroll}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Orientation="Vertical" Style="{StaticResource GlassPresentationScrollBar}"
+                            Foreground="{TemplateBinding Foreground}" Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}"
+                            Value="{TemplateBinding VerticalOffset}" Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                        <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Row="1" Orientation="Horizontal" Style="{StaticResource GlassPresentationScrollBar}"
+                            Foreground="{TemplateBinding Foreground}" Maximum="{TemplateBinding ScrollableWidth}" ViewportSize="{TemplateBinding ViewportWidth}"
+                            Value="{TemplateBinding HorizontalOffset}" Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="GlassPresentationPickerList" TargetType="ListBox">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <ScrollViewer Style="{StaticResource GlassPresentationScrollViewer}" Focusable="False"
+                        CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsPresenter />
+                    </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
     <!-- Tooltips use the shell's implicit frosted ToolTip style (GlassCommandChrome.ToolTipStyle), light or dark. -->
     <Style TargetType="ListBoxItem"><Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="Padding" Value="10,8" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Row" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border><ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource GlassPresentationSelected}" /></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="BorderBrush" Value="{DynamicResource GlassPresentationEdge}" /><Setter TargetName="Row" Property="BorderThickness" Value="0.6" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>

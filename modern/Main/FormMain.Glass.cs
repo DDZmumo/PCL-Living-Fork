@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using PCLLF.Wpf.Glass;
 
 namespace PCL;
@@ -60,8 +61,18 @@ public partial class FormMain {
         _ => null,
     };
 
+    private static readonly ConditionalWeakTable<MyPageLeft, Dictionary<object, PageSubType>> GlassSubPages = new();
+
     /// <summary>The sub-page whose navigation row is <paramref name="row"/>, used to return from a detail page.</summary>
     internal static PageSubType? GlassContextSubPage(PageType page, object row) {
+        if (GlassContextLeft(page) is not { } left) return null;
+        var map = GlassSubPages.GetValue(left, _ => BuildGlassSubPages(page));
+        return map.TryGetValue(row, out PageSubType sub) ? sub : null;
+    }
+
+    private static Dictionary<object, PageSubType> BuildGlassSubPages(PageType page)
+    {
+        var map = new Dictionary<object, PageSubType>(ReferenceEqualityComparer.Instance);
         foreach (PageSubType sub in Enum.GetValues<PageSubType>().Distinct()) {
             object item;
             try {
@@ -76,9 +87,9 @@ public partial class FormMain {
             } catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException or InvalidOperationException or KeyNotFoundException) {
                 continue; // That page does not define this sub-page.
             }
-            if (item is not null && ReferenceEquals(item, row)) return sub;
+            if (item is not null) map.TryAdd(item, sub);
         }
-        return null;
+        return map;
 
         static object ItemAt(System.Windows.Controls.Panel panel, PageSubType sub)
             => panel is not null && (int)sub >= 0 && (int)sub < panel.Children.Count ? panel.Children[(int)sub] : null;
@@ -92,6 +103,7 @@ public partial class FormMain {
     }
     private void AttachGlassShell() => glassShell?.Attach();
     internal void RefreshGlassShell() => glassShell?.Refresh(true);
+    internal bool TryRefreshGlassTheme(bool dark, Action apply) => glassShell?.TryRefreshTheme(dark, apply) == true;
 
     internal void SetGlassResizing(bool resizing) {
         if (_glassResizing == resizing) return;

@@ -12,6 +12,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using Newtonsoft.Json.Linq;
 using PCL;
 using PCLCS;
 using ExportController = PCLCS.ModpackExportPageController<PCL.ModMinecraft.McInstance, PCL.ExportOption, PCL.MyCheckBox, PCL.LocalResourceFile, PCL.ResourceProject, PCL.ResourceVersion, PCL.ModLoader.LoaderCombo<string>>;
@@ -41,6 +42,202 @@ internal static class GlassProjectionRegressionChecks
         finally { ModAnimation.AniControlEnabled = animation; }
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS projection regressions: genuine launch settings viewport, export option/header text and actions, source inline titles, original instance/mod right-click actions and disposal.");
+    }
+
+    internal static void ReportedRegressions(FixtureEnvironment environment)
+    {
+        using var scope = new VisualAssetChecks.Scope(environment, "glass-reported-regressions");
+        var errors = new List<string>();
+        foreach (Action check in new Action[] { AboutCollapsedProjection, PersonalSyncLayout, InstanceResourceScroll, ModifyMinecraftControl, ProgressDecimals })
+        {
+            try { check(); }
+            catch (Exception error) { errors.Add(error.Message); }
+        }
+        environment.AssertNoForbiddenIo();
+        Native.Check(errors.Count == 0, string.Join("; ", errors));
+        Console.WriteLine("PASS reported glass regressions: lazy About sections, aligned sync rows, resource scrollbar drag, inline Minecraft version selection and two-digit progress.");
+    }
+
+    private static void AboutCollapsedProjection()
+    {
+        var page = new PageOtherAbout();
+        var elapsed = Stopwatch.StartNew();
+        using var session = GlassPresentation.Create(page);
+        var sections = Tree(session.View).OfType<Expander>().Where(item => !item.IsExpanded).ToArray();
+        Native.Check(sections.Length == 4, "The About page lost one of its collapsible sections.");
+        int eager = sections.Sum(item => Tree((DependencyObject)item.Content).OfType<FrameworkElement>().Count() - 1);
+        Console.WriteLine($"About initial projection: {elapsed.Elapsed.TotalMilliseconds:0.0} ms, {eager} controls inside folded sections");
+        Native.Check(eager == 0, $"About built {eager} offscreen controls inside its four folded sections before they could be seen.");
+        var offline = (TextBox)page.FindName("LabThirdPartyLicenses");
+        Native.Check(offline.Text.Length == 0, "The offline license text was loaded before its section was opened.");
+        var offlineSection = sections.Single(item => item.Header is TextBlock { Text: "离线许可与来源" });
+        offlineSection.IsExpanded = true;
+        VisualAssetChecks.Drain();
+        Native.Check(offline.Text.Length > 0 && Tree((DependencyObject)offlineSection.Content).OfType<TextBox>().Any(box => box.Text == offline.Text),
+            "Opening About's offline section did not load and show the bundled license text.");
+        var licenses = sections.Single(item => item.Header is TextBlock { Text: "许可与版权声明" });
+        licenses.IsExpanded = true;
+        VisualAssetChecks.Drain();
+        Native.Check(Tree((DependencyObject)licenses.Content).OfType<Button>().Any(item => item.Content as string == "查看许可文档" ||
+            Tree(item).OfType<TextBlock>().Any(label => label.Text == "查看许可文档")), "Opening About's license section did not realize its document actions.");
+    }
+
+    private static void PersonalSyncLayout()
+    {
+        var page = new PageSetupPersonal();
+        using var session = GlassPresentation.Create(page);
+        var window = Host(session.View);
+        try
+        {
+            foreach (int width in new[] { 820, 420 })
+            {
+                window.Width = width; window.UpdateLayout(); VisualAssetChecks.Drain(); window.UpdateLayout();
+                Rect Bounds(string name)
+                {
+                    var element = Tree(session.View).OfType<FrameworkElement>().Single(item => item.Name == name);
+                    return element.TransformToAncestor(session.View).TransformBounds(new Rect(element.RenderSize));
+                }
+                Rect policy = Bounds("ComboPolicy"), capture = Bounds("ComboCapture");
+                Native.Check(capture.Top - policy.Bottom >= 7 && Math.Abs(policy.Left - capture.Left) < 1 &&
+                    Math.Abs(policy.Right - capture.Right) < 1 && capture.Right <= session.View.ActualWidth - 12,
+                    $"Personal sync options are crowded or misaligned at {width} DIP: gap={capture.Top - policy.Bottom:0.##}, widths={policy.Width:0.##}/{capture.Width:0.##}.");
+            }
+        }
+        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void InstanceResourceScroll()
+    {
+        var page = new PageInstanceResources();
+        ((FrameworkElement)page.FindName("PanAllBack")).Visibility = Visibility.Visible;
+        ((FrameworkElement)page.FindName("PanAllBack")).Opacity = 1;
+        var list = (StackPanel)page.FindName("PanList");
+        ((TextBlock)page.FindName("LabEmpty")).Visibility = Visibility.Collapsed;
+        for (int index = 0; index < 45; index++) list.Children.Add(new TextBlock { Text = "Resource " + index, MinHeight = 42 });
+        var source = new Grid { Name = "PanMainRight", Children = { page } };
+        using var session = GlassPresentation.Create(source);
+        var window = Host(session.View);
+        try
+        {
+            var scroll = Visuals(session.View).OfType<PCLLF.Wpf.Glass.ScrollEdgeFade>().First().ScrollViewer;
+            scroll.ApplyTemplate();
+            var thumb = (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(scroll.ScrollableHeight > 0 && thumb.IsVisible && thumb.ActualWidth >= 10 && scroll.OpacityMask is null &&
+                (SystemParameters.HighContrast || viewport.OpacityMask is not null), $"The resource list overflow did not show an unfaded scrollbar: scroll={scroll.ActualHeight:0}/{scroll.ExtentHeight:0} ({scroll.Visibility}/{scroll.IsVisible}), bar={thumb.Visibility}/{thumb.IsVisible}, width={thumb.ActualWidth:0}, viewport mask={viewport.OpacityMask is not null}.");
+            thumb.ApplyTemplate();
+            var track = (Track)thumb.Template.FindName("PART_Track", thumb);
+            double travel = thumb.ActualHeight * .45;
+            track.Thumb.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            track.Thumb.RaiseEvent(new DragDeltaEventArgs(0, travel) { RoutedEvent = Thumb.DragDeltaEvent });
+            track.Thumb.RaiseEvent(new DragCompletedEventArgs(0, travel, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(scroll.VerticalOffset > 0,
+                $"Dragging the resource scrollbar did not move its viewport (bar={thumb.Value:0}/{thumb.Maximum:0}, track={track.ActualHeight:0}, offset={scroll.VerticalOffset:0}).");
+        }
+        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void ModifyMinecraftControl()
+    {
+        var page = new PageDownloadModify();
+        // The inherited BAML queues an initial loader. This fixture supplies an already-loaded plan.
+        var pending = Native.Get(page, "InitLoader") as ModLoader.LoaderBase;
+        pending?.Cancel();
+        var service = Native.Property(typeof(PageDownloadModify), "ModifyService").GetValue(page)!;
+        object host = Native.Get(service, "host")!;
+        int fullPageCalls = 0, reloads = 0;
+        string? requestedForge = null;
+        Native.Set(host, "ModpackEnabled", (Func<bool>)(() => false));
+        Native.Set(host, "CanChangeMinecraft", (Func<string?, string?, bool>)((_, _) => true));
+        Native.Set(host, "BaseShowMinecraftList", (Action)(() => fullPageCalls++));
+
+        JObject Entry(string id) => new()
+        {
+            ["id"] = id, ["url"] = $"https://example.invalid/{id}.json",
+            ["type"] = "release", ["releaseTime"] = "2025-01-02T00:00:00Z"
+        };
+        var original = Entry("1.21.11"); var target = Entry("1.20.1");
+
+        // Exercise the actual selection/update methods, with each catalog source held in Loading.
+        object install = Native.Property(typeof(PageDownloadInstall), "Service").GetValue(page)!;
+        object installHost = Native.Get(install, "host")!;
+        Native.Set(installHost, "StartForge", (Action<string>)(value => requestedForge = value));
+        Native.Set(installHost, "ReloadSelected", (Action)(() => reloads++));
+        foreach (string feed in new[] { "OptiFine", "LiteLoader", "NeoForge", "Fabric", "FabricApi", "OptiFabric" })
+        {
+            object loader = Native.Get(installHost, feed)!;
+            Native.Set(loader, "Finished", (Func<bool>)(() => false));
+            Native.Set(loader, "Start", (Action)(() => { }));
+        }
+
+        var options = (FrameworkElement)page.FindName("PanSelect");
+        var legacyCatalog = (FrameworkElement)page.FindName("PanMinecraft");
+        var change = (Grid)page.FindName("PanMinecraftChange");
+        using var session = GlassPresentation.Create(page);
+        var window = Host(session.View);
+        try
+        {
+            if (pending is not null)
+            {
+                pending.Cancel();
+                VisualAssetChecks.Pump(() => Native.Get(pending, "LastRunningThread") is not Thread { IsAlive: true },
+                    "drain the original modify-page initializer");
+            }
+            VisualAssetChecks.Drain();
+            page.IsInSelectPage = true;
+            page.VanillaName = (string)original["id"]!;
+            page.VanillaData = original;
+            page.MinecraftVersions = new JArray(original, target);
+            Native.Set(page, "InitialTarget", page.GetSelectedComponents());
+            options.Visibility = Visibility.Visible; options.IsHitTestVisible = true; options.Opacity = 1;
+            legacyCatalog.Visibility = Visibility.Collapsed;
+            var content = (FrameworkElement)page.FindName("PanAllBack");
+            content.Visibility = Visibility.Visible; content.IsHitTestVisible = true; content.Opacity = 1;
+            ((MyCard)page.FindName("CardMinecraft")).Visibility = Visibility.Visible;
+            ((TextBlock)page.FindName("LabMinecraftVersion")).Text = "1.21.11";
+            change.Visibility = Visibility.Visible;
+            session.Refresh();
+            var expander = Tree(session.View).OfType<Expander>().Single(item => item.Name == "MinecraftVersionPicker");
+            Native.Check(Tree((DependencyObject)expander.Header).OfType<TextBlock>().Any(item => item.Text == "1.21.11"),
+                "The Minecraft picker omitted the selected version.");
+            expander.IsExpanded = true;
+            var list = Tree((DependencyObject)expander.Content).OfType<ListBox>().Single();
+            Native.Check(list.Items.Count == 2 && fullPageCalls == 0 && legacyCatalog.Visibility == Visibility.Collapsed && options.Visibility == Visibility.Visible,
+                "Expanding Minecraft replaced the modification screen with the full-page catalog.");
+            var search = Tree((DependencyObject)expander.Content).OfType<TextBox>().Single();
+            search.Text = "1.20";
+            Native.Check(list.Items.Count == 1 && page.VanillaName == "1.21.11" && reloads == 0, "Filtering the inline list altered the selected version.");
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var choice = Visuals(list).OfType<Button>().Single(item => Equals(item.Content, "1.20.1"));
+            Native.Check(page.IsInSelectPage && page.VanillaName == "1.21.11", $"Projection changed the fixture before selection (Minecraft={page.VanillaName}, inside options={page.IsInSelectPage}).");
+            choice.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, choice));
+            Native.Check(page.VanillaName == "1.20.1" && ReferenceEquals(page.VanillaData, target) &&
+                requestedForge == "1.20.1" && reloads == 1 && fullPageCalls == 0 && !expander.IsExpanded &&
+                page.IsInSelectPage && options.Visibility == Visibility.Visible && legacyCatalog.Visibility == Visibility.Collapsed,
+                $"Choosing the inline version failed: Minecraft={page.VanillaName}, same entry={ReferenceEquals(page.VanillaData, target)}, Forge={requestedForge}, reloads={reloads}, legacy calls={fullPageCalls}, expanded={expander.IsExpanded}, enabled={expander.IsEnabled}, inside options={page.IsInSelectPage}, options={options.Visibility}, catalog={legacyCatalog.Visibility}.");
+            change.Visibility = Visibility.Collapsed;
+            session.Refresh();
+            Native.Check(!expander.IsEnabled && !expander.IsExpanded, "A restricted modpack exposed Minecraft version changes.");
+        }
+        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void ProgressDecimals()
+    {
+        var type = Native.Type("PCL.GlassTideProgress");
+        foreach (bool poster in new[] { false, true })
+        {
+            var tide = (FrameworkElement)Activator.CreateInstance(type, Native.Flags, null, [11d, null], null)!;
+            Native.Property(type, "PosterFigure").SetValue(tide, poster);
+            foreach ((double value, string expected) in new[] { (.375, "37.50"), (.5715, "57.15"), (.999999, "99.99"), (1d, "100.00") })
+            {
+                Native.Call(type, "Update", tide, true, value, "进度");
+                Native.Check(AutomationProperties.GetName(tide).EndsWith(expected + "%", StringComparison.Ordinal) &&
+                    (!poster || Equals(Native.Get(tide, "_posterText"), expected)), "The shared progress surface lost its two decimal digits.");
+            }
+        }
     }
 
     private static void SettingsCardInsets()
@@ -356,7 +553,15 @@ internal static class GlassProjectionRegressionChecks
                     row.EnsureActions(); row.EnsureActions(); session.Refresh();
                     Native.Check(initialized[row] == 1 && row.ButtonHandler is null && row.Buttons.Select(button => button.ToolTip as string).SequenceEqual(expected), "Mod commands were missing or the original row was initialized more than once.");
                 }
+                var rowView = View(rows[0]);
+                var accessories = Visuals(rowView).OfType<StackPanel>().Single(panel => AutomationProperties.GetName(panel) == "资源操作");
+                Native.Check(accessories.Visibility == Visibility.Collapsed, "An idle resource row showed hover-only actions.");
+                rowView.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseEnterEvent });
+                Native.Check(accessories.Visibility == Visibility.Visible, "Hovering the row did not reveal resource actions.");
                 Invoke(Action(rows[0], "详情")); Invoke(Action(rows[0], "打开文件位置")); Invoke(Action(rows[0], "查看模组依赖关系"));
+                rowView.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseLeaveEvent });
+                session.Refresh();
+                Native.Check(accessories.Visibility == Visibility.Collapsed, "Resource actions stayed behind after the cursor and refresh.");
                 Native.Check(messages == 2 && opens == 1 && background == 1, $"Generated native mod command port counts: message={messages}, explorer={opens}, background={background}.");
                 Native.Check(openedPaths.All(path => files.ContainsKey(MeloongCore.PathUtils.RemoveExtendedPrefix(path))), "Mod action lost its actual fixture path: " + string.Join(", ", openedPaths));
                 Native.Check(files.All(pair => File.ReadAllBytes(pair.Key).SequenceEqual(pair.Value)), "First mod interactions modified a fixture file.");
@@ -598,16 +803,9 @@ internal static class GlassProjectionRegressionChecks
 
     private static void Main150ControlsProjection()
     {
-        var about = new PageOtherAbout();
-        using GlassPresentationSession aboutSession = GlassPresentation.Create(about);
         Window? window = null;
         try
         {
-            window = Host(aboutSession.View);
-            Expander[] expanders = Visuals(aboutSession.View).OfType<Expander>().ToArray();
-            Native.Check(expanders.Length >= 7 && expanders.All(item => !item.IsExpanded && item.Header is TextBlock { Text.Length: > 0 }),
-                $"PageOtherAbout 1.5.0 offline license Expanders did not project collapsed with headers: count={expanders.Length}.");
-
             var composite = new StackPanel();
             var uniform = new UniformGrid { Rows = 1, Columns = 3 };
             uniform.Children.Add(new MyButton { Text = "全部" });
@@ -622,7 +820,7 @@ internal static class GlassProjectionRegressionChecks
             composite.Children.Add(grid);
 
             using GlassPresentationSession controlSession = GlassPresentation.Create(composite);
-            window.Content = controlSession.View;
+            window = Host(controlSession.View);
             window.UpdateLayout();
             VisualAssetChecks.Drain();
 

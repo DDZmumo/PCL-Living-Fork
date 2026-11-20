@@ -49,7 +49,7 @@ internal sealed class GlassSkinLibrary : IDisposable
     private readonly TextBlock _name = Text("", 19, FontWeights.SemiBold), _meta = Text("", 12.5, FontWeights.Normal, secondary: true);
     private readonly TextBlock _target = Text("", 12, FontWeights.Normal, secondary: true);
     private readonly StackPanel _models = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
-    private readonly Button _apply;
+    private readonly Button _apply, _resetOfflineSkin;
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
     private readonly WrapPanel _grid = new() { Margin = new Thickness(0, 2, 0, 12) };
     private readonly StackPanel _empty = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -75,6 +75,9 @@ internal sealed class GlassSkinLibrary : IDisposable
         _darkText = darkText; _back = back;
         _readMicrosoftCapes = readMicrosoftCapes ?? _library.GetMicrosoftCapesAsync;
         _apply = Pill("应用到账号", PillKind.Primary, () => _ = ApplyAsync());
+        _resetOfflineSkin = Pill("恢复默认皮肤", PillKind.Plain, ResetOfflineSkin);
+        _resetOfflineSkin.Visibility = Visibility.Collapsed;
+        _resetOfflineSkin.Margin = new Thickness(0, 6, 0, 0);
         Side = BuildSide();
         Scene = BuildScene();
     }
@@ -108,7 +111,9 @@ internal sealed class GlassSkinLibrary : IDisposable
         var footer = new StackPanel();
         _apply.HorizontalAlignment = HorizontalAlignment.Stretch; _apply.Height = 38;
         _target.HorizontalAlignment = HorizontalAlignment.Center; _target.Margin = new Thickness(0, 8, 0, 0); _target.TextTrimming = TextTrimming.CharacterEllipsis;
-        footer.Children.Add(_apply); footer.Children.Add(_target);
+        footer.Children.Add(_apply);
+        footer.Children.Add(_resetOfflineSkin);
+        footer.Children.Add(_target);
         Grid.SetRow(footer, 2); root.Children.Add(footer);
         return root;
     }
@@ -526,6 +531,9 @@ internal sealed class GlassSkinLibrary : IDisposable
         ((TextBlock)_apply.Content).Text = _busy ? "正在应用…" : label2;
         _apply.IsEnabled = !_busy && target is not null && target.Provider != AccountProvider.Nide && !MicrosoftCapes &&
             (target.Provider == AccountProvider.Auth || entry is not null);
+        _resetOfflineSkin.Visibility = _kind == SkinTextureKind.Skin && target?.Provider == AccountProvider.Offline &&
+            _account.OfflineAppearance.SkinId is not null ? Visibility.Visible : Visibility.Collapsed;
+        _resetOfflineSkin.IsEnabled = !_busy;
     }
 
     private void RefreshViewer()
@@ -714,6 +722,21 @@ internal sealed class GlassSkinLibrary : IDisposable
         catch (Exception error) { ModMain.Hint("应用失败：" + error.Message, ModMain.HintType.Red); }
         finally { SetBusy(false); }
         _accountKey = ""; RefreshAccount(); Reload();
+    }
+
+    private void ResetOfflineSkin()
+    {
+        if (_busy || _kind != SkinTextureKind.Skin || _account.Target is not { Provider: AccountProvider.Offline } target) return;
+        try
+        {
+            _library.SetOfflineTexture(target, SkinTextureKind.Skin, null);
+            RefreshAccountSkin(target.Provider);
+            ModMain.Hint("已恢复 " + target.Name + " 的默认皮肤", ModMain.HintType.Green);
+        }
+        catch (Exception error) { ModMain.Hint("恢复失败：" + error.Message, ModMain.HintType.Red); }
+        _accountKey = "";
+        RefreshAccount();
+        Reload();
     }
 
     private void ApplyOfflineCape(string? id)

@@ -44,17 +44,19 @@ public class MyPageRightView : AdornerDecorator {
         else { if (input is null && loader.InputInvoke is not null) input = loader.InputInvoke(); loader.Start(input, isForceRestart); }
     }
     public event Action? PageEnter, PageExit;
+    public event Action? PageEntering, PageLeaving;
     protected virtual void OnPageEnter() => PageEnter?.Invoke();
     protected virtual void OnPageExit() => PageExit?.Invoke();
+    protected virtual bool UseProjectedNavigation => false;
     private FrameworkElement? ContentElement => (FrameworkElement?)(panContent ?? Child);
     private bool LoaderAllowsContent => loader is null || loader.ReadState() == PageLoaderState.Finished || loader.ReadState() == PageLoaderState.Waiting || loader.ReadState() == PageLoaderState.Canceled;
     public void PageOnEnter() {
-        MeloongCore.Logger.Trace("已触发 PageOnEnter"); OnPageEnter();
+        MeloongCore.Logger.Trace("已触发 PageOnEnter"); PageEntering?.Invoke(); OnPageEnter();
         switch (NativePageState) {
             case PageStates.Empty:
-                if (LoaderAllowsContent) { NativePageState = PageStates.ContentEnter; TriggerEnterAnimation(panAlways, ContentElement); }
+                if (LoaderAllowsContent) { NativePageState = PageStates.ContentEnter; ShowEnteringPage(panAlways, ContentElement); }
                 else if (loader!.ReadState() == PageLoaderState.Loading) { NativePageState = PageStates.LoaderWait; Animations.Start(Animations.Code(PageOnLoaderWaitFinished, 400), "PageRight PageChange " + PageUuid); }
-                else { NativePageState = PageStates.LoaderEnter; TriggerEnterAnimation(panAlways, panLoader); }
+                else { NativePageState = PageStates.LoaderEnter; ShowEnteringPage(panAlways, panLoader); }
                 break;
             case PageStates.ContentExit:
                 if (LoaderAllowsContent) { NativePageState = PageStates.ContentEnter; TriggerEnterAnimation(ContentElement); }
@@ -66,7 +68,7 @@ public class MyPageRightView : AdornerDecorator {
         }
     }
     public void PageOnExit() {
-        MeloongCore.Logger.Trace("已触发 PageOnExit"); OnPageExit();
+        MeloongCore.Logger.Trace("已触发 PageOnExit"); PageLeaving?.Invoke(); OnPageExit();
         switch (NativePageState) {
             case PageStates.ContentEnter: case PageStates.ContentStay: NativePageState = PageStates.PageExit; TriggerExitAnimation(panAlways, ContentElement); break;
             case PageStates.LoaderEnter: case PageStates.LoaderStayForce: case PageStates.LoaderStay: NativePageState = PageStates.PageExit; TriggerExitAnimation(panAlways, panLoader); break;
@@ -76,7 +78,8 @@ public class MyPageRightView : AdornerDecorator {
         }
     }
     public void PageOnForceExit() {
-        if (NativePageState == PageStates.Empty) return; MeloongCore.Logger.Trace("已触发 PageOnForceExit"); NativePageState = PageStates.Empty; Animations.Stop("PageRight PageChange " + PageUuid);
+        if (NativePageState == PageStates.Empty) return;
+        MeloongCore.Logger.Trace("已触发 PageOnForceExit"); PageLeaving?.Invoke(); NativePageState = PageStates.Empty; Animations.Stop("PageRight PageChange " + PageUuid);
         if (loader is null) Child!.Visibility = Visibility.Collapsed;
         else { panContent!.Visibility = Visibility.Collapsed; panLoader!.Visibility = Visibility.Collapsed; if (panAlways is not null) panAlways.Visibility = Visibility.Collapsed; }
     }
@@ -134,6 +137,22 @@ public class MyPageRightView : AdornerDecorator {
                 break;
         }
     }
+    private void ShowEnteringPage(params FrameworkElement?[] elements) {
+        if (!UseProjectedNavigation) { TriggerEnterAnimation(elements); return; }
+        // The projected page applies the navigation transition. The source settles its visibility and loader state
+        // without scheduling a second entrance on the controls it supplies to that projection.
+        foreach (FrameworkElement element in elements.OfType<FrameworkElement>()) {
+            element.Visibility = Visibility.Visible;
+            foreach (FrameworkElement control in GetAllAnimControls(element, true)) {
+                control.IsHitTestVisible = true;
+                if (control.RenderTransform is TranslateTransform) control.RenderTransform = null!;
+                if (control is MyExtraTextButtonView extra) extra.Show = true;
+                else control.Opacity = 1;
+            }
+        }
+        PageOnEnterAnimationFinished();
+    }
+
     public void TriggerEnterAnimation(params FrameworkElement?[] elements) {
         var real = elements.Where(element => element is not null).Select(element => element!);
         foreach (FrameworkElement element in real) element.Visibility = Visibility.Visible;

@@ -34,6 +34,9 @@ public static class GlassMaterial {
     public static readonly DependencyProperty FallbackColorProperty = DependencyProperty.RegisterAttached(
         "FallbackColor", typeof(Color), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(Color.FromRgb(242, 245, 248), FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
+    public static readonly DependencyProperty FallbackBrushProperty = DependencyProperty.RegisterAttached(
+        "FallbackBrush", typeof(SolidColorBrush), typeof(GlassMaterial),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
     public static readonly DependencyProperty DesktopBackdropEnabledProperty = DependencyProperty.RegisterAttached(
         "DesktopBackdropEnabled", typeof(bool), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
@@ -55,7 +58,16 @@ public static class GlassMaterial {
     public static double GetOpacityMultiplier(DependencyObject element) => (double)element.GetValue(OpacityMultiplierProperty);
     public static void SetOpacityMultiplier(DependencyObject element, double value) => element.SetValue(OpacityMultiplierProperty, value);
     public static Color GetFallbackColor(DependencyObject element) => (Color)element.GetValue(FallbackColorProperty);
-    public static void SetFallbackColor(DependencyObject element, Color value) => element.SetValue(FallbackColorProperty, value);
+    public static void SetFallbackColor(DependencyObject element, Color value) {
+        element.SetValue(FallbackColorProperty, value);
+        // A local color overrides an inherited live workspace brush (for example a floating dock).
+        element.SetValue(FallbackBrushProperty, null);
+    }
+    public static SolidColorBrush? GetFallbackBrush(DependencyObject element) => (SolidColorBrush?)element.GetValue(FallbackBrushProperty);
+    public static void SetFallbackBrush(DependencyObject element, SolidColorBrush? brush) {
+        if (!ReferenceEquals(element.GetValue(FallbackBrushProperty), brush))
+            element.SetValue(FallbackBrushProperty, brush);
+    }
     public static bool GetDesktopBackdropEnabled(DependencyObject element) => (bool)element.GetValue(DesktopBackdropEnabledProperty);
     public static void SetDesktopBackdropEnabled(DependencyObject element, bool value) => element.SetValue(DesktopBackdropEnabledProperty, value);
     public static bool GetIgnoreWallpaperHostEffect(DependencyObject element) => (bool)element.GetValue(IgnoreWallpaperHostEffectProperty);
@@ -68,7 +80,13 @@ public static class GlassMaterial {
         // needs to rebuild the surface's sampling state.
         if (args.Property == WallpaperSourceProperty && args.NewValue is ImageSource source &&
             ReferenceEquals(args.OldValue, source) && WallpaperBlurCache.IsVideoFrame(source)) return;
-        if (element is GlassSurface surface) surface.InvalidateMaterial();
+        if (element is not GlassSurface surface) return;
+        if (args.Property == FallbackBrushProperty || args.Property == FallbackColorProperty) {
+            // Paint keeps a reference to the animated brush. Its frames never invalidate the blur sample.
+            if (!Equals(args.OldValue, args.NewValue)) surface.InvalidateMaterialPaint(includeBackdrop: true);
+            return;
+        }
+        surface.InvalidateMaterial();
     }
 }
 

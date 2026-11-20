@@ -19,6 +19,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using MeloongCore;
 using MeloongCore.Wpf;
+using PCLLF.Presentation.Controls;
 using PCLLF.Wpf.Glass;
 
 namespace PCL;
@@ -39,6 +40,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private long _nextWallpaperRefresh;
     private string _wallpaperOptions = "";
     private string _navigationSignature = "";
+    private MyPageLeft? _sidebarOwner;
     private bool _attached, _disposed, _refreshing;
     private PageLaunchLeft? _accountSource;
     private FrameworkElement? _accountPortal;
@@ -47,6 +49,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private readonly List<GlassPresentationSession> _retiredPresentations = new();
     private GlassPresentationSession? _homePresentation;
     private GlassPresentationSession? _pagePresentation;
+    private MyPageRightView? _sourceRightPage;
     private object? _projectedPage;
     private readonly List<GlassExtraButtonAdapter> _extraButtons = new();
     private GlassWindowRegionClip? _windowRegion;
@@ -62,14 +65,16 @@ internal sealed class GlassShellIntegration : IDisposable {
     private bool _windowResizing;
     private bool _startupPreload;
     private double _lastOpacityMultiplier = double.NaN;
-    private Color? _lastFallbackColor;
     private bool? _lastDarkTheme;
     private long _lastPresentationRefresh;
     private (int Radius, bool Video)? _appliedWallpaperBlur;
     private int _wallpaperOpacity = -1;
     internal const double LeftOverhangAllowance = GlassLauncherView.RailExpandDelta + GlassLauncherView.RailOvershootHeadroom;
-    private bool _leftOverhangApplied;
-    internal bool HasLeftExpansionOverhang => _leftOverhangApplied;
+    private Rect _lastWorkArea = Rect.Empty;
+    private Size _preferredMinimum;
+    private DispatcherOperation? _workAreaCheck;
+    private bool CanRenderWindow => _owner.IsVisible && _owner.WindowState != WindowState.Minimized;
+    internal bool HasLeftExpansionOverhang => View.LeftExpansionAllowance > 0;
     internal GlassLauncherView View { get; } = new();
 
     internal GlassShellIntegration(FormMain owner) {
@@ -95,6 +100,7 @@ internal sealed class GlassShellIntegration : IDisposable {
         GlassMaterial.SetIsEnabled(_root, true);
         _pagePresentation = CreatePresentation(_owner.PanMainRight);
         _projectedPage = DisplayedPage;
+        ObserveRightPage(DisplayedPage);
         View.SetPageContent(_pagePresentation.View);
         // Hints keep the original queue/timing; the shell mirrors them as toast cards in the body's bottom-right corner.
         _toasts = new GlassToastHost(_owner.PanHint);
@@ -126,15 +132,21 @@ internal sealed class GlassShellIntegration : IDisposable {
         }
         _runtime = new GlassShellRuntime(_owner, View);
         _runtime.AccountRequested += OnAccountRequested;
+        View.ThemeToggleRequested += OnThemeToggle;
         View.MinimizeRequested += OnMinimize;
         View.CloseRequested += OnClose;
         View.DragRequested += OnDrag;
         View.RegionsChanged += OnRegionsChanged;
+        View.PageContentReleased += OnPageContentReleased;
         View.SplashFinished += (_, _) => OnStartupInterfaceShown();
         View.FarewellOverlayFade += OnFarewellOverlayFade;
         // From the splash's first frame the blur is shown through its shapes (each carries its own fade).
         View.SplashStarted += (_, _) => _backdropPresence?.Snap(1);
+        _preferredMinimum = new Size(_owner.MinWidth, _owner.MinHeight);
         _owner.StateChanged += OnWindowStateChanged;
+        _owner.IsVisibleChanged += OnWindowVisibilityChanged;
+        _owner.LocationChanged += OnWindowLocationChanged;
+        _owner.DpiChanged += OnWindowDpiChanged;
         // Startup splash for the real product only (test hosts and design previews open straight into the interface).
         _startupPreload = System.Reflection.Assembly.GetEntryAssembly() == typeof(GlassShellIntegration).Assembly && _owner.GlassPreviewState is null;
         if (_startupPreload)
@@ -169,14 +181,15 @@ internal sealed class GlassShellIntegration : IDisposable {
     }
     private GlassPresentationSession CreatePresentation(FrameworkElement source) {
         Func<MyCard, UIElement>? supplement = null;
-        if (ReferenceEquals(source, _owner.PanMainRight)) {
+        bool rightPage = ReferenceEquals(source, _owner.PanMainRight);
+        if (rightPage) {
             // Settings → Personalization hosts the shell wallpaper; one row per page session, never shared between trees.
             GlassWallpaperSettingRow? wallpaperRow = null;
             supplement = card => card.Name == "CardBackground" && card is { Parent: not null } && FindAncestor<PageSetupUI>(card) is not null
                 ? (wallpaperRow ??= new GlassWallpaperSettingRow(ChooseWallpaper, ClearWallpaper, ReadWallpaperStatus)).Refresh()
                 : null!;
         }
-        GlassPresentationSession session = GlassPresentation.Create(source, supplement);
+        GlassPresentationSession session = GlassPresentation.Create(source, supplement, trackPageAppearance: rightPage);
         _presentations.Add(session);
         return session;
     }
@@ -210,19 +223,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private void OnLoaded(object? sender, RoutedEventArgs args) {
         // Window-wide opacity would tint the native backing HWND and recreate layered-window artifacts.
         _owner.Opacity = 1;
-        if (!_leftOverhangApplied && _owner.GlassPreviewState is null) {
-            _leftOverhangApplied = true;
-            bool wasSaveable = _owner.IsSizeSaveable;
-            _owner.IsSizeSaveable = false;
-            try {
-                View.SetLeftExpansionAllowance(LeftOverhangAllowance);
-                _owner.MinWidth += LeftOverhangAllowance;
-                _owner.Width += LeftOverhangAllowance;
-                _owner.Left -= LeftOverhangAllowance;
-            } finally {
-                _owner.IsSizeSaveable = wasSaveable;
-            }
-        }
+        UpdateWorkArea();
         if (_backdrop is null && _owner.GlassPreviewState is null) {
             GlassMaterial.SetDesktopBackdropEnabled(_owner, true);
             _backdrop = GlassWindowBackdrop.Attach(_owner, new GlassBackdropOptions {
@@ -238,11 +239,10 @@ internal sealed class GlassShellIntegration : IDisposable {
                 new PCLLF.Wpf.Motion.SpringParameters(.45, 1));
             OnBackdropChanged(_backdrop, EventArgs.Empty);
         }
-        bool minimized = _owner.WindowState == WindowState.Minimized;
-        GlassVideoWallpaper.SetPaused(minimized);
+        GlassVideoWallpaper.SetPaused(!CanRenderWindow);
         Refresh();
         if (_startupPreload && !View.IsSplashing && !View.HoldsBackdrop) OnStartupInterfaceShown();
-        if (!minimized) _refreshTimer.Start();
+        if (CanRenderWindow) _refreshTimer.Start();
     }
 
     private void OnStartupInterfaceShown() {
@@ -255,7 +255,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     }
     private void OnRefreshTick(object? sender, EventArgs args) => Refresh();
     internal void Refresh(bool forcePreferences = false) {
-        if (_disposed || !_attached || !_owner.IsLoaded || _refreshing || (_windowResizing && !forcePreferences)) return;
+        if (_disposed || !_attached || !_owner.IsLoaded || _refreshing || ((!CanRenderWindow || _windowResizing) && !forcePreferences)) return;
         _refreshing = true;
         try {
             _owner.Opacity = 1;
@@ -265,11 +265,7 @@ internal sealed class GlassShellIntegration : IDisposable {
                 GlassMaterial.SetOpacityMultiplier(_root, opacityMultiplier);
             }
             bool darkTheme = ModTheme.IsDarkTheme;
-            Color fallbackColor = darkTheme ? Color.FromRgb(24, 24, 24) : Color.FromRgb(242, 245, 248);
-            if (_lastFallbackColor != fallbackColor) {
-                _lastFallbackColor = fallbackColor;
-                GlassMaterial.SetFallbackColor(_root, fallbackColor);
-            }
+            bool paletteChanged = _lastDarkTheme.HasValue && _lastDarkTheme != darkTheme;
             if (_lastDarkTheme != darkTheme) {
                 _lastDarkTheme = darkTheme;
                 _backdrop?.SetDarkTheme(darkTheme);
@@ -307,6 +303,8 @@ internal sealed class GlassShellIntegration : IDisposable {
             else if (Environment.TickCount64 - _pagePendingSince > 600) pagePending = false;
             long nowMs = Environment.TickCount64;
             bool motionBusy = View.IsTransitioning || PCLLF.Wpf.Motion.SmoothScroll.IsScrolling;
+            if (paletteChanged)
+                foreach (GlassPresentationSession presentation in _presentations) presentation.RefreshPalette();
             if (!View.IsTransitioning && (forcePreferences || (!motionBusy && nowMs - _lastPresentationRefresh >= 500))) {
                 _lastPresentationRefresh = nowMs;
                 foreach (GlassPresentationSession presentation in _presentations) {
@@ -315,7 +313,7 @@ internal sealed class GlassShellIntegration : IDisposable {
                 }
             }
             RefreshModalState();
-            (_accountPortal as GlassAccountPanel)?.Refresh();
+            if (_accountPortal is GlassAccountPanel { IsVisible: true } portal) portal.Refresh();
             if (View.IsAccountWorkspaceOpen) _accountWorkspace?.Refresh();
             foreach (GlassExtraButtonAdapter action in _extraButtons) { action.RefreshAppearance(!darkTheme, false); action.RefreshProgress(); }
             RefreshToasts();
@@ -347,34 +345,54 @@ internal sealed class GlassShellIntegration : IDisposable {
     }
     // The page actually displayed: sub-page switches (e.g. 模组 → 资源包) assign PageRight first and place the page
     // into PanMainRight ~130 ms later, so following PageRight alone would animate the old content and then pop.
-    private object? DisplayedPage => (object?)_owner.PanMainRight.Child ?? _owner.PageRight;
+    private UIElement? DisplayedPage => _owner.PanMainRight.Child;
     private bool RefreshPagePresentation() {
-        object? next = DisplayedPage;
-        if (ReferenceEquals(_projectedPage, next)) return false;
-        // When returning to Home, keep the outgoing page visual intact until Home's cross-fade finishes.
-        if (_owner.GlassPageCode == (int)FormMain.PageType.Launch && _owner.GlassPreviewState is null && View.IsTransitioning)
-            return false;
+        UIElement? next = DisplayedPage;
+        if (next is null || ReferenceEquals(_projectedPage, next)) return false;
         GlassPresentationSession? previous = _pagePresentation;
         bool leavingHome = _projectedPage is PageLaunchRight;
-        _projectedPage = next;
         // The home page's projection (its homepage cards) is kept while other pages show and reused on return, so the
         // cards are not rebuilt (and an online homepage not re-laid out) every time Home opens.
         if (next is PageLaunchRight && _homePresentation is { } home) {
             _homePresentation = null;
             _pagePresentation = home;
             _presentations.Add(home);
+            home.ResumePageAppearance();
             home.Refresh();
         } else _pagePresentation = CreatePresentation(_owner.PanMainRight);
-        View.SetPageContent(_pagePresentation.View);
+        _projectedPage = next;
         if (previous is not null) {
+            previous.HoldPageAppearance();
             _presentations.Remove(previous);
-            if (leavingHome && _homePresentation is null) { _homePresentation = previous; return true; }
-            _retiredPresentations.Add(previous);
-            _owner.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => {
-                if (_retiredPresentations.Remove(previous)) previous.Dispose();
-            }));
+            if (leavingHome && _homePresentation is null) _homePresentation = previous;
+            else _retiredPresentations.Add(previous);
         }
+        ObserveRightPage(next);
+        View.SetPageContent(_pagePresentation.View);
         return true;
+    }
+
+    private void ObserveRightPage(UIElement? page) {
+        if (_sourceRightPage is not null) {
+            _sourceRightPage.PageLeaving -= HoldRightPage;
+            _sourceRightPage.PageEntering -= ResumeRightPage;
+        }
+        _sourceRightPage = page as MyPageRightView;
+        if (_sourceRightPage is not null) {
+            _sourceRightPage.PageLeaving += HoldRightPage;
+            _sourceRightPage.PageEntering += ResumeRightPage;
+        }
+    }
+
+    private void HoldRightPage() => _pagePresentation?.HoldPageAppearance();
+    private void ResumeRightPage() => _pagePresentation?.ResumePageAppearance();
+
+    private void OnPageContentReleased(UIElement content) {
+        var retired = _retiredPresentations.FirstOrDefault(session => ReferenceEquals(session.View, content));
+        if (retired is null) return;
+        _owner.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => {
+            if (_retiredPresentations.Remove(retired)) retired.Dispose();
+        }));
     }
     private void RefreshNavigation() {
         // A detail page (resource/help detail) keeps the sidebar of the page it was opened from.
@@ -386,11 +404,12 @@ internal sealed class GlassShellIntegration : IDisposable {
         if (taskManager) { _taskSidebar ??= new GlassTaskSidebar(); _taskSidebar.Refresh(); }
         View.SetSidebarCustom(taskManager ? _taskSidebar : null);
         IReadOnlyList<GlassSidebarItem> items = hasContext && left is not null && !taskManager ? GlassContextNavigation.Build(left) : Array.Empty<GlassSidebarItem>();
-        if (origin is { } back) items = items.Select(item => ReturnFromDetail(item, back)).ToArray();
         string signature = (left?.GetType().FullName ?? "") + ":" + hasContext + ":" + origin + ":" +
             string.Join("|", items.Select(item => item.Label + ":" + item.IsSelected + ":" + item.IsEnabled + ":" + item.IsHeader + ":" + item.Actions.Count));
-        if (signature == _navigationSignature) return;
+        if (ReferenceEquals(_sidebarOwner, left) && signature == _navigationSignature) return;
+        _sidebarOwner = left;
         _navigationSignature = signature;
+        if (origin is { } back) items = items.Select(item => ReturnFromDetail(item, back)).ToArray();
         View.SetSidebar(items);
     }
     // On a detail page the original rows may already be checked, so a click returns to that sub-page explicitly.
@@ -431,6 +450,16 @@ internal sealed class GlassShellIntegration : IDisposable {
         _accountWorkspace?.Open();
     }
     internal static FrameworkElement CreateAccountPortal(PageLaunchLeft source) => new GlassAccountPanel(source);
+
+    private void OnThemeToggle(object? sender, EventArgs args) => FormMain.ToggleLauncherColorMode();
+
+    internal bool TryRefreshTheme(bool dark, Action apply)
+    {
+        if (!_attached || _disposed || ModTheme.IsDarkTheme == dark) return false;
+        apply();
+        Refresh(forcePreferences: true);
+        return true;
+    }
 
     private void OnMinimize(object? sender, EventArgs args) => _owner.WindowState = WindowState.Minimized;
     // Fades every layer the shell put above the interface (dialog, scrim, toasts, floating buttons) while closing.
@@ -601,7 +630,7 @@ internal sealed class GlassShellIntegration : IDisposable {
             View.SetWallpaperMaterialSource(frame);
         });
         _videoFrost.SetHost(source);
-        _videoFrost.SetPaused(_windowResizing || _owner.WindowState == WindowState.Minimized);
+        _videoFrost.SetPaused(_windowResizing || !CanRenderWindow);
     }
 
     private PCLLF.Wpf.Motion.SpringMotion? _backdropPresence;
@@ -609,15 +638,71 @@ internal sealed class GlassShellIntegration : IDisposable {
 
     // Minimizing hides the native blur at once; restoring brings the interface back first and fades the blur in after
     // it (Windows would otherwise show the separate backdrop window before WPF has redrawn the content).
-    private void OnWindowStateChanged(object? sender, EventArgs args) {
-        bool minimized = _owner.WindowState == WindowState.Minimized;
-        GlassVideoWallpaper.SetPaused(minimized);
-        _videoFrost?.SetPaused(minimized || _windowResizing);
-        if (minimized) {
+    private void OnWindowLocationChanged(object? sender, EventArgs args) => QueueWorkAreaCheck();
+    private void OnWindowDpiChanged(object sender, DpiChangedEventArgs args) => QueueWorkAreaCheck();
+
+    private void QueueWorkAreaCheck()
+    {
+        if (_disposed || !_owner.IsLoaded || !CanRenderWindow || _owner.GlassPreviewState is not null ||
+            _workAreaCheck?.Status == DispatcherOperationStatus.Pending) return;
+        _workAreaCheck = _owner.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _workAreaCheck = null;
+            UpdateWorkArea();
+        }));
+    }
+
+    internal static (Size MinSize, double RailAllowance) FitWorkArea(Size preferred, Size available)
+    {
+        double allowance = available.Width >= preferred.Width + LeftOverhangAllowance ? LeftOverhangAllowance : 0;
+        double minWidth = allowance > 0 ? preferred.Width + allowance : Math.Min(preferred.Width, 810);
+        return (new Size(Math.Min(minWidth, available.Width), Math.Min(preferred.Height, available.Height)), allowance);
+    }
+
+    private void UpdateWorkArea()
+    {
+        if (_disposed || !CanRenderWindow || _owner.GlassPreviewState is not null ||
+            !WindowResizer.TryGetMonitorLayout(_owner, out Rect work, out Rect bounds) || work == _lastWorkArea) return;
+        _lastWorkArea = work;
+        var (minimum, allowance) = FitWorkArea(_preferredMinimum, work.Size);
+        double delta = allowance - View.LeftExpansionAllowance;
+        bool wasSaveable = _owner.IsSizeSaveable;
+        _owner.IsSizeSaveable = false;
+        try
+        {
+            View.SetRailExpansionAvailable(allowance > 0);
+            View.SetLeftExpansionAllowance(allowance);
+            _owner.MinWidth = minimum.Width;
+            _owner.MinHeight = minimum.Height;
+            if (_owner.WindowState != WindowState.Normal) return;
+            double width = Math.Clamp(bounds.Width + delta, minimum.Width, work.Width);
+            double height = Math.Clamp(bounds.Height, minimum.Height, work.Height);
+            double left = Math.Clamp(bounds.Left - delta, work.Left, Math.Max(work.Left, work.Right - width));
+            double top = Math.Clamp(bounds.Top, work.Top, Math.Max(work.Top, work.Bottom - height));
+            _owner.Width = width;
+            _owner.Height = height;
+            _owner.Left += left - bounds.Left;
+            _owner.Top += top - bounds.Top;
+        }
+        finally { _owner.IsSizeSaveable = wasSaveable; }
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs args) => UpdateWindowActivity();
+    private void OnWindowVisibilityChanged(object sender, DependencyPropertyChangedEventArgs args) => UpdateWindowActivity();
+
+    private void UpdateWindowActivity()
+    {
+        if (_disposed) return;
+        bool visible = CanRenderWindow;
+        GlassVideoWallpaper.SetPaused(!visible);
+        _videoFrost?.SetPaused(!visible || _windowResizing);
+        if (!visible)
+        {
             _refreshTimer.Stop();
             _backdropPresence?.Snap(0);
             return;
         }
+        QueueWorkAreaCheck();
         if (_owner.IsLoaded && !_refreshTimer.IsEnabled) { Refresh(); _refreshTimer.Start(); }
         if (!View.HoldsBackdrop) RevealBackdrop();
     }
@@ -688,7 +773,8 @@ internal sealed class GlassShellIntegration : IDisposable {
     internal void SetWindowResizing(bool resizing) {
         if (_disposed || _windowResizing == resizing) return;
         _windowResizing = resizing;
-        _videoFrost?.SetPaused(resizing || _owner.WindowState == WindowState.Minimized);
+        _modalEffects?.SetWindowResizing(resizing);
+        _videoFrost?.SetPaused(resizing || !CanRenderWindow);
         GlassMaterial.SetDeferWallpaperBlur(_root, resizing);
         if (!resizing) {
             _nextWallpaperRefresh = 0;
@@ -717,7 +803,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private bool _hadOriginalAppToolTip;
     private object? _originalAppToolTip;
     private void OnRightLayoutUpdated(object? sender, EventArgs args) {
-        if (_pageRefreshQueued || _disposed || ReferenceEquals(_projectedPage, DisplayedPage)) return;
+        if (_pageRefreshQueued || _disposed || DisplayedPage is not { } page || ReferenceEquals(_projectedPage, page)) return;
         _pageRefreshQueued = true;
         _owner.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => { _pageRefreshQueued = false; Refresh(); }));
     }
@@ -738,7 +824,28 @@ internal sealed class GlassShellIntegration : IDisposable {
                 _lastModalClipKey = null;
             }
             _modalEffects.SetMessage(active);
+            RefreshCrashBanner(active);
         } finally { _refreshingModal = false; }
+    }
+
+    // The game-crash dialog ("Minecraft 出现错误") gets the playful crash banner above it, between the scrim and the
+    // dialog; the dialog moves down to make room. It leaves with the dialog.
+    private const double CrashBannerRoom = 190;
+    private GlassCrashBanner? _crashBanner;
+    private void RefreshCrashBanner(object? active) {
+        bool crash = active is MyMsgText text && text.LabTitle.Text == "Minecraft 出现错误";
+        if (crash && _crashBanner is null) {
+            _crashBanner = new GlassCrashBanner { VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 720, Height = CrashBannerRoom - 26 };
+            Panel.SetZIndex(_crashBanner, 28);
+            _root.Children.Add(_crashBanner);
+            _lastModalClipKey = null;
+            AlignModalToBody();
+            _crashBanner.Play();
+        } else if (!crash && _crashBanner is { } banner) {
+            _crashBanner = null;
+            banner.Dismiss(() => _root.Children.Remove(banner));
+            AlignModalToBody();
+        }
     }
     // Dialog and scrim occupy the main body only, so neither crosses the transparent gap beside the icon rail.
     private void AlignModalToBody() {
@@ -748,7 +855,20 @@ internal sealed class GlassShellIntegration : IDisposable {
         catch (InvalidOperationException) { return; }
         var margin = new Thickness(bounds.Left, bounds.Top, Math.Max(0, _root.ActualWidth - bounds.Right), Math.Max(0, _root.ActualHeight - bounds.Bottom));
         if (_modalScrim.Margin != margin) _modalScrim.Margin = margin;
-        if (_modalView.Margin != margin) _modalView.Margin = margin;
+        // With the crash banner, banner and dialog read as one group: the banner sits just above the dialog's centred
+        // position; only when there is not enough room above does the dialog move down, by just what is missing.
+        Thickness dialogMargin = margin;
+        if (_crashBanner is not null) {
+            double bannerHeight = _crashBanner.Height, gap = 10;
+            double cardHeight = DialogCardHeight();
+            double room = Math.Max(0, (bounds.Height - cardHeight) / 2);
+            double shift = Math.Max(0, bannerHeight + gap + 12 - room);
+            dialogMargin = new Thickness(margin.Left, margin.Top + 2 * shift, margin.Right, margin.Bottom);
+            double bannerTop = bounds.Top + Math.Max(8, room + shift - bannerHeight - gap);
+            var bannerMargin = new Thickness(margin.Left + 32, bannerTop, margin.Right + 32, 0);
+            if (_crashBanner.Margin != bannerMargin) _crashBanner.Margin = bannerMargin;
+        }
+        if (_modalView.Margin != dialogMargin) _modalView.Margin = dialogMargin;
         if (_modalScrim.CornerRadius != new CornerRadius(12)) _modalScrim.CornerRadius = new CornerRadius(12);
         if (View.FindName("WindowControlsSurface") is FrameworkElement controls && controls.ActualWidth > 0 && controls.ActualHeight > 0) {
             Rect localBody = new(0, 0, Math.Max(0, bounds.Width), Math.Max(0, bounds.Height));
@@ -767,12 +887,26 @@ internal sealed class GlassShellIntegration : IDisposable {
             _modalScrim.Clip = null;
         }
     }
+    // Height of the dialog card inside the modal projection (its frosted sheet), 0 before it has been laid out.
+    private double DialogCardHeight() {
+        if (_modalView is null) return 0;
+        var pending = new Queue<DependencyObject>();
+        pending.Enqueue(_modalView);
+        while (pending.Count > 0) {
+            DependencyObject item = pending.Dequeue();
+            if (item is GlassSurface { ActualHeight: > 0 } card && !ReferenceEquals(item, _modalView)) return card.ActualHeight;
+            int count = VisualTreeHelper.GetChildrenCount(item);
+            for (int index = 0; index < count; index++) pending.Enqueue(VisualTreeHelper.GetChild(item, index));
+        }
+        return 0;
+    }
     private static bool SameRect(Rect a, Rect b) =>
         Math.Abs(a.X - b.X) < 0.05 && Math.Abs(a.Y - b.Y) < 0.05 &&
         Math.Abs(a.Width - b.Width) < 0.05 && Math.Abs(a.Height - b.Height) < 0.05;
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
+        ObserveRightPage(null);
         _owner.PanMsg.LayoutUpdated -= OnModalLayoutUpdated;
         _owner.PanMainRight.LayoutUpdated -= OnRightLayoutUpdated;
         _modalView?.RemoveHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(OnModalAction));
@@ -796,10 +930,17 @@ internal sealed class GlassShellIntegration : IDisposable {
         _toasts?.Dispose();
         _runtime?.Dispose();
         if (_runtime is not null) _runtime.AccountRequested -= OnAccountRequested;
+        View.ThemeToggleRequested -= OnThemeToggle;
         View.MinimizeRequested -= OnMinimize; View.CloseRequested -= OnClose;
         View.DragRequested -= OnDrag;
         View.RegionsChanged -= OnRegionsChanged;
+        View.PageContentReleased -= OnPageContentReleased;
         _owner.StateChanged -= OnWindowStateChanged;
+        _owner.IsVisibleChanged -= OnWindowVisibilityChanged;
+        _owner.LocationChanged -= OnWindowLocationChanged;
+        _owner.DpiChanged -= OnWindowDpiChanged;
+        if (_workAreaCheck?.Status == DispatcherOperationStatus.Pending) _workAreaCheck.Abort();
+        _workAreaCheck = null;
         _videoFrost?.Dispose();
         GlassVideoWallpaper.Stop();
         if (_startupPreload) GlassStartupPreload.Cancel();

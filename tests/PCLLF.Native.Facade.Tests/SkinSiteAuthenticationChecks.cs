@@ -13,6 +13,8 @@ internal static class SkinSiteAuthenticationChecks {
         LegacyCredentials();
         GlobalSelection(environment);
         HttpsTransport();
+        DelegatedCredentialConsent();
+        BoundedHeadDecode();
         environment.AssertNoForbiddenIo();
     }
 
@@ -105,6 +107,63 @@ internal static class SkinSiteAuthenticationChecks {
         }));
         Rejected((Task)Native.Static("PCL.GlassSkinSites", "Authenticate", SavedSite, "mock", "mock-password", redirect)!, "重定向");
         Native.Check(requests == 1, "A credential POST was repeated after the site redirected it.");
+    }
+
+    private static void DelegatedCredentialConsent()
+    {
+        foreach ((bool confirm, bool remember) in new[] { (false, false), (true, false), (true, true) })
+        {
+            int confirmations = 0, posts = 0;
+            using var client = new HttpClient(new ResponseHandler(request =>
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    Native.Check(confirm && confirmations == 1 && request.RequestUri?.AbsoluteUri == OtherSite + "/authserver/authenticate",
+                        "A login POST was sent before approval or to the wrong receiver.");
+                    posts++;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"accessToken":"synthetic-access","clientToken":"synthetic-client","availableProfiles":[{"id":"1","name":"Tester"}]}""")
+                    };
+                }
+                Native.Check(request.Content is null, "Discovery must not send credentials.");
+                var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"meta":{}}""") };
+                if (request.RequestUri?.AbsoluteUri == SavedSite) response.Headers.Add("X-Authlib-Injector-API-Location", OtherSite);
+                return response;
+            }));
+            var task = (Task)Native.Static("PCL.GlassSkinSites", "SignIn", SavedSite, "mock", "fixture-password", remember,
+                new Func<Uri, Uri, bool>((from, to) =>
+                {
+                    confirmations++;
+                    Native.Check(from.AbsoluteUri == SavedSite && to.AbsoluteUri == OtherSite, "Consent did not include both endpoints.");
+                    return confirm;
+                }), client)!;
+            VisualAssetChecks.Pump(() => task.IsCompleted, "Skin site consent did not complete.");
+            task.GetAwaiter().GetResult();
+            object? result = task.GetType().GetProperty("Result")!.GetValue(task);
+            Native.Check(confirmations == 1 && posts == (confirm ? 1 : 0) && (result is not null) == confirm, "Declining delegated login did not prevent the credential request.");
+            if (result is not null)
+            {
+                object account = result.GetType().GetField("Item4")!.GetValue(result)!;
+                string password = (string)account.GetType().GetProperty("Password")!.GetValue(account)!;
+                Native.Check(password == (remember ? "fixture-password" : ""), "Password retention did not respect the sign-in choice.");
+            }
+        }
+    }
+
+    private static void BoundedHeadDecode()
+    {
+        var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(64, 64, 96, 96,
+            System.Windows.Media.PixelFormats.Bgra32, null, Enumerable.Repeat((byte)255, 64 * 64 * 4).ToArray(), 64 * 4);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var stream = new MemoryStream();
+        encoder.Save(stream);
+        byte[] png = stream.ToArray();
+        object? Decode(byte[] data) => Task.Run(() => Native.Static("PCL.GlassSkinSites", "DecodeHead", (object)data)).GetAwaiter().GetResult();
+        Native.Check(Decode(png) is System.Windows.Media.Imaging.BitmapSource { IsFrozen: true }, "A valid external head could not be decoded off the UI thread.");
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(png.AsSpan(16, 4), 8192);
+        Native.Check(Decode(png) is null, "An oversized external texture reached the bitmap decoder.");
     }
 
     private static void Rejected(Task task, string expected) {

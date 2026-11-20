@@ -75,6 +75,29 @@ internal static class GlassMotionChecks
             Check(Capture().Zip(reference, (first, second) => Math.Abs(first - second)).Average() < .5 &&
                 (long)Native.Property(cache, "BuildCount").GetValue(null)! == built,
                 "Replacing an entrance transform/origin moved the wallpaper or rebuilt its blur.");
+            var tint = new SolidColorBrush(Colors.Transparent);
+            surface.Background = tint;
+            var colorSample = new Rect(9, 7, 3, 1);
+            Native.Set(surface, "_lastWallpaperBounds", colorSample);
+            tint.Color = Color.FromArgb(48, 245, 245, 245);
+            Native.Check(Native.Get(surface, "_lastWallpaperBounds") is Rect recolored && recolored == colorSample &&
+                ReferenceEquals(texture, Texture(surface)), "Changing a glass tint invalidated the wallpaper sampling state.");
+
+            var bitmap = new WriteableBitmap(16, 16, 96, 96, PixelFormats.Bgra32, null);
+            var video = new DrawingImage(new ImageDrawing(bitmap, new Rect(0, 0, 16, 16)));
+            Native.Call(cache, "RegisterVideoFrame", null, video);
+            surface.WallpaperSource = sibling.WallpaperSource = video;
+            window.UpdateLayout(); VisualAssetChecks.Drain(); Capture();
+            var sentinel = new Rect(1, 2, 3, 4);
+            Native.Set(surface, "_lastWallpaperBounds", sentinel);
+            Native.Set(sibling, "_lastWallpaperBounds", sentinel);
+            byte[] framePixels = Enumerable.Repeat((byte)255, 16 * 16 * 4).ToArray();
+            for (int index = 0; index < 12; index++)
+                bitmap.WritePixels(new Int32Rect(0, 0, 16, 16), framePixels, 16 * 4, 0);
+            Check(Native.Get(surface, "_lastWallpaperBounds") is Rect first && first == sentinel &&
+                Native.Get(sibling, "_lastWallpaperBounds") is Rect second && second == sentinel &&
+                ReferenceEquals(Texture(surface), video), "Writing shared video pixels invalidated the cards' sampling coordinates.");
+
             if (MotionPreferences.AllowsAnimation) StaggeredEntrance.Play(new[] { moving });
             window.Content = null; VisualAssetChecks.Drain();
             Check(((System.Collections.IDictionary)Native.Get(surface, "_transformWatches")!).Count == 0 && Native.Get(Plane(surface), "Frame") is null,
@@ -137,22 +160,40 @@ internal static class GlassMotionChecks
         NavigationHover(view, icon, animates);
 
         view.SetState(State(icon, true, home: false));
-        view.SetPageContent(new Grid { Background = Brushes.OrangeRed });
+        var old = new Grid { Background = Brushes.OrangeRed };
+        view.SetPageContent(old);
+        ContentControl oldHost = view.PageContentHost;
         window.UpdateLayout();
+        if (animates) {
+            view.SetState(State(icon, false, home: true));
+            Check(Part<FrameworkElement>(view, "PageScene").Opacity > .99,
+                "Returning home hid the departing right page before its replacement was ready.");
+            view.SetState(State(icon, true, home: false));
+        }
         view.SetState(State(icon, false, home: false));
         var next = new Grid { Background = Brushes.SteelBlue };
         view.SetPageContent(next);
-        var snapshot = Part<Image>(view, "PageSnapshot");
         Check(ReferenceEquals(view.PageContentHost.Content, next) && view.PageContentHost.IsHitTestVisible,
             "Page transition delayed actual navigation or input ownership.");
         if (animates)
-            Check(snapshot.Source is not null && snapshot.Source.IsFrozen && !snapshot.IsHitTestVisible,
-                "Page replacement failed to preserve a frozen noninteractive outgoing frame.");
-        Observe(30);
+        {
+            Check(ReferenceEquals(oldHost.Content, old) && !oldHost.IsHitTestVisible,
+                "Page replacement detached the outgoing visual before its exit.");
+            Check(PageScale(view.PageContentHost).ScaleX < 1, "The incoming page did not start farther back.");
+            Until(() => oldHost.Opacity is > .25 and < .90, "visible outgoing page in motion");
+            Check(PageScale(oldHost).ScaleX < 1 && Math.Abs(PageOffset(oldHost).Y) > 1,
+                "The exit lacked depth and travel while the old page was still visible.");
+
+            double opacity = oldHost.Opacity, scale = PageScale(oldHost).ScaleX, offset = PageOffset(oldHost).Y;
+            view.SetPageContent(old);
+            Check(ReferenceEquals(view.PageContentHost, oldHost) && oldHost.Opacity == opacity && PageScale(oldHost).ScaleX == scale &&
+                PageOffset(oldHost).Y == offset && oldHost.IsHitTestVisible, "Returning to a departing page jumped to a new pose.");
+        }
         var final = new Grid { Background = Brushes.ForestGreen };
         view.SetPageContent(final);
-        Until(() => snapshot.Source is null && view.PageContentHost.Opacity > .999, "Rapid page replacement final endpoint");
+        Until(() => view.PageContentHost.Opacity > .999 && (!animates || oldHost.Content is null), "Rapid page replacement final endpoint");
         Check(ReferenceEquals(view.PageContentHost.Content, final), "An old page completion restored stale content.");
+        if (animates) CheckSingleEntranceFromHome(view, icon);
 
         view.SetState(State(icon, true));
         var plus = Part<Button>(view, "ExpandButton");
@@ -191,7 +232,37 @@ internal static class GlassMotionChecks
         view.SetPageContent(null!);
         plus.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         view.SetState(State(icon, true));
-        Console.WriteLine("PASS glass motion: reversible native popover/nav velocity, outgoing-page snapshot and rapid replacement, native toggle travel/reversal, immediate input ownership and reduced-motion endpoints; animations=" + animates + ".");
+        Console.WriteLine("PASS glass motion: reversible native popover/nav velocity, live outgoing page with depth, interrupted page transitions, native toggle travel/reversal, immediate input ownership and reduced-motion endpoints; animations=" + animates + ".");
+    }
+
+    private static ScaleTransform PageScale(ContentControl host) => (ScaleTransform)((TransformGroup)host.RenderTransform).Children[0];
+    private static TranslateTransform PageOffset(ContentControl host) => (TranslateTransform)((TransformGroup)host.RenderTransform).Children[1];
+
+    private static void CheckSingleEntranceFromHome(GlassLauncherView view, ImageSource icon)
+    {
+        view.SetState(State(icon, true));
+        view.SetPageContent(new Grid());
+        var card = new Border { Height = 60, Background = Brushes.OrangeRed };
+        var page = new StackPanel { Children = { card, new Border { Height = 60, Background = Brushes.SteelBlue } } };
+        var opacity = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(UIElement.OpacityProperty, typeof(Border));
+        bool animatedCard = false;
+        EventHandler changed = (_, _) => animatedCard = true;
+        var secondary = (ColumnDefinition)view.FindName("SecondaryColumn");
+        var width = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(ColumnDefinition.WidthProperty, typeof(ColumnDefinition));
+        int widthChanges = 0;
+        EventHandler resized = (_, _) => widthChanges++;
+        opacity.AddValueChanged(card, changed);
+        width.AddValueChanged(secondary, resized);
+        try {
+            view.SetState(State(icon, false, home: false, navigation: 3));
+            view.SetPageContent(page);
+            Until(() => view.PageContentHost.Opacity > .999 && !Motion(view, "_pageMotion").IsRunning, "the routed page entrance");
+            Check(!animatedCard, "Entering a right page from Home also played an independent card entrance.");
+            Check(widthChanges <= 1, $"Home navigation remeasured page columns across {widthChanges} width changes.");
+        } finally {
+            opacity.RemoveValueChanged(card, changed);
+            width.RemoveValueChanged(secondary, resized);
+        }
     }
 
     private static GlassLauncherViewState State(ImageSource icon, bool reduce, bool home = true, int navigation = 0, bool dependency = true) => new()

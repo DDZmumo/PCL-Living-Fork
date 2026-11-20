@@ -31,39 +31,51 @@ public sealed partial class GlassPresentationSession
     /// </summary>
     private Node ProjectTaskManager(PageSpeedRight source)
     {
-        var root = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var stack = new StackPanel();
+        var root = new ScrollViewer
+        {
+            Content = stack,
+            Style = Style("GlassPresentationScrollViewer"),
+            Margin = new Thickness(0, 6, 0, 0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
 
         var empty = PlainText("当前没有进行中的任务"); empty.HorizontalAlignment = HorizontalAlignment.Center; empty.Margin = new Thickness(0, 24, 0, 0);
         empty.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
-        root.Children.Add(empty);
+        stack.Children.Add(empty);
         var list = new StackPanel();
-        root.Children.Add(list);
+        stack.Children.Add(list);
 
         var cards = new Dictionary<ModLoader.LoaderBase, TaskCard>(ReferenceEqualityComparer.Instance);
+        bool primed = false;
         var node = new Node(root);
         node.Pull = () =>
         {
-            List<ModLoader.LoaderBase> loaders = ModLoader.LoaderTaskbar.ToList().Where(loader =>
-                loader.Show && !(loader is IMmcImportProgressOperation mmc &&
-                    loader.State is ModBase.LoadState.Finished or ModBase.LoadState.Canceled && mmc.ProducerCompleted)).ToList();
+            IEnumerable<ModLoader.LoaderBase> failed = ModMain.FrmSpeedLeft?.FailedTasks() ?? Enumerable.Empty<ModLoader.LoaderBase>();
+            var loaders = new HashSet<ModLoader.LoaderBase>(ReferenceEqualityComparer.Instance);
+            var ordered = ModLoader.LoaderTaskbar.ToList().Concat(failed).Where(loader => loader.Show &&
+                (loader.State is not (ModBase.LoadState.Finished or ModBase.LoadState.Canceled) ||
+                 loader is IMmcImportProgressOperation { ProducerCompleted: false }) && loaders.Add(loader)).ToList();
             foreach (ModLoader.LoaderBase gone in cards.Keys.Where(loader => !loaders.Contains(loader)).ToList())
             {
                 list.Children.Remove(cards[gone].View);
                 cards.Remove(gone);
             }
             var added = new List<UIElement>();
-            foreach (ModLoader.LoaderBase loader in loaders)
+            foreach (ModLoader.LoaderBase loader in ordered)
             {
                 if (!cards.TryGetValue(loader, out TaskCard? card))
                 {
-                    card = new TaskCard(this, loader, source);
+                    card = new TaskCard(this, loader);
                     cards[loader] = card;
                     list.Children.Insert(0, card.View); // newest first, like the original
                     added.Add(card.View);
                 }
                 card.Update();
             }
-            if (added.Count > 0) StaggeredEntrance.Play(added);
+            if (primed && added.Count > 0) StaggeredEntrance.Play(added);
+            primed = true;
             empty.Visibility = cards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         };
         return node;
@@ -82,7 +94,6 @@ public sealed partial class GlassPresentationSession
     {
         private readonly GlassPresentationSession _owner;
         private readonly ModLoader.LoaderBase _loader;
-        private readonly PageSpeedRight _page;
         private readonly TextBlock _title, _state, _percent, _error;
         private readonly Button _cancel;
         private readonly SlimBar _progress;
@@ -90,9 +101,9 @@ public sealed partial class GlassPresentationSession
         private string _rowSignature = string.Empty;
         internal FrameworkElement View { get; }
 
-        internal TaskCard(GlassPresentationSession owner, ModLoader.LoaderBase loader, PageSpeedRight page)
+        internal TaskCard(GlassPresentationSession owner, ModLoader.LoaderBase loader)
         {
-            _owner = owner; _loader = loader; _page = page;
+            _owner = owner; _loader = loader;
             _title = owner.PlainText(loader.Name); _title.FontSize = 15; _title.FontWeight = FontWeights.SemiBold; _title.TextTrimming = TextTrimming.CharacterEllipsis; _title.VerticalAlignment = VerticalAlignment.Center;
             _state = owner.PlainText(string.Empty); _state.FontSize = 12; _state.Margin = new Thickness(10, 0, 0, 0); _state.VerticalAlignment = VerticalAlignment.Center;
             _state.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
@@ -145,11 +156,12 @@ public sealed partial class GlassPresentationSession
             _progress.Visibility = failed ? Visibility.Collapsed : Visibility.Visible;
             _error.Visibility = failed ? Visibility.Visible : Visibility.Collapsed;
             if (failed) _error.Text = _loader.Error?.GetDisplay(true) ?? "任务失败";
+            _cancel.Content = failed ? "关闭" : "取消";
 
             if (_loader is IMmcImportProgressOperation mmcOp)
             {
-                _cancel.Content = failed ? "关闭" : "取消";
-                _cancel.IsEnabled = failed || (!mmcOp.ImportProgress.CancellationRequested && !mmcOp.ImportProgress.DecisionStarted);
+                _cancel.IsEnabled = failed ? mmcOp.ProducerCompleted :
+                    !mmcOp.ImportProgress.CancellationRequested && !mmcOp.ImportProgress.DecisionStarted;
                 _cancel.ToolTip = mmcOp.ImportProgress.CancellationRequested ? "正在取消，等待文件操作结束" :
                     mmcOp.ImportProgress.DecisionStarted ? "正在保存导入结果，请等待文件操作结束" :
                     failed ? "关闭任务" : "取消导入";
@@ -202,12 +214,7 @@ public sealed partial class GlassPresentationSession
         // The original card owns cancellation (removes it from the taskbar list, cancels on a worker, returns home).
         private void Cancel()
         {
-            MyCard? original = _page.PanMain.Children.OfType<MyCard>().FirstOrDefault(card => card.Title == _loader.Name);
-            if (original?.Children.OfType<MyIconButton>().FirstOrDefault(button => button.Name == "BtnCancel") is MyIconButton button)
-            {
-                button.PerformClick();
-                return;
-            }
+            if (ModMain.FrmSpeedLeft?.TryCancelTask(_loader) == true) return;
             if (_loader is IMmcImportProgressOperation mmcOp)
             {
                 if (_loader.State is ModBase.LoadState.Loading or ModBase.LoadState.Waiting)

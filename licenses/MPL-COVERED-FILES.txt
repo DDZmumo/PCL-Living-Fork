@@ -270,6 +270,8 @@ modern/Main/Glass/GlassSkinSites.cs
 modern/Main/Glass/GlassVideoWallpaper.cs
 modern/Main/Glass/GlassSkinLibrary.cs
 modern/Main/Glass/GlassSkinRender.cs
+modern/Main/Glass/GlassCrashBanner.cs
+modern/Main/Glass/GlassStatusGlyph.cs
 modern/Main/Glass/GlassPresentation.cs
 modern/Main/Glass/GlassPresentationResources.xaml
 modern/Main/Glass/GlassToastHost.cs

@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Windows;
+using System.Windows.Interop;
 using PCLCS;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -26,6 +28,8 @@ internal static class LaunchRelaunchChecks {
         Directory.CreateDirectory(directory);
         Compile(javac, directory, "Bootstrap", BootstrapSource, "8");
         Compile(javac, directory, "Relay", RelaySource, "21");
+        NativeWindowEnumeration();
+        RunCase(directory, java8, modern, 0, direct: true);
         RunCase(directory, java8, modern, 0);
         RunCase(directory, java8, modern, 23);
         RunCase(directory, java8, modern, null);
@@ -33,12 +37,36 @@ internal static class LaunchRelaunchChecks {
         Console.WriteLine("PASS real Java handoff: bootstrap → relay → game, owned window, no inherited game logs, actual exit code, exact-once callbacks and cancellation.");
     }
 
-    private static void RunCase(string classes, string java8, string modern, int? gameExit, bool startSuccessor = true) {
-        string root = Path.Combine(classes, startSuccessor ? gameExit?.ToString() ?? "cancel" : "no-successor"), outside = Path.Combine(root, "outside");
+    private static void NativeWindowEnumeration() {
+        var application = System.Windows.Application.Current;
+        var previousShutdown = application.ShutdownMode;
+        var previousWindow = application.MainWindow;
+        Window FixtureWindow() => new() { Width = 80, Height = 80, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        var first = FixtureWindow();
+        var second = FixtureWindow();
+        try {
+            application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            first.Show(); second.Show();
+            var handles = new HashSet<IntPtr>();
+            Native.Static("PCL.ModWatcher", "NativeEnumWindows", (Action<IntPtr, int>)((hwnd, _) => handles.Add(hwnd)), 0);
+            Native.Check(handles.Contains(new WindowInteropHelper(first).Handle) && handles.Contains(new WindowInteropHelper(second).Handle),
+                "The native EnumWindows adapter stopped before it had visited both owned top-level windows.");
+        } finally {
+            first.Close(); second.Close();
+            application.MainWindow = previousWindow;
+            application.ShutdownMode = previousShutdown;
+        }
+    }
+
+    private static void RunCase(string classes, string java8, string modern, int? gameExit, bool startSuccessor = true, bool direct = false) {
+        string root = Path.Combine(classes, direct ? "direct" : startSuccessor ? gameExit?.ToString() ?? "cancel" : "no-successor"), outside = Path.Combine(root, "outside");
         Directory.CreateDirectory(outside);
-        using var entry = Start(java8, root, "-cp", classes, "Bootstrap", root, modern, classes);
+        using var entry = direct ? Start(modern, root, "-cp", classes, "Relay", root, "game", "0") :
+            Start(java8, root, "-cp", classes, "Bootstrap", root, modern, classes);
         using var unrelated = Start(modern, outside, "-cp", classes, "Relay", outside, "game", "0");
         int relayPid = 0, titlePid = 0, stopped = 0, crashes = 0;
+        int publishWindowAfterScan = 0;
+        long windowPublishedAt = 0;
         bool normal = false, active = false;
         int stoppedAnchor = 0;
         var owner = new Watched();
@@ -64,22 +92,43 @@ internal static class LaunchRelaunchChecks {
             EnumWindows = (visit, _) => {
                 visit(new IntPtr(1), 0);
                 if (Volatile.Read(ref relayPid) != 0) visit(new IntPtr(2), 0);
-                if (Volatile.Read(ref titlePid) != 0) visit(new IntPtr(3), 0);
+                if (Volatile.Read(ref titlePid) != 0) {
+                    visit(new IntPtr(4), 0); // same JVM's FML splash, before the actual game window
+                    visit(new IntPtr(5), 0); // same JVM, but not yet visible
+                    visit(new IntPtr(3), 0);
+                }
+                // Make the fixture window visible just after a scan has missed it.
+                int next = Interlocked.Exchange(ref publishWindowAfterScan, 0);
+                if (next != 0)
+                {
+                    Volatile.Write(ref windowPublishedAt, Stopwatch.GetTimestamp());
+                    Volatile.Write(ref titlePid, next);
+                }
             },
             GetClassName = (window, buffer, _) => Fill(buffer, window.ToInt64() == 2 ? "SunAwtFrame" : "GLFW30"),
             GetWindowText = (window, buffer, _) => Fill(buffer, window.ToInt64() switch {
-                1 => "Unrelated Minecraft", 2 => "Java relay console", _ => "Owned Minecraft"
+                1 => "Unrelated Minecraft", 2 => "Java relay console", 4 => "FML Loading", 5 => "Hidden Minecraft", _ => "Owned Minecraft"
             }),
             GetWindowProcessId = window => window.ToInt64() switch {
                 1 => unrelated.Id, 2 => Volatile.Read(ref relayPid), _ => Volatile.Read(ref titlePid)
             },
-            IsWindowVisible = _ => true
+            IsWindowVisible = window => window.ToInt64() != 5
         };
         var group = new LegacyWatcherGroup<Watched, string, Process, State>(host);
         owner.Watcher = new(owner, host, group);
 
         try {
             owner.Watcher.Initialize(entry, root, "", OnMonitoringFinished: () => finished.Set());
+            if (direct) {
+                WaitFor(() => TryReadPid(root, "game.pid", out _), "The silent entry JVM did not start.");
+                ConfirmWindow(entry.Id);
+                Native.Check(owner.CoreLatestLog.IsEmpty, "A stdout line completed the direct-window fixture instead of the window probe.");
+                Signal(root, "quit");
+                WaitFor(() => finished.IsSet, "The direct game process did not exit.");
+                Native.Check(stopped == 1 && normal && crashes == 0 && owner.CoreState == State.Ended,
+                    "Faster readiness changed direct-launch exit handling.");
+                return;
+            }
             File.WriteAllText(Path.Combine(root, "bootstrap.pid"), entry.Id.ToString());
             if (!startSuccessor) Signal(root, "stop-relay");
             Signal(root, "start");
@@ -111,8 +160,7 @@ internal static class LaunchRelaunchChecks {
             Signal(root, "spawn");
             WaitFor(() => TryReadPid(root, "game.pid", out _), "The successor game JVM did not start.");
             TryReadPid(root, "game.pid", out int game);
-            Volatile.Write(ref titlePid, game);
-            WaitFor(() => owner.CoreState == State.Running && owner.CoreGameProcess.Id == game, "The owned game window did not complete launch.");
+            ConfirmWindow(game);
             Native.Check(stopped == 0 && crashes == 0, "Callbacks finished while the successor game was still active.");
             Signal(root, "quit");
             WaitFor(() => finished.IsSet, "The successor's exit did not settle the launch session.");
@@ -126,6 +174,15 @@ internal static class LaunchRelaunchChecks {
             if (!entry.WaitForExit(1500)) entry.Kill(entireProcessTree: true);
             if (!unrelated.WaitForExit(1500)) unrelated.Kill(entireProcessTree: true);
             finished.Wait(2000);
+        }
+
+        void ConfirmWindow(int game)
+        {
+            var waiter = Task.Run(() => owner.Watcher.WaitForStartupState(6000));
+            Volatile.Write(ref publishWindowAfterScan, game);
+            Native.Check(waiter.Wait(7000) && waiter.Result == State.Running && owner.CoreGameProcess.Id == game,
+                "The visible owned game window did not notify the startup waiter.");
+            Console.WriteLine($"Java {(direct ? "direct" : "handoff")} window to waiter: {Stopwatch.GetElapsedTime(Volatile.Read(ref windowPublishedAt)).TotalMilliseconds:0.0} ms after a missed scan");
         }
     }
 

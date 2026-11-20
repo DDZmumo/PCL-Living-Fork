@@ -30,6 +30,13 @@ internal static class GlassWindowIntegrationChecks {
     internal static void Run(FixtureEnvironment environment) {
         VisualAssetChecks.VerifyChild(environment);
         using var scope = new VisualAssetChecks.Scope(environment, "glass-window");
+        var small = ((Size MinSize, double RailAllowance))Native.Static("PCL.GlassShellIntegration", "FitWorkArea",
+            new Size(980, 560), new Size(911, 486))!;
+        var wide = ((Size MinSize, double RailAllowance))Native.Static("PCL.GlassShellIntegration", "FitWorkArea",
+            new Size(980, 560), new Size(1920, 1040))!;
+        Native.Check(small.RailAllowance == 0 && small.MinSize.Width <= 911 && small.MinSize.Height <= 486 &&
+            wide.RailAllowance > 0 && wide.MinSize.Width == 980 + wide.RailAllowance,
+            "Compact monitor bounds cannot contain the window or the normal monitor lost its rail allowance.");
         bool interactive = Environment.GetEnvironmentVariable("PCLLF_GLASS_INTERACTIVE") == "1";
         object? previousMain = Native.State(typeof(ModMain), "FrmMain").GetValue(null);
         FormMain? window = null;
@@ -48,12 +55,13 @@ internal static class GlassWindowIntegrationChecks {
         File.Copy(wallpaper, Path.Combine(legacyPictures, "legacy-wallpaper.png"));
         int previewPage = 0;
         bool previewDependencies = true, previewAutoFill = true;
+        bool previewMotion = interactive;
         try {
             var left = new MyPageLeft();
             var contextRows = new StackPanel(); left.Children.Add(contextRows);
             contextRows.Children.Add(new MyListItem { Title = "界面预览", Type = MyListItem.CheckType.RadioBox, Logo = "M2,2 H18 V18 H2 Z" });
             var right = new MyPageRight {
-                Child = new TextBlock { Text = "原生页面容器预览\n\n此测试保留真正的 FormMain 页面、任务与提示容器。\n预览数据不连接账号、游戏或下载服务。", Margin = new Thickness(28), TextWrapping = TextWrapping.Wrap }
+                Child = new TextBlock { Name = "WorkspaceFixtureContent", Text = "原生页面容器预览\n\n此测试保留真正的 FormMain 页面、任务与提示容器。\n预览数据不连接账号、游戏或下载服务。", Margin = new Thickness(28), TextWrapping = TextWrapping.Wrap }
             };
             Action<MainHost> configure = host => {
                 windowPorts = host;
@@ -115,7 +123,7 @@ internal static class GlassWindowIntegrationChecks {
                 AccountName = "界面预览", HasInstance = true, InstanceName = "Minecraft 1.21.4",
                 InstanceDescription = "预览数据 · 未连接游戏", CanLaunch = false, LaunchText = "预览模式",
                 LaunchStatus = "此预览不会启动游戏", DependencyCheckEnabled = previewDependencies, AutoFillEnabled = previewAutoFill,
-                RecentWorldAvailable = false, UseDarkText = true, ReduceMotion = !interactive
+                RecentWorldAvailable = false, UseDarkText = true, ReduceMotion = !previewMotion
             });
             Native.Property(typeof(FormMain), "GlassPreviewState").SetValue(window, state);
             var integration = Native.Get(window, "glassShell") ?? throw new InvalidOperationException("Actual FormMain did not attach GlassShellIntegration.");
@@ -149,6 +157,39 @@ internal static class GlassWindowIntegrationChecks {
                 "The new presentation must be distinct while the command/state sources stay loaded.");
             Native.Check(!Part<Border>(window, "PanMainRight").IsVisible && !right.IsVisible && !left.IsVisible,
                 "An original page is visible inside the new glass presentation.");
+            if (!interactive && PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) {
+                previewMotion = true;
+                var legacyRight = Part<Border>(window, "PanMainRight");
+                ContentControl departingHost = view.PageContentHost;
+                var departing = (ContentControl)departingHost.Content;
+                TextBlock departingText = Descendants<TextBlock>(departing).Single(text => text.Name == "WorkspaceFixtureContent");
+                var replacement = new MyPageRight { Child = new TextBlock { Text = "右侧页面切换测试" } };
+                previewPage = 1;
+                window.PageCurrent = FormMain.PageType.Download;
+                window.PageRight = replacement;
+                right.PageOnExit();
+                right.PageOnForceExit();
+                Native.Check(right.Child.Visibility == Visibility.Collapsed && departingText.Visibility == Visibility.Visible,
+                    "The original page's exit hid the content inside the departing WPF projection.");
+                legacyRight.Child = null;
+                Refresh(window);
+                Native.Check(ReferenceEquals(departingHost.Content, departing) && departingHost.Opacity > .99,
+                    "The shell replaced the outgoing projection during the legacy page's empty interval.");
+                legacyRight.Child = replacement;
+                Refresh(window);
+                Native.Check(!ReferenceEquals(view.PageContentHost.Content, departing) && ReferenceEquals(departingHost.Content, departing) &&
+                    departing.Content is not null && !departingHost.IsHitTestVisible,
+                    "The shell disposed the outgoing right-page projection before its animation.");
+                VisualAssetChecks.Pump(() => departingHost.Content is null && departing.Content is null,
+                    "right-page exit and deferred projection disposal");
+                previewMotion = false;
+                previewPage = 0;
+                window.PageCurrent = FormMain.PageType.Launch;
+                window.PageRight = right;
+                legacyRight.Child = right;
+                right.PageOnEnter();
+                Refresh(window); VisualAssetChecks.Drain();
+            }
             var root = (Grid)window.Content;
             foreach (string part in new[] { "PanHint", "PanMsg" })
                 Native.Check(!ReferenceEquals(VisualTreeHelper.GetParent(Part<FrameworkElement>(window, part)), root) &&
@@ -283,6 +324,8 @@ internal static class GlassWindowIntegrationChecks {
             foreach (int mode in new[] { 0, 1 }) {
                 Native.Cache("UiLauncherColorMode", mode);
                 Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
+                VisualAssetChecks.Pump(() => PCLLF.Presentation.Foundation.LegacyThemePalette.IsDarkTheme == (mode == 1),
+                    "Visible WPF palette did not reach the requested theme.");
                 Refresh(window);
                 var tooltip = new ToolTip { Content = "资源中心提示", PlacementTarget = owner };
                 try {

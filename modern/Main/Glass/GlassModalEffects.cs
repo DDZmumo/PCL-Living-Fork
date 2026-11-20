@@ -3,6 +3,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
@@ -34,6 +35,10 @@ internal sealed class GlassModalEffects : IDisposable {
     private object? _message;
     private bool _disposed;
     private bool _warning;
+    private bool _resizing;
+    private bool _capturedBackgroundInput;
+    private bool _backgroundWasEnabled, _backgroundWasHitTestVisible;
+    private IInputElement? _returnFocus;
     private static readonly Color NeutralScrim = Color.FromRgb(0, 0, 0), WarningScrim = Color.FromRgb(120, 8, 10);
     private readonly SolidColorBrush _scrimBrush = new(NeutralScrim);
     private DispatcherOperation? _snapshotRefresh;
@@ -49,6 +54,11 @@ internal sealed class GlassModalEffects : IDisposable {
         _originalCacheMode = blurTarget.CacheMode;
         _motion = new SpringMotion(owner, 0, Apply, new SpringParameters(.42, .82)); // iOS-style spring: quick, one soft overshoot
         _scrim.Background = _scrimBrush;
+        _dialog.Focusable = true;
+        FocusManager.SetIsFocusScope(_dialog, true);
+        KeyboardNavigation.SetTabNavigation(_dialog, KeyboardNavigationMode.Cycle);
+        KeyboardNavigation.SetControlTabNavigation(_dialog, KeyboardNavigationMode.Cycle);
+        KeyboardNavigation.SetDirectionalNavigation(_dialog, KeyboardNavigationMode.Contained);
         blurTarget.SizeChanged += OnBackgroundSizeChanged;
     }
 
@@ -75,18 +85,60 @@ internal sealed class GlassModalEffects : IDisposable {
             _blurTarget.Effect = _blur;
         }
         // Input ownership changes immediately, independently of the fade/spring endpoint.
-        _background.IsHitTestVisible = message is null;
         _dialog.IsHitTestVisible = message is not null;
         _scrim.IsHitTestVisible = message is not null;
+        if (message is not null) CaptureInput(message);
+        else RestoreInput();
         _motion.Retarget(message is null ? 0 : 1);
+    }
+
+    private void CaptureInput(object message)
+    {
+        if (!_capturedBackgroundInput)
+        {
+            _capturedBackgroundInput = true;
+            _backgroundWasEnabled = _background.IsEnabled;
+            _backgroundWasHitTestVisible = _background.IsHitTestVisible;
+            _returnFocus = _background.IsKeyboardFocusWithin ? Keyboard.FocusedElement : null;
+            _background.SetCurrentValue(UIElement.IsEnabledProperty, false);
+            _background.SetCurrentValue(UIElement.IsHitTestVisibleProperty, false);
+        }
+        _ = _owner.Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            if (_disposed || !ReferenceEquals(_message, message) || !_dialog.IsVisible ||
+                Window.GetWindow(_dialog) is { IsActive: false }) return;
+            if (!_dialog.MoveFocus(new TraversalRequest(FocusNavigationDirection.First))) _dialog.Focus();
+        }));
+    }
+
+    private void RestoreInput()
+    {
+        if (!_capturedBackgroundInput) return;
+        _capturedBackgroundInput = false;
+        _background.SetCurrentValue(UIElement.IsEnabledProperty, _backgroundWasEnabled);
+        _background.SetCurrentValue(UIElement.IsHitTestVisibleProperty, _backgroundWasHitTestVisible);
+        IInputElement? previous = _returnFocus;
+        _returnFocus = null;
+        if (Window.GetWindow(_dialog) is { IsActive: false }) return;
+        if (previous is UIElement { IsVisible: true, IsEnabled: true, Focusable: true }) Keyboard.Focus(previous);
+        else if (_dialog.IsKeyboardFocusWithin) Keyboard.ClearFocus();
+    }
+
+    internal void SetWindowResizing(bool resizing)
+    {
+        if (_resizing == resizing) return;
+        _resizing = resizing;
+        if (!resizing) { RefreshSnapshot(); return; }
+        if (_snapshotRefresh?.Status == DispatcherOperationStatus.Pending) _snapshotRefresh.Abort();
+        _snapshotRefresh = null;
     }
 
     private void OnBackgroundSizeChanged(object sender, SizeChangedEventArgs args) => RefreshSnapshot();
     internal void RefreshSnapshot() {
-        if (_disposed || _message is null || _owner.Dispatcher.HasShutdownStarted || _snapshotRefresh?.Status == DispatcherOperationStatus.Pending) return;
+        if (_disposed || _resizing || _message is null || _owner.Dispatcher.HasShutdownStarted || _snapshotRefresh?.Status == DispatcherOperationStatus.Pending) return;
         _snapshotRefresh = _owner.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => {
             _snapshotRefresh = null;
-            if (_disposed || _message is null) return;
+            if (_disposed || _resizing || _message is null) return;
             GlassMaterial.SetWallpaperSource(_dialog, Snapshot());
         }));
     }
@@ -148,7 +200,7 @@ internal sealed class GlassModalEffects : IDisposable {
         _motion.Dispose();
         _blurTarget.Effect = _originalEffect;
         _blurTarget.CacheMode = _originalCacheMode;
-        _background.IsHitTestVisible = true;
+        RestoreInput();
         _scrim.IsHitTestVisible = false; _scrim.Visibility = Visibility.Collapsed;
         _scrim.Opacity = 0; _dialog.IsHitTestVisible = false; _dialog.Opacity = 0; _message = null;
         GlassMaterial.SetWallpaperSource(_dialog, null);

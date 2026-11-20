@@ -65,17 +65,18 @@ namespace PCL
                 button.ToolTip = ModTheme.IsDarkTheme ? "切换到浅色主题" : "切换到深色主题";
                 System.Windows.Automation.AutomationProperties.SetName(button, button.ToolTip.ToString());
             }
-            button.Click += (_, _) => {
-                Settings.Set("UiLauncherColorMode", ModTheme.IsDarkTheme ? 0 : 1);
-                if (ModMain.FrmSetupUI is not null) {
-                    ModAnimation.AniControlEnabled++;
-                    try { SettingService.RefreshSettings(ModMain.FrmSetupUI.ComboLauncherColorMode); }
-                    finally { ModAnimation.AniControlEnabled--; }
-                }
-                RefreshIcon();
-            };
+            button.Click += (_, _) => { ToggleLauncherColorMode(); RefreshIcon(); };
             ModTheme.WatchTheme(button, RefreshIcon);
             RefreshIcon();
+        }
+
+        internal static void ToggleLauncherColorMode()
+        {
+            Settings.Set("UiLauncherColorMode", Settings.Get<int>("UiLauncherColorMode") == 1 ? 0 : 1);
+            if (ModMain.FrmSetupUI is null) return;
+            ModAnimation.AniControlEnabled++;
+            try { SettingService.RefreshSettings(ModMain.FrmSetupUI.ComboLauncherColorMode); }
+            finally { ModAnimation.AniControlEnabled--; }
         }
 
         private static void ConfigureDeferredUpdateButton(MyIconButton button, Action open)

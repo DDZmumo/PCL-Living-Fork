@@ -107,6 +107,7 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Func<TInstance, string, CancellationToken, string> CaptureEnvironment = null!;
     public Func<LegacyLaunchTask<Process, int>, TInstance, string, Action<Process>, Action, string, TWatcher> CreateWatcher = null!;
     public Func<TWatcher, int> WatcherState = null!;
+    public Func<TWatcher, int, int>? WaitForWatcherStartup;
     public Func<bool> MusicPause = null!, MusicResume = null!;
     public Action EndProgram = null!, HideLauncher = null!, MinimizeLauncher = null!;
 }

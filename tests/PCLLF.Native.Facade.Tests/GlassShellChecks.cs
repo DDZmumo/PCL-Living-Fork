@@ -146,6 +146,17 @@ internal static class GlassShellChecks
         EventHandler shown = (_, _) => Native.Call(preload, "MarkInterfaceShown", null);
         view.SplashFinished += shown;
         Task<bool> prompt = Task.Run(() => (bool)Native.Call(preload, "WaitForInterface", null)!);
+        bool depthBeforeReveal = false, crossfadeFrame = false;
+        FrameworkElement brand = Part<FrameworkElement>(view, "SplashLogo");
+        var scale = (ScaleTransform)brand.RenderTransform;
+        FrameworkElement workspace = Part<FrameworkElement>(view, "WorkspaceContentLayer");
+        EventHandler sampleHandoff = (_, _) =>
+        {
+            if (!view.IsSplashing) return;
+            depthBeforeReveal |= scale.ScaleX > 1.10 && brand.Opacity is > .05 and < .98 && workspace.Opacity <= .01;
+            crossfadeFrame |= scale.ScaleX > 1.25 && brand.Opacity < .35 && workspace.Opacity is > 0 and < 1;
+        };
+        CompositionTarget.Rendering += sampleHandoff;
         try
         {
             view.BeginSplash();
@@ -157,12 +168,15 @@ internal static class GlassShellChecks
             view.SplashProgress = 1;
             view.CompleteSplash();
             VisualAssetChecks.Pump(() => !view.IsSplashing, "complete startup splash", 12000);
+            Native.Check(depthBeforeReveal && crossfadeFrame,
+                "Startup skipped the spring-driven logo depth or the overlapping workspace reveal.");
             Native.Check(prompt.Wait(2000) && prompt.Result && Part<FrameworkElement>(view, "SplashLayer").Visibility == Visibility.Collapsed &&
                 Part<FrameworkElement>(view, "ApplicationBackdrop").Opacity == 1 && Part<FrameworkElement>(view, "WorkspaceContentLayer").Opacity == 1,
                 "Startup did not restore the workspace before releasing its automatic prompts.");
         }
         finally
         {
+            CompositionTarget.Rendering -= sampleHandoff;
             ready.TrySetResult(false);
             view.SplashFinished -= shown;
             slot.SetValue(null, previous);
@@ -452,30 +466,33 @@ internal static class GlassShellChecks
     {
         Rect body = Bounds(Part<FrameworkElement>(view, "BodyFrame"), view);
         Rect controls = Bounds(Part<FrameworkElement>(view, "WindowControlsSurface"), view);
-        Button minimize = Part<Button>(view, "MinimizeButton"), close = Part<Button>(view, "CloseButton");
-        Rect minimum = Bounds(minimize, view), closing = Bounds(close, view);
+        Button theme = Part<Button>(view, "ThemeToggleButton"), minimize = Part<Button>(view, "MinimizeButton"), close = Part<Button>(view, "CloseButton");
+        Rect themeBounds = Bounds(theme, view), minimum = Bounds(minimize, view), closing = Bounds(close, view);
         DpiScale dpi = VisualTreeHelper.GetDpi(view);
-        double leftInset = (minimum.Left - controls.Left) * dpi.DpiScaleX;
+        double leftInset = (themeBounds.Left - controls.Left) * dpi.DpiScaleX;
         double topInset = (closing.Top - controls.Top) * dpi.DpiScaleY;
         double rightInset = (controls.Right - closing.Right) * dpi.DpiScaleX;
         double bottomInset = (controls.Bottom - closing.Bottom) * dpi.DpiScaleY;
-        Native.Check(Contains(controls, minimum) && Contains(controls, closing) &&
+        Native.Check(Contains(controls, themeBounds) && Contains(controls, minimum) && Contains(controls, closing) &&
             closing.Top < body.Top && closing.Right > body.Right && minimum.Left < body.Right && closing.Bottom > body.Top &&
             Math.Abs(leftInset - 6 * dpi.DpiScaleX) <= 1.01 &&
             Math.Abs(rightInset - 6 * dpi.DpiScaleX) <= 1.01 &&
             Math.Abs(topInset - 6 * dpi.DpiScaleY) <= 1.01 &&
             Math.Abs(bottomInset - 6 * dpi.DpiScaleY) <= 1.01 &&
             Math.Abs((minimum.Top - closing.Top) * dpi.DpiScaleY) <= 1.01 &&
+            Math.Abs((minimum.Top - themeBounds.Top) * dpi.DpiScaleY) <= 1.01 &&
+            Math.Abs((minimum.Left - themeBounds.Right - 4) * dpi.DpiScaleX) <= 1.01 &&
             Math.Abs((closing.Left - minimum.Right - 4) * dpi.DpiScaleX) <= 1.01,
             $"Staggered caption padding/spacing differs after layout rounding at DPI {dpi.DpiScaleX}/{dpi.DpiScaleY}: left={leftInset}, top={topInset}, right={rightInset}, bottom={bottomInset}.");
         NoOverlap(minimum, closing, "Minimize and close hit rectangles overlap.");
         var title = Part<TextBlock>(view, "PageTitleText");
         if (!string.IsNullOrEmpty(title.Text))
         {
+            NoOverlap(Bounds(title, view), themeBounds, "A page title extends underneath the theme action.");
             NoOverlap(Bounds(title, view), minimum, "A page title extends underneath the minimize action.");
             NoOverlap(Bounds(title, view), closing, "A page title extends underneath the close action.");
         }
-        foreach (Button button in new[] { minimize, close })
+        foreach (Button button in new[] { theme, minimize, close })
         {
             Target(button, (int)view.ActualWidth);
             Rect bounds = Bounds(button, view);

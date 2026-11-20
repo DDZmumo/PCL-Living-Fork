@@ -54,6 +54,21 @@ public class WindowResizer {
     private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled) {
         if (message == 36) { GetMinMaxInfo(hwnd, lParam); handled = true; } return IntPtr.Zero;
     }
+    public static bool TryGetMonitorLayout(Window window, out Rect workArea, out Rect windowBounds)
+    {
+        workArea = windowBounds = Rect.Empty;
+        IntPtr handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || HwndSource.FromHwnd(handle)?.CompositionTarget is not { } target) return false;
+        IntPtr monitor = MonitorFromWindow(handle, 2);
+        var info = new MonitorInfo();
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, info) || !GetWindowRect(handle, out RectangleData bounds)) return false;
+        Matrix fromDevice = target.TransformFromDevice;
+        Rect ToDip(RectangleData box) => Rect.Transform(new Rect(box.Left, box.Top, box.Width, box.Height), fromDevice);
+        workArea = ToDip(info.Work);
+        windowBounds = ToDip(bounds);
+        return workArea.Width > 0 && workArea.Height > 0;
+    }
+
     private static void GetMinMaxInfo(IntPtr hwnd, IntPtr pointer) {
         MinMaxInfo info = (MinMaxInfo)Marshal.PtrToStructure(pointer, typeof(MinMaxInfo))!;
         IntPtr monitor = MonitorFromWindow(hwnd, 2);

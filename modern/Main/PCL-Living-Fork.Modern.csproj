@@ -307,7 +307,7 @@
 <Page Include="Pages/PageInstance/PageInstanceModDisabled.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceOverall.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceSetup.xaml" />
-<Resource Include="Images/icon.ico" />
+<Resource Include="Images/icon.ico" /><Resource Include="Images/Crash/Face.png" /><Resource Include="Images/Crash/Hand.png" /><Resource Include="Images/Crash/Praise.png" /><Resource Include="Images/Crash/Crashed.png" />
 <Resource Include="Resources/Font.ttf" />
 <Resource Include="Resources/Tabler-Icons-LICENSE.txt" />
 <Resource Include="Images/Heads/LTCat.jpg" />

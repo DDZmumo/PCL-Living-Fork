@@ -585,6 +585,7 @@ namespace PCL
                 CaptureEnvironment = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken, global::System.String>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
                 CreateWatcher = new Func<global::PCLCS.LegacyLaunchTask<global::System.Diagnostics.Process, global::System.Int32>, global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Action<global::System.Diagnostics.Process>, global::System.Action, global::System.String, global::PCL.ModWatcher.Watcher>((Loader, Instance, Title, BeforeMonitor, Stopped, Point) => new global::PCL.ModWatcher.Watcher((global::PCL.ModLoader.LoaderTask<global::System.Diagnostics.Process, global::System.Int32>)Loader.Source, Instance, Title, BeforeMonitor, Stopped, Point)),
                 WatcherState = new Func<global::PCL.ModWatcher.Watcher, global::System.Int32>(Value => (global::System.Int32)Value.State),
+                WaitForWatcherStartup = (value, milliseconds) => (int)value.WaitForStartupState(milliseconds),
                 MusicPause = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicPause()),
                 MusicResume = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicResume()),
                 EndProgram = new Action(() => global::PCL.ModMain.FrmMain.EndProgram(false)),

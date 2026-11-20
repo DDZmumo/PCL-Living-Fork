@@ -235,11 +235,12 @@ public static class MmcLaunch {
             prepared = result.Snapshot ?? throw new IOException("MMC 环境准备未完成：" + result.Failure);
             prepareProgress?.Set(1);
             instance.Load();
-            support = preferences.RuntimeSettings.WrapperMode == MmcRuntimeWrapperMode.JavaWrapper
-                ? (await MmcInstanceBackend<ModNet.NetFile>.PrepareLaunchSupportAsync(prepared,
+            if (preferences.RuntimeSettings.WrapperMode == MmcRuntimeWrapperMode.JavaWrapper) {
+                byte[] bridge = MmcRuntimeBridgeTransport.CreateJarBytes();
+                support = (await MmcInstanceBackend<ModNet.NetFile>.PrepareLaunchSupportAsync(prepared,
                     new[] { new MmcInstanceLaunchSupportInput("JavaWrapper.jar", WrapperBytes(), WrapperSha256),
-                        new MmcInstanceLaunchSupportInput("MmcExactBridge.jar", MmcRuntimeBridgeTransport.CreateJarBytes(), MmcRuntimeBridgeTransport.JarSha256()) }, token).ConfigureAwait(false)).ToArray()
-                : [];
+                        new MmcInstanceLaunchSupportInput("MmcExactBridge.jar", bridge, Convert.ToHexStringLower(SHA256.HashData(bridge))) }, token).ConfigureAwait(false)).ToArray();
+            } else support = [];
             var authProgress = tailProgress?.SplitTo(0.65);
             await authentication.PrepareAsync(prepared, java.Java, authProgress, token).ConfigureAwait(false);
             tailProgress?.Set(0.7);
@@ -425,12 +426,13 @@ public static class MmcLaunch {
         }
 
         public void Wait(LegacyLaunchTask<Process, int> task) {
-            while (watcher.State == ModWatcher.Watcher.MinecraftState.Loading) {
+            var state = watcher.State;
+            while (state == ModWatcher.Watcher.MinecraftState.Loading) {
                 if (task.IsCanceled || Volatile.Read(ref canceled) != 0) TriggerCancellation();
-                Thread.Sleep(100);
+                state = watcher.WaitForStartupState(100);
             }
-            if (watcher.State == ModWatcher.Watcher.MinecraftState.Canceled) throw new OperationCanceledException();
-            if (watcher.State == ModWatcher.Watcher.MinecraftState.Crashed) {
+            if (state == ModWatcher.Watcher.MinecraftState.Canceled) throw new OperationCanceledException();
+            if (state == ModWatcher.Watcher.MinecraftState.Crashed) {
                 string detail = "Java " + java.Java.Version;
                 bool exited = session.Process.HasExited;
                 if (exited) {

@@ -35,6 +35,56 @@ internal sealed class ThemeTransition {
     }
     private static bool MotionAllowed => ModAnimation.AniControlEnabled == 0 && ModAnimation.AniSpeed > 0 && ModAnimation.AniSpeed < 200 && SystemParameters.ClientAreaAnimation;
 
+    internal static bool CanBlendPalette => MotionAllowed && !SystemParameters.HighContrast;
+
+    // The visible WPF tree keeps its live image and blur planes. Transition the brushes those
+    // planes already draw with, rather than covering the window with a color or a snapshot.
+    private sealed record PaletteFade(Color Target, AnimationClock Clock);
+    private static readonly ConditionalWeakTable<SolidColorBrush, PaletteFade> paletteFades = new();
+
+    internal static Color? PaletteTarget(Brush brush) =>
+        brush is SolidColorBrush solid
+            ? paletteFades.TryGetValue(solid, out PaletteFade fade) ? fade.Target : solid.Color
+            : null;
+
+    internal static SolidColorBrush BlendPaletteBrush(SolidColorBrush brush, Color target, bool animate)
+    {
+        if (PaletteTarget(brush) == target) return brush;
+        Color displayed = brush?.Color ?? target;
+        if (brush is not null && paletteFades.TryGetValue(brush, out PaletteFade previous))
+        {
+            paletteFades.Remove(brush);
+            brush.Color = displayed;
+            brush.ApplyAnimationClock(SolidColorBrush.ColorProperty, null);
+            previous.Clock.Controller.Remove();
+        }
+        if (!animate || brush is null || displayed == target)
+        {
+            var settled = new SolidColorBrush(target);
+            settled.Freeze();
+            return settled;
+        }
+
+        if (brush.IsFrozen) brush = new SolidColorBrush(displayed);
+        // Preserve the displayed value even before WPF starts the new animation clock.
+        var animation = new ColorAnimationUsingKeyFrames { Duration = TimeSpan.FromMilliseconds(210) };
+        animation.KeyFrames.Add(new LinearColorKeyFrame(displayed, KeyTime.FromPercent(0)));
+        animation.KeyFrames.Add(new SplineColorKeyFrame(target, KeyTime.FromPercent(1), new KeySpline(.23, 1, .32, 1)));
+        var clock = (AnimationClock)animation.CreateClock(true);
+        clock.Controller.SpeedRatio = ModAnimation.AniSpeed;
+        paletteFades.Add(brush, new PaletteFade(target, clock));
+        clock.Completed += (_, _) =>
+        {
+            if (!paletteFades.TryGetValue(brush, out PaletteFade active) || !ReferenceEquals(active.Clock, clock)) return;
+            paletteFades.Remove(brush);
+            brush.Color = target;
+            brush.ApplyAnimationClock(SolidColorBrush.ColorProperty, null);
+            clock.Controller.Remove();
+        };
+        brush.ApplyAnimationClock(SolidColorBrush.ColorProperty, clock);
+        return brush;
+    }
+
     private void Run(Action change) {
         if (!MotionAllowed || !root.IsLoaded || !root.IsVisible || root.ActualWidth <= 0 || root.ActualHeight <= 0 || Window.GetWindow(root)?.WindowState == WindowState.Minimized) {
             Clear(); change(); return;

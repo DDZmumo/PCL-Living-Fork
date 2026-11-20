@@ -70,6 +70,7 @@ public sealed class DownloadModifyPageHost<TOptiFine, TForge, TNeo, TLite, TReso
     public Func<string?> BaseLogo = null!, SelectName = null!;
     public Func<McComponents> Components = null!;
     public Action<JObject> SelectMinecraft = null!;
+    public Action<FrameworkElement> ChangeMinecraftInPlace = null!;
     public Func<JObject, FrameworkElement> MinecraftRow = null!;
     public Func<FrameworkElement, string?> RowTitle = null!, RowLogo = null!;
     public Func<TInstance> InitInput = null!;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,7 +17,8 @@ namespace PCL;
 public static class GlassPresentation
 {
     public static GlassPresentationSession Create(FrameworkElement source) => new(source, null);
-    internal static GlassPresentationSession Create(FrameworkElement source, Func<MyCard, UIElement> cardSupplement) => new(source, cardSupplement);
+    internal static GlassPresentationSession Create(FrameworkElement source, Func<MyCard, UIElement> cardSupplement, bool trackPageAppearance = false) =>
+        new(source, cardSupplement, trackPageAppearance);
 }
 
 /// <summary>The source remains in its hidden backend tree; no source visual is hosted by View.</summary>
@@ -28,10 +30,13 @@ public sealed partial class GlassPresentationSession : IDisposable
     private static ResourceDictionary GetSharedResources() =>
         _sharedResources ??= new ResourceDictionary { Source = new Uri("/LivingPCL;component/Glass/GlassPresentationResources.xaml", UriKind.Relative) };
 
+    internal static Style ShellScrollStyle => (Style)GetSharedResources()["GlassPresentationScrollViewer"];
+
     private static readonly DependencyProperty LifetimeProperty = DependencyProperty.RegisterAttached(
         "PresentationLifetime", typeof(Node), typeof(GlassPresentationSession));
     private readonly FrameworkElement _source;
     private readonly ContentControl _root;
+    private readonly PageAppearance _pageAppearance;
     private readonly Dictionary<DependencyObject, Node> _nodes = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<string> _unsupported = new(StringComparer.Ordinal);
     private HashSet<DependencyObject> _alive;
@@ -39,16 +44,18 @@ public sealed partial class GlassPresentationSession : IDisposable
     private bool _disposed;
     private readonly HashSet<StackPanel> _responsiveStacks = new(ReferenceEqualityComparer.Instance);
     private (bool HighContrast, bool Dark, bool Material, double Density, Color? Accent, Color? OnAccent)? _lastPalette;
+    private bool _blendPalette;
     public FrameworkElement View => _root;
     /// <summary>Optional host-owned row placed first in a projected card (shell-only settings that have no legacy control).</summary>
     internal Func<MyCard, UIElement> CardSupplement { get; set; }
     public IReadOnlyCollection<string> UnsupportedTypes => _unsupported;
 
-    internal GlassPresentationSession(FrameworkElement source, Func<MyCard, UIElement> cardSupplement = null)
+    internal GlassPresentationSession(FrameworkElement source, Func<MyCard, UIElement> cardSupplement = null, bool trackPageAppearance = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         source.Dispatcher.VerifyAccess();
         _source = source;
+        if (trackPageAppearance) _pageAppearance = new PageAppearance();
         CardSupplement = cardSupplement;
         _root = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Focusable = false };
         _root.Resources.MergedDictionaries.Add(GetSharedResources());
@@ -59,7 +66,7 @@ public sealed partial class GlassPresentationSession : IDisposable
 
     public void Refresh()
     {
-        if (_disposed || _refreshing) return;
+        if (_disposed || _refreshing || _pageAppearance?.IsHeld == true) return;
         _source.Dispatcher.VerifyAccess();
         _refreshing = true;
         try
@@ -73,8 +80,18 @@ public sealed partial class GlassPresentationSession : IDisposable
                 _nodes[removed].Dispose();
                 _nodes.Remove(removed);
             }
+            _pageAppearance?.DiscardDetachedBindings();
         }
         finally { _alive = null; _refreshing = false; }
+    }
+
+    internal void HoldPageAppearance() { if (_pageAppearance is not null) _pageAppearance.IsHeld = true; }
+
+    internal void ResumePageAppearance()
+    {
+        if (_pageAppearance?.IsHeld != true) return;
+        _pageAppearance.IsHeld = false;
+        _pageAppearance.UpdateTargets();
     }
 
     public void Dispose()
@@ -101,7 +118,7 @@ public sealed partial class GlassPresentationSession : IDisposable
 
     private bool Live(DependencyObject target)
     {
-        if (_disposed) return false;
+        if (_disposed || _pageAppearance?.IsHeld == true) return false;
         for (DependencyObject item = target; item != null; item = item is Visual ? VisualTreeHelper.GetParent(item) ?? LogicalTreeHelper.GetParent(item) : LogicalTreeHelper.GetParent(item))
             if (item.GetValue(LifetimeProperty) is Node { IsDisposed: true }) return false;
         return true;
@@ -173,11 +190,14 @@ public sealed partial class GlassPresentationSession : IDisposable
         return source is MyCheckBox checkbox && SettingService.GetKey(checkbox) is "UiLauncherLogo" or "UiBackgroundColorful";
     }
 
-    private static bool InPage<TPage>(DependencyObject element)
+    private static bool InPage<TPage>(DependencyObject element) where TPage : class =>
+        SourceAncestor<TPage>(element) is not null;
+
+    private static T? SourceAncestor<T>(DependencyObject element) where T : class
     {
         for (DependencyObject? parent = element; parent is not null; parent = LogicalTreeHelper.GetParent(parent))
-            if (parent is TPage) return true;
-        return false;
+            if (parent is T match) return match;
+        return null;
     }
 
     private static bool AncestorMessage(FrameworkElement element)
@@ -236,21 +256,65 @@ public sealed partial class GlassPresentationSession : IDisposable
         return new Thickness(Math.Min(24, Math.Max(0, margin.Left)), Math.Min(24, Math.Max(0, margin.Top)), Math.Min(24, Math.Max(0, margin.Right)), Math.Min(24, Math.Max(0, margin.Bottom)));
     }
 
-    private static void Bind(DependencyObject target, DependencyProperty property, object source, string path, BindingMode mode = BindingMode.OneWay)
-        => BindingOperations.SetBinding(target, property, new Binding(path) { Source = source, Mode = mode, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
+    private void Bind(DependencyObject target, DependencyProperty property, object source, string path, BindingMode mode = BindingMode.OneWay)
+    {
+        bool tracksAppearance = _pageAppearance is not null && mode == BindingMode.OneWay && source is UIElement &&
+            (property == UIElement.VisibilityProperty || property == UIElement.OpacityProperty);
+        var binding = new Binding(path) { Source = source, Mode = mode, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged };
+        if (tracksAppearance) binding.Converter = _pageAppearance;
+        BindingExpressionBase expression = BindingOperations.SetBinding(target, property, binding);
+        if (tracksAppearance) _pageAppearance.Track(expression);
+    }
+
+    // The hidden native page still closes its own panels for loader state. Preserve the rendered
+    // values of the outgoing projection from before that cleanup, while its glass samples stay live.
+    private sealed class PageAppearance : IValueConverter
+    {
+        private readonly List<WeakReference<BindingExpressionBase>> _bindings = new();
+        internal bool IsHeld { get; set; }
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => IsHeld ? Binding.DoNothing : value;
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+
+        internal void Track(BindingExpressionBase binding) => _bindings.Add(new(binding));
+
+        internal void DiscardDetachedBindings() =>
+            _bindings.RemoveAll(item => !item.TryGetTarget(out BindingExpressionBase binding) || binding.Status == BindingStatus.Detached);
+
+        internal void UpdateTargets()
+        {
+            DiscardDetachedBindings();
+            foreach (var item in _bindings.ToArray())
+                if (item.TryGetTarget(out BindingExpressionBase binding)) binding.UpdateTarget();
+        }
+    }
     private Style Style(string key) => (Style)_root.FindResource(key);
     private void TextStyle(TextBlock text) => text.Style = Style("GlassPresentationTextStyle");
     private static void Children(Panel panel, IReadOnlyList<UIElement> children)
     {
-        for (int index = panel.Children.Count - 1; index >= 0; index--)
-            if (!children.Contains(panel.Children[index])) panel.Children.RemoveAt(index);
+        UIElementCollection current = panel.Children;
+        if (current.Count == children.Count)
+        {
+            int index = 0;
+            while (index < current.Count && ReferenceEquals(current[index], children[index])) index++;
+            if (index == current.Count) return;
+        }
+        var wanted = new HashSet<UIElement>(children, ReferenceEqualityComparer.Instance);
+        for (int index = current.Count - 1; index >= 0; index--)
+            if (!wanted.Contains(current[index])) current.RemoveAt(index);
         for (int index = 0; index < children.Count; index++)
         {
             UIElement child = children[index];
-            if (panel.Children.IndexOf(child) == index) continue;
-            if (panel.Children.Contains(child)) panel.Children.Remove(child);
-            panel.Children.Insert(index, child);
+            if (index < current.Count && ReferenceEquals(current[index], child)) continue;
+            int oldIndex = current.IndexOf(child);
+            if (oldIndex >= 0) current.RemoveAt(oldIndex);
+            current.Insert(index, child);
         }
+    }
+
+    internal void RefreshPalette()
+    {
+        if (!_disposed && _root.IsLoaded) ApplyPalette();
     }
 
     private void ApplyPalette()
@@ -260,6 +324,7 @@ public sealed partial class GlassPresentationSession : IDisposable
             var contrastKey = (true, false, false, 0d, (Color?)null, (Color?)null);
             if (_lastPalette == contrastKey) return;
             _lastPalette = contrastKey;
+            _blendPalette = false;
             // Read native colors directly: the legacy theme owns/shadows the public
             // SystemColors resource keys in Application.Resources.
             SetBrush("GlassPresentationText", SystemColors.WindowTextColor);
@@ -294,16 +359,18 @@ public sealed partial class GlassPresentationSession : IDisposable
         }
         Brush inherited = _root.TryFindResource("GlassTextBrush") as Brush;
         Brush theme = _source.TryFindResource("ColorBrush1") as Brush;
-        Color sourceText = (theme as SolidColorBrush)?.Color ?? Color.FromRgb(32, 43, 58);
-        Color text = (inherited as SolidColorBrush)?.Color ?? (sourceText.R + sourceText.G + sourceText.B > 480 ? Color.FromRgb(232, 238, 245) : Color.FromRgb(32, 43, 58));
+        Color sourceText = ThemeTransition.PaletteTarget(theme) ?? Color.FromRgb(32, 43, 58);
+        Color text = ThemeTransition.PaletteTarget(inherited) ?? (sourceText.R + sourceText.G + sourceText.B > 480 ? Color.FromRgb(232, 238, 245) : Color.FromRgb(32, 43, 58));
         bool dark = (text.R + text.G + text.B) > 480;
         bool material = GlassMaterial.GetIsEnabled(_root) &&
             (GlassMaterial.GetWallpaperSource(_root) is not null || GlassMaterial.GetDesktopBackdropEnabled(_root));
         double density = material ? GlassMaterial.GetOpacityMultiplier(_root) : 1;
-        Color? accentColor = (_root.TryFindResource("GlassAccentBrush") as SolidColorBrush)?.Color;
-        Color? onAccentColor = (_root.TryFindResource("GlassAccentTextBrush") as SolidColorBrush)?.Color;
+        Color? accentColor = ThemeTransition.PaletteTarget(_root.TryFindResource("GlassAccentBrush") as Brush);
+        Color? onAccentColor = ThemeTransition.PaletteTarget(_root.TryFindResource("GlassAccentTextBrush") as Brush);
         var paletteKey = (false, dark, material, density, accentColor, onAccentColor);
         if (_lastPalette == paletteKey) return;
+        _blendPalette = _lastPalette is { HighContrast: false } old && old.Dark != dark &&
+            _root.IsLoaded && _root.IsVisible && ThemeTransition.CanBlendPalette;
         _lastPalette = paletteKey;
 
         byte Alpha(int value) => material ? (byte)Math.Clamp((int)Math.Round(value * density), 0, 255) : (byte)255;
@@ -362,7 +429,7 @@ public sealed partial class GlassPresentationSession : IDisposable
         // this presentation cannot see the shell's on-accent resource (white-on-light-grey was unreadable).
         // The presentation may be themed before it joins the shell tree, when the shell accent is not reachable yet;
         // then judge the label against the accent this presentation actually paints with.
-        Color? effectiveAccent = accentColor ?? (_root.TryFindResource("GlassPresentationAccent") as SolidColorBrush)?.Color;
+        Color? effectiveAccent = accentColor ?? ThemeTransition.PaletteTarget(_root.TryFindResource("GlassPresentationAccent") as Brush);
         if (effectiveAccent is Color fillColor)
         {
             double luminance = (.2126 * fillColor.R + .7152 * fillColor.G + .0722 * fillColor.B) / 255;
@@ -409,10 +476,9 @@ public sealed partial class GlassPresentationSession : IDisposable
     }
     private void SetBrush(string key, Color color)
     {
-        if (_root.Resources[key] is SolidColorBrush old && old.Color == color) return;
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        _root.Resources[key] = brush;
+        var old = _root.Resources[key] as SolidColorBrush;
+        var next = ThemeTransition.BlendPaletteBrush(old, color, _blendPalette);
+        if (!ReferenceEquals(old, next)) _root.Resources[key] = next;
     }
 
     private sealed class Node : IDisposable

@@ -8,6 +8,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -62,6 +63,14 @@ internal sealed class GlassAccountWorkspace : IDisposable
     private TextBlock _deckTitle = null!;
     // After signing in on a skin site: the account whose character is still to be chosen (shown on the right deck).
     private (SkinSite Site, SkinSiteAccount? Account)? _choosing;
+    private CancellationTokenSource? _choosingHeads;
+
+    private void CancelChoosingHeads()
+    {
+        _choosingHeads?.Cancel();
+        _choosingHeads?.Dispose();
+        _choosingHeads = null;
+    }
     private SpringMotion _actionsMotion = null!;
     private readonly Button _skin, _edit, _exit, _libraryButton;
     private const string WardrobeGlyph = "M9,4 L12,6 L15,4 L20,7 L18,11 L16,10 V20 H8 V10 L6,11 L4,7 Z";
@@ -316,6 +325,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
     private void SetSideMode(SideMode mode, FrameworkElement panel, bool forward)
     {
         _sideMode = mode;
+        if (mode != SideMode.Characters) CancelChoosingHeads();
         if (mode == SideMode.Identity) _identityKey = null; // re-read the account in use on the next refresh
         SwapStage(panel, forward);
         _actionsMotion.Retarget(mode == SideMode.Identity ? 1 : 0, !MotionPreferences.AllowsAnimation);
@@ -1051,10 +1061,10 @@ internal sealed class GlassAccountWorkspace : IDisposable
         return layered;
     }
 
-    private static async System.Threading.Tasks.Task ShowFetchedHead(Border slot, Func<System.Threading.Tasks.Task<System.Windows.Media.Imaging.BitmapSource?>> load)
+    private static async System.Threading.Tasks.Task ShowFetchedHead(Border slot, Func<System.Threading.Tasks.Task<System.Windows.Media.Imaging.BitmapSource?>> load, CancellationToken cancellationToken = default)
     {
         System.Windows.Media.Imaging.BitmapSource? image = await load();
-        if (image is null) return;
+        if (image is null || cancellationToken.IsCancellationRequested) return;
         var picture = new Image { Source = image, Stretch = Stretch.Uniform, Opacity = 0 };
         RenderOptions.SetBitmapScalingMode(picture, BitmapScalingMode.NearestNeighbor);
         slot.Background = Brushes.Transparent;
@@ -1184,6 +1194,9 @@ internal sealed class GlassAccountWorkspace : IDisposable
         (Border userField, TextBox userBox) = FormField("账号 / 邮箱", "");
         (Border passField, PasswordBox passBox) = PasswordField("密码");
         foreach (Border field in new[] { nameField, serverField, userField, passField }) form.Children.Add(field);
+        var remember = new CheckBox { Content = "记住密码", Margin = new Thickness(2, 6, 0, 6) };
+        remember.SetResourceReference(Control.ForegroundProperty, "GlassTextBrush");
+        form.Children.Add(remember);
         var error = Text("", 12, FontWeights.Normal);
         error.Foreground = new SolidColorBrush(DarkText ? Color.FromRgb(196, 43, 28) : Color.FromRgb(255, 128, 118));
         error.TextWrapping = TextWrapping.Wrap; error.Margin = new Thickness(2, 2, 2, 0); error.Visibility = Visibility.Collapsed;
@@ -1196,30 +1209,37 @@ internal sealed class GlassAccountWorkspace : IDisposable
             if (_siteBusy) return;
             error.Visibility = Visibility.Collapsed;
             string user = userBox.Text.Trim(), password = passBox.Password;
-            if (serverBox.Text.Trim().Length == 0) { ShowError(error, "请填写 Yggdrasil 地址。"); return; }
+            string address = serverBox.Text.Trim(), typedName = nameBox.Text.Trim();
+            if (address.Length == 0) { ShowError(error, "请填写 Yggdrasil 地址。"); return; }
             if (user.Length == 0 || password.Length == 0) { ShowError(error, "请填写账号和密码。"); return; }
             login.IsEnabled = false;
             try
             {
                 SetSiteBusy(true, .25, "正在连接验证服务器");
-                (string server, string metaName, string register) = await GlassSkinSites.Resolve(serverBox.Text);
-                SetSiteBusy(true, .6, "正在登录");
-                SkinSiteAccount account = await GlassSkinSites.Authenticate(server, user, password);
+                var result = await GlassSkinSites.SignIn(address, user, password, remember.IsChecked == true,
+                    (original, destination) => !_disposed && ReferenceEquals(_stageCurrent, form) &&
+                        ModMain.MyMsgBox($"验证地址：{original.GetLeftPart(UriPartial.Authority)}\n密码实际将发送到：{destination.GetLeftPart(UriPartial.Authority)}",
+                            "确认外置登录接收方", "取消", "继续登录", IsWarn: true) == 2);
+                if (_disposed || !ReferenceEquals(_stageCurrent, form) || result is null) return;
+                var (server, metaName, register, account) = result.Value;
                 List<SkinSite> sites = GlassSkinSites.Load();
                 SkinSite? saved = sites.FirstOrDefault(item => GlassSkinSites.SameServer(item.Server, server));
                 if (saved is null) { saved = new SkinSite { Server = server }; sites.Add(saved); }
-                string typedName = nameBox.Text.Trim();
                 saved.Name = typedName.Length > 0 ? typedName : saved.Name.Length > 0 ? saved.Name : metaName.Length > 0 ? metaName : new Uri(server).Host;
                 if (register.Length > 0) saved.Register = register;
                 saved.Accounts.RemoveAll(item => string.Equals(item.Username, user, StringComparison.OrdinalIgnoreCase));
                 saved.Accounts.Add(account);
                 GlassSkinSites.Save(sites);
-                SetSiteBusy(false);
+                passBox.Clear();
                 BeginChoosing(saved, account);
             }
-            catch (SkinSiteException failure) { SetSiteBusy(false); ShowError(error, failure.Message); }
-            catch (Exception failure) { SetSiteBusy(false); Logger.Warn(failure, "外置登录登录失败"); ShowError(error, "登录失败：" + failure.Message); }
-            finally { login.IsEnabled = true; }
+            catch (SkinSiteException failure) { ShowError(error, failure.Message); }
+            catch (Exception failure) { Logger.Warn(failure, "外置登录登录失败"); ShowError(error, "登录失败：" + failure.Message); }
+            finally
+            {
+                if (!_disposed) SetSiteBusy(false);
+                login.IsEnabled = true;
+            }
         }
         login.Click += (_, _) => Submit();
         foreach (Control box in new Control[] { nameBox, serverBox, userBox, passBox })
@@ -1309,8 +1329,10 @@ internal sealed class GlassAccountWorkspace : IDisposable
         bool hadCards = _cards.Count > 0;
         foreach (FrameworkElement old in _cards.ToList()) { if (animate) Leave(old, below: true); else RemoveCard(old); }
         _cards.Clear(); _dots.Children.Clear();
+        CancelChoosingHeads();
+        _choosingHeads = new CancellationTokenSource();
         foreach (SkinSiteCharacter character in candidates)
-            _cards.Add(ChoiceCard(character));
+            _cards.Add(ChoiceCard(character, _choosingHeads.Token));
         foreach (FrameworkElement card in _cards) _deck.Children.Add(card);
         for (int index = 0; index < _cards.Count; index++)
         {
@@ -1324,11 +1346,11 @@ internal sealed class GlassAccountWorkspace : IDisposable
         for (int index = 0; index < _cards.Count; index++) Enter(_cards[index], MotionPreferences.AllowsAnimation ? start + index * .05 : 0);
     }
 
-    private FrameworkElement ChoiceCard(SkinSiteCharacter character)
+    private FrameworkElement ChoiceCard(SkinSiteCharacter character, CancellationToken cancellationToken)
     {
         var body = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var slot = AvatarPlaceholder(84);
-        _ = ShowFetchedHead(slot, () => GlassSkinSites.Head(character.Site.Server, character.Profile.Id));
+        _ = ShowFetchedHead(slot, () => GlassSkinSites.Head(character.Site.Server, character.Profile.Id, cancellationToken), cancellationToken);
         body.Children.Add(slot);
         var title = Text(character.Profile.Name, 19, FontWeights.SemiBold); title.HorizontalAlignment = HorizontalAlignment.Center; title.Margin = new Thickness(0, 16, 0, 0); title.TextTrimming = TextTrimming.CharacterEllipsis;
         var subtitle = Text(character.Site.Name.Length > 0 ? character.Site.Name : "外置登录角色", 12.5, FontWeights.Normal, secondary: true); subtitle.HorizontalAlignment = HorizontalAlignment.Center; subtitle.Margin = new Thickness(0, 4, 0, 0);
@@ -1684,6 +1706,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        CancelChoosingHeads();
         GlassSkinSites.EndRoleSelection(this);
         foreach (Presence state in _presence.Values) state.Motion.Dispose();
         _presence.Clear();

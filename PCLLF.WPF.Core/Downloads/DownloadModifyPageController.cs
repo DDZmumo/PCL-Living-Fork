@@ -56,11 +56,35 @@ public sealed partial class DownloadModifyPageController<TInstance, TState, TCar
     public string? GetSelectLogo() => State.CustomLogo ?? host.BaseLogo();
     public void ShowMinecraftVersionList() {
         if (host.ModpackEnabled()) return;
-        if (Selection.IsInSelectPage) {
-            McComponents components = host.Components();
-            foreach (var part in new[] { (DownloadInstallComponent.OptiFine, components.OptiFineVersion), (DownloadInstallComponent.FabricApi, components.FabricApiVersion), (DownloadInstallComponent.OptiFabric, components.OptiFabricVersion), (DownloadInstallComponent.Forge, Selection.SelectedForge?.VersionName), (DownloadInstallComponent.NeoForge, Selection.SelectedNeoForge?.VersionName), (DownloadInstallComponent.Fabric, Selection.SelectedFabric), (DownloadInstallComponent.LiteLoader, Selection.SelectedLiteLoader?.JsonToken?["version"]!.ToString()) }) if (part.Item2 is not null) State.PendingComponents[host.LoadingControl(part.Item1)] = part.Item2;
-        }
+        if (Selection.IsInSelectPage) RememberSelectedComponents();
         host.BaseShowMinecraftList();
+    }
+
+    public bool ChooseMinecraftInPlace(JObject version) {
+        string? id = (string?)version["id"];
+        if (host.ModpackEnabled() || !Selection.IsInSelectPage || State.InitialTarget is null ||
+            string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace((string?)version["url"]) ||
+            !host.CanChangeMinecraft(State.InitialTarget.MinecraftVersion, id)) return false;
+        if (Same((string?)Selection.VanillaData?["id"], id)) return true;
+        FrameworkElement row = host.MinecraftRow(version);
+        RememberSelectedComponents();
+        host.ChangeMinecraftInPlace(row);
+        return true;
+    }
+
+    private void RememberSelectedComponents() {
+        McComponents components = host.Components();
+        foreach (var (kind, version) in new[] {
+            (DownloadInstallComponent.OptiFine, components.OptiFineVersion),
+            (DownloadInstallComponent.FabricApi, components.FabricApiVersion),
+            (DownloadInstallComponent.OptiFabric, components.OptiFabricVersion),
+            (DownloadInstallComponent.Forge, Selection.SelectedForge?.VersionName),
+            (DownloadInstallComponent.NeoForge, Selection.SelectedNeoForge?.VersionName),
+            (DownloadInstallComponent.Fabric, Selection.SelectedFabric),
+            (DownloadInstallComponent.LiteLoader, Selection.SelectedLiteLoader?.JsonToken?["version"]?.ToString())
+        }) {
+            if (version is not null) State.PendingComponents[host.LoadingControl(kind)] = version;
+        }
     }
     private object? Selected(int kind) => kind switch { 0 => Selection.SelectedOptiFine, 1 => Selection.SelectedLiteLoader, 2 => Selection.SelectedForge, 3 => Selection.SelectedNeoForge, 4 => Selection.SelectedFabric, 5 => Selection.SelectedFabricApi, 6 => Selection.SelectedOptiFabric, _ => Selection.VanillaData };
     public void RefreshModpackRestrictions() { host.Comparison(-1).Card.IsHitTestVisible = !host.ModpackEnabled(); host.View().ChangeMinecraft.Visibility = host.ModpackEnabled() ? Visibility.Collapsed : Visibility.Visible; }

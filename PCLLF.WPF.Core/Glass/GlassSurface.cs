@@ -59,8 +59,8 @@ public sealed class GlassSurface : Border {
         tint.Freeze();
         var edge = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255));
         edge.Freeze();
-        BackgroundProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(tint, OnMaterialPropertyChanged));
-        BorderBrushProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(edge, OnMaterialPropertyChanged));
+        BackgroundProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(tint, OnPaintPropertyChanged));
+        BorderBrushProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(edge, OnPaintPropertyChanged));
         BorderThicknessProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(new Thickness(1), OnMaterialPropertyChanged));
         CornerRadiusProperty.OverrideMetadata(typeof(GlassSurface), new FrameworkPropertyMetadata(new CornerRadius(16), OnMaterialPropertyChanged));
     }
@@ -128,6 +128,12 @@ public sealed class GlassSurface : Border {
         _material.Update();
     }
 
+    internal void InvalidateMaterialPaint(bool includeBackdrop) => _material?.InvalidatePaint(includeBackdrop);
+
+    private static void OnPaintPropertyChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) {
+        if (!ReferenceEquals(args.OldValue, args.NewValue)) ((GlassSurface)element).InvalidateMaterialPaint(includeBackdrop: false);
+    }
+
     private static void OnMaterialPropertyChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) =>
         ((GlassSurface)element).InvalidateMaterial();
 
@@ -188,10 +194,12 @@ public sealed class GlassSurface : Border {
             if (effect is { IsFrozen: false }) effect.Changed += HostPresentationChanged;
         }
         ImageSource? image = host is null ? null : WallpaperSource;
+        // Store only sources actually subscribed. Freezable.Changed requires a matching add on removal.
+        if (image is not { IsFrozen: false } || WallpaperBlurCache.IsVideoFrame(image)) image = null;
         if (!ReferenceEquals(image, _watchedImage)) {
             if (_watchedImage is { IsFrozen: false }) _watchedImage.Changed -= WallpaperSourceChanged;
             _watchedImage = image;
-            if (image is { IsFrozen: false }) image.Changed += WallpaperSourceChanged;
+            if (image is not null) image.Changed += WallpaperSourceChanged;
         }
         WatchRelativeTransforms(host);
     }
@@ -217,7 +225,12 @@ public sealed class GlassSurface : Border {
         _material.InvalidateWallpaper();
     }
     private void HostPresentationChanged(object? sender, EventArgs args) => InvalidateMaterial();
-    private void WallpaperSourceChanged(object? sender, EventArgs args) { _material.ReleaseWallpaper(); InvalidateMaterial(); }
+    private void WallpaperSourceChanged(object? sender, EventArgs args) {
+        // The existing ImageBrush sees writes to the shared video texture without rebuilding its sample.
+        if (_watchedImage is { } source && WallpaperBlurCache.IsVideoFrame(source)) return;
+        _material.ReleaseWallpaper();
+        InvalidateMaterial();
+    }
 
     private void OnSystemParameterChanged(object? sender, PropertyChangedEventArgs args) => QueuePreferenceRefresh();
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs args) => QueuePreferenceRefresh();
@@ -355,6 +368,11 @@ public sealed class GlassSurface : Border {
 
         internal void InvalidateWallpaper() => _wallpaper.InvalidateVisual();
 
+        internal void InvalidatePaint(bool includeBackdrop) {
+            _finish.InvalidateVisual();
+            if (includeBackdrop) _wallpaper.InvalidateVisual();
+        }
+
         internal void PrepareWallpaper() {
             if (!_owner.IsLoaded || !_owner.PaintsWallpaper || !_owner.CanUseTransparency || _owner.WallpaperSource is not { } source) { ReleaseWallpaper(); return; }
             if (!_owner.IsVisible) return;
@@ -461,9 +479,14 @@ public sealed class GlassSurface : Border {
             _brush.Viewport = wallpaperBounds;
             Color color = GlassMaterial.GetFallbackColor(_owner);
             Color opaque = Color.FromRgb(color.R, color.G, color.B);
-            if (_fallback?.Color != opaque) { _fallback = new SolidColorBrush(opaque); _fallback.Freeze(); }
+            Brush fallback;
+            if (GlassMaterial.GetFallbackBrush(_owner) is SolidColorBrush liveFallback) fallback = liveFallback;
+            else {
+                if (_fallback?.Color != opaque) { _fallback = new SolidColorBrush(opaque); _fallback.Freeze(); }
+                fallback = _fallback;
+            }
             var rect = new Rect(RenderSize);
-            drawingContext.DrawRectangle(_fallback, null, rect);
+            drawingContext.DrawRectangle(fallback, null, rect);
             double opacity = _owner.ImageOpacity;
             if (opacity < 0.999) drawingContext.PushOpacity(opacity);
             drawingContext.DrawRectangle(_brush, null, rect);
@@ -512,7 +535,8 @@ public sealed class GlassSurface : Border {
             var transparent = owner.CanUseTransparency;
             var background = owner.Background;
             if (!transparent) {
-                background = SystemParameters.HighContrast ? SystemColors.WindowBrush : OpaqueBrush(GlassMaterial.GetFallbackColor(owner));
+                background = SystemParameters.HighContrast ? SystemColors.WindowBrush :
+                    (Brush?)GlassMaterial.GetFallbackBrush(owner) ?? OpaqueBrush(GlassMaterial.GetFallbackColor(owner));
             }
             double opacity = transparent ? owner.TintOpacity * GlassMaterial.GetOpacityMultiplier(owner) : 1;
             if (opacity < 0.999) drawingContext.PushOpacity(opacity);

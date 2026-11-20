@@ -133,11 +133,11 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
                 if (dependencies is not null) {
                     foreach (KeyValuePair<string, string> pair in dependencies) entries.Add("m/" + host.RelativePath(pair.Key), pair.Value);
                 }
-                long total = Math.Max(1L, FileTaskProgress.Size(entries.Values)), completed = 0;
+                long total = progress is null ? 1 : Math.Max(1L, FileTaskProgress.Size(entries.Values)), completed = 0;
                 progress?.Invoke(0.02);
                 foreach (KeyValuePair<string, string> pair in entries) {
                     token.ThrowIfCancellationRequested();
-                    long weight = File.Exists(pair.Value) ? Math.Max(1L, new FileInfo(pair.Value).Length) : 1L;
+                    long weight = progress is not null && File.Exists(pair.Value) ? Math.Max(1L, new FileInfo(pair.Value).Length) : 1L;
                     Action<double>? fileProgress = FileTaskProgress.Slice(progress, 0.02 + 0.8 * completed / total, 0.02 + 0.8 * checked(completed + weight) / total);
                     string? hash = FileTaskProgress.Digest(pair.Value, token, FileTaskProgress.Slice(fileProgress, 0, 0.25));
                     if (hash is null) throw new IOException("创建还原点期间文件被移走：" + pair.Key);
@@ -161,9 +161,9 @@ public sealed partial class EnvironmentHistoryEngine<TInstance> where TInstance 
                 }
                 Dictionary<string, string> latest = Files(versionFolder, gameRoot);
                 if (!new HashSet<string>(entries.Keys.Where(key => !key.StartsWith("m/")), StringComparer.OrdinalIgnoreCase).SetEquals(latest.Keys)) throw new IOException("创建还原点期间目录内容发生变化。");
-                total = Math.Max(1L, FileTaskProgress.Size(latest.Values)); completed = 0;
+                total = progress is null ? 1 : Math.Max(1L, FileTaskProgress.Size(latest.Values)); completed = 0;
                 foreach (KeyValuePair<string, string> pair in latest) {
-                    long weight = Math.Max(1L, new FileInfo(pair.Value).Length);
+                    long weight = progress is null ? 1 : Math.Max(1L, new FileInfo(pair.Value).Length);
                     if (!SameText(FileTaskProgress.Digest(pair.Value, token, FileTaskProgress.Slice(progress, 0.82 + 0.16 * completed / total, 0.82 + 0.16 * checked(completed + weight) / total)), content[pair.Key]!.ToString())) throw new IOException("创建还原点期间配置发生变化。");
                     completed = checked(completed + weight);
                 }

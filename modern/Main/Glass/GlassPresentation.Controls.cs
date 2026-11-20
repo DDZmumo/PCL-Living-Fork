@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -226,6 +227,21 @@ public sealed partial class GlassPresentationSession
         return node;
     }
 
+    private sealed class EditorProjection(Action commit)
+    {
+        internal readonly Action Commit = commit;
+        internal WeakReference<TextBox>? VisibleEditor;
+    }
+
+    private static readonly ConditionalWeakTable<TextBox, EditorProjection> ProjectedEditors = new();
+
+    internal static void RegisterProjectedEditor(TextBox source, Action commit) => ProjectedEditors.Add(source, new(commit));
+
+    internal static bool EditorHasFocus(TextBox source) =>
+        source.IsKeyboardFocusWithin ||
+        (ProjectedEditors.TryGetValue(source, out var editor) &&
+         editor.VisibleEditor?.TryGetTarget(out var visible) == true && visible.IsKeyboardFocusWithin);
+
     private Node ProjectTextInput(TextBox source)
     {
         var input = new TextBox { Style = Style("GlassPresentationTextBox"), IsReadOnly = source.IsReadOnly,
@@ -249,6 +265,13 @@ public sealed partial class GlassPresentationSession
         var validationText = new TextBlock { FontSize = 11, Margin = new Thickness(3, 6, 3, 0), Visibility = Visibility.Collapsed };
         TextStyle(validationText); validationText.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationDanger"); Grid.SetRow(validationText, 1); host.Children.Add(validationText);
         var node = new Node(host);
+        if (ProjectedEditors.TryGetValue(source, out var editor))
+        {
+            var visible = new WeakReference<TextBox>(input);
+            editor.VisibleEditor = visible;
+            input.LostKeyboardFocus += (_, _) => { if (Live(input) && !input.IsKeyboardFocusWithin) editor.Commit(); };
+            node.Cleanup.Add(() => { if (ReferenceEquals(editor.VisibleEditor, visible)) editor.VisibleEditor = null; });
+        }
         node.Pull = () =>
         {
             placeholder.Text = (source as MyTextBoxView)?.HintText ?? string.Empty;
@@ -264,17 +287,44 @@ public sealed partial class GlassPresentationSession
 
     private Node ProjectCombo(ComboBox source)
     {
-        var combo = new ComboBox { Style = Style("GlassPresentationComboBox"), IsEditable = source.IsEditable, IsReadOnly = source.IsReadOnly,
-            IsTextSearchEnabled = source.IsTextSearchEnabled, StaysOpenOnEdit = source.StaysOpenOnEdit, MaxDropDownHeight = Math.Min(260, source.MaxDropDownHeight) };
+        bool javaActions = source.Name is "ComboArgumentJavaSelect" or "ComboAdvanceJava";
+        ComboBox combo = javaActions ? new JavaActionComboBox() : new ComboBox();
+        combo.Style = Style("GlassPresentationComboBox");
+        combo.IsEditable = source.IsEditable;
+        combo.IsReadOnly = source.IsReadOnly;
+        combo.IsTextSearchEnabled = !javaActions && source.IsTextSearchEnabled;
+        combo.StaysOpenOnEdit = source.StaysOpenOnEdit;
+        combo.MaxDropDownHeight = Math.Min(260, source.MaxDropDownHeight);
         var identities = new List<object>();
         string selectionTip = null;
         bool pulling = false;
-        combo.SelectionChanged += (_, _) =>
+        combo.SelectionChanged += (_, args) =>
         {
-            if (!Live(combo) || pulling) return;
-            source.SelectedIndex = combo.SelectedIndex;
+            if (!ReferenceEquals(args.OriginalSource, combo) || !Live(combo) || pulling) return;
+            if (javaActions)
+            {
+                int index = combo.SelectedIndex;
+                if (index < 0) return;
+                // Java items are commands. The instance controller validates and persists the choice in their click handler.
+                if (index < identities.Count && index < source.Items.Count &&
+                    ReferenceEquals(identities[index], source.Items[index]) && identities[index] is MyListItem item)
+                {
+                    combo.IsDropDownOpen = false;
+                    item.PerformClick();
+                }
+            }
+            else source.SelectedIndex = combo.SelectedIndex;
             Refresh();
         };
+        if (javaActions)
+        {
+            combo.PreviewKeyDown += (_, args) =>
+            {
+                if (combo.IsDropDownOpen || args.Key is not (Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space)) return;
+                combo.IsDropDownOpen = true;
+                args.Handled = true;
+            };
+        }
         combo.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) =>
         {
             if (!Live(combo) || pulling || !source.IsEditable) return;
@@ -296,7 +346,21 @@ public sealed partial class GlassPresentationSession
                     foreach (object item in items)
                     {
                         var choice = new ComboBoxItem { Style = Style("GlassPresentationComboItem") };
-                        if (item is ContentControl original)
+                        if (javaActions && item is MyListItem java)
+                        {
+                            var row = new Grid();
+                            row.ColumnDefinitions.Add(new ColumnDefinition());
+                            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                            var title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                            Bind(title, TextBlock.TextProperty, java, nameof(java.Title));
+                            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 0) };
+                            Grid.SetColumn(actions, 1);
+                            row.Children.Add(title); row.Children.Add(actions);
+                            choice.Content = row;
+                            Bind(choice, AutomationProperties.NameProperty, java, nameof(java.Title));
+                            Bind(choice, UIElement.IsEnabledProperty, java, nameof(UIElement.IsEnabled));
+                        }
+                        else if (item is ContentControl original)
                         {
                             choice.Content = Content(original.Content);
                             Bind(choice, UIElement.IsEnabledProperty, original, nameof(UIElement.IsEnabled));
@@ -307,7 +371,8 @@ public sealed partial class GlassPresentationSession
                         combo.Items.Add(choice);
                     }
                 }
-                combo.SelectedIndex = source.SelectedIndex;
+                // The closed Java field has its own live summary, which must not overlap a retained menu choice.
+                combo.SelectedIndex = javaActions ? -1 : source.SelectedIndex;
                 if (source.ToolTip is null && combo.SelectedItem is ComboBoxItem { Content: string selectedText } && selectionTip != selectedText) {
                     selectionTip = selectedText;
                     combo.ToolTip = new ToolTip { Content = new TextBlock { Text = selectedText, TextWrapping = TextWrapping.Wrap, MaxWidth = 360 } };
@@ -315,7 +380,12 @@ public sealed partial class GlassPresentationSession
                 for (int index = 0; index < items.Length; index++)
                 {
                     var choice = (ComboBoxItem)combo.Items[index];
-                    if (items[index] is ContentControl original) choice.Content = Content(original.Content);
+                    if (javaActions && items[index] is MyListItemView java && choice.Content is Grid row)
+                    {
+                        var actions = (StackPanel)row.Children[1];
+                        Children(actions, java.Buttons?.Select(button => Project(button)).Where(item => item != null).ToArray() ?? Array.Empty<UIElement>());
+                    }
+                    else if (items[index] is ContentControl original) choice.Content = Content(original.Content);
                 }
                 if (source.IsEditable)
                 {
@@ -326,6 +396,15 @@ public sealed partial class GlassPresentationSession
             finally { pulling = false; }
         };
         return node;
+    }
+
+    private sealed class JavaActionComboBox : ComboBox
+    {
+        protected override void OnMouseWheel(MouseWheelEventArgs e)
+        {
+            // Let the page scroll when the closed menu has focus, without invoking a Java command.
+            if (IsDropDownOpen) base.OnMouseWheel(e);
+        }
     }
 
     private static void RouteDropDownWheel(ComboBox combo, Node node)
@@ -519,7 +598,8 @@ public sealed partial class GlassPresentationSession
             if (presentation is null) return;
             var forwarded = new KeyEventArgs(args.KeyboardDevice, presentation, args.Timestamp, args.Key) { RoutedEvent = args.RoutedEvent };
             source.RaiseEvent(forwarded);
-            if (forwarded.Handled) args.Handled = true;
+            // Both trees bubble to the same Window. The forwarded route has already run its shortcuts.
+            if (forwarded.Handled || ReferenceEquals(PresentationSource.FromVisual(target), presentation)) args.Handled = true;
         }
         target.KeyDown += Forward; target.KeyUp += Forward;
     }
