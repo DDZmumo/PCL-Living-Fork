@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 整合包更新支持配置键值合并，同一键冲突可在预览选择\r\n- 批量更新模组前核对必需前置，完善 NeoForge 内嵌库识别\r\n- 修复拖拽安装模组时的线程错误\r\n- 保护受影响 Forge／NeoForge 实例的自定义键位和组合键\r\n- 修复 GTNH 等整合包接力启动时的崩溃误报\r\n- Windows x64 版需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置\r\n- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡\r\n- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());
@@ -30,7 +30,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public void ConstructBeforeXaml() {
         host.WriteStartTick(host.Clock()); host.AssignGlobalWindow(); host.CreateLaunchLeft(); host.CreateLaunchRight();
         int last = host.ReadInteger("SystemLastVersionReg");
-        if (last < host.VersionCode) Upgrade(last); else if (last > host.VersionCode) Downgrade(last);
+        if (last < host.VersionCode) UpgradeCore(last, showUpdateLog: false); else if (last > host.VersionCode) Downgrade(last);
         if (!host.HasSaved("LaunchArgumentIndieV2")) {
             if (host.HasSaved("LaunchArgumentIndie")) {
                 Logger.Info("从老 PCL 迁移版本隔离"); host.WriteSetting("LaunchArgumentIndieV2", host.ReadInteger("LaunchArgumentIndie"));
@@ -44,7 +44,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         Window.AddHandler(DragDrop.DragEnterEvent, host.DragHandler, true); Window.AddHandler(DragDrop.DragOverEvent, host.DragHandler, true);
     }
     public void ConstructAfterXaml() {
-        host.ApplyPackVisibility(Window); if (host.PackEnabled()) UpdateTitleBar(); Window.Opacity = 0;
+        host.ApplyPackVisibility(Window); if (host.PackEnabled()) UpdateTitleBar(); Window.Opacity = view.UsesGlassShell?.Invoke() == true ? 1 : 0;
         if (host.IsAdmin()) {
             LegacyMainDragHelperPort helper = host.CreateDragHelper();
             Window.SourceInitialized += (_, _) => { WindowInteropHelper window = new(Window); helper.SetSource(HwndSource.FromHwnd(window.Handle)); helper.AddHook(); };
@@ -61,7 +61,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     }
     public void Loaded() {
         host.WriteStartTick(host.Clock()); host.WriteHandle(new WindowInteropHelper(Window).Handle);
-        UpdateBackgroundAndTitleBar(); host.RefreshHidden(); host.RefreshBackground(false, true); host.RefreshMusic(false, true);
+        if (host.ReadInteger("UiBackgroundMode") == 1) UpdateBackgroundAndTitleBar();
+        host.RefreshHidden(); host.RefreshBackground(false, true); host.RefreshMusic(false, true);
         view.ExtraDownload().SetShowCheck(DownloadShowCheck); view.ExtraBack().SetShowCheck(BackShowCheck); view.ExtraApril().SetShowCheck(AprilShowCheck); view.ExtraShutdown().SetShowCheck(ShutdownShowCheck); view.ExtraApril().ShowRefresh();
         WindowResizer resizer = host.CreateResizer(Window);
         resizer.addResizerDown(view.Resizer(0)); resizer.addResizerLeft(view.Resizer(1)); resizer.addResizerLeftDown(view.Resizer(2)); resizer.addResizerLeftUp(view.Resizer(3));
@@ -77,7 +78,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         HwndSource source = (HwndSource)PresentationSource.FromVisual(Window); source.AddHook(host.WindowHook);
         AniStart([
             AaCode(() => AniControlEnabled = checked(AniControlEnabled - 1), 50),
-            AaOpacity(Window, host.ReadInteger("UiLauncherTransparent") / 1000d + 0.4, 250, 100),
+            AaOpacity(view.UsesGlassShell?.Invoke() == true ? view.PanBack() : (UIElement)Window, host.ReadInteger("UiLauncherTransparent") / 1000d + 0.4, 250, 100),
             AaDouble(i => view.TransformPos().Y += i, -view.TransformPos().Y, 600, 100, Back(AnimationEasePower.Weak)),
             AaDouble(i => view.TransformRotate().Angle += i, -view.TransformRotate().Angle, 500, 100, Back(AnimationEasePower.Weak)),
             AaCode(() => { view.PanBack().RenderTransform = null; host.WriteLoaded(true); Logger.Info($"DPI：{host.Dpi()}，系统版本：{Environment.OSVersion.VersionString}，PCL 位置：{host.ExecutablePath()}"); }, after: true)
@@ -109,7 +110,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
             case 2: host.OpenWebsite(host.ReleasesUrl()); break;
         }
     }, "Fork UpdateLog Output");
-    public void Upgrade(int lastVersion) {
+    public void Upgrade(int lastVersion) => UpgradeCore(lastVersion, showUpdateLog: true);
+    private void UpgradeCore(int lastVersion, bool showUpdateLog) {
         Logger.Info($"版本号从 {lastVersion} 升高到 {host.VersionCode}"); host.WriteSetting("SystemLastVersionReg", host.VersionCode);
         string settingKey = host.BuildType == 0 ? "SystemHighestAlphaVersionReg" : "SystemHighestBetaVersionReg";
         int highest = host.ReadInteger(settingKey);
@@ -132,7 +134,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         if (lastVersion <= 205) { host.WriteSetting("UiHiddenOtherHelp", false); Logger.Info("已解除帮助页面的隐藏"); }
         if (host.HasSaved("ToolDownloadTranslate") && !host.HasSaved("ToolDownloadTranslateV2")) { host.WriteSetting("ToolDownloadTranslateV2", checked(host.ReadInteger("ToolDownloadTranslate") + 1)); Logger.Info("已从老版本迁移 Mod 命名设置"); }
         if (lastVersion <= 381 && host.HasSaved("LaunchAdvanceJvm") && Operators.ConditionalCompareObjectEqual(host.ReadString("LaunchAdvanceJvm").ToString().Replace("-XX:+UseG1GC ", "").Replace("-XX:-UseAdaptiveSizePolicy ", "").Trim(), host.DefaultValue("LaunchAdvanceJvm"), false)) { host.ResetSetting("LaunchAdvanceJvm"); Logger.Info("已重置 JVM 参数设置"); }
-        if (lastVersion <= 0 || highest >= host.VersionCode) return;
+        if (!showUpdateLog || lastVersion <= 0 || highest >= host.VersionCode) return;
         ShowAutomaticUpdateLog();
     }
     public void Downgrade(int lastVersion) { Logger.Info($"版本号从 {lastVersion} 降低到 {host.VersionCode}"); host.WriteSetting("SystemLastVersionReg", host.VersionCode); }

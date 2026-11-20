@@ -49,6 +49,10 @@ MeloongCore、第三方库、图标、字体、帮助文件及其他资源分别
 
 Minecraft、Mojang 和 Microsoft 的名称与相关资产归相应权利人所有。本项目不是 Minecraft 官方产品，未经 Mojang 或 Microsoft 批准，也不与其关联。
 
+### 启动器图标来源
+
+`modern/Main/Images/Branding/PCLLF.svg` 与 `PCLLF.png` 由维护者在 2026 年 11 月 16 日提供，并明确指定用于启动器图标。保留两份原始文件；同目录的 PNG／ICO 尺寸导出和 `PCLLF.Logo.xaml` 矢量呈现保持同一图案。界面中的单色矢量随主题前景色显示。这些图形资产不属于 MPL 源码授权范围。
+
 ## 本地修改范围
 
 本分支使用 Minecraft 下载限制引入前的源码基线，禁用官方启动器更新，使用 PCL Living Fork 名称，并补充独立第三方身份、来源与版权说明。原仓库附带的旧版发行 ZIP 和历史更新补丁已从工作树移除，原始记录仍可通过 Git 历史追溯。

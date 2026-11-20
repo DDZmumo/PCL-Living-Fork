@@ -52,6 +52,7 @@ namespace PCL
         {
             PageExit?.Invoke();
         }
+        protected override bool UseProjectedNavigation => ModMain.FrmMain?.GlassShellActive == true;
         protected override void UiPost(Action Work)
         {
             ModBase.RunInUi(Work);

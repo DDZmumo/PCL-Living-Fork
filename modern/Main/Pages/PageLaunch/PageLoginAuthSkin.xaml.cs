@@ -28,6 +28,13 @@ namespace PCL
 
         public void Reload(bool KeepInput)
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) {
+                TextName.Text = character.Profile.Name;
+                TextEmail.Text = character.Account.Username;
+                TextEmail.Visibility = Settings.Get<bool>("UiLauncherEmail") ? Visibility.Collapsed : Visibility.Visible;
+                Skin.Loader.Start();
+                return;
+            }
             Native.Reload(KeepInput);
         }
 
@@ -48,16 +55,28 @@ namespace PCL
 
         private void BtnEdit_Click(object sender, EventArgs e)
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null) return;
             Native.EditClick(GetLoginData, () => Reload(true));
         }
 
         public static void ExitLogin()
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null) {
+                ModLaunch.McLoginLoader.Cancel();
+                ModLaunch.McLoginAuthLoader.Cancel();
+                GlassSkinSites.Deactivate();
+                ModMain.FrmLaunchLeft?.RefreshPage(false, true);
+                return;
+            }
             CreateController(ModMain.FrmLoginAuthSkin).ExitLogin();
         }
 
         private void Skin_Click(object sender, MouseButtonEventArgs e)
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) {
+                if (Uri.TryCreate(character.Site.Register, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps) ModBase.OpenWebsite(uri.AbsoluteUri);
+                return;
+            }
             Native.SkinClick();
         }
     }

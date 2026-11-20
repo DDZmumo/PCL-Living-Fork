@@ -28,7 +28,9 @@ try {
  MethodDefinition main=metadata.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(token&0xffffff));
  TypeDefinition entryType=metadata.GetTypeDefinition(main.GetDeclaringType());
  string name=metadata.GetString(entryType.Namespace)+"."+metadata.GetString(entryType.Name),method=metadata.GetString(main.Name);
- if(name!="PCL.Application" || method!="Main")throw new InvalidDataException("Actual entry is "+name+"."+method+"; a fixture/test host is not the product Main.");
+ // The current launcher dispatches its skin-service worker before entering WPF.
+ // Historical native builds entered the same application through WPF's generated Main.
+ if(name is not ("PCL.LauncherEntryPoint" or "PCL.Application") || method!="Main")throw new InvalidDataException("Actual entry is "+name+"."+method+"; a fixture/test host is not the product Main.");
  object Constant(string typeName,string fieldName) {
   foreach(TypeDefinitionHandle handle in metadata.TypeDefinitions) {
    TypeDefinition type=metadata.GetTypeDefinition(handle);if(metadata.GetString(type.Namespace)!="PCL" || metadata.GetString(type.Name)!=typeName)continue;

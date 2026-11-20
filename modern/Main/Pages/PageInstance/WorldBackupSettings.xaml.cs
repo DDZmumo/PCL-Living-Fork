@@ -19,6 +19,7 @@ namespace PCL
         {
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            GlassPresentationSession.RegisterProjectedEditor(TextRetention, RetentionLostFocus);
         }
 
         private void Init()
@@ -28,7 +29,7 @@ namespace PCL
 
         internal void BindOwner(ModMinecraft.McInstance Value)
         {
-            bool PreserveInput = Value is not null && Owner is not null && PathUtils.IsSame(Value.PathVersion, Owner.PathVersion) && RetentionDirty && this.TextRetention.IsKeyboardFocusWithin;
+            bool PreserveInput = Value is not null && Owner is not null && PathUtils.IsSame(Value.PathVersion, Owner.PathVersion) && RetentionDirty && GlassPresentationSession.EditorHasFocus(TextRetention);
             BindingOwner = true;
             try
             {
@@ -74,7 +75,7 @@ namespace PCL
 
         private void RetentionEdited()
         {
-            if (!BindingOwner && Owner is not null && ComboMode.SelectedIndex == 1 && ComboRetentionPolicy.SelectedIndex == 1 && this.TextRetention.IsKeyboardFocusWithin)
+            if (!BindingOwner && Owner is not null && ComboMode.SelectedIndex == 1 && ComboRetentionPolicy.SelectedIndex == 1 && GlassPresentationSession.EditorHasFocus(TextRetention))
                 RetentionDirty = true;
         }
         private void ModeChanged(object sender, SelectionChangedEventArgs args) {

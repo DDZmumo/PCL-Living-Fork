@@ -71,7 +71,7 @@ internal static partial class ModpackModeChecks {
             this.fixture = fixture; Root = Path.Combine(fixture.Data, "modpack-mode"); Launcher = Path.Combine(Root, "other-launcher") + Path.DirectorySeparatorChar; AppData = Path.Combine(Root, "appdata") + Path.DirectorySeparatorChar;
             Native.Check(!Directory.Exists(Root), "Refusing existing modpack-mode fixture."); Directory.CreateDirectory(Launcher); Directory.CreateDirectory(AppData);
             object service = Native.Field(Mode, "Service").GetValue(null)!; Host = (ModeHost)Native.Get(service, "host")!;
-            Native.Check(service.GetType().Assembly.GetName().Name == "PCLCS" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(MyPageRight), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
+            Native.Check(service.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(MyPageRight), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
             try {
                 CaptureValidationThreads(false);
                 DispatcherHookEventHandler posted = (_,args) => { Thread thread = Thread.CurrentThread; if (!IsValidation(thread.Name)) return; lock (producerGate) { producers.Add(thread); producerUi.Add(args.Operation); } };
@@ -83,8 +83,8 @@ internal static partial class ModpackModeChecks {
                 foreach (string name in new[] { "FrmMain", "FrmSetupLeft", "FrmLaunchLeft", "FrmInstanceLeft", "FrmInstanceOverall", "FrmInstanceMod", "FrmInstanceModDisabled", "FrmInstanceSetup", "FrmSetupLaunch", "FrmSetupSystem", "FrmSelectLeft", "FrmSelectRight", "FrmInstanceExport", "FrmDownloadModify" }) Global(name, null);
                 SaveStatic(typeof(PageInstanceLeft), "Instance"); PageInstanceLeft.Instance = null!;
                 SaveStatic(typeof(ModMinecraft), "McFolderList");
-                SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
-                SaveStatic(typeof(ModMinecraft), "_McFolderSelected"); Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, Path.Combine(Launcher, ".minecraft") + Path.DirectorySeparatorChar);
+                SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
+                SaveStatic(typeof(ModMinecraft), "_McFolderSelected"); Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, Path.Combine(Launcher, ".minecraft") + Path.DirectorySeparatorChar);
                 // Only the existing platform path input is replaced. Even an
                 // incidental real Main folder getter must stay inside the GUID root.
                 object minecraft = Native.Field(typeof(ModMinecraft), "Service").GetValue(null)!;
@@ -107,7 +107,7 @@ internal static partial class ModpackModeChecks {
         private T Forbidden<T>(string name) { Interlocked.Increment(ref forbidden); throw new InvalidOperationException("Forbidden actual mode fixture operation: " + name); }
         internal void Replace(object target, string name, object value) { FieldInfo field = Native.Field(target.GetType(), name); object? previous = field.GetValue(target); restore.Push(() => field.SetValue(target, previous)); field.SetValue(target, value); }
         private void SaveField(object target, string name) { FieldInfo field = Native.Field(target.GetType(), name); object? previous = field.GetValue(target); restore.Push(() => field.SetValue(target, previous)); }
-        private void SaveStatic(Type type, string name) { FieldInfo field = Native.Field(type, name); object? previous = field.GetValue(null); restore.Push(() => field.SetValue(null, previous)); }
+        private void SaveStatic(Type type, string name) { var field = Native.State(type, name); object? previous = field.GetValue(null); restore.Push(() => field.SetValue(null, previous)); }
         internal void Global(string name, object? value) { FieldInfo field = Native.Field(typeof(ModMain), name); if (globals.Add(name)) { object? previous = field.GetValue(null); restore.Push(() => field.SetValue(null, previous)); } field.SetValue(null, value); }
         internal void SetCache(string key, object value, string path = "") {
             IDictionary cache = Cache(key); if (caches.Add(key + "\0" + path)) { bool had = cache.Contains(path); object? old = cache[path]; restore.Push(() => { if (had) cache[path] = old; else cache.Remove(path); }); } cache[path] = value;

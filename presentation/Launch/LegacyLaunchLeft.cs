@@ -15,11 +15,13 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
     private readonly LegacyLaunchLeftView view;
     private readonly LegacyLaunchLeftHost<TInstance> host;
     private readonly LegacyLaunchAnimations<TAnimation> animation;
+    private readonly Func<bool>? hasSkinSite;
     private bool isLoaded, loadFinished;
     private LegacyLoginPageKind currentPage;
     private int launchButtonState;
     private TInstance? launchButtonInstance;
-    public LegacyLaunchLeft(LegacyLaunchLeftView view, LegacyLaunchLeftHost<TInstance> host, LegacyLaunchAnimations<TAnimation> animation) { this.view = view; this.host = host; this.animation = animation; }
+    private string? displayedAuthEndpoint;
+    public LegacyLaunchLeft(LegacyLaunchLeftView view, LegacyLaunchLeftHost<TInstance> host, LegacyLaunchAnimations<TAnimation> animation, Func<bool>? hasSkinSite = null) { this.view = view; this.host = host; this.animation = animation; this.hasSkinSite = hasSkinSite; }
     public void Loaded() {
         if (isLoaded) RefreshPage(true, false);
         view.AprilPosition().X = 0; view.AprilPosition().Y = 0;
@@ -111,12 +113,14 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
     }
     public void RefreshPage(bool KeepInput, bool Anim) {
         LegacyLoginPageKind kind; int loginPage;
+        string? authEndpoint = null;
         if (host.Selected() is not null) { loginPage = host.ReadInstanceInteger("VersionServerLogin"); host.WriteSetting("LoginPageType", loginPage); }
         else loginPage = host.ReadInteger("LoginPageType");
         switch (loginPage) {
             case 0:
             Unknown:
-                if (view.MicrosoftChecked()) { kind = string.IsNullOrEmpty(host.ReadString("CacheMsV2Access")) ? LegacyLoginPageKind.Ms : LegacyLoginPageKind.MsSkin; host.SetLoginType(5); }
+                if (hasSkinSite?.Invoke() == true) { kind = LegacyLoginPageKind.AuthSkin; host.SetLoginType(3); }
+                else if (view.MicrosoftChecked()) { kind = string.IsNullOrEmpty(host.ReadString("CacheMsV2Access")) ? LegacyLoginPageKind.Ms : LegacyLoginPageKind.MsSkin; host.SetLoginType(5); }
                 else { kind = LegacyLoginPageKind.Legacy; host.SetLoginType(0); }
                 view.TypePanel().Visibility = Visibility.Visible; view.SingleTypePanel().Visibility = Visibility.Collapsed; view.MicrosoftRadio().Visibility = Visibility.Visible; view.OfflineRadio().Visibility = Visibility.Visible; break;
             case 1:
@@ -125,14 +129,21 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
             case 2: kind = LegacyLoginPageKind.Legacy; host.SetLoginType(0); SingleType(host.OfflineLogo(), "离线登录"); break;
             case 3: kind = string.IsNullOrEmpty(host.ReadString("CacheNideAccess")) ? LegacyLoginPageKind.Nide : LegacyLoginPageKind.NideSkin; host.SetLoginType(2); SingleType(host.CardLogo(), "统一通行证登录"); break;
             case 4:
-                kind = string.IsNullOrEmpty(host.ReadString("CacheAuthAccess")) ? LegacyLoginPageKind.Auth : LegacyLoginPageKind.AuthSkin; host.SetLoginType(3);
+                authEndpoint = PCLCS.AuthlibEndpoint.ForServer(host.Selected() is null ? host.ReadString("CacheAuthServerServer") : host.ReadInstanceString("VersionServerAuthServer"));
+                bool signedIn = !string.IsNullOrEmpty(host.ReadString("CacheAuthAccess")) && PCLCS.AuthlibEndpoint.Same(authEndpoint, host.ReadString(PCLCS.AuthlibEndpoint.CredentialServerSetting));
+                kind = signedIn ? LegacyLoginPageKind.AuthSkin : LegacyLoginPageKind.Auth; host.SetLoginType(3);
                 SingleTypeVisual(host.CardLogo());
                 view.SingleTypeLabel().Text = host.Selected() is null ? host.ReadString("CacheAuthServerName") : host.ReadInstanceString("VersionServerAuthName");
                 if (string.IsNullOrEmpty(view.SingleTypeLabel().Text)) view.SingleTypeLabel().Text = "第三方登录"; break;
             default: Logger.Error($"未知的登录页面：{loginPage}", LogBehavior.Toast); goto Unknown;
         }
-        if (currentPage == kind) return;
-        host.ReloadPage(ChangePage(kind, Anim), KeepInput); view.CheckNamedRadio("RadioLoginType" + host.LoginType());
+        bool authEndpointChanged = displayedAuthEndpoint != authEndpoint;
+        displayedAuthEndpoint = authEndpoint;
+        if (currentPage == kind) {
+            if (authEndpointChanged && kind is LegacyLoginPageKind.Auth or LegacyLoginPageKind.AuthSkin) host.ReloadPage(GetPage(kind), false);
+            return;
+        }
+        host.ReloadPage(ChangePage(kind, Anim), KeepInput); if (host.LoginType() is 0 or 5) view.CheckNamedRadio("RadioLoginType" + host.LoginType());
     }
     private void SingleType(string logo, string label) {
         SingleTypeVisual(logo); view.SingleTypeLabel().Text = label;
@@ -166,11 +177,12 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
         if (state == 3) host.GlobalButtons.MoreVisibility(host.ModpackMode() ? Visibility.Visible : host.GlobalButtons.ReadVersionVisibility());
     }
     public void CancelClick() {
-        if (host.HasRealLaunch()) {
-            host.RealLaunch().Cancel(); host.LaunchLog("已取消启动");
-            try { if (host.HasWatcher()) host.KillWatcher(); else if (host.LaunchProcess() is not null) { if (!host.LaunchProcess()!.HasExited) host.LaunchProcess()!.Kill(); } }
-            catch (Exception error) { Logger.Error(error, "取消启动结束进程失败", LogBehavior.Toast); }
-        }
+        if (host.CancelLaunch is not null) { host.CancelLaunch(); return; }
+        PCLCS.Applications.LaunchCancellationActions.Cancel(new() {
+            HasOperation = host.HasRealLaunch, CancelOperation = () => host.RealLaunch().Cancel(),
+            LogCancellation = () => host.LaunchLog("已取消启动"), HasWatcher = host.HasWatcher,
+            KillWatcher = host.KillWatcher, ReadProcess = host.LaunchProcess
+        });
     }
     public void MoreClick() {
         if (host.LaunchState() == LegacyLaunchPanelState.Loading) return;

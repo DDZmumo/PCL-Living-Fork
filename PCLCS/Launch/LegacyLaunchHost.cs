@@ -71,6 +71,7 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Action<string> SetGpuPreference = null!;
     public Func<string, bool> RunAdminTaskDone = null!;
     public Func<ProcessStartInfo, Process> StartProcess = null!;
+    public Func<ILegacyLaunchLoginResult, Java, ProcessStartInfo, CancellationToken, Applications.LocalSkinServiceProcess?>? PrepareLocalSkin;
     public Func<string, LegacyLaunchImage> LoadImage = null!;
     public Func<string, bool, string> ArgumentReplace = null!;
     public Func<string, char, string> FilterAccessToken = null!, FilterUserName = null!;
@@ -106,6 +107,7 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Func<TInstance, string, CancellationToken, string> CaptureEnvironment = null!;
     public Func<LegacyLaunchTask<Process, int>, TInstance, string, Action<Process>, Action, string, TWatcher> CreateWatcher = null!;
     public Func<TWatcher, int> WatcherState = null!;
+    public Func<TWatcher, int, int>? WaitForWatcherStartup;
     public Func<bool> MusicPause = null!, MusicResume = null!;
     public Action EndProgram = null!, HideLauncher = null!, MinimizeLauncher = null!;
 }

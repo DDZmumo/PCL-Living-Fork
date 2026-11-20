@@ -5,5 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><LangVersion>13.0</LangVersion>
   </PropertyGroup>
   <!-- Exercise the actual host dependency graph, without starting Main, Java, or a game. -->
-  <ItemGroup><ProjectReference Include="../../modern/PCLCS/PCLCS.Modern.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../modern/Core/PCLLF.Core.csproj" />
+    <ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
+  </ItemGroup>
 </Project>

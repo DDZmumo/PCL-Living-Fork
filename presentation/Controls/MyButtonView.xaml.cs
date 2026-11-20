@@ -65,6 +65,14 @@ public partial class MyButtonView : Border {
 
     protected virtual void OnClick(object sender, MouseButtonEventArgs args) => Click?.Invoke(sender, args);
 
+    /// <summary>Runs the button command from an alternate presentation without synthesizing routed input.</summary>
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        Services.Info("按下按钮：" + Text);
+        OnClick(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left));
+        Services.RaiseCustomEvent(this);
+    }
+
     private void RefreshColor(object? sender = null, EventArgs? args = null) {
         try {
             string name = "MyButton Color " + Uuid;

@@ -46,20 +46,33 @@ namespace PCL
     // LF 原字段、嵌套类型及平台调用身份；完整启动／登录／参数／进程业务由 C# 实现维护。
     public static class ModLaunch
     {
-        public static global::PCL.ModLaunch.McLaunchOptions CurrentLaunchOptions = (global::PCL.ModLaunch.McLaunchOptions)null;
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object> McLaunchLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>("Loader Launch", global::PCL.ModLaunch.McLaunchStart) { OnStateChanged = Loader => global::PCL.ModLaunch.McLaunchState((global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>)Loader) };
-        public static global::PCL.ModLoader.LoaderCombo<global::System.Object> McLaunchLoaderReal;
-        public static global::System.Diagnostics.Process McLaunchProcess;
-        public static global::PCL.ModWatcher.Watcher McLaunchWatcher;
-        public static global::PCLCS.Java McLaunchJavaSelected = (global::PCLCS.Java)null;
-        private static global::System.String CanceledHint = (global::System.String)null;
-        private static global::System.String McLaunchArgument;
-        private static global::System.Text.Encoding McLaunchEncoding;
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginResult> McLoginLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginResult>("登录", global::PCL.ModLaunch.McLoginStart, global::PCL.ModLaunch.McLoginInput, global::System.Threading.ThreadPriority.BelowNormal) { ReloadTimeout = 1, ProgressWeight = 15d, Block = false };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginResult> McLoginMsLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginResult>("Loader Login Ms", global::PCL.ModLaunch.McLoginMsStart) { ReloadTimeout = 1 };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult> McLoginLegacyLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult>("Loader Login Legacy", global::PCL.ModLaunch.McLoginLegacyStart);
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> McLoginNideLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult>("Loader Login Nide", global::PCL.ModLaunch.McLoginServerStart) { ReloadTimeout = (((1000) * (60)) * (10)) };
-        public static global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> McLoginAuthLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult>("Loader Login Auth", global::PCL.ModLaunch.McLoginServerStart) { ReloadTimeout = (((1000) * (60)) * (10)) };
+        public static McLaunchOptions CurrentLaunchOptions { get => LauncherApplicationServices.LaunchOwner.Runtime.Options; set => LauncherApplicationServices.LaunchOwner.Runtime.Options = value; }
+        public static ModLoader.LoaderTask<McLaunchOptions, object> McLaunchLoader { get => LauncherApplicationServices.LaunchOwner.Runtime.Task; set => LauncherApplicationServices.LaunchOwner.Runtime.Task = value; }
+        public static ModLoader.LoaderCombo<object> McLaunchLoaderReal { get => LauncherApplicationServices.LaunchOwner.Runtime.Operation; set => LauncherApplicationServices.LaunchOwner.Runtime.Operation = value; }
+        public static Process McLaunchProcess { get => LauncherApplicationServices.LaunchOwner.Runtime.Process; set => LauncherApplicationServices.LaunchOwner.Runtime.Process = value; }
+        public static ModWatcher.Watcher McLaunchWatcher { get => LauncherApplicationServices.LaunchOwner.Runtime.Watcher; set => LauncherApplicationServices.LaunchOwner.Runtime.Watcher = value; }
+        public static Java McLaunchJavaSelected { get => LauncherApplicationServices.LaunchOwner.Runtime.Java; set => LauncherApplicationServices.LaunchOwner.Runtime.Java = value; }
+        private static string CanceledHint { get => LauncherApplicationServices.LaunchOwner.Runtime.CancellationHint; set => LauncherApplicationServices.LaunchOwner.Runtime.CancellationHint = value; }
+        private static string McLaunchArgument { get => LauncherApplicationServices.LaunchOwner.Runtime.Arguments; set => LauncherApplicationServices.LaunchOwner.Runtime.Arguments = value; }
+        private static Encoding McLaunchEncoding { get => LauncherApplicationServices.LaunchOwner.Runtime.Encoding; set => LauncherApplicationServices.LaunchOwner.Runtime.Encoding = value; }
+        public static ModLoader.LoaderTask<McLoginData, McLoginResult> McLoginLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Login; set => LauncherApplicationServices.AccountOwner.Runtime.Login = value; }
+        public static ModLoader.LoaderTask<McLoginMs, McLoginResult> McLoginMsLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Microsoft; set => LauncherApplicationServices.AccountOwner.Runtime.Microsoft = value; }
+        public static ModLoader.LoaderTask<McLoginLegacy, McLoginResult> McLoginLegacyLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Offline; set => LauncherApplicationServices.AccountOwner.Runtime.Offline = value; }
+        public static ModLoader.LoaderTask<McLoginServer, McLoginResult> McLoginNideLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Nide; set => LauncherApplicationServices.AccountOwner.Runtime.Nide = value; }
+        public static ModLoader.LoaderTask<McLoginServer, McLoginResult> McLoginAuthLoader { get => LauncherApplicationServices.AccountOwner.Runtime.Auth; set => LauncherApplicationServices.AccountOwner.Runtime.Auth = value; }
+        private static readonly bool ApplicationTasksInitialized = InitializeApplicationTasks();
+        static ModLaunch() { _ = ApplicationTasksInitialized; }
+        internal static void EnsureApplicationServicesInitialized() { }
+        private static bool InitializeApplicationTasks()
+        {
+            McLaunchLoader = new("Loader Launch", McLaunchStart) { OnStateChanged = loader => McLaunchState((ModLoader.LoaderTask<McLaunchOptions, object>)loader) };
+            McLoginLoader = new("登录", McLoginStart, McLoginInput, ThreadPriority.BelowNormal) { ReloadTimeout = 1, ProgressWeight = 15d, Block = false };
+            McLoginMsLoader = new("Loader Login Ms", McLoginMsStart) { ReloadTimeout = 1 };
+            McLoginLegacyLoader = new("Loader Login Legacy", McLoginLegacyStart);
+            McLoginNideLoader = new("Loader Login Nide", McLoginServerStart) { ReloadTimeout = 1000 * 60 * 10 };
+            McLoginAuthLoader = new("Loader Login Auth", McLoginServerStart) { ReloadTimeout = 1000 * 60 * 10 };
+            return true;
+        }
         private readonly static global::PCLCS.LegacyLaunchEngine<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher> Service = new global::PCLCS.LegacyLaunchEngine<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher>(global::PCL.ModLaunch.CreateLaunchHost());
 
         public enum McLoginType
@@ -229,6 +242,7 @@ namespace PCL
 
         public class McLoginServer : global::PCL.ModLaunch.McLoginData, global::PCLCS.ILegacyLaunchServerData
         {
+            internal SkinSiteCharacter? SkinSite;
 
             /// <summary>
         /// 登录用户名。
@@ -261,7 +275,8 @@ namespace PCL
             }
             public override global::System.Int32 GetHashCode()
             {
-                return global::PCLCS.LegacyLaunchIdentity.ServerHash(this.UserName, this.Password, this.BaseUrl, this.Token, (global::System.Int32)this.Type);
+                int legacy = global::PCLCS.LegacyLaunchIdentity.ServerHash(this.UserName, this.Password, this.BaseUrl, this.Token, (global::System.Int32)this.Type);
+                return SkinSite is null ? legacy : HashCode.Combine(legacy, SkinSite.Profile.Id, SkinSite.Account.AccessToken);
             }
 
 
@@ -442,11 +457,141 @@ namespace PCL
             string global::PCLCS.ILegacyLaunchOfflineData.SkinName { get => this.BridgeSkinName; }
         }
 
-        private static global::PCLCS.LegacyLaunchHost<global::PCL.ModMinecraft.McInstance, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher> CreateLaunchHost()
+        private static LaunchHost CreateLaunchHost()
         {
-            global::PCLCS.LegacyLaunchHost<global::PCL.ModMinecraft.McInstance, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher> @init = new global::PCLCS.LegacyLaunchHost<global::PCL.ModMinecraft.McInstance, global::PCL.ModLaunch.McLaunchOptions, global::PCL.ModLaunch.McLoginData, global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginMs, global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModWatcher.Watcher>();
-            @init.ManagedMmcSteps = (instance, options) => MmcLaunch.CreateSteps(instance, options, java => McLaunchJavaSelected = java);
-            return (@init.Options = new Func<global::PCL.ModLaunch.McLaunchOptions>(() => global::PCL.ModLaunch.CurrentLaunchOptions), @init.StoreOptions = new Action<global::PCL.ModLaunch.McLaunchOptions>(Value => global::PCL.ModLaunch.CurrentLaunchOptions = Value), @init.SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected), @init.StoreSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value), @init.CreateInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name)), @init.SelectedFolder = new Func<global::System.String>(() => global::PCL.ModMinecraft.McFolderSelected), @init.SelectedJava = new Func<global::PCLCS.Java>(() => global::PCL.ModLaunch.McLaunchJavaSelected), @init.StoreSelectedJava = new Action<global::PCLCS.Java>(Value => global::PCL.ModLaunch.McLaunchJavaSelected = Value), @init.Arguments = new Func<global::System.String>(() => global::PCL.ModLaunch.McLaunchArgument), @init.StoreArguments = new Action<global::System.String>(Value => global::PCL.ModLaunch.McLaunchArgument = Value), @init.CanceledHint = new Func<global::System.String>(() => global::PCL.ModLaunch.CanceledHint), @init.StoreCanceledHint = new Action<global::System.String>(Value => global::PCL.ModLaunch.CanceledHint = Value), @init.Encoding = new Func<global::System.Text.Encoding>(() => global::PCL.ModLaunch.McLaunchEncoding), @init.StoreEncoding = new Action<global::System.Text.Encoding>(Value => global::PCL.ModLaunch.McLaunchEncoding = Value), @init.StoreProcess = new Action<global::System.Diagnostics.Process>(Value => global::PCL.ModLaunch.McLaunchProcess = Value), @init.StoreWatcher = new Action<global::PCL.ModWatcher.Watcher>(Value => global::PCL.ModLaunch.McLaunchWatcher = Value), @init.ReadString = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.String>((Key, Instance) => global::PCL.Settings.Get<string>(Key, Instance: Instance)), @init.ReadInteger = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Int32>((Key, Instance) => (Key == "LoginType") ? (((global::System.Int32)global::PCL.Settings.Get<McLoginType>(Key))) : (global::PCL.Settings.Get<int>(Key, Instance: Instance))), @init.ReadBoolean = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Boolean>((Key, Instance) => global::PCL.Settings.Get<bool>(Key, Instance: Instance)), @init.WriteSetting = new Action<global::System.String, global::System.Object>((Key, Value) => global::PCL.Settings.Set(Key, Value)), @init.ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((File, Key, DefaultValue) => global::PCL.ModBase.ReadIni(File, Key, DefaultValue)), @init.WriteIni = new Action<global::System.String, global::System.String, global::System.String>((File, Key, Value) => global::PCL.ModBase.WriteIni(File, Key, Value)), @init.ClearIniCache = global::PCL.ModBase.IniClearCache, @init.AccountSnapshot = new Func<global::System.String, global::System.Collections.Generic.Dictionary<global::System.String, global::System.Object>>(Prefix => global::PCL.Settings.AccountSnapshot(Prefix)), @init.SaveMicrosoftSession = new Action<global::System.Collections.Generic.IDictionary<global::System.String, global::System.Object>, global::System.String, global::System.Func<global::System.Boolean>>((Values, PreviousName, Canceled) => global::PCL.Settings.SaveMicrosoftSession(Values, PreviousName, Canceled)), @init.SaveAccountGroup = new Action<global::System.Collections.Generic.IDictionary<global::System.String, global::System.Object>, global::System.Func<global::System.Boolean>>((Values, Canceled) => global::PCL.Settings.SaveAccountGroup(Values, Canceled)), @init.UpdateServerAccounts = new Action<global::System.String, global::System.String, global::System.String, global::System.Boolean>((Token, Name, Password, Remove) => global::PCL.Settings.UpdateServerAccounts(Token, Name, Password, Remove)), @init.UpdateLegacyNames = new Action<global::System.Action<global::System.Collections.Generic.List<global::System.String>>>(Change => global::PCL.Settings.UpdateLegacyNames(Change)), @init.OnUiThread = new Func<global::System.Boolean>(() => global::PCL.ModBase.RunInUi()), @init.Debug = new Func<global::System.Boolean>(() => global::PCL.ModBase.ModeDebug), @init.ReleaseBuild = new Func<global::System.Boolean>(() => (global::PCL.ModBase.BuildType == global::PCL.ModBase.BuildTypes.Release)), @init.IsGbkEncoding = new Func<global::System.Boolean>(() => global::PCL.ModBase.IsGBKEncoding), @init.PackEnabled = new Func<global::System.Boolean>(() => global::PCL.ModModpackMode.Enabled), @init.CleaningFiles = new Func<global::System.Boolean>(() => global::PCL.PageOtherTest.IsCleaningGameFiles), @init.HasRunningMinecraft = new Func<global::System.Boolean>(() => global::PCL.ModWatcher.HasRunningMinecraft), @init.PackAllowsInstance = new Func<global::System.String, global::System.Boolean>(Folder => global::PCL.ModModpackMode.AllowsInstance(Folder)), @init.WorldBackupsBusy = new Func<global::System.Boolean>(() => global::PCL.WorldBackups.IsBusy), @init.WorldBackupsUiBusy = new Func<global::System.Boolean>(() => global::PCL.WorldBackupsUi.IsBusy), @init.ClonerUiBusy = new Func<global::System.Boolean>(() => global::PCL.InstanceClonerUi.IsBusy), @init.HistoryUiBusy = new Func<global::System.Boolean>(() => global::PCL.EnvironmentHistoryUi.IsBusy), @init.ModpackUpdating = new Func<global::System.Boolean>(() => global::PCL.ModpackUpdateFlow.IsUpdating), @init.InstanceLocked = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Instance => global::PCL.ModMinecraft.McInstanceLock.IsLocked(Instance)), @init.PendingChanges = new Func<global::System.String, global::System.Int32>(Folder => global::PCL.ModpackUpdate.Pending(Folder).Count), @init.AcquireInstance = new Func<global::MeloongCore.IWorker, global::System.String, global::System.Boolean>((Worker, Folder) => global::PCL.ModMinecraft.McInstanceLock.TryAcquire(Worker, Folder)), @init.Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)), @init.DispatchWait = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUiWait(Work)), @init.NewThread = new Action<global::System.Action, global::System.String>((Work, Name) => global::PCL.ModBase.RunInNewThread(Work, Name)), @init.RefreshButtons = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshButtonsUI()), @init.RefreshPageAfterSwitch = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(false, false)), @init.AprilGiveup = new Action(() => global::PCL.ModMain.FrmMain.AprilGiveup()), @init.RemoveInstanceSelectionPage = global::PCL.ModLaunch.RemoveInstanceSelectionPage, @init.LoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLogin()), @init.ClearLaunchLog = new Action(() => global::PCL.ModMain.FrmLaunchRight.LabLog.Text = ""), @init.LaunchingPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLaunching()), @init.RefreshLaunching = new Action(() => global::PCL.ModMain.FrmLaunchLeft.Dispatcher.Invoke(global::PCL.ModMain.FrmLaunchLeft.LaunchingRefresh)), @init.RefreshRecentVisibility = new Action(() => global::PCL.ModMain.FrmLaunchRight?.UpdateRecentWorldVisibility()), @init.RefreshLoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(true, false)), @init.RefreshRecentWorlds = new Action(() => global::PCL.ModMain.FrmLaunchRight?.RefreshRecentWorlds()), @init.RefreshKeybindings = global::PCL.ModLaunch.RefreshVisibleKeybindings, @init.AppendLog = new Action<global::System.String>(Text => global::PCL.ModMain.FrmLaunchRight.LabLog.AppendText(Text)), @init.Hint = global::PCL.ModLaunch.PublishLaunchHint, @init.Message = global::PCL.ModLaunch.ShowLaunchMessage, @init.OpenWebsite = global::PCL.ModBase.OpenWebsite, @init.OpenExplorer = new Action<global::System.String>(Address => global::PCL.ModBase.OpenExplorer(Address)), @init.CurrentLoginValidation = global::PCL.ModLaunch.CurrentLoginValidation, @init.LoginValidation = global::PCL.ModLaunch.ValidateLoginData, @init.LoginInput = global::PCL.ModLaunch.ReadLoginInput, @init.ExitServerLogin = global::PCL.ModLaunch.ExitServerLogin, @init.SelectProfile = global::PCL.ModLaunch.SelectLoginProfile, @init.DeviceLoginPrompt = global::PCL.ModLaunch.CreateDevicePrompt, @init.Request = global::PCL.ModLaunch.SendLaunchRequest, @init.OAuthClientId = new Func<global::System.String>(() => global::PCL.ModSecret.OAuthClientId), @init.TempFolder = new Func<global::System.String>(() => global::PCL.ModBase.PathTemp), @init.PureFolder = new Func<global::System.String>(() => global::PCL.ModBase.PathPure.Value), @init.ImagePath = new Func<global::System.String>(() => global::PCL.ModBase.PathImage), @init.ExecutablePath = new Func<global::System.String>(() => global::PCL.ModBase.PathExe), @init.OsDrive = new Func<global::System.String>(() => global::PCL.ModBase.OsDrive), @init.VersionDisplay = new Func<global::System.String>(() => global::PCL.ModBase.VersionDisplay), @init.VersionCode = new Func<global::System.String>(() => (global::PCL.ModBase.VersionCode).ToString()), @init.Dpi = new Func<global::System.Double>(() => global::PCL.ModBase.DPI), @init.LauncherSize = global::PCL.ModLaunch.LauncherPixelSize, @init.AvailablePhysicalMemory = new Func<global::System.UInt64>(() => global::PCL.My.MyWpfExtension.Computer.Info.AvailablePhysicalMemory), @init.RamGb = new Func<global::PCL.ModMinecraft.McInstance, global::System.Double>(Instance => global::PCL.PageInstanceSetup.GetRam(Instance)), @init.IsAdmin = new Func<global::System.Boolean>(() => global::MeloongCore.WindowsUtils.HasAdminRole()), @init.SetGpuPreference = global::PCL.ModMain.SetGPUPreference, @init.RunAdminTaskDone = new Func<global::System.String, global::System.Boolean>(Arguments => ((global::PCL.ModBase.RunAsAdmin(Arguments)) == (global::System.Int32)(global::PCL.ModBase.ProcessReturnValues.TaskDone))), @init.StartProcess = new Func<global::System.Diagnostics.ProcessStartInfo, global::System.Diagnostics.Process>(Info => global::PCL.ModBase.StartProcess(Info)), @init.LoadImage = global::PCL.ModLaunch.LoadLaunchImage, @init.ArgumentReplace = new Func<global::System.String, global::System.Boolean, global::System.String>((Text, ReplaceTime) => global::PCL.ModMain.ArgumentReplace(Text, ReplaceTime: ReplaceTime)), @init.FilterAccessToken = global::PCL.ModMinecraft.FilterAccessToken, @init.FilterUserName = global::PCL.ModMinecraft.FilterUserName, @init.Libraries = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Collections.Generic.IEnumerable<global::PCLCS.LegacyMinecraftLibrary>>((Instance, MainJar) => global::PCL.ModMinecraft.McLibListGet(Instance, MainJar)), @init.JsonRuleCheck = global::PCL.ModMinecraft.McJsonRuleCheck, @init.AssetsIndexName = global::PCL.ModMinecraft.McAssetsGetIndexName, @init.CreateLauncherProfiles = global::PCL.ModMinecraft.McFolderLauncherProfilesJsonCreate, @init.SelectJava = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Threading.CancellationToken, global::MeloongCore.ProgressProvider, global::PCLCS.Java>((Instance, Fix, Token, Progress) => global::PCL.ModJava.SelectOrDownloadJava(Instance, Fix, Token, Progress)), @init.JavaRequirement = new Func<global::PCL.ModMinecraft.McInstance, global::MeloongCore.ValueRange<global::System.Version>>(Instance => global::PCL.ModJava.GetJavaRequirement(Instance).Range), @init.LaunchLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>>(() => TaskPort(global::PCL.ModLaunch.McLaunchLoader)), @init.LoginLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginData, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginLoader)), @init.MicrosoftLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginMs, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginMsLoader)), @init.OfflineLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginLegacy, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginLegacyLoader)), @init.ServerLoader = new Func<global::System.Int32, global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginServer, global::PCLCS.ILegacyLaunchLoginResult>>(Kind => LoginPort(((Kind) == (((global::System.Int32)global::PCL.ModLaunch.McLoginType.Nide))) ? (global::PCL.ModLaunch.McLoginNideLoader) : (global::PCL.ModLaunch.McLoginAuthLoader))), @init.ClientFix = global::PCL.ModLaunch.ClientFixStep, @init.CreateCombo = global::PCL.ModLaunch.CreateLaunchCombo, @init.StoreLaunchOperation = new Action<global::PCLCS.LegacyLaunchOperation>(Operation => global::PCL.ModLaunch.McLaunchLoaderReal = (global::PCL.ModLoader.LoaderCombo<global::System.Object>)Operation.Source), @init.AddTaskbar = new Action<global::PCLCS.LegacyLaunchOperation>(Operation => global::PCL.ModLoader.LoaderTaskbarAdd((global::PCL.ModLoader.LoaderCombo<global::System.Object>)Operation.Source)), @init.DependencyContext = global::PCL.ModLaunch.DependencyContext, @init.ConfirmDependencies = global::PCL.ModLaunch.ConfirmDependencies, @init.OpenMods = global::PCL.ModLaunch.OpenDependencyMods, @init.MemoryOptimize = new Action(() => global::PCL.PageOtherTest.MemoryOptimize(false)), @init.RandomInteger = global::PCL.ModBase.RandomInteger, @init.RecoverWorlds = new Action<global::System.String, global::System.Threading.CancellationToken>((Folder, Token) => global::PCL.WorldBackups.RecoverBeforeLaunch(Folder, Token)), @init.PreparePersonal = new Func<global::PCL.ModMinecraft.McInstance, global::PCLCS.PersonalOptionsSessionData>(Instance => global::PCL.PersonalGameSettings.Prepare(Instance)), @init.TrackPersonal = new Action<global::PCLCS.PersonalOptionsSessionData, global::System.Diagnostics.Process>((Session, Game) => global::PCL.PersonalGameSettings.Track((global::PCL.PersonalOptionsSession)Session, Game)), @init.FinishPersonal = new Action<global::PCLCS.PersonalOptionsSessionData>(Session => global::PCL.PersonalGameSettings.Finish((global::PCL.PersonalOptionsSession)Session)), @init.PrepareQuickPlay = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Collections.Generic.List<global::System.String>, global::System.Boolean, global::PCLCS.QuickPlaySessionData>((Instance, Identifier, Arguments, SaveBatch) => global::PCL.QuickPlayWorlds.Prepare(Instance, Identifier, Arguments, SaveBatch)), @init.TrackQuickPlay = new Action<global::PCLCS.QuickPlaySessionData, global::System.Diagnostics.Process>((Session, Game) => global::PCL.QuickPlayWorlds.Track((global::PCL.QuickPlaySession)Session, Game)), @init.FinishQuickPlay = new Action<global::PCLCS.QuickPlaySessionData>(Session => global::PCL.QuickPlayWorlds.Finish((global::PCL.QuickPlaySession)Session)), @init.TrackWorlds = new Action<global::PCL.ModMinecraft.McInstance, global::System.Diagnostics.Process>((Instance, Game) => global::PCL.WorldBackups.Track(Instance, Game)), @init.CaptureEnvironment = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken, global::System.String>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)), @init.CreateWatcher = new Func<global::PCLCS.LegacyLaunchTask<global::System.Diagnostics.Process, global::System.Int32>, global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Action<global::System.Diagnostics.Process>, global::System.Action, global::System.String, global::PCL.ModWatcher.Watcher>((Loader, Instance, Title, BeforeMonitor, Stopped, Point) => new global::PCL.ModWatcher.Watcher((global::PCL.ModLoader.LoaderTask<global::System.Diagnostics.Process, global::System.Int32>)Loader.Source, Instance, Title, BeforeMonitor, Stopped, Point)), @init.WatcherState = new Func<global::PCL.ModWatcher.Watcher, global::System.Int32>(Value => (global::System.Int32)Value.State), @init.MusicPause = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicPause()), @init.MusicResume = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicResume()), @init.EndProgram = new Action(() => global::PCL.ModMain.FrmMain.EndProgram(false)), @init.HideLauncher = new Action(() => global::PCL.ModMain.FrmMain.Hidden = true), @init.MinimizeLauncher = new Action(() => global::PCL.ModMain.FrmMain.WindowState = global::System.Windows.WindowState.Minimized), @init).@init;
+            return new LaunchHost
+            {
+                ManagedMmcSteps = (instance, options) => MmcLaunch.CreateSteps(instance, options, java => McLaunchJavaSelected = java),
+                Options = new Func<global::PCL.ModLaunch.McLaunchOptions>(() => global::PCL.ModLaunch.CurrentLaunchOptions),
+                StoreOptions = new Action<global::PCL.ModLaunch.McLaunchOptions>(Value => global::PCL.ModLaunch.CurrentLaunchOptions = Value),
+                SelectedInstance = LauncherApplicationServices.ReadLaunchInstance,
+                StoreSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value),
+                CreateInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name)),
+                SelectedFolder = new Func<global::System.String>(() => global::PCL.ModMinecraft.McFolderSelected),
+                SelectedJava = new Func<global::PCLCS.Java>(() => global::PCL.ModLaunch.McLaunchJavaSelected),
+                StoreSelectedJava = new Action<global::PCLCS.Java>(Value => global::PCL.ModLaunch.McLaunchJavaSelected = Value),
+                Arguments = new Func<global::System.String>(() => global::PCL.ModLaunch.McLaunchArgument),
+                StoreArguments = new Action<global::System.String>(Value => global::PCL.ModLaunch.McLaunchArgument = Value),
+                CanceledHint = new Func<global::System.String>(() => global::PCL.ModLaunch.CanceledHint),
+                StoreCanceledHint = new Action<global::System.String>(Value => global::PCL.ModLaunch.CanceledHint = Value),
+                Encoding = new Func<global::System.Text.Encoding>(() => global::PCL.ModLaunch.McLaunchEncoding),
+                StoreEncoding = new Action<global::System.Text.Encoding>(Value => global::PCL.ModLaunch.McLaunchEncoding = Value),
+                StoreProcess = new Action<global::System.Diagnostics.Process>(Value => global::PCL.ModLaunch.McLaunchProcess = Value),
+                StoreWatcher = new Action<global::PCL.ModWatcher.Watcher>(Value => global::PCL.ModLaunch.McLaunchWatcher = Value),
+                ReadString = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.String>((Key, Instance) => global::PCL.Settings.Get<string>(Key, Instance: Instance)),
+                ReadInteger = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Int32>((Key, Instance) => (Key == "LoginType") ? (((global::System.Int32)global::PCL.Settings.Get<McLoginType>(Key))) : (global::PCL.Settings.Get<int>(Key, Instance: Instance))),
+                ReadBoolean = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Boolean>((Key, Instance) => global::PCL.Settings.Get<bool>(Key, Instance: Instance)),
+                WriteSetting = new Action<global::System.String, global::System.Object>((Key, Value) => global::PCL.Settings.Set(Key, Value)),
+                ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((File, Key, DefaultValue) => global::PCL.ModBase.ReadIni(File, Key, DefaultValue)),
+                WriteIni = new Action<global::System.String, global::System.String, global::System.String>((File, Key, Value) => global::PCL.ModBase.WriteIni(File, Key, Value)),
+                ClearIniCache = global::PCL.ModBase.IniClearCache,
+                AccountSnapshot = new Func<global::System.String, global::System.Collections.Generic.Dictionary<global::System.String, global::System.Object>>(Prefix => global::PCL.Settings.AccountSnapshot(Prefix)),
+                SaveMicrosoftSession = new Action<global::System.Collections.Generic.IDictionary<global::System.String, global::System.Object>, global::System.String, global::System.Func<global::System.Boolean>>((Values, PreviousName, Canceled) => global::PCL.Settings.SaveMicrosoftSession(Values, PreviousName, Canceled)),
+                SaveAccountGroup = new Action<global::System.Collections.Generic.IDictionary<global::System.String, global::System.Object>, global::System.Func<global::System.Boolean>>((Values, Canceled) => global::PCL.Settings.SaveAccountGroup(Values, Canceled)),
+                UpdateServerAccounts = new Action<global::System.String, global::System.String, global::System.String, global::System.Boolean>((Token, Name, Password, Remove) => global::PCL.Settings.UpdateServerAccounts(Token, Name, Password, Remove)),
+                UpdateLegacyNames = new Action<global::System.Action<global::System.Collections.Generic.List<global::System.String>>>(Change => global::PCL.Settings.UpdateLegacyNames(Change)),
+                OnUiThread = new Func<global::System.Boolean>(() => global::PCL.ModBase.RunInUi()),
+                Debug = new Func<global::System.Boolean>(() => global::PCL.ModBase.ModeDebug),
+                ReleaseBuild = new Func<global::System.Boolean>(() => (global::PCL.ModBase.BuildType == global::PCL.ModBase.BuildTypes.Release)),
+                IsGbkEncoding = new Func<global::System.Boolean>(() => global::PCL.ModBase.IsGBKEncoding),
+                PackEnabled = new Func<global::System.Boolean>(() => global::PCL.ModModpackMode.Enabled),
+                CleaningFiles = new Func<global::System.Boolean>(() => global::PCL.PageOtherTest.IsCleaningGameFiles),
+                HasRunningMinecraft = new Func<global::System.Boolean>(() => global::PCL.ModWatcher.HasRunningMinecraft),
+                PackAllowsInstance = new Func<global::System.String, global::System.Boolean>(Folder => global::PCL.ModModpackMode.AllowsInstance(Folder)),
+                WorldBackupsBusy = new Func<global::System.Boolean>(() => global::PCL.WorldBackups.IsBusy),
+                WorldBackupsUiBusy = new Func<global::System.Boolean>(() => global::PCL.WorldBackupsUi.IsBusy),
+                ClonerUiBusy = new Func<global::System.Boolean>(() => global::PCL.InstanceClonerUi.IsBusy),
+                HistoryUiBusy = new Func<global::System.Boolean>(() => global::PCL.EnvironmentHistoryUi.IsBusy),
+                ModpackUpdating = new Func<global::System.Boolean>(() => global::PCL.ModpackUpdateFlow.IsUpdating),
+                InstanceLocked = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Instance => global::PCL.ModMinecraft.McInstanceLock.IsLocked(Instance)),
+                PendingChanges = new Func<global::System.String, global::System.Int32>(Folder => global::PCL.ModpackUpdate.Pending(Folder).Count),
+                AcquireInstance = new Func<global::MeloongCore.IWorker, global::System.String, global::System.Boolean>((Worker, Folder) => global::PCL.ModMinecraft.McInstanceLock.TryAcquire(Worker, Folder)),
+                Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
+                DispatchWait = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUiWait(Work)),
+                NewThread = new Action<global::System.Action, global::System.String>((Work, Name) => global::PCL.ModBase.RunInNewThread(Work, Name)),
+                RefreshButtons = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshButtonsUI()),
+                RefreshPageAfterSwitch = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(false, false)),
+                AprilGiveup = new Action(() => global::PCL.ModMain.FrmMain.AprilGiveup()),
+                RemoveInstanceSelectionPage = global::PCL.ModLaunch.RemoveInstanceSelectionPage,
+                LoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLogin()),
+                ClearLaunchLog = new Action(() => global::PCL.ModMain.FrmLaunchRight.LabLog.Text = ""),
+                LaunchingPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLaunching()),
+                RefreshLaunching = new Action(() => global::PCL.ModMain.FrmLaunchLeft.Dispatcher.Invoke(global::PCL.ModMain.FrmLaunchLeft.LaunchingRefresh)),
+                RefreshRecentVisibility = new Action(() => global::PCL.ModMain.FrmLaunchRight?.UpdateRecentWorldVisibility()),
+                RefreshLoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(true, false)),
+                RefreshRecentWorlds = new Action(() => global::PCL.ModMain.FrmLaunchRight?.RefreshRecentWorlds()),
+                RefreshKeybindings = global::PCL.ModLaunch.RefreshVisibleKeybindings,
+                AppendLog = new Action<global::System.String>(Text => global::PCL.ModMain.FrmLaunchRight.LabLog.AppendText(Text)),
+                Hint = global::PCL.ModLaunch.PublishLaunchHint,
+                Message = global::PCL.ModLaunch.ShowLaunchMessage,
+                OpenWebsite = global::PCL.ModBase.OpenWebsite,
+                OpenExplorer = new Action<global::System.String>(Address => global::PCL.ModBase.OpenExplorer(Address)),
+                CurrentLoginValidation = global::PCL.ModLaunch.CurrentLoginValidation,
+                LoginValidation = global::PCL.ModLaunch.ValidateLoginData,
+                LoginInput = global::PCL.ModLaunch.ReadLoginInput,
+                ExitServerLogin = global::PCL.ModLaunch.ExitServerLogin,
+                SelectProfile = global::PCL.ModLaunch.SelectLoginProfile,
+                DeviceLoginPrompt = global::PCL.ModLaunch.CreateDevicePrompt,
+                Request = global::PCL.ModLaunch.SendLaunchRequest,
+                OAuthClientId = new Func<global::System.String>(() => global::PCL.ModSecret.OAuthClientId),
+                TempFolder = new Func<global::System.String>(() => global::PCL.ModBase.PathTemp),
+                PureFolder = new Func<global::System.String>(() => global::PCL.ModBase.PathPure.Value),
+                ImagePath = new Func<global::System.String>(() => global::PCL.ModBase.PathImage),
+                ExecutablePath = new Func<global::System.String>(() => global::PCL.ModBase.PathExe),
+                OsDrive = new Func<global::System.String>(() => global::PCL.ModBase.OsDrive),
+                VersionDisplay = new Func<global::System.String>(() => global::PCL.ModBase.VersionDisplay),
+                VersionCode = new Func<global::System.String>(() => (global::PCL.ModBase.VersionCode).ToString()),
+                Dpi = new Func<global::System.Double>(() => global::PCL.ModBase.DPI),
+                LauncherSize = global::PCL.ModLaunch.LauncherPixelSize,
+                AvailablePhysicalMemory = new Func<global::System.UInt64>(() => global::PCL.My.MyWpfExtension.Computer.Info.AvailablePhysicalMemory),
+                RamGb = new Func<global::PCL.ModMinecraft.McInstance, global::System.Double>(Instance => global::PCL.PageInstanceSetup.GetRam(Instance)),
+                IsAdmin = new Func<global::System.Boolean>(() => global::MeloongCore.WindowsUtils.HasAdminRole()),
+                SetGpuPreference = global::PCL.ModMain.SetGPUPreference,
+                RunAdminTaskDone = new Func<global::System.String, global::System.Boolean>(Arguments => ((global::PCL.ModBase.RunAsAdmin(Arguments)) == (global::System.Int32)(global::PCL.ModBase.ProcessReturnValues.TaskDone))),
+                StartProcess = new Func<global::System.Diagnostics.ProcessStartInfo, global::System.Diagnostics.Process>(Info => global::PCL.ModBase.StartProcess(Info)),
+                PrepareLocalSkin = LocalSkinLaunchSupport.PrepareNative,
+                LoadImage = global::PCL.ModLaunch.LoadLaunchImage,
+                ArgumentReplace = new Func<global::System.String, global::System.Boolean, global::System.String>((Text, ReplaceTime) => global::PCL.ModMain.ArgumentReplace(Text, ReplaceTime: ReplaceTime)),
+                FilterAccessToken = global::PCL.ModMinecraft.FilterAccessToken,
+                FilterUserName = global::PCL.ModMinecraft.FilterUserName,
+                Libraries = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Collections.Generic.IEnumerable<global::PCLCS.LegacyMinecraftLibrary>>((Instance, MainJar) => global::PCL.ModMinecraft.McLibListGet(Instance, MainJar)),
+                JsonRuleCheck = global::PCL.ModMinecraft.McJsonRuleCheck,
+                AssetsIndexName = global::PCL.ModMinecraft.McAssetsGetIndexName,
+                CreateLauncherProfiles = global::PCL.ModMinecraft.McFolderLauncherProfilesJsonCreate,
+                SelectJava = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Threading.CancellationToken, global::MeloongCore.ProgressProvider, global::PCLCS.Java>((Instance, Fix, Token, Progress) => global::PCL.ModJava.SelectOrDownloadJava(Instance, Fix, Token, Progress)),
+                JavaRequirement = new Func<global::PCL.ModMinecraft.McInstance, global::MeloongCore.ValueRange<global::System.Version>>(Instance => global::PCL.ModJava.GetJavaRequirement(Instance).Range),
+                LaunchLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLaunchOptions, global::System.Object>>(() => TaskPort(global::PCL.ModLaunch.McLaunchLoader)),
+                LoginLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginData, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginLoader)),
+                MicrosoftLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginMs, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginMsLoader)),
+                OfflineLoader = new Func<global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginLegacy, global::PCLCS.ILegacyLaunchLoginResult>>(() => LoginPort(global::PCL.ModLaunch.McLoginLegacyLoader)),
+                ServerLoader = new Func<global::System.Int32, global::PCLCS.LegacyLaunchTask<global::PCL.ModLaunch.McLoginServer, global::PCLCS.ILegacyLaunchLoginResult>>(Kind => LoginPort(((Kind) == (((global::System.Int32)global::PCL.ModLaunch.McLoginType.Nide))) ? (global::PCL.ModLaunch.McLoginNideLoader) : (global::PCL.ModLaunch.McLoginAuthLoader))),
+                ClientFix = global::PCL.ModLaunch.ClientFixStep,
+                CreateCombo = global::PCL.ModLaunch.CreateLaunchCombo,
+                StoreLaunchOperation = new Action<global::PCLCS.LegacyLaunchOperation>(Operation => global::PCL.ModLaunch.McLaunchLoaderReal = (global::PCL.ModLoader.LoaderCombo<global::System.Object>)Operation.Source),
+                AddTaskbar = new Action<global::PCLCS.LegacyLaunchOperation>(Operation => global::PCL.ModLoader.LoaderTaskbarAdd((global::PCL.ModLoader.LoaderCombo<global::System.Object>)Operation.Source)),
+                DependencyContext = global::PCL.ModLaunch.DependencyContext,
+                ConfirmDependencies = global::PCL.ModLaunch.ConfirmDependencies,
+                OpenMods = global::PCL.ModLaunch.OpenDependencyMods,
+                MemoryOptimize = new Action(() => global::PCL.PageOtherTest.MemoryOptimize(false)),
+                RandomInteger = global::PCL.ModBase.RandomInteger,
+                RecoverWorlds = new Action<global::System.String, global::System.Threading.CancellationToken>((Folder, Token) => global::PCL.WorldBackups.RecoverBeforeLaunch(Folder, Token)),
+                PreparePersonal = new Func<global::PCL.ModMinecraft.McInstance, global::PCLCS.PersonalOptionsSessionData>(Instance => global::PCL.PersonalGameSettings.Prepare(Instance)),
+                TrackPersonal = new Action<global::PCLCS.PersonalOptionsSessionData, global::System.Diagnostics.Process>((Session, Game) => global::PCL.PersonalGameSettings.Track((global::PCL.PersonalOptionsSession)Session, Game)),
+                FinishPersonal = new Action<global::PCLCS.PersonalOptionsSessionData>(Session => global::PCL.PersonalGameSettings.Finish((global::PCL.PersonalOptionsSession)Session)),
+                PrepareQuickPlay = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Collections.Generic.List<global::System.String>, global::System.Boolean, global::PCLCS.QuickPlaySessionData>((Instance, Identifier, Arguments, SaveBatch) => global::PCL.QuickPlayWorlds.Prepare(Instance, Identifier, Arguments, SaveBatch)),
+                TrackQuickPlay = new Action<global::PCLCS.QuickPlaySessionData, global::System.Diagnostics.Process>((Session, Game) => global::PCL.QuickPlayWorlds.Track((global::PCL.QuickPlaySession)Session, Game)),
+                FinishQuickPlay = new Action<global::PCLCS.QuickPlaySessionData>(Session => global::PCL.QuickPlayWorlds.Finish((global::PCL.QuickPlaySession)Session)),
+                TrackWorlds = new Action<global::PCL.ModMinecraft.McInstance, global::System.Diagnostics.Process>((Instance, Game) => global::PCL.WorldBackups.Track(Instance, Game)),
+                CaptureEnvironment = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken, global::System.String>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
+                CreateWatcher = new Func<global::PCLCS.LegacyLaunchTask<global::System.Diagnostics.Process, global::System.Int32>, global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Action<global::System.Diagnostics.Process>, global::System.Action, global::System.String, global::PCL.ModWatcher.Watcher>((Loader, Instance, Title, BeforeMonitor, Stopped, Point) => new global::PCL.ModWatcher.Watcher((global::PCL.ModLoader.LoaderTask<global::System.Diagnostics.Process, global::System.Int32>)Loader.Source, Instance, Title, BeforeMonitor, Stopped, Point)),
+                WatcherState = new Func<global::PCL.ModWatcher.Watcher, global::System.Int32>(Value => (global::System.Int32)Value.State),
+                WaitForWatcherStartup = (value, milliseconds) => (int)value.WaitForStartupState(milliseconds),
+                MusicPause = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicPause()),
+                MusicResume = new Func<global::System.Boolean>(() => global::PCL.ModMusic.MusicResume()),
+                EndProgram = new Action(() => global::PCL.ModMain.FrmMain.EndProgram(false)),
+                HideLauncher = new Action(() => global::PCL.ModMain.FrmMain.Hidden = true),
+                MinimizeLauncher = new Action(() => global::PCL.ModMain.FrmMain.WindowState = global::System.Windows.WindowState.Minimized),
+            };
         }
 
         private static void FillPort(global::PCLCS.LegacyLaunchTaskPort Port, global::PCL.ModLoader.LoaderBase Raw, global::System.Func<global::System.Boolean> ForceRestarting = null, global::System.Func<global::System.Boolean> Canceled = null, global::System.Func<global::System.Threading.Thread, global::System.Boolean> CanceledWithThread = null)
@@ -629,7 +774,7 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return global::PCL.ModMain.FrmLoginAuth.IsVaild();
+                        return GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null ? "" : PageLoginAuth.IsVaild(PageLoginAuth.GetLoginData());
                     }
 
                 default:
@@ -656,7 +801,8 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return global::PCL.PageLoginAuth.IsVaild((global::PCL.ModLaunch.McLoginServer)Data);
+                        var login = (McLoginServer)Data;
+                        return login.SkinSite is not null ? "" : PageLoginAuth.IsVaild(login);
                     }
 
                 default:
@@ -683,7 +829,14 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return (Skin) ? (global::PCL.PageLoginAuthSkin.GetLoginData()) : (global::PCL.PageLoginAuth.GetLoginData());
+                        if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) {
+                            return new McLoginServer(McLoginType.Auth) {
+                                SkinSite = character, Token = "Auth", UserName = character.Account.Username,
+                                BaseUrl = global::PCLCS.AuthlibEndpoint.ForServer(character.Site.Server), Description = "外置登录"
+                            };
+                        }
+                        if (Skin && PageLoginAuthSkin.GetLoginData() is { UserName.Length: > 0 } known) return known;
+                        return PageLoginAuth.GetLoginData();
                     }
 
                 default:
@@ -822,8 +975,9 @@ namespace PCL
 
         public static global::System.Boolean McLaunchStart(global::PCL.ModLaunch.McLaunchOptions Options = null)
         {
-            return global::PCL.ModLaunch.Service.McLaunchStart(Options);
+            return LauncherApplicationServices.Launch.Start(Options);
         }
+        internal static bool StartFromApplication(McLaunchOptions options) => Service.McLaunchStart(options);
         public static void McLaunchLog(global::System.String Text, global::MeloongCore.LogLevel Level = global::MeloongCore.LogLevel.Info)
         {
             global::PCL.ModLaunch.Service.McLaunchLog(Text, Level);
@@ -854,6 +1008,7 @@ namespace PCL
         }
         public static global::System.String McLoginName()
         {
+            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) return character.Profile.Name;
             return global::PCL.ModLaunch.Service.McLoginName();
         }
         public static global::System.String McLoginAble()
@@ -878,7 +1033,14 @@ namespace PCL
         }
         private static void McLoginServerStart(global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginServer, global::PCL.ModLaunch.McLoginResult> Data)
         {
-            global::PCL.ModLaunch.Service.McLoginServerStart(LoginPort(Data));
+            var task = LoginPort(Data);
+            if (Data.Input.SkinSite is { } character) {
+                task.Progress = .1;
+                Data.Output = GlassSkinSites.LoginForLaunch(character, () => task.IsCanceled).GetAwaiter().GetResult();
+                task.Progress = .95;
+                return;
+            }
+            global::PCL.ModLaunch.Service.McLoginServerStart(task);
         }
         private static void McLoginLegacyStart(global::PCL.ModLoader.LoaderTask<global::PCL.ModLaunch.McLoginLegacy, global::PCL.ModLaunch.McLoginResult> Data)
         {

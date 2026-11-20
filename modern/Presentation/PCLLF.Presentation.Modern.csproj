@@ -20,7 +20,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../PCLCS/PCLCS.Modern.csproj" />
+    <ProjectReference Include="../Core/PCLLF.Core.csproj" />
+    <ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
     <Compile Include="../../presentation/Controls/**/*.cs"
       Exclude="../../presentation/**/bin/**;../../presentation/**/obj/**"
       Link="Controls/%(RecursiveDir)%(Filename)%(Extension)" />

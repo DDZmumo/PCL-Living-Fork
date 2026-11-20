@@ -15,7 +15,7 @@
 - 目标文件名冲突、不同固定版本要求、未知来源或无法兑现的要求明确显示，用户可以取消或仅下载主文件。
 - 启动前检查可为平台声明的必需前置提供启用操作：要求按内容精确匹配、候选唯一、固定版本一致，且 JAR 声明的游戏、加载器、必需依赖及冲突检查均通过。已列入启用或补全方案的项不再重复显示为待核对；模糊候选、冲突或作者禁用的整合包组件仍保留人工处理。
 
-交互流程参考 [BlockHelm 的前置确认及三项选择](https://github.com/zqq-699/BlockHelm-Launcher/blob/f858f0d5f9e841c96e5ffd214045fb1ba4a451b5/Launcher.App/Views/Shell/MainWindow.xaml#L778)、[Modrinth 的内容安装计划](https://github.com/modrinth/code/blob/94c7bda2b32b5a2832850b88a7e60577ae76deb1/apps/app-frontend/src/providers/content-install.ts)及[下载对话框依赖分组](https://github.com/modrinth/code/blob/94c7bda2b32b5a2832850b88a7e60577ae76deb1/apps/frontend/src/components/ui/ProjectDownloadModal/DownloadDependencies.vue)。实现使用 LF 原生弹窗、下载器和安装事务，独立编写，未引入上述项目的代码或资产。字段语义依据 [Modrinth 版本 API](https://docs.modrinth.com/api/operations/getversion/)。
+交互流程参考 [Modrinth 的内容安装计划](https://github.com/modrinth/code/blob/94c7bda2b32b5a2832850b88a7e60577ae76deb1/apps/app-frontend/src/providers/content-install.ts)及[下载对话框依赖分组](https://github.com/modrinth/code/blob/94c7bda2b32b5a2832850b88a7e60577ae76deb1/apps/frontend/src/components/ui/ProjectDownloadModal/DownloadDependencies.vue)。实现使用 LF 原生弹窗、下载器和安装事务，独立编写，未引入上述项目的代码或资产。字段语义依据 [Modrinth 版本 API](https://docs.modrinth.com/api/operations/getversion/)。
 
 ## 替换依据
 

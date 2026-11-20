@@ -299,7 +299,9 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
             string? passwords = VbString(GetCore("Login" + token + "Pass", null));
             string[] names = VbStringEqual(emails, "") ? new string[0] : emails!.Split('¨');
             string[] passes = VbStringEqual(passwords, "") ? new string[0] : passwords!.Split('¨');
-            if (names.Length != passes.Length) throw new InvalidOperationException("已有账号记录格式异常，未修改原数据。");
+            // Names saved without a remembered password leave the two lists out of step; pair them up again (missing
+            // passwords stay empty) instead of refusing every later save.
+            if (names.Length != passes.Length) passes = Enumerable.Range(0, names.Length).Select(i => i < passes.Length ? passes[i] : "").ToArray();
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (!remove) {
                 if (name.Contains("¨") || password.Contains("¨")) throw new ArgumentException("原版账号记录不支持分隔字符 ¨。");

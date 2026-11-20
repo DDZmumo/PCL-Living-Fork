@@ -35,6 +35,7 @@ public sealed class LegacyLoginHost<TLegacy, TMs, TServer> {
     public Action<string, object?> WriteSetting = null!;
     public Func<string, Dictionary<string, object?>> AccountSnapshot = null!;
     public Action<Dictionary<string, object?>> SaveAccountGroup = null!;
+    public Action<PCLCS.Applications.AccountProvider>? SignOut;
     public Func<LegacyLoginInput, TLegacy> CreateLegacy = null!;
     public Func<LegacyLoginInput, TMs> CreateMs = null!;
     public Func<LegacyLoginInput, TServer> CreateServer = null!;

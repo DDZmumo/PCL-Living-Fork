@@ -190,13 +190,13 @@ internal sealed class FileTaskScope : IDisposable
         (ConcurrentDictionary<string, LegacyMinecraftInstanceLease>)Native.Field(typeof(ModMinecraft.McInstanceLock), "LockedPaths").GetValue(null)!;
     private void PreserveField(Type owner, string name)
     {
-        FieldInfo field = Native.Field(owner, name); object? previous = field.GetValue(null);
+        var field = Native.State(owner, name); object? previous = field.GetValue(null);
         restore.Push(() => field.SetValue(null, previous));
     }
     internal void SelectMinecraft(string root)
     {
         Directory.CreateDirectory(root);
-        Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, root + Path.DirectorySeparatorChar);
+        Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, root + Path.DirectorySeparatorChar);
     }
     internal static void CacheInstance(ModMinecraft.McInstance instance)
     {

@@ -92,6 +92,7 @@ namespace PCL
                 BaseClearSelected = this.ClearSelected,
                 BaseReloadSelected = this.InvokeBaseReload,
                 BaseShowMinecraftList = this.InvokeBaseShowMinecraft,
+                ChangeMinecraftInPlace = this.ChangeNativeMinecraftInPlace,
                 BasePrepareSelection = this.PrepareSelectPage,
                 BaseReloadLists = this.ReloadComponentLists,
                 BaseLogo = this.InvokeBaseLogo,
@@ -462,6 +463,8 @@ namespace PCL
         {
             return this.ModifyService.GetSelectLogo();
         }
+
+        internal bool ChooseMinecraftInPlace(JObject version) => ModifyService.ChooseMinecraftInPlace(version);
 
         public override void ShowMinecraftVersionList()
         {

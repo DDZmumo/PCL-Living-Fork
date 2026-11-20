@@ -46,7 +46,7 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
         Grid.SetRow(_editorHost, 1);
         body.Children.Add(_status); body.Children.Add(_editorHost); all.Children.Add(body);
         _preview = new MyExtraTextButton {
-            Name = "BtnPreviewChanges", Text = "预览组件修改", IsEnabled = false,
+            Name = "BtnPreviewChanges", Text = "预览组件修改", IsEnabled = false, Show = true,
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
             Logo = ModBase.Logo.IconButtonCheck
         };

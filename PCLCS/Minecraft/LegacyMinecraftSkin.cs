@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using MeloongCore;
 using MeloongCore.Extensions;
@@ -42,24 +43,27 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         return new LegacyMinecraftSkinInfo { IsVaild = true, IsSlim = isSlim == 2, LocalFile = fileName };
     }
 
-    public string McSkinGetAddress(string uuid, string? type) {
+    public string McSkinGetAddress(string uuid, string? type, string? server = null) {
         if (string.IsNullOrEmpty(uuid)) throw new Exception("UUID 为空。");
         if (uuid.StartsWithF("00000") && type != "Auth") throw new Exception("离线 UUID 无正版皮肤文件：" + uuid);
-        string? cachedAddress = ReadIni(host.TempFolder() + "Cache\\Skin\\Index" + type + ".ini", uuid);
-        if (!string.IsNullOrEmpty(cachedAddress)) return cachedAddress!;
         string url;
         switch (type) {
             case "Mojang": case "Ms": url = "https://sessionserver.mojang.com/session/minecraft/profile/"; break;
             case "Nide":
-                url = "https://auth.mc-user.com:233/" + (host.SelectedInstance() == null ? ReadString("CacheNideServer") :
-                    ReadString("VersionServerNide", host.SelectedInstance())) + "/sessionserver/session/minecraft/profile/";
+                server ??= host.SelectedInstance() == null ? ReadString("CacheNideServer") : ReadString("VersionServerNide", host.SelectedInstance());
+                url = "https://auth.mc-user.com:233/" + server + "/sessionserver/session/minecraft/profile/";
                 break;
             case "Auth":
-                url = (host.SelectedInstance() == null ? ReadString("CacheAuthServerServer") :
-                    ReadString("VersionServerAuthServer", host.SelectedInstance())) + "/sessionserver/session/minecraft/profile/";
+                server ??= host.SelectedInstance() == null || string.IsNullOrEmpty(ReadString("VersionServerAuthServer", host.SelectedInstance())) ? ReadString("CacheAuthServerServer") :
+                    ReadString("VersionServerAuthServer", host.SelectedInstance());
+                url = server?.TrimEnd('/') + "/sessionserver/session/minecraft/profile/";
                 break;
             default: throw new ArgumentException("皮肤地址种类无效：" + (type ?? "null"));
         }
+        string cacheKey = type is "Auth" or "Nide" ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url))) + "-" + uuid : uuid;
+        string index = host.TempFolder() + "Cache\\Skin\\Index" + type + ".ini";
+        string? cachedAddress = ReadIni(index, cacheKey);
+        if (!string.IsNullOrEmpty(cachedAddress)) return cachedAddress;
         string skinString = host.RequestJson(url + uuid, null);
         if (string.IsNullOrEmpty(skinString)) throw new Exception("皮肤返回值为空，可能是未设置自定义皮肤的用户");
         string? skinValue = null;
@@ -83,7 +87,7 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             throw new Exception("用户未设置自定义皮肤");
         string skinUrl = skinJson["textures"]!["skin"]!["url"]!.ToString();
         skinValue = skinUrl.Contains("minecraft.net/") ? skinUrl.Replace("http://", "https://") : skinUrl;
-        WriteIni(host.TempFolder() + "Cache\\Skin\\Index" + type + ".ini", uuid, skinValue);
+        WriteIni(index, cacheKey, skinValue);
         Logger.Info($"UUID {uuid} 对应的皮肤文件为 {skinValue}");
         return skinValue;
     }

@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Run the actual LF host graph, with no linked or substitute production sources. -->
-    <ProjectReference Include="../../modern/PCLCS/PCLCS.Modern.csproj" />
+    <ProjectReference Include="../../modern/Core/PCLLF.Core.csproj" />
+    <ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
   </ItemGroup>
 </Project>

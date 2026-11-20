@@ -75,6 +75,7 @@ StyleCopReport.xml
 *.pgc
 *.pgd
 *.rsp
+!modern/Core/CoreResources.rsp
 *.sbr
 *.tlb
 *.tli

@@ -125,7 +125,7 @@ public static class SourceSettingsCheck {
   nativeScroll.ScrollToBottom();window.UpdateLayout();Require(nativeScroll.VerticalOffset>100,"Themed framework scrollbar lost scrolling behavior");
   Call(settings,"Reset","UiPanelOpacity",null);opacity.GetType().GetProperty("Value").SetValue(opacity,960,null);
   for(int i=0;i<3;i++){mode.SelectedIndex=0;Require(ColorOf(cardBorder.Background).R>240,"An existing card did not return to light mode");mode.SelectedIndex=1;Require(ColorOf(cardBorder.Background).R<70,"Repeated dark switching retained stale brushes");}
-  mode.SelectedIndex=0;Call(settings,"Reset","UiLauncherColorMode",null);Require(ColorOf(cardBorder.Background).R>240,"Theme reset did not restore light colors");
+  mode.SelectedIndex=0;Call(settings,"Reset","UiLauncherColorMode",null);Require(ColorOf(cardBorder.Background).R<70,"Theme reset did not restore the default dark colors");
   Console.WriteLine("PASS: reordered version/source rows; stable-only default; warning confirm/cancel without premature persistence; saved channels reopen silently; native light/dark cards, text, disabled/selected states, dropdown, tooltip, warning modal, contrast and repeated switching.");
  }
  static void Clear(){Cache().Remove("");Call(asm.GetType("PCL.ModBase"),"IniClearCache","Setup");}

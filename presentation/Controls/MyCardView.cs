@@ -36,6 +36,11 @@ public class MyCardView : Grid {
     private static ControlServiceHost Services => ControlServices.Current;
     private static ControlAnimations Animations => Services.Animations;
     protected virtual MyDropShadowView CreateChrome() => new();
+    protected virtual Border CreateCardBackground() {
+        var border = new Border { CornerRadius = new CornerRadius(5), IsHitTestVisible = false };
+        border.SetResourceReference(Border.BackgroundProperty, "ColorBrushCard");
+        return border;
+    }
     protected virtual double WpfSize(double pixels) => pixels / (PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice.M11 ?? 1);
     protected virtual bool HasMainWindow => Application.Current?.MainWindow is not null;
     protected virtual void PostLoaded(Action work) => Dispatcher.InvokeAsync(work, DispatcherPriority.Loaded);
@@ -47,8 +52,7 @@ public class MyCardView : Grid {
         MainChrome.ShadowRadius = 3; MainChrome.Opacity = DropShadowIdleOpacity; MainChrome.CornerRadius = new CornerRadius(5);
         MainChrome.SetResourceReference(MyDropShadowView.ColorProperty, "ColorObjectShadow");
         Children.Insert(0, MainChrome);
-        mainBorder = new Border { CornerRadius = new CornerRadius(5), IsHitTestVisible = false };
-        mainBorder.SetResourceReference(Border.BackgroundProperty, "ColorBrushCard");
+        mainBorder = CreateCardBackground();
         Children.Insert(1, mainBorder);
         mainGrid = new Grid(); Children.Add(mainGrid);
         Loaded += (_, _) => Init();
@@ -180,6 +184,16 @@ public class MyCardView : Grid {
     protected virtual bool OnPreviewSwap(object args) { PreviewSwap?.Invoke(this, (ControlPreviewEventArgs)args); return ((ControlPreviewEventArgs)args).Handled; }
     protected virtual void OnSwap(object args) => Swap?.Invoke(this, (ControlPreviewEventArgs)args);
     public const int SwapedHeight = 40;
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        Services.RaiseCustomEvent(this);
+        if (SwapControl is null && (!CanSwap || !IsSwapped)) return;
+        object args = CreateSwapArgs();
+        if (OnPreviewSwap(args)) return;
+        IsSwapped = !IsSwapped;
+        Services.Info((IsSwapped ? "折叠卡片" : "展开卡片") + (Title is null ? "" : "：" + Title));
+        OnSwap(args);
+    }
     private void MouseDownCard(object sender, MouseButtonEventArgs args) {
         double pos = Mouse.GetPosition(this).Y;
         if (!IsSwapped && (pos > (IsSwapped ? SwapedHeight : SwapedHeight - 6) || (pos == 0 && !IsMouseDirectlyOver))) return;

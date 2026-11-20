@@ -32,6 +32,26 @@ public interface ILegacyLaunchServerData : ILegacyLaunchLoginData {
     string UserName { get; } string Password { get; } string BaseUrl { get; }
     string Token { get; } string Description { get; } bool ForceReselectProfile { get; }
 }
+public static class AuthlibEndpoint {
+    public const string CredentialServerSetting = "CacheAuthCredentialServer";
+    public const string AuthPath = "/authserver";
+    public static string ForServer(string? server) => (server ?? "").Trim().TrimEnd('/') + AuthPath;
+
+    public static bool Same(string? left, string? right) =>
+        TryParse(left, out Uri a) && TryParse(right, out Uri b) &&
+        string.Equals(a.GetLeftPart(UriPartial.Authority), b.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(a.AbsolutePath.TrimEnd('/'), b.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
+
+    public static bool TryParse(string? address, out Uri uri) {
+        if (Uri.TryCreate(address, UriKind.Absolute, out var candidate) && candidate.Scheme is "https" or "http" && candidate.Host.Length > 0 &&
+            candidate.UserInfo.Length == 0 && candidate.Query.Length == 0 && candidate.Fragment.Length == 0) {
+            uri = candidate;
+            return true;
+        }
+        uri = null!;
+        return false;
+    }
+}
 public interface ILegacyLaunchMicrosoftData : ILegacyLaunchLoginData {
     string OAuthRefreshToken { get; } string AccessToken { get; }
     string Uuid { get; } string UserName { get; } string ProfileJson { get; }

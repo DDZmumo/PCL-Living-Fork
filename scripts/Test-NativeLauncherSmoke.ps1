@@ -11,7 +11,7 @@ param(
  [ValidateRange(3,30)][int]$CloseTimeoutSeconds=15,
  [switch]$ExerciseInteraction,
  [string]$InteractionProbePath,
- [ValidateRange(85,120)][int]$InteractionTimeoutSeconds=90
+ [ValidateRange(85,120)][int]$InteractionTimeoutSeconds=120
 )
 # CI-only, actual native Main entry. The observer never loads Main/App/WPF;
 # only the metadata helper opt-in crypto leaf generates synthetic account data.
@@ -47,7 +47,7 @@ $evidence.StartupContracts=[ordered]@{ImportOrdering='pending';V2Preservation='p
 function Pending([string]$reason){$evidence.Result='pending';throw ('PENDING: '+$reason)}
 function Invoke-OwnedInteraction([int]$pass,[object]$window){
  if(-not $InteractionProbePath -or -not [IO.File]::Exists($InteractionProbePath)){Pending 'Opt-in interaction requires its separately built external UIAutomation probe.'}
- $arguments=@([IO.Path]::GetFullPath($InteractionProbePath),'--pid',[string]$nativeProcess.Id,'--hwnd',[string]$window.Handle.ToInt64(),'--fixture',$fixture,'--owner',$id,'--exe',$installed,'--pass',[string]$pass,'--sha256',$proof.sha256,'--workspace',$WorkspaceRoot,'--notice',$expectedNotice,'--notice-style',$proof.startupNoticeStyle,'--notice-source',$proof.startupNoticeSource)
+ $arguments=@([IO.Path]::GetFullPath($InteractionProbePath),'--pid',[string]$nativeProcess.Id,'--hwnd',[string]$window.Handle.ToInt64(),'--fixture',$fixture,'--owner',$id,'--exe',$installed,'--pass',[string]$pass,'--sha256',$proof.sha256,'--workspace',$WorkspaceRoot,'--notice',$expectedNotice,'--notice-style',$proof.startupNoticeStyle,'--notice-source',$proof.startupNoticeSource,'--timeout-seconds',[string]$InteractionTimeoutSeconds)
  $quoted=@($arguments|ForEach-Object {if($_.Contains('"') -or $_.Contains("`r") -or $_.Contains("`n") -or $_.EndsWith('\')){throw 'Unsupported interaction argument quoting.'};'"'+$_+'"'})
  $start=[Diagnostics.ProcessStartInfo]::new($DotNetPath);$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.WorkingDirectory=$fixture;$start.Arguments=$quoted -join ' '
  try{
@@ -252,7 +252,8 @@ try{
  $ownedAppData=Join-Path $appData 'PCL';[IO.Directory]::CreateDirectory($ownedAppData)|Out-Null;[IO.File]::WriteAllText((Join-Path $ownedAppData $marker),$id)
  [IO.Directory]::CreateDirectory((Join-Path $install '.minecraft/versions'))|Out-Null
  [IO.Directory]::CreateDirectory((Join-Path $install 'PCL'))|Out-Null
- [IO.File]::WriteAllText((Join-Path $install 'PCL/Setup.ini'),('NativeSmokeSentinel:'+$id+"`r`nLaunchFolderSelect:"+(Join-Path $install '.minecraft')+"\`r`nUiLauncherLogo:False`r`nUiCustomType:0`r`nLivingModpackMode:False`r`nToolLauncherUpdateSource:0`r`nToolLauncherUpdateChannel:0`r`n"),[Text.UTF8Encoding]::new($false))
+ $initialTheme=if($ExerciseInteraction){"UiLauncherColorMode:0`r`n"}else{''}
+ [IO.File]::WriteAllText((Join-Path $install 'PCL/Setup.ini'),('NativeSmokeSentinel:'+$id+"`r`nLaunchFolderSelect:"+(Join-Path $install '.minecraft')+"\`r`nUiLauncherLogo:False`r`nUiCustomType:0`r`nLivingModpackMode:False`r`nToolLauncherUpdateSource:0`r`nToolLauncherUpdateChannel:0`r`n"+$initialTheme),[Text.UTF8Encoding]::new($false))
  $gameSentinel=Join-Path $install '.minecraft/NativeSmoke.sentinel';[IO.File]::WriteAllText($gameSentinel,$id)
  Copy-Item -LiteralPath $ExecutablePath -Destination $installed
  if((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.sha256){throw 'Installed fixture bytes differ from actual candidate preflight.'}

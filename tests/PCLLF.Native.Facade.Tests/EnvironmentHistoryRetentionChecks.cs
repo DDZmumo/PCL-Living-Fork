@@ -61,7 +61,7 @@ internal static class EnvironmentHistoryRetentionChecks
         List<JObject> actual = points(); string healthy = (string)actual[0]["id"]!; History("MarkHealthy", instance.PathVersion, healthy, true); actual = points();
         PageState(page, "Entries", actual); Native.Call(page.GetType(), "RenderList", page);
         object controller = Native.Get(page, "Controller")!;
-        Native.Check(controller.GetType().Assembly.GetName().Name == "PCLCS" && ReferenceEquals(Native.Get(controller, "Entries"), actual), "Restore-point page copied backend state instead of using its real controller.");
+        Native.Check(controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && ReferenceEquals(Native.Get(controller, "Entries"), actual), "Restore-point page copied backend state instead of using its real controller.");
         StackPanel rows = Part<StackPanel>(page, "PanEntries"); Native.Check(rows.Children.Count == actual.Count && rows.Children.Cast<object>().All(item => item is MyLocalModItem row && row.Buttons.Count() == 4 && actual.Any(point => ReferenceEquals(point, Native.Get(row, "RestorePoint")))), "Restore-point rendering lost real rows/actions/point identity.");
         Native.Call(page.GetType(), "ChangeAllSelected", page, true); Native.Check(rows.Children.OfType<MyLocalModItem>().All(row => row.Checked) && Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Visible, "Restore-point bulk selection did not reach actual rows/footer.");
         Native.Call(page.GetType(), "ChangeAllSelected", page, false); Native.Check(Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Collapsed, "Restore-point deselection retained destructive targets.");

@@ -25,25 +25,33 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
                         </Grid>
                         <TextBlock x:Name="LabImportedInstanceCaption" Text="目前导入来源版本" Grid.Row="1" VerticalAlignment="Center" Margin="0,0,20,12"/>
                         <TextBlock x:Name="LabImportedInstance" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,0,12" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="LabPolicyCaption" Text="此版本策略" Grid.Row="2" VerticalAlignment="Center" Margin="0,0,20,12"/>
-                        <local:MyComboBox x:Name="ComboPolicy" Grid.Row="2" Grid.Column="1" Margin="0,0,0,12" Height="28">
+                        <TextBlock x:Name="LabPolicyCaption" Text="此版本策略" Grid.Row="2" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                        <local:MyComboBox x:Name="ComboPolicy" Grid.Row="2" Grid.Column="1" Height="28">
                             <local:MyComboBoxItem Content="跟随全局设置"/>
                             <local:MyComboBoxItem Content="不同步，保留此版本的个人设置"/>
                         </local:MyComboBox>
-                        <TextBlock x:Name="LabCaptureCaption" Text="共用方案回写" Grid.Row="3" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                        <local:MyComboBox x:Name="ComboCapture" Grid.Row="3" Grid.Column="1" Height="28">
+                        <TextBlock x:Name="LabCaptureCaption" Text="共用方案回写" Grid.Row="3" VerticalAlignment="Center" Margin="0,8,20,0"/>
+                        <local:MyComboBox x:Name="ComboCapture" Grid.Row="3" Grid.Column="1" Height="28" Margin="0,8,0,0">
                             <local:MyComboBoxItem Content="保存游戏中的个人设置修改"/>
                             <local:MyComboBoxItem Content="保留个人方案，仅在启动前应用"/>
                         </local:MyComboBox>
                     </Grid>
-                    <WrapPanel Margin="0,15,0,0">
-                        <local:MyButton x:Name="BtnImport" Text="从当前版本导入全局设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
-                        <local:MyButton x:Name="BtnSaveGlobal" Text="保存全局设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
-                        <local:MyButton x:Name="BtnApply" Text="保存此版本个人设置" Height="35" Padding="14,0" Margin="0,0,12,8"/>
-                        <local:MyButton x:Name="BtnRefresh" Text="放弃修改" Height="35" Padding="14,0" Margin="0,0,0,8"/>
+                    <TextBlock x:Name="LabEditScope" FontSize="13" TextWrapping="Wrap" Opacity="0.85"
+                               Foreground="{DynamicResource ColorBrushGray2}" Margin="0,6,0,0" Visibility="Collapsed"/>
+                    <WrapPanel Margin="0,8,0,0">
+                        <WrapPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                            <local:MyButton x:Name="BtnImport" Text="从当前版本导入全局设置" Height="35" Padding="14,0" Margin="0,0,8,0"/>
+                            <local:MyButton x:Name="BtnSaveGlobal" Text="保存全局设置" Height="35" Padding="14,0" Margin="0,0,8,0"/>
+                            <local:MyButton x:Name="BtnApply" Text="保存此版本个人设置" Height="35" Padding="14,0" Margin="0,0,8,0"/>
+                            <local:MyButton x:Name="BtnRefresh" Text="放弃修改" Height="35" Padding="14,0"/>
+                        </WrapPanel>
+                        <WrapPanel Margin="0,4" VerticalAlignment="Center">
+                            <TextBlock x:Name="LabSummary" FontSize="13" TextWrapping="Wrap" Opacity="0.85"
+                                       Foreground="{DynamicResource ColorBrushGray2}" Margin="0,0,12,0"/>
+                            <TextBlock x:Name="LabUpdated" FontSize="13" Opacity="0.85"
+                                       Foreground="{DynamicResource ColorBrushGray2}" Visibility="Collapsed"/>
+                        </WrapPanel>
                     </WrapPanel>
-                    <TextBlock x:Name="LabSummary" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray2}"/>
-                    <TextBlock x:Name="LabEditScope" Text="右侧编辑的是共用个人方案，修改会对所有参与同步的版本生效。" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray2}" Margin="0,8,0,0" Visibility="Collapsed"/>
                 </StackPanel>
             </local:MyCard>
             <local:MyCard x:Name="CardConflicts" Title="待处理的同步冲突" Visibility="Collapsed" Margin="0,0,0,15">

@@ -140,7 +140,7 @@ internal static partial class MmcLaunchChecks {
             var imported = backend.ImportAsync(new(archive, version, "controlled-mmc", new("windows", "x86_64", 8))).GetAwaiter().GetResult();
             Native.Check(imported.Status == MmcInstanceBackendStatus.Succeeded, "Real backend import failed: " + imported.Failure);
             Native.Check(server.Requested("/index"), "Real import did not materialize its owned asset input.");
-            instance = new(version); Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            instance = new(version); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             Settings.Set("VersionPersonalOptionsSync", 0, instance); Settings.Set("VersionWorldBackupAutoEnabled", false, instance);
             instance.Config.Save();
             ModLaunch.McLoginLoader = new("Owned account boundary", _ => throw new IOException("Replay attempted account IO")) {

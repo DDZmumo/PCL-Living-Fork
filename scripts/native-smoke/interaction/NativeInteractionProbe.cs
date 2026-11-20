@@ -15,6 +15,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using Microsoft.Win32;
 
 namespace PclLfNativeInteraction;
@@ -27,6 +29,7 @@ internal sealed class Probe
     private readonly Dictionary<string, object?> evidence = new();
     private readonly List<object> steps = new();
     private readonly Stopwatch clock = Stopwatch.StartNew();
+    private readonly TimeSpan interactionBudget;
     private readonly int pid;
     private readonly IntPtr hwnd;
     private readonly string fixture, owner, exe, output;
@@ -34,11 +37,15 @@ internal sealed class Probe
     private bool themeChanged;
     private bool identityProved;
     private bool cursorSafe = true;
+    private ObservedShell shell = ObservedShell.Unverified;
     private AutomationElement Root => AutomationElement.FromHandle(hwnd);
 
     private Probe(Dictionary<string, string> arguments)
     {
         args = arguments;
+        if (!int.TryParse(args.GetValueOrDefault("timeout-seconds", "90"), NumberStyles.None, CultureInfo.InvariantCulture, out int timeout) || timeout is < 85 or > 120)
+            throw new InvalidOperationException("Interaction timeout must be within the original hosted observer bounds.");
+        interactionBudget = TimeSpan.FromSeconds(timeout - 10); // Reserve the final seconds for evidence and exit.
         Notice = args["notice"];
         noticePolicy = ReviewedInformationNotice.ForTitle(Notice, args.GetValueOrDefault("notice-style", "plain"), args.GetValueOrDefault("notice-source", "local"));
         pid = int.Parse(args["pid"], CultureInfo.InvariantCulture);
@@ -63,11 +70,23 @@ internal sealed class Probe
             if (values.Length == 1 && values[0] == "--self-test-notice-policy")
             {
                 ReviewedInformationNotice.VerifyPolicy();
+                ShellUiPolicy.VerifyPolicy();
+                GlassButtonActivationChecks.Run();
+                return 0;
+            }
+            if (values.Length == 1 && values[0] == "--self-test-shell-policy")
+            {
+                ShellUiPolicy.VerifyPolicy();
+                return 0;
+            }
+            if (values.Length == 1 && values[0] == "--self-test-glass-button-activation")
+            {
+                GlassButtonActivationChecks.Run();
                 return 0;
             }
             if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess || Environment.GetEnvironmentVariable("CI") != "true" || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted") throw new InvalidOperationException("PENDING: isolated GitHub-hosted x64 Windows only.");
             Native.SetThreadDpiAwarenessContext(new IntPtr(-4));
-            if (values.Length is not (18 or 22)) throw new InvalidOperationException("Expected nine fixture arguments and the optional bound notice style/source pair.");
+            if (values.Length is not (18 or 20 or 22 or 24)) throw new InvalidOperationException("Expected fixture arguments with optional notice metadata and timeout.");
             Dictionary<string, string> arguments = new(StringComparer.Ordinal);
             for (int i = 0; i < values.Length; i += 2) arguments.Add(values[i].TrimStart('-'), values[i + 1]);
             probe = new Probe(arguments); probe.Guard(true); probe.identityProved = true; probe.Run();
@@ -130,7 +149,7 @@ internal sealed class Probe
 
     private void Guard(bool hash = false)
     {
-        if (clock.Elapsed.TotalSeconds > 80) throw new InvalidOperationException("PENDING: bounded interaction budget exhausted.");
+        if (clock.Elapsed > interactionBudget) throw new InvalidOperationException("PENDING: bounded interaction budget exhausted.");
         string workspace = Path.GetFullPath(args["workspace"]).TrimEnd(Path.DirectorySeparatorChar);
         if (!fixture.StartsWith(workspace + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !exe.StartsWith(fixture + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || File.ReadAllText(Path.Combine(fixture, "owner.txt")) != owner) throw new InvalidOperationException("Fixture path/owner differs.");
         foreach (string name in new[] { "Software\\PCL", "Software\\PCLDebug", "Software\\PCL Living Fork" })
@@ -173,12 +192,114 @@ internal sealed class Probe
         return current.ProcessId == pid && !current.IsOffscreen && !r.IsEmpty && r.Width > 0 && r.Height > 0 && Native.Client(hwnd).IntersectsWith(r);
     }
     private AutomationElement Unique(Func<AutomationElement, bool> test, string description)
+        => Unique(Nodes(), test, description);
+    private AutomationElement Unique(IEnumerable<AutomationElement> nodes, Func<AutomationElement, bool> test, string description)
     {
-        var found = Nodes().Where(n => Visible(n) && test(n)).ToList();
+        var found = nodes.Where(n => Visible(n) && test(n)).ToList();
         if (found.Count != 1) throw new InvalidOperationException("PENDING: expected one owned visible " + description + "; found " + found.Count + ".");
         AssertAncestor(found[0]); return found[0];
     }
     private AutomationElement Text(string text, string id, bool top = false, bool left = false) => Unique(n => n.Current.ControlType == ControlType.Text && n.Current.Name == text && n.Current.AutomationId == id && (!top || n.Current.BoundingRectangle.Bottom <= Native.Client(hwnd).Top + 57) && (!left || n.Current.BoundingRectangle.Right < Native.Client(hwnd).Left + 220), "Text(" + id + "," + text + ")");
+    private static ShellNode ShellMetadata(AutomationElement node)
+    {
+        var current = node.Current;
+        return new(current.AutomationId, current.Name, current.ClassName, current.ControlType, current.BoundingRectangle);
+    }
+    private (List<AutomationElement> Nodes, ObservedShell Mode, System.Windows.Rect Client, double Scale) ObserveShell()
+    {
+        var nodes = Nodes().Where(Visible).ToList();
+        var metadata = nodes.Select(ShellMetadata).ToArray();
+        var client = Native.Client(hwnd);
+        double scale = metadata.Any(ShellUiPolicy.IsGlassMarker) ? Native.DpiScale(hwnd) : 1;
+        return (nodes, ShellUiPolicy.Detect(metadata, client, scale), client, scale);
+    }
+    private void DetectShell()
+    {
+        var observed = ObserveShell();
+        if (shell != ObservedShell.Unverified) throw new InvalidOperationException("Shell identity was already admitted.");
+        foreach (var node in observed.Nodes.Where(node => ShellUiPolicy.IsGlassMarker(ShellMetadata(node)))) AssertAncestor(node);
+        shell = observed.Mode;
+        evidence["Shell"] = new { Mode = shell.ToString(), DpiScale = observed.Scale,
+            Proof = shell == ObservedShell.Workspace ? "Five exact ordered vertical navigation Button IDs/names in the primary rail; integrated account button and contextual navigation within the owned frame" : "Original unique LabText launch/settings peers within the unchanged 57-pixel classic title strip" };
+    }
+    private AutomationElement HeaderNavigation(string text)
+    {
+        var observed = ObserveShell();
+        if (shell == ObservedShell.Unverified || observed.Mode != shell) throw new InvalidOperationException("PENDING: admitted Main shell identity changed.");
+        if (shell == ObservedShell.Classic) return Text(text, "LabText", top: true);
+        var target = ShellUiPolicy.HeaderTarget(text);
+        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassHeaderTarget(ShellMetadata(node), target.Id, target.Name, observed.Client, observed.Scale),
+            "glass header Button(" + target.Id + "," + target.Name + ")");
+    }
+    private AutomationElement ContextNavigation(string text)
+    {
+        var observed = ObserveShell();
+        if (shell == ObservedShell.Unverified || observed.Mode != shell) throw new InvalidOperationException("PENDING: admitted Main shell identity changed.");
+        if (shell == ObservedShell.Classic) return Text(text, "LabTitle", left: true);
+        var pane = Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextPane(ShellMetadata(node), observed.Client, observed.Scale),
+            "glass SidebarScroller");
+        ShellNode paneBounds = ShellMetadata(pane);
+        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextTarget(ShellMetadata(node), text, paneBounds, observed.Client, observed.Scale)
+                && IsDescendant(node, pane), "glass contextual sidebar Button(" + text + ")");
+    }
+    private void ClickNavigation(string text, bool contextual, string step)
+    {
+        Func<AutomationElement> locate = contextual ? () => ContextNavigation(text) : () => HeaderNavigation(text);
+        AutomationElement target = locate();
+        if (shell == ObservedShell.Classic) { Click(target, step); return; }
+        if (shell != ObservedShell.Workspace) throw new InvalidOperationException("PENDING: native Button activation requires an admitted glass shell.");
+        InvokeOwnedButton(locate, target, step);
+    }
+    private void InvokeOwnedButton(Func<AutomationElement> locate, AutomationElement target, string step)
+    {
+        ShellNode admitted = ShellMetadata(target);
+        int[] runtimeId = target.GetRuntimeId();
+        Native.Point admittedScreen = default;
+        System.Windows.Rect admittedWindow = System.Windows.Rect.Empty;
+        GlassButtonActivation.Run(() =>
+        {
+            // Classic and notice controls retain their original WM down/up path. Native glass
+            // buttons use their own Invoke provider after the same owned-hover proof.
+            WithOwnedHover(target, step, (screen, local, bounds) =>
+            {
+                Native.Send(hwnd, 0x0200, IntPtr.Zero, Native.Pack(local.X, local.Y));
+                Thread.Sleep(80);
+                CheckDesktopTarget(screen, bounds, cursorAtTarget: true);
+                admittedScreen = screen;
+                admittedWindow = bounds;
+            });
+        }, () => cursorSafe, () =>
+        {
+            // All UIA/provider calls stay AFTER WithOwnedHover's cursor-restoration finally.
+            Guard(true);
+            AutomationElement current = locate(); // Reapply the exact header/rail predicate and unique owned ancestry.
+            ShellNode fresh = ShellMetadata(current);
+            if (!current.Equals(target) || !GlassButtonActivation.SameTarget(admitted, fresh, runtimeId, current.GetRuntimeId()) ||
+                !current.Current.IsEnabled || !Visible(current))
+                throw new InvalidOperationException("PENDING: native glass Button identity/bounds changed after cursor restoration.");
+            if (!current.TryGetCurrentPattern(InvokePattern.Pattern, out object pattern) || pattern is not InvokePattern invoke)
+                throw new InvalidOperationException("PENDING: exact owned native glass Button lacks InvokePattern.");
+            Guard(true);
+            CheckDesktopTarget(admittedScreen, admittedWindow, cursorAtTarget: false);
+            invoke.Invoke();
+            steps.Add(new { Action = step, Input = "Verified owned hover/WM_MOUSEMOVE, proved original cursor restored, then re-admitted exact native Button/InvokePattern", Text = admitted.Name,
+                admitted.AutomationId, Bounds = admitted.Bounds.ToString(CultureInfo.InvariantCulture), CursorRestoredBeforeProvider = true });
+        });
+    }
+    private AutomationElement? ProjectedInformationButton(AutomationElement label)
+    {
+        AutomationElement? parent = TreeWalker.RawViewWalker.GetParent(label);
+        for (int depth = 0; depth < 4 && parent != null; depth++, parent = TreeWalker.RawViewWalker.GetParent(parent))
+        {
+            if (parent.Current.ProcessId != pid) throw new InvalidOperationException("Information notice parent is not owned.");
+            if (parent.Current.ControlType != ControlType.Button) continue;
+            if (parent.Current.ClassName != "Button" || !ReviewedInformationNotice.IsConfirmButtonId(parent.Current.AutomationId) || parent.Current.Name != "确定" ||
+                !parent.Current.BoundingRectangle.Contains(label.Current.BoundingRectangle) || !Native.Client(hwnd).Contains(parent.Current.BoundingRectangle))
+                throw new InvalidOperationException("PENDING: projected reviewed notice button identity/geometry differs.");
+            AssertAncestor(parent); return parent;
+        }
+        return null;
+    }
     private AutomationElement Combo() => Unique(n => n.Current.ControlType == ControlType.ComboBox && n.Current.AutomationId == "ComboLauncherColorMode", "ComboLauncherColorMode");
     private void AssertAncestor(AutomationElement? node)
     {
@@ -191,26 +312,12 @@ internal sealed class Probe
         }
         throw new InvalidOperationException("PENDING: UIA target has no provable Main HWND ancestor.");
     }
-    private void AssertScrollContainsTheme(AutomationElement theme, AutomationElement scroll)
-    {
-        // A shared rectangle alone cannot prove that this is the current page's
-        // scroller. Follow only the already-owned theme peer's raw ancestors.
-        AutomationElement? ancestor = TreeWalker.RawViewWalker.GetParent(theme);
-        for (int depth = 0; depth < 45 && ancestor != null; depth++)
-        {
-            if (ancestor.Current.ProcessId != pid) throw new InvalidOperationException("Theme scroll ancestor belongs to another process.");
-            if (ancestor.Equals(scroll)) return;
-            if (ancestor.Current.NativeWindowHandle != 0) break;
-            ancestor = TreeWalker.RawViewWalker.GetParent(ancestor);
-        }
-        throw new InvalidOperationException("PENDING: actual theme ComboBox has no provable selected PanBack ancestor.");
-    }
     private bool IsDescendant(AutomationElement node, AutomationElement ancestor)
     {
         AutomationElement? current = TreeWalker.RawViewWalker.GetParent(node);
         for (int depth = 0; depth < 45 && current != null; depth++, current = TreeWalker.RawViewWalker.GetParent(current))
         {
-            if (current.Current.ProcessId != pid) throw new InvalidOperationException("Notice ancestor belongs to another process.");
+            if (current.Current.ProcessId != pid) throw new InvalidOperationException("UIA ancestor belongs to another process.");
             if (current.Equals(ancestor)) return true;
             if (current.Current.NativeWindowHandle != 0) break;
         }
@@ -236,9 +343,11 @@ internal sealed class Probe
         string text = ((TextPattern)pattern).DocumentRange.GetText(16001);
         noticePolicy.VerifyDocument(text);
         var published = Text("查看发布页", "LabText");
-        AutomationElement? suppression = noticePolicy.HasSuppression ? Text(ReviewedInformationNotice.SuppressionLabel, "LabText") : null;
-        if (suppression != null && (!IsDescendant(suppression, content) || IsDescendant(suppression, document)))
-            throw new InvalidOperationException("PENDING: native suppression label is not a separate footer in the owned notice content.");
+        AutomationElement? suppression = noticePolicy.HasSuppression ? Unique(node =>
+            node.Current.Name == ReviewedInformationNotice.SuppressionLabel &&
+            ((node.Current.ControlType == ControlType.Text && node.Current.AutomationId == "LabText") ||
+             (node.Current.ControlType == ControlType.CheckBox && node.Current.ClassName == "CheckBox" && node.Current.AutomationId == "PanBack")) &&
+            IsDescendant(node, content) && !IsDescendant(node, document), "separate owned notice suppression footer") : null;
         ReviewedInformationNotice.VerifyRichGeometry(Native.Client(hwnd), title.Current.BoundingRectangle, content.Current.BoundingRectangle, document.Current.BoundingRectangle,
             suppression?.Current.BoundingRectangle, button.Current.BoundingRectangle, published.Current.BoundingRectangle);
         evidence["ReviewedStartupNotice"] = new { noticePolicy.Title, noticePolicy.Style, noticePolicy.Source, CompleteLocalDocument = true,
@@ -280,7 +389,7 @@ internal sealed class Probe
         // No cursor movement while a UIA/provider call may block. After this
         // point use only bounded Win32 messages and immediate native queries;
         // reserve twenty seconds before the outer observer's ninety-second cap.
-        if (clock.Elapsed.TotalSeconds > 70) throw new InvalidOperationException("PENDING: insufficient bounded budget to move and restore the CI cursor.");
+        if (clock.Elapsed > interactionBudget - TimeSpan.FromSeconds(10)) throw new InvalidOperationException("PENDING: insufficient bounded budget to move and restore the CI cursor.");
         if (Native.GetForegroundWindow() != hwnd)
         {
             if (Native.Owner(hwnd) != pid || !Native.SetForegroundWindow(hwnd)) throw new InvalidOperationException("PENDING: owned Main could not become the foreground window; observed foreground handle=" + Native.GetForegroundWindow().ToInt64() + ".");
@@ -403,12 +512,16 @@ internal sealed class Probe
     private void Run()
     {
         if (args["notice"] != Notice) throw new InvalidOperationException("PENDING: expected information notice changed after fixture admission.");
-        Stable("known-notice"); VerifyInformationNotice(); Capture("notice");
-        var button = VerifyInformationNotice(); Click(button, "dismiss-exact-information-notice");
+        Stable("known-notice");
+        var button = VerifyInformationNotice();
+        Capture("notice");
+        AutomationElement? projectedNotice = ProjectedInformationButton(button);
+        if (projectedNotice is null) Click(button, "dismiss-exact-information-notice");
+        else InvokeOwnedButton(() => ProjectedInformationButton(VerifyInformationNotice()) ?? throw new InvalidOperationException("PENDING: projected notice button disappeared."), projectedNotice, "dismiss-exact-information-notice");
         Wait(() => !Nodes().Any(n => Visible(n) && n.Current.Name == Notice), "only reviewed notice dismissed");
-        Stable("launch"); Capture("launch");
-        Click(Text("设置", "LabText", top: true), "main-settings"); Stable("settings");
-        Click(Text("个性化", "LabTitle", left: true), "personalization"); Stable("personalization");
+        Stable("launch"); DetectShell(); Capture("launch");
+        ClickNavigation("设置", contextual: false, "main-settings"); Stable("settings");
+        ClickNavigation("个性化", contextual: true, "personalization"); Stable("personalization");
         Text("外观主题", "");
         if (Selection(Combo()) != "浅色") throw new InvalidOperationException("PENDING: initial synthetic theme differs from default light.");
         double light = Capture("light");
@@ -422,14 +535,18 @@ internal sealed class Probe
         Native.Send(hwnd, 0x0112, new IntPtr(0xF120), IntPtr.Zero);
         Wait(() => !Native.IsIconic(hwnd), "same owned Main restored"); Stable("restored-window"); Focus(); Capture("restored-window");
         AutomationElement theme = Combo(); var themeBounds = theme.Current.BoundingRectangle;
-        var scroll = Unique(n => n.Current.AutomationId == "PanBack" && n.Current.ClassName == "ScrollViewer" && n.Current.ControlType == ControlType.Pane &&
-            Native.Client(hwnd).Contains(n.Current.BoundingRectangle) && n.Current.BoundingRectangle.Contains(themeBounds), "personalization PanBack containing actual theme ComboBox");
-        AssertScrollContainsTheme(theme, scroll);
+        var scroll = Unique(n => {
+            var current = n.Current;
+            // The workspace projects PanBack into a native unnamed viewport.
+            bool expectedId = current.AutomationId == "PanBack" || (shell == ObservedShell.Workspace && current.AutomationId.Length == 0);
+            return expectedId && current.ClassName == "ScrollViewer" && current.ControlType == ControlType.Pane &&
+                Native.Client(hwnd).Contains(current.BoundingRectangle) && current.BoundingRectangle.Contains(themeBounds) && IsDescendant(theme, n);
+        }, "personalization viewport containing actual theme ComboBox");
         bool hasScrollPattern = scroll.TryGetCurrentPattern(ScrollPattern.Pattern, out object rawPattern);
         steps.Add(new { Action = "scroll-provider", AutomationId = scroll.Current.AutomationId, ClassName = scroll.Current.ClassName,
             Bounds = scroll.Current.BoundingRectangle.ToString(CultureInfo.InvariantCulture), ThemeBounds = themeBounds.ToString(CultureInfo.InvariantCulture),
             ThemeAncestorProved = true, ScrollPatternAvailable = hasScrollPattern });
-        if (!hasScrollPattern) throw new InvalidOperationException("PENDING: actual owned personalization PanBack ancestor has no ScrollPattern provider.");
+        if (!hasScrollPattern) throw new InvalidOperationException("PENDING: actual owned personalization viewport has no ScrollPattern provider.");
         ScrollPattern pattern = (ScrollPattern)rawPattern;
         if (!pattern.Current.VerticallyScrollable || pattern.Current.VerticalScrollPercent > 1) throw new InvalidOperationException("PENDING: personalization has no provable top/scrollable content.");
         double before = pattern.Current.VerticalScrollPercent;
@@ -446,12 +563,96 @@ internal sealed class Probe
         Wait(() => pattern.Current.VerticalScrollPercent < after - .1, "real reverse wheel changed ScrollPattern offset"); Stable("wheel-up"); Capture("wheel-up");
         steps.Add(new { Action = "wheel", BeforePercent = before, AfterPercent = after, ReturnedPercent = pattern.Current.VerticalScrollPercent, Input = "owned WM_MOUSEWHEEL +/-360" });
         // Return to the safe launch page; no download/login/update/link/UAC/clear action exists here.
-        Click(Text("启动", "LabText", top: true), "return-launch"); Stable("launch-returned"); Capture("launch-returned");
+        ClickNavigation("启动", contextual: false, "return-launch"); Stable("launch-returned"); Capture("launch-returned");
         Guard(true); if (ReadThemeSetting() != "0") throw new InvalidOperationException("Owned theme setting changed after real UI rollback."); evidence["ThemeRestored"] = true;
         evidence["ObservedScope"] = "Exact local notice, Main settings/personalization/launch, real theme and INI restore, focus, same-HWND minimize/restore, measured wheel offsets and stable owned-window captures.";
     }
 }
 
+internal enum ObservedShell { Unverified, Classic, Workspace }
+internal readonly record struct ShellNode(string AutomationId, string Name, string ClassName, ControlType Type, System.Windows.Rect Bounds);
+
+/// <summary>A hard phase boundary: a provider must never be called until the native hover restored the cursor.</summary>
+internal static class GlassButtonActivation
+{
+    internal static void Run(Action hoverAndRestore, Func<bool> cursorRestored, Action verifyAndInvoke)
+    {
+        hoverAndRestore();
+        if (!cursorRestored()) throw new InvalidOperationException("PENDING: native glass Button provider activation requires proved cursor restoration.");
+        verifyAndInvoke();
+    }
+    internal static bool SameTarget(ShellNode admitted, ShellNode current, int[] admittedRuntimeId, int[] currentRuntimeId) =>
+        admitted.Type == ControlType.Button && admitted.ClassName == "Button" && current == admitted &&
+        admittedRuntimeId.Length > 0 && admittedRuntimeId.SequenceEqual(currentRuntimeId);
+}
+
+/// <summary>Owned offscreen WPF evidence; no product, profile, system cursor or native input injection.</summary>
+internal static class GlassButtonActivationChecks
+{
+    internal static void Run()
+    {
+        if (!OperatingSystem.IsWindows() || Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            throw new InvalidOperationException("Native Button activation checks require Windows STA.");
+        bool cursorRestored = false, providerCalled = false;
+        void Provider() { providerCalled = true; if (!cursorRestored) throw new InvalidOperationException("Provider called before cursor restoration."); }
+        Reject(() => GlassButtonActivation.Run(() => { }, () => cursorRestored, Provider));
+        if (providerCalled) throw new InvalidOperationException("A failed restoration reached a provider.");
+        bool hoverFailed = false;
+        try { GlassButtonActivation.Run(() => throw new IOException("Synthetic hover failure"), () => true, Provider); }
+        catch (IOException) { hoverFailed = true; }
+        if (!hoverFailed || providerCalled) throw new InvalidOperationException("A failed native hover reached a provider.");
+        var metadata = new ShellNode("NavSettings", "设置", "Button", ControlType.Button, new System.Windows.Rect(100, 30, 80, 42));
+        int[] identity = [42, 7];
+        if (!GlassButtonActivation.SameTarget(metadata, metadata, identity, [42, 7]) ||
+            GlassButtonActivation.SameTarget(metadata, metadata with { Bounds = new System.Windows.Rect(101, 30, 80, 42) }, identity, identity) ||
+            GlassButtonActivation.SameTarget(metadata, metadata with { Name = "其他" }, identity, identity) ||
+            GlassButtonActivation.SameTarget(metadata, metadata, identity, [42, 8]) ||
+            GlassButtonActivation.SameTarget(metadata, metadata with { Type = ControlType.Text }, identity, identity))
+            throw new InvalidOperationException("Native glass Button identity/bounds admission is not strict.");
+
+        var application = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+        System.Windows.Window? window = null;
+        try
+        {
+            int clicks = 0;
+            var order = new List<string>();
+            var button = new System.Windows.Controls.Button { Name = "NavSettings", Content = "设置", Width = 120, Height = 42 };
+            AutomationProperties.SetName(button, "设置");
+            button.Click += (_, _) => { clicks++; order.Add("click"); };
+            window = new System.Windows.Window { Content = button, Width = 240, Height = 120, Left = -30000, Top = -30000,
+                ShowActivated = false, ShowInTaskbar = false, WindowStyle = System.Windows.WindowStyle.None };
+            window.Show(); window.UpdateLayout();
+            GlassButtonActivation.Run(() => { order.Add("hover"); cursorRestored = true; order.Add("restore"); }, () => cursorRestored, () =>
+            {
+                order.Add("verify");
+                AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(button) ?? throw new InvalidOperationException("Real WPF Button has no peer.");
+                if (peer.GetClassName() != "Button" || peer.GetName() != "设置" || peer.GetPattern(PatternInterface.Invoke) is not IInvokeProvider invoke)
+                    throw new InvalidOperationException("Real WPF Button has no exact native Invoke provider.");
+                order.Add("invoke"); invoke.Invoke();
+            });
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var elapsed = Stopwatch.StartNew();
+            var timer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Send)
+            { Interval = TimeSpan.FromMilliseconds(10) };
+            EventHandler observe = (_, _) => { if (clicks != 0 || elapsed.ElapsedMilliseconds > 3000) frame.Continue = false; };
+            timer.Tick += observe;
+            try { timer.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame); }
+            finally { timer.Stop(); timer.Tick -= observe; }
+            if (clicks != 1 || !order.SequenceEqual(new[] { "hover", "restore", "verify", "invoke", "click" }))
+                throw new InvalidOperationException("The real native Button provider did not produce exactly one Click after restoration/admission.");
+        }
+        finally { if (window != null) { window.Content = null; window.Close(); } application.Shutdown(); }
+        Console.WriteLine("PASS native glass Button activation: failed hover/restoration never reaches a provider; stale identity/bounds rejected; actual offscreen WPF Invoke provider produces one Click after restoration. No product/profile/system cursor/external input action.");
+    }
+    private static void Reject(Action action)
+    {
+        try { action(); }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("PENDING:", StringComparison.Ordinal)) { return; }
+        throw new InvalidOperationException("An unproved cursor restoration was accepted.");
+    }
+}
+
+/// <summary>Exact observed shell identities and geometry, independent of any product assembly or UIA injection.</summary>
 internal static class Native
 {
     [StructLayout(LayoutKind.Sequential)] internal struct Point { internal int X, Y; }
@@ -461,6 +662,7 @@ internal static class Native
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] internal static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern IntPtr WindowFromPoint(Point point);
@@ -477,6 +679,7 @@ internal static class Native
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr first, IntPtr second, uint flags, uint timeout, out IntPtr result);
     [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)] internal static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder path, ref uint size);
     internal static int Owner(IntPtr hwnd) { GetWindowThreadProcessId(hwnd, out uint pid); return (int)pid; }
+    internal static double DpiScale(IntPtr hwnd) { uint dpi = GetDpiForWindow(hwnd); if (dpi == 0) throw new InvalidOperationException("PENDING: owned glass Main DPI is unavailable."); return dpi / 96d; }
     internal static string Title(IntPtr hwnd) { StringBuilder text = new(1024); GetWindowText(hwnd, text, text.Capacity); return text.ToString().Trim(); }
     internal static string Class(IntPtr hwnd) { StringBuilder text = new(256); GetClassName(hwnd, text, text.Capacity); return text.ToString(); }
     internal static System.Windows.Rect Window(IntPtr hwnd) { if (!GetWindowRect(hwnd, out Rect r)) throw new InvalidOperationException("Window bounds unavailable."); return new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top); }

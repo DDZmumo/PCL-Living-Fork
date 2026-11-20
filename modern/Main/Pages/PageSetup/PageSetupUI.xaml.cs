@@ -47,6 +47,10 @@ namespace PCL
             };
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            if (FormMain.GlassShellPreferred) {
+                ((MyComboBoxItem)ComboBackgroundMode.Items[0]).Content = "自定义壁纸";
+                ((MyComboBoxItem)ComboBackgroundMode.Items[1]).Content = "默认背景";
+            }
             CheckHiddenPageFavorites.Change += (_, user) => {
                 if (user) ModBase.RunInUi(() => HiddenRefresh(), true);
             };

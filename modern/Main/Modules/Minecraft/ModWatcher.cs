@@ -54,8 +54,8 @@ namespace PCL
                 FeedbackInfo = new Action(() => PCL.ModMain.FeedbackInfo()),
                 CreateCrashAnalyzer = new Func<PCL.ModMinecraft.McInstance, ILegacyCrashAnalyzer>(Instance => new PCL.CrashAnalyzer(Instance)),
                 EnumWindows = NativeEnumWindows,
-                GetClassName = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetClassName(Handle.ToInt32(), Buffer, Count)),
-                GetWindowText = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetWindowText(Handle.ToInt32(), Buffer, Count)),
+                GetClassName = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetClassName(Handle, Buffer, Count)),
+                GetWindowText = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetWindowText(Handle, Buffer, Count)),
                 SetWindowText = new Action<IntPtr, string>((Handle, Text) => ModWatcher.SetWindowText(Handle.ToInt32(), ref Text)),
                 ShowWindow = new Action<IntPtr, uint>((Handle, Command) => ShowWindow(Handle, Command)),
                 IsWindowVisible = new Func<IntPtr, bool>(Handle => IsWindowVisible(Handle)),
@@ -66,7 +66,11 @@ namespace PCL
         private readonly static LegacyWatcherGroup<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, Watcher.MinecraftState> Group = new LegacyWatcherGroup<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, Watcher.MinecraftState>(Host);
         private static void NativeEnumWindows(Action<IntPtr, int> Callback, int Parameter)
         {
-            EnumWindows((Handle, Value) => Callback(Handle, Value), Parameter);
+            EnumWindows((Handle, _) =>
+            {
+                Callback(Handle, Parameter);
+                return true;
+            }, Parameter);
         }
 
         private static int NativeWindowProcessId(IntPtr Handle)
@@ -76,13 +80,14 @@ namespace PCL
             return ProcessId;
         }
 
-        private delegate void EnumWindowsSub(IntPtr hwnd, int lParam);
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private delegate bool EnumWindowsSub(IntPtr hwnd, IntPtr lParam);
         [DllImport("user32", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
-        private static extern bool EnumWindows(EnumWindowsSub hWnd, int lParam);
+        private static extern bool EnumWindows(EnumWindowsSub hWnd, IntPtr lParam);
         [DllImport("user32", EntryPoint = "GetClassNameA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
-        private static extern int GetClassName(int hWnd, StringBuilder str, int maxCount);
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder str, int maxCount);
         [DllImport("user32", EntryPoint = "GetWindowTextA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
-        private static extern int GetWindowText(int hWnd, StringBuilder str, int maxCount);
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder str, int maxCount);
 #pragma warning disable CS0618 // Exact LF VBByRefStr ABI; .NET10 retains its Windows FEATURE_COMINTEROP marshaller.
         [DllImport("user32", EntryPoint = "SetWindowTextA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
         private static extern bool SetWindowText(int hWnd, [MarshalAs(UnmanagedType.VBByRefStr)] ref string str);
@@ -128,6 +133,8 @@ namespace PCL
                 Ended,
                 Canceled
             }
+
+            internal MinecraftState WaitForStartupState(int milliseconds) => Native.WaitForStartupState(milliseconds);
 
             public void Kill()
             {

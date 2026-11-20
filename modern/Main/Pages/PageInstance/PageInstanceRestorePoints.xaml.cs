@@ -34,6 +34,7 @@ namespace PCL
             __LfAttachOwnHandles();
             HistoryChangedHandler = Refresh;
             this.InitializeComponent();
+            GlassPresentationSession.RegisterProjectedEditor(TextRetention, RetentionLostFocus);
             Controller = new HistoryController(CreateView(), CreateHost());
             PointsLoader = new ModLoader.LoaderTask<HistoryPointsRequest, HistoryPointsResult>(IsMmcHistory ? "读取 MMC 环境记录" : "读取还原点", Task =>
             {
@@ -71,7 +72,7 @@ namespace PCL
                 SetAutoCleanup = new Action<bool>(Value => this.ComboHistoryRetentionPolicy.SelectedIndex = Value ? 1 : 0),
                 AutoCreate = () => CheckHistoryAutoCreate.Checked,
                 SetAutoCreate = value => CheckHistoryAutoCreate.Checked = value,
-                RetentionHasFocus = new Func<bool>(() => this.TextRetention.IsKeyboardFocusWithin),
+                RetentionHasFocus = new Func<bool>(() => GlassPresentationSession.EditorHasFocus(TextRetention)),
                 SearchHasFocus = new Func<bool>(() => this.SearchBox.IsKeyboardFocusWithin),
                 CheckAll = new Action(() => this.FilterAll.Checked = true),
                 ForceRetentionResize = new Action(() => this.CardRetention.TriggerForceResize()),

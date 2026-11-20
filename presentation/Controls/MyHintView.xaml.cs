@@ -61,6 +61,12 @@ public partial class MyHintView : Border {
     public delegate void ClickEventHandler(object sender, MouseButtonEventArgs e);
     public event ClickEventHandler? Click;
     protected virtual void OnClick(object sender, MouseButtonEventArgs args) => Click?.Invoke(sender, args);
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left);
+        OnClick(this, args);
+        if (!args.Handled) Services.RaiseCustomEvent(this);
+    }
     private bool isMouseDown;
     private void MouseUpHint(object sender, MouseButtonEventArgs args) {
         if (!isMouseDown) return; isMouseDown = false;

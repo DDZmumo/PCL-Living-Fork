@@ -108,12 +108,12 @@ internal static class MmcGtnhPostPublishChecks {
                 Native.Check(new FileInfo(path).Length == item.SizeBytes && Hash(path) == item.Sha256, "Published native differs from its parent-derived bytes.");
                 verifiedNatives++;
             }
-            Native.Field(typeof(ModMinecraft),"_McFolderSelected").SetValue(null,game+Path.DirectorySeparatorChar);
+            Native.State(typeof(ModMinecraft),"_McFolderSelected").SetValue(null,game+Path.DirectorySeparatorChar);
             ModMinecraft.McInstanceListForceRefresh=true; ModMinecraft.McInstanceListLoader.Start(game+Path.DirectorySeparatorChar,IsForceRestart:true);
             while (ModMinecraft.McInstanceListLoader.State is ModBase.LoadState.Waiting or ModBase.LoadState.Loading || ModMinecraft.McInstanceListLoader.LastRunningThread?.IsAlive==true) { DrainUi(); Thread.Sleep(2); }
             DrainUi();
             Native.Check(ModMinecraft.McInstanceListLoader.State==ModBase.LoadState.Finished,"Actual published list refresh failed: "+ModMinecraft.McInstanceListLoader.Error);
-            Native.Check(Native.Field(typeof(ModMinecraft),"_McInstanceSelected").GetValue(null) is not null,"Actual refresh did not select the published instance.");
+            Native.Check(Native.State(typeof(ModMinecraft),"_McInstanceSelected").GetValue(null) is not null,"Actual refresh did not select the published instance.");
             Native.Check(MmcInstanceInspector.Read(instance).IsConsistent && Hash(definition)==definitionBefore && Hash(projection)==projectionBefore,"UI refresh modified or invalidated the managed definition/projection.");
             retained.AssertNoForbiddenIo();
             report=new {SchemaVersion=1,Status="Succeeded",Nonce=nonce,Pid=Environment.ProcessId,ProofRoot=proof,OriginalCase=original,InstanceRoot=instance,DefinitionSha256=definitionBefore,ProjectionSha256=projectionBefore,MainSha256=actualMainSha,VerifiedLibraryCount=verifiedLibraries,VerifiedNativeCount=verifiedNatives,UiRefreshDrained=true,NoForbiddenIo=true,Reimported=false,GameLaunchTested=false,RepairTested=false,Keep=true};

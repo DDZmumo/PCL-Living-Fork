@@ -6,7 +6,8 @@ namespace PCL
 
     public class MyResizer : WindowResizer
     {
-        public MyResizer(Window Target) : base(Target, ModBase.GetWPFSize, (Work, Name) => ModBase.RunInNewThread(Work, Name))
+        public MyResizer(Window Target) : base(Target, ModBase.GetWPFSize, (Work, Name) => ModBase.RunInNewThread(Work, Name),
+            Target is FormMain { GlassShellActive: true } window ? window.SetGlassResizing : null)
         {
         }
     }

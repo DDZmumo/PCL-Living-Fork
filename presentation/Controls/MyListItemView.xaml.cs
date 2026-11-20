@@ -278,11 +278,32 @@ public partial class MyListItemView : Grid {
     protected virtual bool HasContentHandler => ContentHandler is not null;
     protected virtual void InvokeContentHandler(EventArgs args) => ContentHandler!(this, args);
     protected virtual void ClearContentHandler() => ContentHandler = null;
+    private bool ensuringActions;
+    /// <summary>Initializes deferred row actions without requiring pointer entry or changing hover state.</summary>
+    public void EnsureActions() => EnsureActions(EventArgs.Empty);
+    private void EnsureActions(EventArgs args) {
+        Dispatcher.VerifyAccess();
+        if (ensuringActions || !HasContentHandler) return;
+        ensuringActions = true;
+        try { InvokeContentHandler(args); ClearContentHandler(); }
+        finally { ensuringActions = false; }
+    }
     private bool isMouseDown;
     private void ButtonMouseUp(object sender, MouseButtonEventArgs args) {
-        if (!isMouseDown) return; OnClick(sender, args); if (args.Handled) return;
-        if (HasCustomEvent(sender)) { Services.RaiseCustomEvent(this); args.Handled = true; }
-        if (args.Handled) return;
+        if (!isMouseDown) return;
+        ActivateItem(args);
+    }
+    // A keyboard/proxy activation shares the real click pipeline without synthesizing mouse input.
+    // Its legacy navigation Click subscribers receive null because there is no pointer event.
+    protected void ActivateItem(MouseButtonEventArgs? args = null) {
+        if (!IsEnabled || Type == CheckType.None) return;
+        OnClick(this, args!);
+        if (args?.Handled == true) return;
+        if (HasCustomEvent(this)) {
+            Services.RaiseCustomEvent(this);
+            if (args is not null) args.Handled = true;
+            return;
+        }
         switch (Type) {
             case CheckType.Clickable: Services.Info("按下单击列表项：" + Title); break;
             case CheckType.RadioBox: Services.Info("按下单选列表项：" + Title); if (!Checked) SetChecked(true, true, true); break;
@@ -296,7 +317,7 @@ public partial class MyListItemView : Grid {
     private string? stateLast;
     public bool IsMouseOverAnimationEnabled = true;
     public void RefreshColor(object? sender, EventArgs args) {
-        if (HasContentHandler) { InvokeContentHandler(args); ClearContentHandler(); }
+        EnsureActions(args);
         string stateNew; int time;
         if (isMouseDown && !(Type == CheckType.RadioBox && Checked)) { stateNew = "MouseDown"; time = 120; }
         else if (IsMouseOver && IsMouseOverAnimationEnabled) { stateNew = "MouseOver"; time = 120; }

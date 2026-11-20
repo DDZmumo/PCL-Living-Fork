@@ -32,6 +32,7 @@ internal static class LocalFeatureChecks
             Native.Check(Seen[family].SetEquals(original.Keys), "Incomplete original local-feature assertion selection: " + family + " missing " + string.Join(',', original.Keys.Except(Seen[family])));
         PersonalOptionsPageChecks.Run(fixture);
         var about = new PageOtherAbout();
+        ((MyCard)about.FindName("CardOfflineLicenses")).PerformClick();
         string notices = ((MyTextBox)about.FindName("LabThirdPartyLicenses")).Text;
         Native.Check(notices.Contains("Mozilla Public License Version 2.0",StringComparison.Ordinal) &&
             notices.Contains("licenses/MPL-COVERED-FILES.txt",StringComparison.Ordinal) &&

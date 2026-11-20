@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using MeloongCore;
@@ -99,11 +100,23 @@ internal static class MmcJavaControlsChecks {
             var preference = (MmcLaunchJavaPreference)Native.Static("PCL.MmcLaunchPreferences", "CaptureJavaPreference", owner, saved.PackageConfiguration)!;
             Native.Check(preference.Force && preference.Path == java26.Folder,
                 "Launch preference did not read the Java selected by the existing native control.");
-            var stale = select.Items.OfType<MyListItem>().Single(item => ReferenceEquals(item.Tag, java27));
+            using var presentation = GlassPresentation.Create(grid);
+            var projectedSelect = ProjectedChildren(presentation.View).OfType<ComboBox>().Single(item => item.Name == select.Name);
+            var original27 = select.Items.OfType<MyListItem>().Single(item => ReferenceEquals(item.Tag, java27));
+            int choiceIndex = select.Items.IndexOf(original27);
+            Native.Check(AutomationProperties.GetName((ComboBoxItem)projectedSelect.Items[choiceIndex]) == original27.Title,
+                "The glass Java menu did not display the runtime name.");
+            projectedSelect.SelectedIndex = choiceIndex;
+            Native.Check(projectedSelect.SelectedIndex == -1 && Configs.JavaForced.Get(owner.Config)?.Folder == java27.Folder,
+                "Selecting Java in the glass dropdown did not reach the instance's forced-Java setting.");
+            saved = MmcSavedSourceStore.LoadAsync(paths, definition).GetAwaiter().GetResult();
+            preference = (MmcLaunchJavaPreference)Native.Static("PCL.MmcLaunchPreferences", "CaptureJavaPreference", owner, saved.PackageConfiguration)!;
+            Native.Check(preference.Force && preference.Path == java27.Folder, "Launch did not read the glass dropdown choice.");
+            var stale = select.Items.OfType<MyListItem>().Single(item => ReferenceEquals(item.Tag, java8));
             int beforeStale = reloads;
             PageInstanceLeft.Instance = new ModMinecraft.McInstance(installed).Load();
             Click(stale);
-            Native.Check(reloads == beforeStale && Configs.JavaForced.Get(owner.Config)?.Folder == java26.Folder,
+            Native.Check(reloads == beforeStale && Configs.JavaForced.Get(owner.Config)?.Folder == java27.Folder,
                 "A Java dropdown belonging to an old instance selection wrote into the newly selected owner.");
         } finally {
             window?.Close(); if (window is not null) window.Content = null;
@@ -111,6 +124,12 @@ internal static class MmcJavaControlsChecks {
         }
         InstanceConfigProviders.FlushAndDisposeWithin(files.Root); environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS mmc-java-selector: actual native dropdown includes Java27, saves through MMC preference capture, reloads preview and rejects a stale owner.");
+    }
+
+    private static IEnumerable<DependencyObject> ProjectedChildren(DependencyObject root) {
+        yield return root;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+            foreach (var descendant in ProjectedChildren(child)) yield return descendant;
     }
 
     private static void Click(MyListItem item) => Native.Call(typeof(MyListItem), "OnClick", item, item,

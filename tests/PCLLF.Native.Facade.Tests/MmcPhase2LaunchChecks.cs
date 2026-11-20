@@ -133,7 +133,7 @@ internal static class MmcPhase2LaunchChecks {
             watcherHost.CrashHint = () => { };
             watcherHost.FeedbackInfo = () => { };
 
-            Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
+            Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
             InstallIsolatedLogin("phase2-default-secret-" + Guid.NewGuid().ToString("N"));
             metadata = new MmcMetadataStore(metadataRoot, new Uri("https://metadata.invalid/"), new HttpClient(new NoNetwork()));
             cacheRoots = new(Path.Combine(game, "libraries"), Path.Combine(game, "assets"), Path.Combine(cache, "sources"), Path.Combine(game, "versions"));
@@ -218,7 +218,7 @@ internal static class MmcPhase2LaunchChecks {
 
         private void ExerciseConfirmationEnvPostExitAndEarlyWrapper(string versionRoot) {
             var instance = new ModMinecraft.McInstance(versionRoot);
-            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             string secret = "phase2-secret-" + Guid.NewGuid().ToString("N");
             InstallIsolatedLogin(secret);
 
@@ -376,7 +376,7 @@ internal static class MmcPhase2LaunchChecks {
 
             string versionRoot = Path.Combine(game, "versions", "phase2-cancel");
             var instance = new ModMinecraft.McInstance(versionRoot);
-            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             var confirmProp = Native.Property(typeof(MmcLaunch), "ConfirmPackageCommands");
             var createdProp = Native.Property(typeof(MmcLaunch), "ProcessCreated");
             var oldConfirm = (Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>?)confirmProp.GetValue(null);
@@ -387,20 +387,28 @@ internal static class MmcPhase2LaunchChecks {
                     return summary.Entries.Select(e => e.Stage).SequenceEqual(new[] { "WrapperCommand" });
                 }));
                 string ready3 = Path.Combine(traceDir, "ready3.txt"), stop3 = Path.Combine(traceDir, "stop3.txt");
-                var combo = StartLaunch("phase2-cancel-wrap", instance, ["--ready", ready3, "--stop", stop3, "--hold-loading"], out object context);
-                MmcRunningSession? running = null;
-                Guid sessionId = Guid.Empty;
+                var created = new TaskCompletionSource<(Guid Id, MmcRunningSession Session)>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var oldCreated = (Action<Guid, Process>?)createdProp.GetValue(null);
                 createdProp.SetValue(null, new Action<Guid, Process>((id, proc) => {
                     oldCreated?.Invoke(id, proc);
-                    sessionId = id;
                     var active = (ConcurrentDictionary<Guid, MmcRunningSession>)Native.Field(typeof(MmcLaunch), "Active").GetValue(null)!;
-                    if (active.TryGetValue(id, out var s)) { running = s; capturedSessions[id] = s; }
+                    if (active.TryGetValue(id, out var session)) {
+                        capturedSessions[id] = session;
+                        created.TrySetResult((id, session));
+                    }
                 }));
                 try {
-                    Until(() => File.Exists(ready3) && running is not null, "persistent wrapped process ready");
+                    var combo = StartLaunch("phase2-cancel-wrap", instance, ["--ready", ready3, "--stop", stop3, "--hold-loading"], out object context);
+                    try {
+                        Until(() => (created.Task.IsCompletedSuccessfully && File.Exists(ready3)) || combo.State is ModBase.LoadState.Failed or ModBase.LoadState.Canceled,
+                            "persistent wrapped process ready");
+                    } catch (TimeoutException error) {
+                        throw new IOException($"Persistent wrapper readiness timed out. Session observed: {created.Task.IsCompletedSuccessfully}; Java ready file: {File.Exists(ready3)}; loader: {combo.State}.", error);
+                    }
+                    Native.Check(created.Task.IsCompletedSuccessfully && File.Exists(ready3), "Persistent wrapper exited before readiness: " + combo.Error);
+                    var (sessionId, running) = created.Task.GetAwaiter().GetResult();
                     Native.Check(prompted, "Persistent wrapper launch did not prompt for WrapperCommand confirmation.");
-                    Process wrapperProc = running!.WrapperProcess ?? throw new IOException("WrapperProcess missing on wrapped session.");
+                    Process wrapperProc = running.WrapperProcess ?? throw new IOException("WrapperProcess missing on wrapped session.");
                     Process javaProc = running.Process;
                     Native.Check(!wrapperProc.HasExited && !javaProc.HasExited, "Persistent wrapper or Java exited before cancellation.");
 
@@ -463,7 +471,7 @@ internal static class MmcPhase2LaunchChecks {
             File.WriteAllText(inactiveSentinel, "inactive-minecraft-preserved\n", new UTF8Encoding(false));
 
             var instance = new ModMinecraft.McInstance(versionRoot);
-            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             var confirmProp = Native.Property(typeof(MmcLaunch), "ConfirmPackageCommands");
             var oldConfirm = (Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>?)confirmProp.GetValue(null);
             try {
@@ -569,7 +577,7 @@ internal static class MmcPhase2LaunchChecks {
             string versionRoot = Path.Combine(game, "versions", "phase2-postexit-lease");
             string cmdStore = Path.Combine(versionRoot, "PCL", "MmcCommands");
             var instance = new ModMinecraft.McInstance(versionRoot);
-            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             var confirmProp = Native.Property(typeof(MmcLaunch), "ConfirmPackageCommands");
             var oldConfirm = (Func<ModMinecraft.McInstance, MmcPackageCommandSummary, bool>?)confirmProp.GetValue(null);
             try {

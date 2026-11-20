@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using PCLLF.Presentation.Accounts;
+using PCLLF.Presentation.Launch;
+using SkinLoader = PCL.ModLoader.LoaderTask<PCLLF.Presentation.Launch.LegacySkinRequest, string>;
 
 namespace PCL
 {
@@ -10,12 +12,15 @@ namespace PCL
     {
         public event ClickEventHandler Click;
         public delegate void ClickEventHandler(object sender, MouseButtonEventArgs e);
-        public ModLoader.LoaderTask<(string, string), string> Loader;
-        private readonly LegacySkinControl<ModLaunch.McLoginLegacy, ModLaunch.McLoginMs, ModLaunch.McLoginServer, ModLoader.LoaderTask<(string, string), string>> Native;
+        public SkinLoader Loader;
+        private readonly LegacySkinControl<ModLaunch.McLoginLegacy, ModLaunch.McLoginMs, ModLaunch.McLoginServer, SkinLoader> Native;
+        private LegacySkinRequest? _avatarRequest;
+        private ImageSource _avatar;
+        private string _texturePath;
         public MySkin()
         {
             __LfAttachOwnHandles();
-            Native = new LegacySkinControl<ModLaunch.McLoginLegacy, ModLaunch.McLoginMs, ModLaunch.McLoginServer, ModLoader.LoaderTask<(string, string), string>>(LoginPageRuntime.Skins, new LegacySkinView<ModLoader.LoaderTask<(string, string), string>>() { Loader = new Func<ModLoader.LoaderTask<(string, string), string>>(() => Loader), Control = new Func<FrameworkElement>(() => this), Scale = new Func<double>(() => ((ScaleTransform)this.RenderTransform).ScaleX), ShadowOpacity = new Func<double>(() => this.ShadowSkin.Opacity), AnimateShadow = new Action<double, int, int>((Value, Time, Delay) => ModAnimation.AniStart(ModAnimation.AaOpacity(this.ShadowSkin, Value, Time, Delay), "Skin Shadow")), SetToolTip = new Action<string>(Value => this.ToolTip = Value), SetBackTag = new Action<object>(Value => this.ImgBack.Tag = Value), SetFore = new Action<ImageSource>(Value => this.ImgFore.Source = Value), SetBack = new Action<ImageSource>(Value => this.ImgBack.Source = Value), CapeVisibility = new Func<Visibility>(() => this.BtnSkinCape.Visibility), SetCapeVisibility = new Action<Visibility>(Value => this.BtnSkinCape.Visibility = Value), SetSaveEnabled = new Action<bool>(Value => this.BtnSkinSave.IsEnabled = Value), Click = RaiseSkinClick });
+            Native = new LegacySkinControl<ModLaunch.McLoginLegacy, ModLaunch.McLoginMs, ModLaunch.McLoginServer, SkinLoader>(LoginPageRuntime.Skins, new LegacySkinView<SkinLoader>() { Loader = () => Loader, Control = new Func<FrameworkElement>(() => this), Scale = new Func<double>(() => ((ScaleTransform)this.RenderTransform).ScaleX), ShadowOpacity = new Func<double>(() => this.ShadowSkin.Opacity), AnimateShadow = new Action<double, int, int>((Value, Time, Delay) => ModAnimation.AniStart(ModAnimation.AaOpacity(this.ShadowSkin, Value, Time, Delay), "Skin Shadow")), SetToolTip = new Action<string>(Value => this.ToolTip = Value), SetBackTag = new Action<object>(Value => this.ImgBack.Tag = Value), SetFore = new Action<ImageSource>(Value => this.ImgFore.Source = Value), SetBack = new Action<ImageSource>(Value => this.ImgBack.Source = Value), CapeVisibility = new Func<Visibility>(() => this.BtnSkinCape.Visibility), SetCapeVisibility = new Action<Visibility>(Value => this.BtnSkinCape.Visibility = Value), SetSaveEnabled = new Action<bool>(Value => this.BtnSkinSave.IsEnabled = Value), Click = RaiseSkinClick });
             this.InitializeComponent();
         }
 
@@ -75,7 +80,7 @@ namespace PCL
             Native.Save();
         }
 
-        public static void Save(ModLoader.LoaderTask<(string, string), string> Loader)
+        public static void Save(SkinLoader Loader)
         {
             LoginPageRuntime.Skins.Save(Loader);
         }
@@ -87,11 +92,39 @@ namespace PCL
 
         public void Load()
         {
+            _avatarRequest = null;
+            _avatar = null;
+            _texturePath = null;
             Native.Load();
         }
 
+        internal void Load(string kind, LegacySkinRequest request, string path, bool fetched) {
+            if (Loader?.Input != request) return;
+            _avatarRequest = null;
+            _avatar = null;
+            _texturePath = null;
+            if (!Native.Load(path) || !fetched && (kind != "Legacy" || request.Name == "3")) {
+                if (GlassSkinHead.LastGood(kind, request) is { } saved) {
+                    ImgFore.Source = null;
+                    ImgBack.Source = saved;
+                }
+                return;
+            }
+            var bitmap = GlassSkinHead.Render(ImgBack.Source, ImgFore.Source);
+            if (fetched && bitmap is not null) GlassSkinHead.Remember(kind, request, bitmap);
+            _avatar = (ImageSource)bitmap ?? GlassShellRuntime.ComposeAccountAvatar(ImgBack.Source, ImgFore.Source);
+            _avatarRequest = request;
+            if (fetched || kind == "Legacy" && request.Name != "3") _texturePath = path;
+        }
+
+        internal ImageSource AvatarFor(LegacySkinRequest request) => _avatarRequest == request ? _avatar : null;
+        internal string TextureFileFor(LegacySkinRequest request) => _avatarRequest == request ? _texturePath : null;
+
         public void Clear()
         {
+            _avatarRequest = null;
+            _avatar = null;
+            _texturePath = null;
             Native.Clear();
         }
 
@@ -100,7 +133,7 @@ namespace PCL
             Native.RefreshClick();
         }
 
-        public static void RefreshCache(ModLoader.LoaderTask<(string, string), string> sender = null)
+        public static void RefreshCache(SkinLoader sender = null)
         {
             LoginPageRuntime.Skins.RefreshCache(sender);
         }

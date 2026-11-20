@@ -51,7 +51,7 @@ internal static class MmcManagedImportChecks {
         private static readonly byte[] AssetIndex = Encoding.UTF8.GetBytes("{\"objects\":{}}");
         internal Scope(FixtureEnvironment environment) {
             this.environment = environment; root = Path.Combine(environment.Data, Group); game = Path.Combine(root, "minecraft"); Directory.CreateDirectory(game);
-            ModBase.RunInUi(); _ = FileTaskShell.Install(); Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
+            ModBase.RunInUi(); _ = FileTaskShell.Install(); Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
             // Genuine list refresh evaluates these two uncached legacy account records even
             // for an offline pack. Model only an empty owned store; every other read stays guarded.
             object settings = Native.Get(Native.Field(typeof(Settings), "Backend").GetValue(null)!, "host")!;

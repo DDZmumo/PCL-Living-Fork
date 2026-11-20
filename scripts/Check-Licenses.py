@@ -39,7 +39,7 @@ def main() -> None:
         deps = json.loads(args.deps.read_text(encoding="utf-8-sig"))
         names = {item["id"] for item in manifest["components"]}
         names.update(name for item in manifest["components"] for name in item.get("runtimeNames", []))
-        own = {"LivingPCL", "PCLCS", "PCLCS.Reference", "PCLLF.Presentation", "PCLLF.Presentation.Reference"}
+        own = {"LivingPCL", "PCLCS", "PCLCS.Reference", "PCLLF.WPF.Core", "PCLLF.WPF.Core.Reference", "PCLLF.Presentation", "PCLLF.Presentation.Reference"}
         missing = {name.rsplit("/", 1)[0] for name in deps["libraries"]} - names - own
         assert not missing, "Runtime dependencies absent from notices: " + ", ".join(sorted(missing))
     print(f"PASS licenses: {len(covered)} MPL source files, {len(manifest['components'])} components, embedded offline texts in sync.")

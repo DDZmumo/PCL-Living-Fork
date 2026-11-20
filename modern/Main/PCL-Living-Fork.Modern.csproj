@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>
 <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting><CETCompat>false</CETCompat>
-<OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.Application</StartupObject>
+<OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.LauncherEntryPoint</StartupObject>
 <EnableDefaultCompileItems>false</EnableDefaultCompileItems><EnableDefaultPageItems>false</EnableDefaultPageItems><EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
 <GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><EnableLegacyLink>false</EnableLegacyLink><DefineConstants Condition="'$(EnableLegacyLink)' == 'true'">$(DefineConstants);LEGACY_LINK</DefineConstants><AllowUnsafeBlocks>true</AllowUnsafeBlocks><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
 </PropertyGroup>
@@ -11,8 +11,14 @@
 <!-- Main-only generated C# credential source/intermediate; before other build imports. -->
 <Import Project="CredentialBuild.targets" />
 <ItemGroup>
-<ProjectReference Include="../PCLCS/PCLCS.Modern.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/>
+<ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/>
 </ItemGroup><ItemGroup>
+<Compile Include="Application/*.cs" />
+<Compile Include="Glass/*.cs" />
+<Compile Include="FormMain.Glass.cs" />
+<Page Include="Glass/GlassLauncherView.xaml" />
+<Page Include="Glass/GlassPresentationResources.xaml" />
+<Page Include="Images/Branding/PCLLF.Logo.xaml" />
 <Compile Include="Controls/Behaviors/ClipboardInterceptor.cs" />
 <Compile Include="Controls/Behaviors/Interfaces.cs" />
 <Compile Include="Controls/Behaviors/LazyLoadBehavior.cs" />
@@ -301,7 +307,7 @@
 <Page Include="Pages/PageInstance/PageInstanceModDisabled.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceOverall.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceSetup.xaml" />
-<Resource Include="Images/icon.ico" />
+<Resource Include="Images/icon.ico" /><Resource Include="Images/Crash/Face.png" /><Resource Include="Images/Crash/Hand.png" /><Resource Include="Images/Crash/Praise.png" /><Resource Include="Images/Crash/Crashed.png" />
 <Resource Include="Resources/Font.ttf" />
 <Resource Include="Resources/Tabler-Icons-LICENSE.txt" />
 <Resource Include="Images/Heads/LTCat.jpg" />

@@ -50,7 +50,8 @@ public static class ModernTooltipService {
 
     // 附加属性
     public static readonly DependencyProperty UseModernTooltipProperty = DependencyProperty.RegisterAttached(
-        "UseModernTooltip", typeof(bool), typeof(ModernTooltipService), new PropertyMetadata(true));
+        "UseModernTooltip", typeof(bool), typeof(ModernTooltipService),
+        new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.Inherits));
     public static readonly DependencyProperty FollowMouseProperty = DependencyProperty.RegisterAttached(
         "FollowMouse", typeof(bool), typeof(ModernTooltipService), new PropertyMetadata(true));
     private static readonly DependencyProperty IsComboBoxDropDownHookedProperty = DependencyProperty.RegisterAttached(

@@ -8,6 +8,16 @@ internal static class Program
     private static readonly Dictionary<string, Action<FixtureEnvironment>> Cases = new(StringComparer.Ordinal)
     {
         ["map-details"] = MapResourceChecks.MapDetails,
+        ["application-services"] = ApplicationServiceChecks.Run,
+        ["glass-context-navigation"] = GlassContextNavigationChecks.Run,
+        ["glass-shell"] = GlassShellChecks.Run,
+        ["glass-window"] = GlassWindowIntegrationChecks.Run,
+        ["glass-portals"] = GlassPortalChecks.Run,
+        ["glass-presentation"] = GlassPresentationChecks.Run,
+        ["glass-projection-regressions"] = GlassProjectionRegressionChecks.Run,
+        ["glass-reported-regressions"] = GlassProjectionRegressionChecks.ReportedRegressions,
+        ["glass-modal-lifecycle"] = GlassModalLifecycleChecks.Run,
+        ["workbench-commands"] = WorkbenchCommandChecks.Run,
         ["instance-delete"] = InstanceDeletionChecks.Run,
         ["launcher-update-page"] = LauncherUpdatePageChecks.Run,
         ["title-theme-toggle"] = TitleThemeToggleChecks.Run,
@@ -101,7 +111,10 @@ internal static class Program
         ["mmc-import-cleanup-guards"] = MmcImportRecoveryUiChecks.RunCleanupGuards,
         ["launch-process"] = LaunchProcessChecks.Run,
         ["pack-root-install"] = PackRootInstallChecks.Run,
-        ["account-ui"] = AccountUiChecks.Run,
+        ["account-ui"] = environment => AccountUiChecks.Run(environment),
+        ["glass-account-ui"] = environment => AccountUiChecks.Run(environment, true),
+        ["skin-site-authentication"] = SkinSiteAuthenticationChecks.Run,
+        ["skin-library"] = SkinLibraryChecks.Run,
         ["mod-favorites"] = ModFavoriteChecks.Run,
         ["update-log-prompt"] = UpdateLogPromptChecks.Run,
         ["instance-sidebar"] = InstanceSidebarChecks.Run,
@@ -217,7 +230,7 @@ internal static class Program
     private static string[] ReadGroups(string[] args)
     {
         string? value = ReadOption(args, "--groups");
-        string[] selected = value is null ? Cases.Keys.Where(name => name is not ("registry-data" or "account-ui")).ToArray() : value.Split(',', StringSplitOptions.TrimEntries);
+        string[] selected = value is null ? Cases.Keys.Where(name => name is not ("registry-data" or "account-ui" or "glass-account-ui")).ToArray() : value.Split(',', StringSplitOptions.TrimEntries);
         if (selected.Length == 0 || selected.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Empty facade selection.");
         foreach (string item in selected)
@@ -225,7 +238,7 @@ internal static class Program
                 throw new ArgumentException("Unknown facade group: " + item);
         if (selected.Contains("registry-data", StringComparer.Ordinal) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
             throw new ArgumentException("Select registry-data alone in its fresh hosted-profile process.");
-        if (selected.Contains("account-ui", StringComparer.Ordinal) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
+        if ((selected.Contains("account-ui", StringComparer.Ordinal) || selected.Contains("glass-account-ui", StringComparer.Ordinal)) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
             throw new ArgumentException("Select account-ui alone in its fresh guarded Shared configuration process.");
         return selected.Distinct(StringComparer.Ordinal).ToArray();
     }
@@ -260,7 +273,10 @@ internal static class Program
             start.ArgumentList.Add("--isolated"); start.ArgumentList.Add("--fixture"); start.ArgumentList.Add(root);
             process = Process.Start(start) ?? throw new InvalidOperationException("Could not start the actual facade child.");
             Stopwatch run = Stopwatch.StartNew();
-            int Remaining() => Math.Max(0, 60000 - checked((int)run.ElapsedMilliseconds));
+            bool interactiveGlass = args.SequenceEqual(new[] { "--groups", "glass-window" }, StringComparer.Ordinal) &&
+                Environment.GetEnvironmentVariable("PCLLF_GLASS_INTERACTIVE") == "1";
+            int budget = interactiveGlass ? 600000 : 60000;
+            int Remaining() => Math.Max(0, budget - checked((int)run.ElapsedMilliseconds));
             stdout = process.StandardOutput.ReadToEndAsync(); ObserveFault(stdout);
             stderr = process.StandardError.ReadToEndAsync(); ObserveFault(stderr);
             Task[] drains = [stdout, stderr];
@@ -280,7 +296,7 @@ internal static class Program
                 // product process. The verified dedicated child retains its
                 // settings/platform guards until this explicit process boundary.
                 process.Kill(true);
-                if (!process.WaitForExit(Remaining()) || !Task.WaitAll(drains, Remaining()) || run.ElapsedMilliseconds >= 60000)
+                if (!process.WaitForExit(Remaining()) || !Task.WaitAll(drains, Remaining()) || run.ElapsedMilliseconds >= budget)
                     throw new TimeoutException("Owned download termination/output exceeded the same60-second deadline.");
                 if (process.ExitCode != -1) throw new InvalidOperationException("Owned Windows download termination did not return the expected -1: " + process.ExitCode);
                 string errors = stderr.GetAwaiter().GetResult();
@@ -292,7 +308,7 @@ internal static class Program
                     : "PASS native modpack download lifetime: complete UX/file/network/listener evidence; exactly three original foreground NetManager loops retained until expected parent-owned termination (-1), not a natural exit0.");
                 return 0;
             }
-            if (!process.WaitForExit(Remaining()) || !Task.WaitAll(drains, Remaining()) || run.ElapsedMilliseconds >= 60000)
+            if (!process.WaitForExit(Remaining()) || !Task.WaitAll(drains, Remaining()) || run.ElapsedMilliseconds >= budget)
                 throw new TimeoutException("Native facade host/output exceeded the same60-second deadline.");
             Console.Write(stdout.GetAwaiter().GetResult()); Console.Error.Write(stderr.GetAwaiter().GetResult());
             outputPrinted = true;

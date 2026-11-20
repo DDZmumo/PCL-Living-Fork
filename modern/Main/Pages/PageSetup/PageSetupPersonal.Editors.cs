@@ -54,9 +54,10 @@ public partial class PageSetupPersonal {
     private void CancelEditorState() { editTimer.Stop(); pendingEdits.Clear(); pendingOwner = null; CancelProfileCapture(); }
     private static Grid EditorRow() {
         var row = new Grid { Margin = new Thickness(0, 2, 0, 4) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star), MinWidth = 100 });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 132 });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 132 });
+        Grid.SetIsSharedSizeScope(row, true);
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition());
         return row;
     }
     private static void AddEditorText(Grid row, string text, int column) {
@@ -88,20 +89,27 @@ public partial class PageSetupPersonal {
             catch { AddEditorText(row, text, column); return; }
             var panel = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(55) });
+            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SyncValue" });
             var slider = new MySlider { MaxValue = PersonalOptionsCatalog.SliderMaximum(definition.Key), Value = value,
                 IsEnabled = false, IsHitTestVisible = false, Focusable = false, VerticalAlignment = VerticalAlignment.Center,
                 Tag = tagPrefix + definition.Key };
             var label = new TextBlock { Text = PersonalOptionsCatalog.SliderText(definition.Key, value), HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center };
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
             label.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
             Grid.SetColumn(label, 1); panel.Children.Add(slider); panel.Children.Add(label);
             Grid.SetColumn(panel, column); row.Children.Add(panel); return;
         }
         var entry = new InstanceKeybinding { Key = definition.Key, Name = definition.Title, Owners = "Minecraft" };
         var button = PageInstanceKeybindings.CreateNativeButton(entry, text, false, tagPrefix == "global-value:" ? "已保存的全局键位，只读预览。" : "当前版本的键位，仅用于对照。", () => { });
-        button.Element.IsEnabled = false; button.Element.HorizontalAlignment = HorizontalAlignment.Center;
+        button.Element.IsEnabled = false;
+        FitKeyButton(button.Element);
         Grid.SetColumn(button.Element, column); row.Children.Add(button.Element);
+    }
+    private static void FitKeyButton(FrameworkElement button) {
+        button.Width = double.NaN;
+        button.MaxWidth = 132;
+        button.HorizontalAlignment = HorizontalAlignment.Stretch;
+        button.Margin = new Thickness(8, 0, 4, 0);
     }
     private FrameworkElement CreateValueEditor(PersonalOptionDefinition definition, bool selected) {
         string key = definition.Key;
@@ -118,7 +126,7 @@ public partial class PageSetupPersonal {
             var button = PageInstanceKeybindings.CreateNativeButton(entry, saved is null ? "设置按键" : InstanceKeybindingView.DisplayKey(normalized), shared,
                 IsInstanceContext ? "暂存本版本按键，点击保存后生效。Esc 取消。" : "暂存全局按键，点击保存后生效。Esc 取消。", () => BeginProfileCapture(key));
             button.Element.IsEnabled = enabled;
-            button.Element.HorizontalAlignment = HorizontalAlignment.Center;
+            FitKeyButton(button.Element);
             profileKeyButtons[key] = button;
             return button.Element;
         }
@@ -136,13 +144,13 @@ public partial class PageSetupPersonal {
         catch { initial = PersonalOptionsCatalog.SliderValue(key, fallback); invalid = true; }
         var panel = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(55) });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SyncValue" });
         var slider = new MySlider { MaxValue = PersonalOptionsCatalog.SliderMaximum(key), Value = initial, ValueByKey = 1,
             IsEnabled = enabled, Tag = valuePrefix + key, VerticalAlignment = VerticalAlignment.Center,
             ToolTip = "调整后点击保存才会生效。" };
         slider.GetHintText = new Func<int, string>(value => PersonalOptionsCatalog.SliderText(key, value));
         var valueLabel = new TextBlock { Text = invalid ? "无效值" : saved is null ? "未保存" : PersonalOptionsCatalog.SliderText(key, initial),
-            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8, 0, 0, 0) };
         valueLabel.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
         Grid.SetColumn(valueLabel, 1); panel.Children.Add(slider); panel.Children.Add(valueLabel);
         // LF's native slider reports false for both drag and keyboard changes;

@@ -45,6 +45,7 @@ namespace PCL
             MouseMove += FormMain_MouseMove;
             Controller.ConstructBeforeXaml();
             InitializeComponent();
+            PrepareGlassShell();
             BtnTitleSelect5.Logo = ModBase.Logo.IconButtonLikeLine;
             ConfigureThemeToggle(BtnTitleTheme);
             ConfigureDeferredUpdateButton(BtnTitleUpdate, ModLauncherUpdate.ReopenDeferredUpdate);
@@ -54,6 +55,7 @@ namespace PCL
             PanTitle.Children.Insert(1, titleStars);
             RegisterName("TitleStars", titleStars);
             Controller.ConstructAfterXaml();
+            AttachGlassShell();
         }
         private static void ConfigureThemeToggle(MyIconButton button)
         {
@@ -63,17 +65,18 @@ namespace PCL
                 button.ToolTip = ModTheme.IsDarkTheme ? "切换到浅色主题" : "切换到深色主题";
                 System.Windows.Automation.AutomationProperties.SetName(button, button.ToolTip.ToString());
             }
-            button.Click += (_, _) => {
-                Settings.Set("UiLauncherColorMode", ModTheme.IsDarkTheme ? 0 : 1);
-                if (ModMain.FrmSetupUI is not null) {
-                    ModAnimation.AniControlEnabled++;
-                    try { SettingService.RefreshSettings(ModMain.FrmSetupUI.ComboLauncherColorMode); }
-                    finally { ModAnimation.AniControlEnabled--; }
-                }
-                RefreshIcon();
-            };
+            button.Click += (_, _) => { ToggleLauncherColorMode(); RefreshIcon(); };
             ModTheme.WatchTheme(button, RefreshIcon);
             RefreshIcon();
+        }
+
+        internal static void ToggleLauncherColorMode()
+        {
+            Settings.Set("UiLauncherColorMode", Settings.Get<int>("UiLauncherColorMode") == 1 ? 0 : 1);
+            if (ModMain.FrmSetupUI is null) return;
+            ModAnimation.AniControlEnabled++;
+            try { SettingService.RefreshSettings(ModMain.FrmSetupUI.ComboLauncherColorMode); }
+            finally { ModAnimation.AniControlEnabled--; }
         }
 
         private static void ConfigureDeferredUpdateButton(MyIconButton button, Action open)
@@ -131,7 +134,11 @@ namespace PCL
         private void BtnTitleMin_Click() => Controller.Minimize();
         public static void UpdateBackgroundAndTitleBar(object Value)
             => LegacyMainWindowStatics.UpdateBackground(() => ModMain.FrmMain, () => ModMain.FrmMain.UpdateBackgroundAndTitleBar());
-        public void UpdateBackgroundAndTitleBar() => Controller.UpdateBackgroundAndTitleBar();
+        public void UpdateBackgroundAndTitleBar()
+        {
+            Controller.UpdateBackgroundAndTitleBar();
+            glassShell?.RefreshWallpaper(true);
+        }
         internal void UpdateTitleBar() => Controller.UpdateTitleBar();
         private void FormMain_KeyDown(object sender, KeyEventArgs e) => Controller.KeyDown(e);
         private void FormMain_MouseDown(object sender, MouseButtonEventArgs e) => Controller.MouseDown(e);
@@ -247,6 +254,8 @@ namespace PCL
         private LegacyMainWindowView CreateWindowView() => new LegacyMainWindowView
         {
             Window = this,
+            UsesGlassShell = () => GlassShellActive,
+            SuppressesLaunchKey = () => GlassAccountPageOpen,
             PanBack = () => PanBack, PanForm = () => PanForm, PanMain = () => PanMain,
             PanTitle = () => PanTitle, PanTitleMain = () => PanTitleMain, PanTitleInner = () => PanTitleInner, PanMsg = () => PanMsg,
             BorderForm = () => BorderForm, PanMainLeft = () => PanMainLeft, PanMainRight = () => PanMainRight,
@@ -278,7 +287,12 @@ namespace PCL
                 CreateLaunchRight = () => ModMain.FrmLaunchRight = new PageLaunchRight(),
                 ReadInteger = key => Settings.Get<int>(key), ReadString = key => Settings.Get<string>(key),
                 ReadBoolean = key => Settings.Get<bool>(key), HasSaved = key => Settings.HasSaved(key),
-                DefaultValue = key => Settings.GetDefault(key), WriteSetting = (key, value) => Settings.Set(key, value), ResetSetting = key => Settings.Reset(key),
+                DefaultValue = key => Settings.GetDefault(key),
+                WriteSetting = (key, value) => Settings.Set(key,
+                    key == "WindowWidth" && glassShell?.HasLeftExpansionOverhang == true
+                        ? Math.Max(980, Convert.ToInt32(Math.Round(Convert.ToDouble(value) - GlassShellIntegration.LeftOverhangAllowance)))
+                        : value),
+                ResetSetting = key => Settings.Reset(key),
                 UpdateLogIdentity = () => CurrentUpdateLogIdentity,
                 HasIniKey = (file, key) => ModBase.HasIniKey(file, key), ThemeRefresh = value => ModSecret.ThemeRefresh(value),
                 ThemeRefreshMain = () => ModSecret.ThemeRefreshMain(), RefreshHidden = () => PageSetupUI.HiddenRefresh(),

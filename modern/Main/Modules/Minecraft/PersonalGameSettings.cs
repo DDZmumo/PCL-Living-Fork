@@ -47,15 +47,15 @@ namespace PCL
             if (ModMinecraft.McInstanceLock.IsLocked(instance)) throw new System.IO.IOException("请等待版本文件任务结束，再修改设置。");
             Management.EditInstanceValues(Adapt(instance), edits);
         }
-        internal static IReadOnlyDictionary<string, string> BindingAnnotations(ModMinecraft.McInstance instance) {
-            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        internal static IReadOnlyDictionary<string, KeybindingPersonalState> BindingAnnotations(ModMinecraft.McInstance instance) {
+            var result = new Dictionary<string, KeybindingPersonalState>(StringComparer.Ordinal);
             var values = Management.Profile()["values"] as JObject;
             foreach (var item in PersonalOptionsCatalog.Items) {
                 if (!item.Key.StartsWith("key_", StringComparison.Ordinal)) continue;
                 string value = (string)values?[item.Key];
-                result[item.Key] = value is null ? "基础键位 · 个人方案未保存"
-                    : "个人方案：" + InstanceKeybindingView.DisplayKey(PersonalOptionsRules.NormalizeBinding(value)) +
-                        (Enabled(instance) && Selected(item.Key) ? " · 参与同步" : " · 未参与同步");
+                result[item.Key] = value is null ? new KeybindingPersonalState(null, false)
+                    : new KeybindingPersonalState(InstanceKeybindingView.DisplayKey(PersonalOptionsRules.NormalizeBinding(value)),
+                        Enabled(instance) && Selected(item.Key));
             }
             return result;
         }

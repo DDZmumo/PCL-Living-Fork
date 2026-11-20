@@ -27,6 +27,7 @@ public sealed class LegacyPageSetupUIRuntime {
     private static Visibility Hidden(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
     public void BackgroundRefresh(bool isHint, bool refresh) {
         try {
+            if (Host.RefreshLauncherWallpaperControls?.Invoke() == true) return;
             if (Conversions.ToInteger(Common.Read("UiBackgroundMode")) == 1) {
                 if (Host.HasMain()) Host.ApplyBackground(Host.MainPanel(), Host.MainBackground());
                 if (Host.CurrentUI() is not null) Host.CurrentUI()!.BackgroundRefreshUI(false, 0);
@@ -50,7 +51,9 @@ public sealed class LegacyPageSetupUIRuntime {
                     try {
                         Logger.Info("加载背景图片：" + address);
                         Host.MarkCustomBackground(Host.MainBackground());
-                        Host.MainBackground().Background = Common.LoadBitmap(address).ToImageBrush();
+                        Host.MainBackground().Background = Common.LoadBackgroundBrush is not null
+                            ? Common.LoadBackgroundBrush(address)
+                            : Common.LoadBitmap(address).ToImageBrush();
                         Host.ApplyBackground(Host.MainPanel(), Host.MainBackground()); Host.UpdateBackgroundAndTitle();
                         if (isHint) Common.Hint("背景图片已刷新：" + PathUtils.GetLastPart(address), LegacySetupHint.Green, false);
                     } catch (Exception error) {

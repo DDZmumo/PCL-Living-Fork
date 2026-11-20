@@ -59,7 +59,8 @@ internal sealed class AccountUiChecksScope : IDisposable
         this.environment = environment;
         VisualAssetChecks.VerifyChild(environment);
         string[] args = Environment.GetCommandLineArgs(); int selected = Array.IndexOf(args, "--groups");
-        Native.Check(selected >= 0 && selected + 1 < args.Length && args[selected + 1].Split(',', StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).SequenceEqual(new[] { "account-ui" }), "Select account-ui alone in its fresh isolated child; captured Shared providers cannot be combined across groups.");
+        string[] family = selected >= 0 && selected + 1 < args.Length ? args[selected + 1].Split(',', StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray() : [];
+        Native.Check(family.Length == 1 && family[0] is "account-ui" or "glass-account-ui", "Select one account UI family alone in its fresh isolated child; captured Shared providers cannot be combined across groups.");
         Native.Check(!ModAnimation.AniRunning, "Account manual ticks cannot adopt a live animation driver.");
         // A rejected pre-existing producer is never ours to cancel in catch.
         Native.Check(Loader.State != ModBase.LoadState.Loading && Loader.LastRunningThread is not { IsAlive: true }, "Cannot adopt an existing Microsoft login producer.");
@@ -85,7 +86,7 @@ internal sealed class AccountUiChecksScope : IDisposable
                 restore.Push(() => { cache.Clear(); foreach (var value in before) cache[value.Key] = value.Value; });
             }
             foreach (string name in new[] { "FrmMain", "FrmLaunchLeft", "FrmLoginLegacy", "FrmLoginMs", "FrmLoginMsSkin", "FrmLoginAuth", "FrmLoginAuthSkin", "FrmLoginNide", "FrmLoginNideSkin" }) Global(name, null);
-            SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
+            SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
             // Actual loader thread/cancellation fields are preserved, not replaced
             // by a task-state stub. All started bodies are joined before restore.
             // Restore backing fields only after producer/UI barriers. Invoking
@@ -309,7 +310,7 @@ internal sealed class AccountUiChecksScope : IDisposable
     }
     private void Replace(object owner, string name, object value) { FieldInfo field = Native.Field(owner.GetType(), name); object? before = field.GetValue(owner); restore.Push(() => { field.SetValue(owner, before); Native.Check(ReferenceEquals(field.GetValue(owner), before), "Account seam identity restoration failed: " + name); }); field.SetValue(owner, value); }
     private void SaveField(object owner, string name) { FieldInfo field = Native.Field(owner.GetType(), name); object? before = field.GetValue(owner); restore.Push(() => field.SetValue(owner, before)); }
-    private void SaveStatic(Type type, string name) { FieldInfo field = Native.Field(type, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
+    private void SaveStatic(Type type, string name) { var field = Native.State(type, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
     private void Global(string name, object? value) { SaveStatic(typeof(ModMain), name); Native.Field(typeof(ModMain), name).SetValue(null, value); }
     internal void SetCache(string name, object value) => Native.Cache(name, value);
     internal void VerifyController(PageLoginMs page) => Native.Check(ReferenceEquals(Native.Get(Native.Get(page, "Native")!, "host"), accounts), "Actual Microsoft page must close over the original LoginPageRuntime host.");

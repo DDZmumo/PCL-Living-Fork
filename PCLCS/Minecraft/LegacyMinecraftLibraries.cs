@@ -168,7 +168,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
                 else throw new Exception("获取统一通行证下载信息失败", ex);
             }
         }
-        if (ReadInteger("VersionServerLogin", instance) == 4) {
+        int loginMode = ReadInteger("VersionServerLogin", instance);
+        if (loginMode == 4 || (loginMode == 0 && ReadInteger("LfSkinSiteActive") == 1 && ReadInteger("LoginType") == 3)) {
             string targetFile = host.PureFolder() + "authlib-injector.jar";
             try {
                 Logger.Info("开始获取 Authlib-Injector 下载信息");

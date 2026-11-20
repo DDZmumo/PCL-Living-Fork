@@ -47,6 +47,8 @@ namespace PCL
             }
         }
 
+        public void PerformClick(int count = 1) => Controller.Activate(count);
+
         internal void Bind(InstanceResourceEntry Value)
         {
             Controller.Bind(Value);

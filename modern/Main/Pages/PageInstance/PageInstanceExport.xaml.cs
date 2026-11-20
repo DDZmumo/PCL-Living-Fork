@@ -89,6 +89,8 @@ namespace PCL
             if (!this.IsMmcExport)
                 this.Pipeline = new global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>(global::PCL.PageInstanceExport.CreatePipelineHost());
             this.InitializeComponent();
+            // The new presentation invokes this button directly instead of the old card's mouse event.
+            this.BtnOverrideCancel.Click += (_, _) => { if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.OptionsMouseDown(); };
             if (this.IsMmcExport) this.InitializeMmcExport();
         }
 

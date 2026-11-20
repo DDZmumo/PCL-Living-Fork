@@ -54,9 +54,19 @@ public sealed class LegacyServerLoginPage<TLegacy, TMs, TServer> {
     private readonly LegacyServerLoginView view;
     private readonly bool auth;
     private bool firstLoad = true;
+    private string? displayedAuthEndpoint;
     public LegacyServerLoginPage(LegacyLoginHost<TLegacy, TMs, TServer> host, LegacyServerLoginView view, bool Auth) { this.host = host; this.view = view; auth = Auth; }
     private string Prefix => auth ? "Auth" : "Nide";
+    private string AuthEndpoint() => PCLCS.AuthlibEndpoint.ForServer(host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerAuthServer") : host.ReadString("CacheAuthServerServer"));
     public void Reload(bool KeepInput) {
+        if (auth) {
+            string endpoint = AuthEndpoint();
+            if (!PCLCS.AuthlibEndpoint.Same(displayedAuthEndpoint, endpoint)) {
+                view.SetPassword("");
+                KeepInput = false;
+            }
+            displayedAuthEndpoint = endpoint;
+        }
         view.SetRemember(host.ReadBoolean("LoginRemember"));
         if (KeepInput && !firstLoad) {
             string input = view.Name(); view.SetNames(string.IsNullOrEmpty(host.ReadString("Login" + Prefix + "Email")) ? null : host.ReadString("Login" + Prefix + "Email").Split("¨")); view.SetName(input);
@@ -64,16 +74,17 @@ public sealed class LegacyServerLoginPage<TLegacy, TMs, TServer> {
             if (string.IsNullOrEmpty(host.ReadString("Login" + Prefix + "Email"))) view.SetNames(null);
             else {
                 view.SetNames(host.ReadString("Login" + Prefix + "Email").Split("¨")); view.SetName(host.ReadString("Login" + Prefix + "Email").BeforeFirst("¨"));
-                if (host.ReadBoolean("LoginRemember")) view.SetPassword(host.ReadString("Login" + Prefix + "Pass").BeforeFirst("¨").Trim());
+                if (host.ReadBoolean("LoginRemember")) view.SetPassword(auth ? RememberedAuthPassword(view.Name()) : host.ReadString("Login" + Prefix + "Pass").BeforeFirst("¨").Trim());
             }
         }
         firstLoad = false;
     }
     public TServer GetLoginData(Func<bool> PageExists, Func<string> ReadName, Func<string> ReadPassword) {
-        string server = auth ? (host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerAuthServer") : host.ReadString("CacheAuthServerServer")) + "/authserver" :
+        string server = auth ? AuthEndpoint() :
             "https://auth.mc-user.com:233/" + (host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerNide") : host.ReadString("CacheNideServer")) + "/authserver";
         bool exists = PageExists();
-        return host.CreateServer(new LegacyLoginInput { Token = Prefix, BaseUrl = server, UserName = exists ? ReadName().Replace("¨", "").Trim() : "", Password = exists ? ReadPassword().Replace("¨", "").Trim() : "", Description = auth ? "Authlib-Injector" : "统一通行证" });
+        bool sameEndpoint = !auth || displayedAuthEndpoint is null || PCLCS.AuthlibEndpoint.Same(displayedAuthEndpoint, server);
+        return host.CreateServer(new LegacyLoginInput { Token = Prefix, BaseUrl = server, UserName = exists ? ReadName().Replace("¨", "").Trim() : "", Password = exists && sameEndpoint ? ReadPassword().Replace("¨", "").Trim() : "", Description = auth ? "Authlib-Injector" : "统一通行证" });
     }
     public string IsVaild(TServer LoginData) {
         if (string.IsNullOrEmpty(host.ServerName(LoginData))) return "账号不能为空！";
@@ -82,7 +93,19 @@ public sealed class LegacyServerLoginPage<TLegacy, TMs, TServer> {
     }
     public void NameChanged(string SenderText) { if (string.IsNullOrEmpty(SenderText)) view.SetPassword(""); if (host.AnimationDisabled() == 0) host.WriteSetting("Cache" + Prefix + "Access", ""); }
     public void PasswordChanged() { if (host.AnimationDisabled() == 0) host.WriteSetting("Cache" + Prefix + "Access", ""); }
-    public void SelectionChanged(int SelectedIndex) => view.SetPassword(SelectedIndex == -1 || !host.ReadBoolean("LoginRemember") ? "" : host.ReadString("Login" + Prefix + "Pass").Split("¨")[SelectedIndex].Trim());
+    public void SelectionChanged(int SelectedIndex) {
+        if (SelectedIndex == -1 || !host.ReadBoolean("LoginRemember")) { view.SetPassword(""); return; }
+        if (auth) {
+            string[] names = host.ReadString("LoginAuthEmail").Split('¨');
+            view.SetPassword(SelectedIndex < names.Length ? RememberedAuthPassword(names[SelectedIndex]) : "");
+        } else view.SetPassword(host.ReadString("LoginNidePass").Split('¨')[SelectedIndex].Trim());
+    }
+    private string RememberedAuthPassword(string name) {
+        var cache = host.AccountSnapshot("CacheAuth");
+        return PCLCS.AuthlibEndpoint.Same(AuthEndpoint(), cache.GetValueOrDefault(PCLCS.AuthlibEndpoint.CredentialServerSetting) as string) &&
+            string.Equals(name, cache.GetValueOrDefault("CacheAuthUsername") as string, StringComparison.OrdinalIgnoreCase)
+            ? cache.GetValueOrDefault("CacheAuthPass") as string ?? "" : "";
+    }
     public void RememberChanged(string Key, bool Checked) { if (host.AnimationDisabled() == 0) host.WriteSetting(Key, Checked); }
     public void UpdateLinkText() => view.SetLinkContent(string.IsNullOrEmpty(view.Name()) ? "注册账号" : "找回密码");
     private string RegisterAddress() => host.HasSelectedInstance() ? host.ReadInstanceString("VersionServerAuthRegister") : host.ReadString("CacheAuthServerRegister");

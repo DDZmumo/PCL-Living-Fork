@@ -148,7 +148,7 @@ internal static class MmcGtnhAcceptance {
             cacheRoot = cacheCaseRoot ?? root; cacheGame = Path.Combine(cacheRoot, "game");
             name = "GTNH-2.9.0-" + sample.Id; Directory.CreateDirectory(game);
             File.WriteAllText(Path.Combine(root, OwnerName), JsonSerializer.Serialize(new { Kind = "PCLLF.GtnhImportCase", Root = root, MinecraftRoot = game, Sample = sample.Id, Keep = true }));
-            ModBase.RunInUi(); MmcGtnhPostPublishChecks.InstallEmptyLegacyAccountStore(); Native.Field(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
+            ModBase.RunInUi(); MmcGtnhPostPublishChecks.InstallEmptyLegacyAccountStore(); Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, game + Path.DirectorySeparatorChar);
             Native.Cache("ToolDownloadSource", 2); Native.Cache("SystemDebugSkipCopy", true);
             var profile = new JsonConfigProvider(Path.Combine(root, "private-profile.json")); ConfigProviders.Default = profile;
             Native.Check(ReferenceEquals(Configs.JavaList.Provider, profile), "Acceptance Java settings captured a real player profile.");

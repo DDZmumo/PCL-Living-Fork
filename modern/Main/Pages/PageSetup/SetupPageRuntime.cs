@@ -62,6 +62,7 @@ namespace PCL
             Sleep = new Action<global::System.Int32>(Delay => global::System.Threading.Thread.Sleep(Delay)),
             ExtractResource = global::PCL.ModBase.ExtractResources,
             LoadBitmap = new Func<global::System.String, global::PCLCS.LegacyBitmap>(Path => new global::PCL.MyBitmap(Path)),
+            LoadBackgroundBrush = LoadBoundedBackgroundBrush,
             SelectImage = new Func<global::System.String, global::System.String[], global::System.String, global::System.Collections.Generic.IEnumerable<global::System.String>>((Title, Extensions, Label) => global::MeloongCore.Wpf.Dialogs.SelectFile(Title, false, filter: new[] { (Extensions, Label) })),
             StartAnimations = global::PCL.SetupPageRuntime.StartAnimations,
             StopAnimation = new Action<global::System.String>(Name => global::PCL.ModAnimation.AniStop(Name)),
@@ -71,6 +72,12 @@ namespace PCL
         {
             Common = Common,
             CurrentUI = new Func<global::PCLCS.LegacyPageSetupUIController>(() => global::PCL.ModMain.FrmSetupUI is null ? (global::PCLCS.LegacyPageSetupUIController)(null) : (global::PCL.ModMain.FrmSetupUI.Controller)),
+            RefreshLauncherWallpaperControls = () =>
+            {
+                if (ModMain.FrmMain?.GlassShellActive != true) return false;
+                ModMain.FrmSetupUI?.Controller.RefreshLauncherWallpaperUI(File.Exists(GlassShellIntegration.ReadSelectedWallpaper()));
+                return true;
+            },
             ReadHiddenForceShow = global::PCL.PageSetupUI.ReadHiddenForceShow,
             WriteHiddenForceShow = global::PCL.PageSetupUI.WriteHiddenForceShow,
             HasMain = new Func<global::System.Boolean>(() => global::PCL.ModMain.FrmMain is not null),
@@ -123,7 +130,7 @@ namespace PCL
             SkinPath = new Func<global::PCL.ModMinecraft.McSkinInfo, global::System.String>(Skin => Skin.LocalFile),
             StartLegacySkin = new Action<global::System.Boolean>(Force => global::PCL.PageLaunchLeft.SkinLegacy.Start(IsForceRestart: Force)),
             SaveSkin = new Action(() => global::PCL.MySkin.Save(global::PCL.PageLaunchLeft.SkinLegacy)),
-            RefreshSkinCache = new Action(() => global::PCL.MySkin.RefreshCache((global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>)null)),
+            RefreshSkinCache = () => MySkin.RefreshCache(),
             StartJavaRefresh = new Action(() => global::PCL.ModJava.JavaListRefreshWorker.Start()),
             SearchJava = () => global::PCL.ModJava.ManuallySearchJava(),
             ImportJava = global::PCL.ModJava.ManuallyImportJava,
@@ -322,6 +329,52 @@ namespace PCL
                         throw new global::System.ArgumentOutOfRangeException(nameof(Element));
                     }
             }
+        }
+
+        internal static ImageSource TryLoadBoundedBitmap(string path, int maxPixelWidth)
+        {
+            try
+            {
+                using Stream probe = global::MeloongCore.FileUtils.ReadAsStream(path);
+                byte[] header = new byte[2];
+                int read = probe.Read(header, 0, 2);
+                if (read == 2 && header[0] == 82 && header[1] == 73) return null; // RIFF/WebP uses Imazen fallback
+                probe.Seek(0, SeekOrigin.Begin);
+                var decoder = BitmapDecoder.Create(probe, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+                if (decoder.Frames.Count == 0) return null;
+                int nativeWidth = decoder.Frames[0].PixelWidth;
+                if (nativeWidth <= 0) return null;
+
+                probe.Seek(0, SeekOrigin.Begin);
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                if (nativeWidth > maxPixelWidth) bitmap.DecodePixelWidth = maxPixelWidth;
+                bitmap.StreamSource = probe;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ImageBrush LoadBoundedBackgroundBrush(string path)
+        {
+            if (global::PCL.GlassVideoWallpaper.IsVideo(path)) return global::PCL.GlassVideoWallpaper.Create(path);
+            global::PCL.GlassVideoWallpaper.Stop();
+            if (TryLoadBoundedBitmap(path, 1920) is { } fastImage)
+            {
+                // Keep ImageBrush unfrozen while its BitmapSource is frozen: LegacyMainWindowAppearance
+                // mutates Stretch/TileMode/Viewport/Alignment directly on ImgBack.Background.
+                return new ImageBrush(fastImage);
+            }
+            var legacy = new global::PCL.MyBitmap(path);
+            try { return legacy.ToImageBrush(); }
+            finally { legacy.Pic?.Dispose(); legacy.Pic = null; }
         }
     }
 }

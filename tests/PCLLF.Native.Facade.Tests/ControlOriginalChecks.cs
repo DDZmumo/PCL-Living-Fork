@@ -55,7 +55,7 @@ internal static class ControlOriginalChecks
         FieldInfo bound = (FieldInfo)Native.Field(typeof(ControlMigratedChecks), "LastTick").GetValue(null)!;
         Native.Check(bound.DeclaringType!.Assembly == Native.Main, "Compiled control verifier did not bind original AniLastTick to actual Main.");
         VerifyDependency("PCLLF.Presentation", typeof(MyButtonView).Assembly);
-        VerifyDependency("PCLCS", typeof(CustomEventCollection).BaseType!.Assembly);
+        VerifyDependency("PCLLF.WPF.Core", typeof(CustomEventCollection).BaseType!.Assembly);
         string mainReference = Path.Combine(AppContext.BaseDirectory, "LivingPCL.dll");
         VerifyMetadata(File.ReadAllBytes(mainReference), Native.Main, "actual Main compiler/staged reference");
         Native.Check(Native.Full(Native.Main.Location) == Native.Full(mainReference), "Actual Main was rebound outside its own isolated staged reference.");

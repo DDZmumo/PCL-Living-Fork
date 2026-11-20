@@ -9,5 +9,5 @@
     <Nullable>enable</Nullable>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-  <ItemGroup><Compile Include="NativeInteractionProbe.cs" /><Compile Include="ReviewedInformationNotice.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="NativeInteractionProbe.cs" /><Compile Include="ReviewedInformationNotice.cs" /><Compile Include="WorkspaceUiPolicy.cs" /></ItemGroup>
 </Project>

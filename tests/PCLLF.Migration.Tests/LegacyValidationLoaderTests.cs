@@ -18,6 +18,36 @@ internal static class LegacyValidationLoaderTests {
         yield return ("legacy file loader cancellation retains real worker until flat payload cleanup and rejects late work", () => FileCancellation(false));
         yield return ("legacy file loader cancellation retains mixed generic nested payload through cleanup", () => FileCancellation(true));
         yield return ("legacy worker adapter reports cancellation before the real worker finishes cleanup", WorkerAdapterCancellation);
+        yield return ("legacy loader workload observation retains canceled and superseded thread cleanup", WorkloadObservation);
+    }
+
+    private static void WorkloadObservation() {
+        using ManualResetEventSlim enteredFirst = new(), enteredSecond = new(), releaseFirst = new(), releaseSecond = new();
+        int starts = 0;
+        var task = new TestTask<int, int>("owned workload lifetime", _ => {
+            bool first = Interlocked.Increment(ref starts) == 1;
+            (first ? enteredFirst : enteredSecond).Set();
+            if (!(first ? releaseFirst : releaseSecond).Wait(10000)) throw new TimeoutException("Owned workload was not released.");
+        }) { CoreInterruptOnCancel = false };
+        Thread? firstThread = null, secondThread = null;
+        try {
+            task.Start(1); firstThread = task.CoreLastRunningThread;
+            if (!enteredFirst.Wait(5000)) throw new TimeoutException("First real loader thread did not enter.");
+            task.Cancel();
+            Equal(State.Canceled, task.State); Equal(true, task.HasActiveWorkload);
+            task.Start(2, true); secondThread = task.CoreLastRunningThread;
+            if (!enteredSecond.Wait(5000)) throw new TimeoutException("Replacement real loader thread did not enter.");
+            releaseSecond.Set();
+            if (!secondThread!.Join(5000)) throw new TimeoutException("Replacement loader did not finish.");
+            Equal(State.Finished, task.State); Equal(true, task.HasActiveWorkload);
+            releaseFirst.Set();
+            if (!firstThread!.Join(5000)) throw new TimeoutException("Superseded cleanup did not finish.");
+            Equal(false, task.HasActiveWorkload); Equal(1, task.PreviewFinishes);
+        } finally {
+            releaseFirst.Set(); releaseSecond.Set();
+            if (firstThread is not null && !firstThread.Join(5000)) throw new TimeoutException("Owned first loader cleanup failed.");
+            if (secondThread is not null && !secondThread.Join(5000)) throw new TimeoutException("Owned replacement loader cleanup failed.");
+        }
     }
 
     private static void ValidationOrdering() {
@@ -247,6 +277,7 @@ internal static class LegacyValidationLoaderTests {
         protected override void ApplyFileWorkloadGuard(Func<Action, Action> wrap) { }
     }
     private sealed class TestTask<TIn, TOut> : Root, ILegacyLoaderTaskData<TestTask<TIn, TOut>, TIn, TOut> {
+        public override bool? HasActiveWorkload => Engine.HasActiveWorkload;
         internal readonly LegacyLoaderTaskEngine<TestTask<TIn, TOut>, TIn, TOut, Root, State, UiState> Engine;
         internal TestTask(string name, Action<TestTask<TIn, TOut>> work) { Name = name; CoreLoadDelegate = work; Engine = new(this); }
         public ThreadPriority CoreThreadPriority { get; set; } = ThreadPriority.Normal;

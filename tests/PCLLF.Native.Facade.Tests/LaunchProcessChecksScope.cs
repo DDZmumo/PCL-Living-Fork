@@ -87,19 +87,19 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
             InitialLaunchCount = Settings.Get<int>("SystemLaunchCount"); SetCache("SystemLaunchCount", InitialLaunchCount);
             InstallLaunchCountStore();
             SetCache("LaunchArgumentVisible", 3); SetCache("LaunchArgumentPriority", 1); SetCache("UiMusicStop", false); SetCache("UiMusicStart", false);
-            Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
+            Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, instance);
             options = Path.Combine(instance.PathIndie, "options.txt"); Put(options, "lang:en_us\r\nkey_key.forward:key.keyboard.w\r\nfixtureUntouched:stable\r\n");
             Put(Path.Combine(instance.PathIndie, "saves", "ControlledWorld", "level.dat"), "owned synthetic world marker; not a Minecraft NBT validation");
             Native.Static("PCL.LocalGameData", "WriteJson", "personal-options.json", new JObject(new JProperty("version", 1), new JProperty("values", new JObject(new JProperty("key_key.forward", "key.keyboard.k")))));
             fakeJava = Path.Combine(root, "selected-java", "java.exe"); Directory.CreateDirectory(Path.GetDirectoryName(fakeJava)!);
             ModLaunch.McLaunchJavaSelected = new Java(Path.GetDirectoryName(fakeJava)!, new Version(21, 0, 1)) { FileEncodingName = "UTF-8", NativeEncodingName = "UTF-8" };
-            Native.Field(typeof(ModLaunch), "McLaunchEncoding").SetValue(null, new UTF8Encoding(false));
+            Native.State(typeof(ModLaunch), "McLaunchEncoding").SetValue(null, new UTF8Encoding(false));
             ModLaunch.McLoginLoader = new("Unselected synthetic login boundary", _ => Forbidden("login workload"))
             { Input = new ModLaunch.McLoginLegacy { UserName = "owned-fixture", SkinType = 0, SkinName = "" },
               Output = new ModLaunch.McLoginResult { Name = "owned-fixture", Uuid = new string('0', 32), Type = "Legacy", AccessToken = "", ClientToken = "", ProfileJson = "{}" } };
             ModLaunch.CurrentLaunchOptions = new() { Instance = instance, ServerIp = "", QuickPlayWorld = "ControlledWorld" };
             prepared = ModLaunch.CurrentLaunchOptions;
-            command = "/d /q /c launch-owned.cmd"; Native.Field(typeof(ModLaunch), "McLaunchArgument").SetValue(null, command);
+            command = "/d /q /c launch-owned.cmd"; Native.State(typeof(ModLaunch), "McLaunchArgument").SetValue(null, command);
             string marker = Guid.NewGuid().ToString("N"); OutputMarker = "PCLLF_CONTROLLED_STDOUT_" + marker; ErrorMarker = "PCLLF_CONTROLLED_STDERR_" + marker;
             InstallObservers(); InstallCrashBoundary();
         }
@@ -107,7 +107,7 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
     }
 
     private static void Put(string path, string text) { Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, text, new UTF8Encoding(false)); }
-    private void SaveStatic(Type owner, string name) { FieldInfo field = Native.Field(owner, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
+    private void SaveStatic(Type owner, string name) { var field = Native.State(owner, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
     private void Set(object owner, string name, object value) { FieldInfo field = Native.Field(owner.GetType(), name); object? before = field.GetValue(owner); restore.Push(() => field.SetValue(owner, before)); field.SetValue(owner, value); }
     private void Cache(Settings.Setting entry, string key, object value) { bool had = entry.ValueCache.TryGetValue(key, out object? before); restore.Push(() => { if (had) entry.ValueCache[key] = before!; else entry.ValueCache.TryRemove(key, out _); }); entry.ValueCache[key] = value; }
     private void SetCache(string name, object value, bool perInstance = false) => Cache(Settings.Entries[name], perInstance ? instance.PathVersion : "", value);

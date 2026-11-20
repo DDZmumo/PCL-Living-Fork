@@ -52,7 +52,7 @@ internal static class Program {
             ("mod-favorites", ResourceFavoriteTests.Cases),
             ("validation-loaders", LegacyValidationLoaderTests.Cases),
             ("legacy-java", LegacyJavaTests.Cases),
-            ("foundation", LegacyFoundationTests.Cases),
+            ("foundation", () => LegacyFoundationTests.Cases().Concat(CoreBoundaryTests.Cases()).Concat(ApplicationServiceTests.Cases())),
             ("mmc-profile", () => MmcProfileTests.Cases()
                 .Concat(MmcResolutionTests.Cases()).Concat(MmcCompilationTests.Cases())
                 .Concat(MmcManagementTests.Cases()).Concat(MmcInstancePathsTests.Cases())),

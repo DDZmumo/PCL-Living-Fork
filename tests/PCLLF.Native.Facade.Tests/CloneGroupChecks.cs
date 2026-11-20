@@ -179,7 +179,7 @@ internal static class CloneGroupChecks<TNode, TSet>
                 siblingInstance
             }
         };
-        Native.Field(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, grandInstance);
+        Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, grandInstance);
         PageSelectRight Render(Dictionary<ModMinecraft.McInstanceCardType, List<ModMinecraft.McInstance>> values, bool hidden)
         {
             ModMinecraft.McInstanceList = values;

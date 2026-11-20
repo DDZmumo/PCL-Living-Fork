@@ -44,9 +44,18 @@ namespace PCL
     // 原 LF 公共模块、嵌套模型身份和平台入口；实例／目录／库／资源业务由 C# 单实现维护。
     public static class ModMinecraft
     {
-        private static global::System.String _McFolderSelected;
-        private static global::PCL.ModMinecraft.McInstance _McInstanceSelected;
-        internal static event Action InstanceSelectionChanged;
+        static ModMinecraft() { }
+        internal static void EnsureApplicationServicesInitialized() { }
+        private static string _McFolderSelected { get => LauncherApplicationServices.SelectionOwner.Runtime.FolderCache; set => LauncherApplicationServices.SelectionOwner.Runtime.FolderCache = value; }
+        private static McInstance _McInstanceSelected { get => LauncherApplicationServices.SelectionOwner.Runtime.Instance; set => LauncherApplicationServices.SelectionOwner.Runtime.Instance = value; }
+        internal static event Action InstanceSelectionChanged {
+            add => LauncherApplicationServices.SelectionOwner.Changed += value;
+            remove => LauncherApplicationServices.SelectionOwner.Changed -= value;
+        }
+        internal static void ApplySelectionFromApplication(McInstance instance) {
+            GlassSkinSites.MigrateSelection();
+            Service.SelectInstance(instance);
+        }
         public static global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder> McFolderList = new global::System.Collections.Generic.List<global::PCL.ModMinecraft.McFolder>();
         public static global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>> McInstanceList = new global::System.Collections.Generic.Dictionary<global::PCL.ModMinecraft.McInstanceCardType, global::System.Collections.Generic.List<global::PCL.ModMinecraft.McInstance>>();
         public static global::System.Boolean McInstanceListForceRefresh = false;
@@ -158,9 +167,7 @@ namespace PCL
             }
             set
             {
-                var previous = _McInstanceSelected;
-                global::PCL.ModMinecraft.Service.SelectInstance(value);
-                if (!ReferenceEquals(previous, _McInstanceSelected)) InstanceSelectionChanged?.Invoke();
+                LauncherApplicationServices.SelectionOwner.ApplyLegacySelection(value);
             }
         }
 
@@ -331,6 +338,7 @@ namespace PCL
         {
             return global::PCL.ModMinecraft.Service.McSkinGetAddress(UUID, Type);
         }
+        internal static string McSkinGetAddress(string uuid, string type, string server) => Service.McSkinGetAddress(uuid, type, server);
         public static global::System.String McSkinDownload(global::System.String Address)
         {
             return global::PCL.ModMinecraft.Service.McSkinDownload(Address);

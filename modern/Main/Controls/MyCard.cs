@@ -26,6 +26,16 @@ namespace PCL
         {
             return new MyDropShadow();
         }
+        protected override System.Windows.Controls.Border CreateCardBackground()
+        {
+            if (!FormMain.GlassShellPreferred) return base.CreateCardBackground();
+            var surface = new PCLLF.Wpf.Glass.GlassSurface { CornerRadius = new CornerRadius(16), IsHitTestVisible = false };
+            Loaded += (_, _) => {
+                CornerRadius = new CornerRadius(16);
+                MainChrome.Visibility = Visibility.Collapsed;
+            };
+            return surface;
+        }
         protected override double WpfSize(double Pixels)
         {
             return ModBase.GetWPFSize(Pixels);

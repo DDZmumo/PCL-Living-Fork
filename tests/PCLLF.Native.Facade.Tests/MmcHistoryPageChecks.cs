@@ -141,7 +141,7 @@ internal static class MmcHistoryPageChecks {
             var page = Open();
             object controller = Native.Get(page, "Controller")!;
             var rows = Part<StackPanel>(page, "PanEntries");
-            Native.Check(controller.GetType().Assembly.GetName().Name == "PCLCS" && ReferenceEquals(Native.Get(controller, "Entries"), Entries(page)) &&
+            Native.Check(controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && ReferenceEquals(Native.Get(controller, "Entries"), Entries(page)) &&
                 rows.Children.Count == 0 && Part<MyButton>(page, "BtnCreate").Text == "创建环境记录" &&
                 Part<FrameworkElement>(page, "CardRetention").Visibility == Visibility.Collapsed &&
                 Part<FrameworkElement>(page, "FilterHealthy").Visibility == Visibility.Collapsed &&

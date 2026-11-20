@@ -404,7 +404,8 @@ namespace PCL
             {
                 try
                 {
-                    JObject Info = FindLatestReleaseForSource(ModBase.VersionBaseName, Source);
+                    // The startup check reuses the release the splash already fetched.
+                    JObject Info = (Startup ? GlassStartupPreload.TakeRelease(Source) : null) ?? FindLatestReleaseForSource(ModBase.VersionBaseName, Source);
                     string Tag = Info["tag_name"]?.ToString();
                     if (!NewerReleaseForChannel(Tag, ModBase.VersionBaseName, PreferredUpdateChannel()))
                     {
@@ -415,8 +416,9 @@ namespace PCL
                     string IgnoredTag = Settings.Get<string>("ToolLauncherUpdateIgnoredTag");
                     if (Startup && !ShouldPromptForUpdate(Tag, ModBase.VersionBaseName, IgnoredTag)) { RememberDeferredUpdate(Info, Source); return; }
                     ClearDeferredUpdate();
-                    UpdatePromptView View = null; UpdateSource DownloadSource = Source;
-                    int Choice = ModMain.MyMsgBoxConfirmContent("请选择本次更新的下载源。", "发现 PCL Living Fork 新版本", "下载并更新", () => { View = new UpdatePromptView(Tag, Source); return View; }, "暂不更新", IsWarn: false);
+                    if (Startup && !GlassStartupPreload.WaitForInterface()) return;
+                    UpdatePromptView View = Startup ? GlassStartupPreload.TakeUpdateView(Tag, Source) : null; UpdateSource DownloadSource = Source;
+                    int Choice = ModMain.MyMsgBoxConfirmContent("请选择本次更新的下载源。", "发现 PCL Living Fork 新版本", "下载并更新", () => { View ??= new UpdatePromptView(Tag, Source); return View; }, "暂不更新", IsWarn: false);
                     if (Choice == 1)
                     {
                         ModBase.RunInUiWait(() => DownloadSource = View.SelectedSource);

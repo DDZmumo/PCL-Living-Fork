@@ -572,7 +572,7 @@ Core 与宿主是同进程类库调用，不经 IPC，不为每个字段做 JSON
 
 ### 14.2 工程、测试与发布接入
 
-现有 [现代 PCLCS](../modern/PCLCS/PCLCS.Modern.csproj) 只链接 PCLCS 源目录，根目录新文件夹不会自动形成独立编译边界。拟议类库须登记到 [传统 solution](../PCL-Living-Fork.sln) 和 [Modern.slnx](../PCL-Living-Fork.Modern.slnx)，再由 modern/PCLCS 增加 ProjectReference。根目录 [旧 PCLCS 工程](../PCLCS/PCLCS.csproj) 的 net48 不是当前现代产品入口，不能直接引用 net10 Core；本阶段不因保留该文件就扩展 multi-target 或改写全部历史脚本。若另行承诺旧工程继续可构建，需要单独确定支持范围。
+现有 [现代 PCLCS](../modern/Core/PCLLF.Core.csproj) 只链接 PCLCS 源目录，根目录新文件夹不会自动形成独立编译边界。拟议类库须登记到 [传统 solution](../PCL-Living-Fork.sln) 和 [Modern.slnx](../PCL-Living-Fork.Modern.slnx)，再由 modern/PCLCS 增加 ProjectReference。根目录 [旧 PCLCS 工程](../PCLCS/PCLCS.csproj) 的 net48 不是当前现代产品入口，不能直接引用 net10 Core；本阶段不因保留该文件就扩展 multi-target 或改写全部历史脚本。若另行承诺旧工程继续可构建，需要单独确定支持范围。
 
 新 MMC 纯测试直接引用真正 Core 程序集，不再次链接同一批 Core 源码；现有其他纯规则的源码链接测试保持原组织。新增 `mmc-profile` 并接入执行入口/选择器/golden；新根目录当前会安全回退全量检查，但这既不会自动创造新测试，也会有 CI 时间成本。Native facade 继续验证真实 Main 的宿主接线，并检查其预构建 DLL 引用模式是否看得到新增依赖；不要无依据重写已经递归复制 Main 输出的脚本。
 

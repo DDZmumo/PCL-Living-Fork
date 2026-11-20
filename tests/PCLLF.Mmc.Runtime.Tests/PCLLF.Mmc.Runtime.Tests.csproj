@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Exercise the genuine host dependency graph, never a second linked production copy. -->
-    <ProjectReference Include="../../modern/PCLCS/PCLCS.Modern.csproj" />
+    <ProjectReference Include="../../modern/Core/PCLLF.Core.csproj" />
+    <ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj" />
   </ItemGroup>
 </Project>

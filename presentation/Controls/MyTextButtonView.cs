@@ -11,6 +11,11 @@ public class MyTextButtonView : Label {
     public delegate void ClickEventHandler(object sender, EventArgs? args);
     public event ClickEventHandler? Click;
     protected virtual void OnClick() => Click?.Invoke(this, null);
+    public void PerformClick() {
+        if (!IsEnabled) return;
+        Services.Info("按下文本按钮：" + Text);
+        OnClick(); Services.RaiseCustomEvent(this);
+    }
     public int Uuid;
     private static ControlServiceHost Services => ControlServices.Current;
     public MyTextButtonView() {

@@ -4,7 +4,7 @@ VisualStudioVersion = 17.14.0.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCL Living Fork (C# .NET 10)", "modern\Main\PCL-Living-Fork.Modern.csproj", "{4499F2D2-18EF-4238-B1F0-7BD547AFF925}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLCS.Modern", "modern\PCLCS\PCLCS.Modern.csproj", "{32DE4AAF-F4D6-42C5-9604-19236DE96C69}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.Core", "modern\Core\PCLLF.Core.csproj", "{32DE4AAF-F4D6-42C5-9604-19236DE96C69}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.Presentation.Modern", "modern\Presentation\PCLLF.Presentation.Modern.csproj", "{5023CD10-DFC3-589B-92CE-8E9A6B8EF932}"
 EndProject
@@ -16,6 +16,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.Modern.Wpf.Tests", "t
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.Migration.Tests", "tests\PCLLF.Migration.Tests\PCLLF.Migration.Tests.csproj", "{55964AC7-FCDD-5F5C-BFC5-45DB7772052F}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.WPF.Core", "PCLLF.WPF.Core\PCLLF.WPF.Core.csproj", "{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.MMCC.Core", "PCLLF.MMCC.Core\PCLLF.MMCC.Core.csproj", "{4EF4EAED-0624-4795-BFA3-1A5F2EAF49A9}"
 EndProject
 Global
@@ -25,6 +27,12 @@ Global
 		Snapshot|Any CPU = Snapshot|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Snapshot|Any CPU.ActiveCfg = Snapshot|Any CPU
+		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Snapshot|Any CPU.Build.0 = Snapshot|Any CPU
 		{4EF4EAED-0624-4795-BFA3-1A5F2EAF49A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{4EF4EAED-0624-4795-BFA3-1A5F2EAF49A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4EF4EAED-0624-4795-BFA3-1A5F2EAF49A9}.Release|Any CPU.ActiveCfg = Release|Any CPU

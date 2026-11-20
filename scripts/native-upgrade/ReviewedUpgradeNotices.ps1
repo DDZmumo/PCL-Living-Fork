@@ -1,9 +1,12 @@
 ﻿#requires -Version 5.1
 # Pure read-only log admission policy. This never touches a process/profile/UI.
 function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
- if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
  $nl=[string][char]13+[char]10
- if($NativeVersion -cin @('dev_edition','1.5.1')){
+ if($NativeVersion -cin @('dev_edition','1.6.0-pre-1')){
+  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+'- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置'+$nl+'- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡'+$nl+'- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
+ }
+ if($NativeVersion -ceq '1.5.1'){
   $latestHighlights='- 整合包更新支持配置键值合并，同一键冲突可在预览选择'+$nl+'- 批量更新模组前核对必需前置，完善 NeoForge 内嵌库识别'+$nl+'- 修复拖拽安装模组时的线程错误'+$nl+'- 保护受影响 Forge／NeoForge 实例的自定义键位和组合键'+$nl+'- 修复 GTNH 等整合包接力启动时的崩溃误报'+$nl+'- Windows x64 版需 .NET 10 Desktop Runtime'
   return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$latestHighlights
  }
@@ -19,9 +22,9 @@ function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
 }
 function Get-ReviewedStartupNoticeTitle([string]$NativeVersion,[string]$NativeStyle='plain') {
- if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1')){throw 'PENDING: Native startup notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1')){throw 'PENDING: Native startup notice version has not been reviewed.'}
  if($NativeStyle -ceq 'plain'){return 'PCL Living Fork '+$NativeVersion+' 版本说明'}
- if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
+ if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
  return 'PCL Living Fork '+$NativeVersion+' 更新说明'
 }
 function Get-ReviewedNativeStartupNotice([object]$NativeProof) {

@@ -450,6 +450,8 @@ namespace PCL
             this.Service.ExitSelectPage();
         }
 
+        protected void ChangeNativeMinecraftInPlace(FrameworkElement row) => Service.ChangeMinecraftInPlace(row);
+
         public virtual void MinecraftSelected(global::PCL.MyListItem sender, global::System.Windows.Input.MouseButtonEventArgs e)
         {
             this.Service.MinecraftSelected(sender, e);

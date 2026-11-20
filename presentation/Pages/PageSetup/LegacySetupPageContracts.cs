@@ -54,6 +54,7 @@ public sealed class LegacySetupPageHost {
     public Action<int> Sleep = null!;
     public Action<string, string> ExtractResource = null!;
     public Func<string, LegacyBitmap> LoadBitmap = null!;
+    public Func<string, ImageBrush>? LoadBackgroundBrush;
     public Func<string, string[], string, IEnumerable<string>> SelectImage = null!;
     public Action<IEnumerable<LegacySetupAnimation>, string> StartAnimations = null!;
     public Action<string> StopAnimation = null!;
@@ -69,6 +70,7 @@ public enum LegacySetupShellPage { Launch, InstanceSelect, InstanceSetup }
 public sealed class LegacySetupUiHost {
     public LegacySetupPageHost Common = null!;
     public Func<LegacyPageSetupUIController?> CurrentUI = null!;
+    public Func<bool>? RefreshLauncherWallpaperControls;
     public Func<bool> ReadHiddenForceShow = null!;
     public Action<bool> WriteHiddenForceShow = null!;
     public Func<bool> HasMain = null!;

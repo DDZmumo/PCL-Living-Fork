@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- LF-owned modern build of the existing PCLCS source tree, under ../../LICENCE.
+       Shared remains the LF-pinned netstandard2.0 submodule at
+       c774ae4c85fd94e0eaa171db21e78a65870df19b (../../MeloongCore/LICENSE.txt).
+       No CE project or implementation is copied into this build. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <!-- Preserve the existing resource/assembly identity while removing desktop dependencies. -->
+    <AssemblyName>PCLCS</AssemblyName>
+    <RootNamespace>PCLCS</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Configurations>Debug;Release;Snapshot</Configurations>
+    <Deterministic>true</Deterministic>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Csc's MSBuild command-line builder normalizes resource names containing
+         backslashes on Unix (dotnet/roslyn#35119). Literal response-file switches
+         retain the existing names on every build host. -->
+    <CompilerResponseFile>$(MSBuildThisFileDirectory)CoreResources.rsp</CompilerResponseFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../PCLCS/**/*.cs" Exclude="../../PCLCS/**/bin/**;../../PCLCS/**/obj/**"
+      Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Keep response-file resources in the compiler's incremental input graph. -->
+    <CustomAdditionalCompileInputs Include="CoreResources.rsp;../../PCLCS/Launch/JavaWrapper.jar;../../PCLCS/Launch/LwjglUnsafeAgent.jar;../../PCLCS/Launch/ModKeybindPatch.jar;../../PCLCS/Resource/WikiEntries.txt;../../PCLCS/Minecraft/OptifineHashes.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="PolySharp" Version="1.15.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <ProjectReference Include="../../MeloongCore/Shared/MeloongCore.csproj" />
+    <ProjectReference Include="../../PCLLF.MMCC.Core/PCLLF.MMCC.Core.csproj" />
+    <!-- Existing white-box regression cases now exercise the product binary. UI assemblies
+         receive no friend access and must use the public Core contracts. -->
+    <InternalsVisibleTo Include="PCLLF.Migration.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Existing source imports; this project must remain independent of WindowsDesktop. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+    <Using Include="System.Diagnostics.CodeAnalysis" />
+    <Using Include="System.Collections" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Collections.Concurrent" />
+    <Using Include="System.Text" />
+    <Using Include="System.Text.RegularExpressions" />
+    <Using Include="System.Net" />
+    <Using Include="System.Runtime.CompilerServices" />
+    <Using Include="System.Runtime.InteropServices" />
+    <Using Include="Newtonsoft.Json" />
+    <Using Include="Newtonsoft.Json.Linq" />
+    <Using Include="MeloongCore" />
+    <Using Include="MeloongCore.Extensions" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>$(DefineConstants);SNAPSHOT</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Snapshot|AnyCPU'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+</Project>

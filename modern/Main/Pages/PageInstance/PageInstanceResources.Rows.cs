@@ -37,6 +37,8 @@ namespace PCL
                 Row.MouseRightButtonUp += (Sender, e) => Actions.Details(Row.ResourceEntry);
                 Row.ResourceUpdateRequested = new Action(() => Actions.Update(Row.ResourceEntry));
                 Row.ResourceDetailsRequested = new Action(() => Actions.Details(Row.ResourceEntry));
+                if (Page.Kind == InstanceResourceKind.Schematics)
+                    Row.ResourceFolderRequested = () => Actions.EnterFolder(Row.ResourceEntry);
                 Row.Buttons = NativeRowButtons(Page.Kind, Row, Actions);
                 Row.MouseLeftButtonDown += (Sender, e) =>
                 {

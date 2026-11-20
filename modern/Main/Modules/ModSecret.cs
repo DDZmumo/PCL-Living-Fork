@@ -192,9 +192,12 @@ namespace PCL
                 return;
             }
             var main = ModMain.FrmMain;
-            if (main?.PanForm is { IsLoaded: true } root && ModTheme.IsDarkTheme != (Settings.Get<int>("UiLauncherColorMode") == 1))
-                ThemeTransition.Apply(root, () => PaletteService.Refresh(NewTheme));
-            else PaletteService.Refresh(NewTheme);
+            bool dark = Settings.Get<int>("UiLauncherColorMode") == 1;
+            void ApplyPalette() => PaletteService.Refresh(NewTheme);
+            if (main?.TryRefreshGlassTheme(dark, ApplyPalette) == true) return;
+            if (main?.PanForm is { IsLoaded: true } root && ModTheme.IsDarkTheme != dark)
+                ThemeTransition.Apply(root, ApplyPalette);
+            else ApplyPalette();
         }
         internal static global::System.Windows.Media.Brush CreateTitleBackground() => PaletteService.CreateTitleBackground();
         public static void ThemeRefreshMain()

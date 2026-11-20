@@ -60,7 +60,7 @@ internal static class MapResourceChecks
         }
 
         object controller = Native.Field(detail, "Controller").GetValue(page)!;
-        Native.Check(controller is not null && controller.GetType().Assembly.GetName().Name == "PCLCS" && controller.GetType().GetGenericArguments()[0] == project.GetType() && controller.GetType().GetGenericArguments()[1] == version, "Page adapter did not use the actual production controller and actual Main models.");
+        Native.Check(controller is not null && controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && controller.GetType().GetGenericArguments()[0] == project.GetType() && controller.GetType().GetGenericArguments()[1] == version, "Page adapter did not use the actual production controller and actual Main models.");
         Native.Check(ReferenceEquals(projectState.GetValue(page), project), "Detail adapter created a second project store.");
         DetailCardRendering(page, controller!, project, items);
     }
@@ -238,7 +238,7 @@ internal static class MapResourceChecks
         expected = Path.Combine(fixture.Data, "downloads", "versions", "other", "mods");
         Native.Check(string.Equals(Native.Full(Choose(null, instances[1])), Native.Full(expected), StringComparison.OrdinalIgnoreCase), "A stale cache overrode the currently selected instance.");
         Native.Check(Choose(null, null) == cached, "Unbound downloads lost deliberate custom-folder state.");
-        var field = Native.Field(Native.Type("PCL.ModMinecraft"), "_McFolderSelected");
+        var field = Native.State(Native.Type("PCL.ModMinecraft"), "_McFolderSelected");
         object? previous = field.GetValue(null);
         try
         {

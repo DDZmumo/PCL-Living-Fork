@@ -30,7 +30,7 @@ try {
         $csharpCompiler = Join-Path (Split-Path $CompilerPath -Parent) 'csc.dll'
         $csharpSources = @(
             (Join-Path $repoRoot 'PCLCS/Toolbox/LegacyMemoryOptimizationOperation.cs'),
-            (Join-Path $repoRoot 'PCLCS/Platform/Windows/Toolbox/LegacyNativeMemoryOptimizer.cs')
+            (Join-Path $repoRoot 'PCLLF.WPF.Core/Toolbox/LegacyNativeMemoryOptimizer.cs')
         )
         $references = @('mscorlib.dll','System.dll','System.Core.dll') | ForEach-Object { '/reference:' + (Join-Path $framework $_) }
         & dotnet $csharpCompiler /nologo /target:library /langversion:13.0 /nullable:enable "/out:$backend" @references @csharpSources

@@ -221,6 +221,9 @@ namespace PCL
             }
         }
 
+        /// <summary>The project shown on this page, for the glass presentation's read-only info panel.</summary>
+        internal global::PCL.ResourceProject GlassProject => this.Controller is null ? null : this.Service.Project;
+
         private global::PCL.ResourceProject Project
         {
             get

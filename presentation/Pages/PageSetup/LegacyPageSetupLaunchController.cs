@@ -230,7 +230,8 @@ public sealed class LegacyPageSetupLaunchController<TInstance, TSkin> where TIns
                 Host.SetJavaButtons(item, buttons);
             }
             MyListItemView import = Host.NewJavaItem(); import.FontSize = 13; import.Height = 24; import.IsScaleAnimationEnabled = false; import.Title = "导入电脑中已有的 Java…"; import.Type = MyListItemView.CheckType.Clickable;
-            import.MouseLeftButtonUp += (_, args) => { args.Handled = true; Host.ImportJava(); }; ComboAdvanceJava.Items.Add(import);
+            import.MouseLeftButtonUp += (_, args) => args.Handled = true;
+            Host.ConnectItemClick(import, Host.ImportJava); ComboAdvanceJava.Items.Add(import);
         } catch (Exception error) { Logger.Error(error, "更新 Java 列表下拉框失败"); }
     }
     public void MoveJavaInList(Java entry, int offset) {

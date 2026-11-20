@@ -29,7 +29,8 @@ namespace PCL
 
         public static ModLaunch.McLoginServer GetLoginData()
         {
-            return CreateController(ModMain.FrmLoginAuth).GetLoginData(() => ModMain.FrmLoginAuth is not null, () => ModMain.FrmLoginAuth.ComboName.Text, () => ModMain.FrmLoginAuth.TextPass.Password);
+            var page = ModMain.FrmLoginAuth;
+            return (page?.Native ?? CreateController(null)).GetLoginData(() => page is not null, () => page.ComboName.Text, () => page.TextPass.Password);
         }
 
         public static string IsVaild(ModLaunch.McLoginServer LoginData)

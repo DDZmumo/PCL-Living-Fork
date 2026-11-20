@@ -81,6 +81,7 @@ public static class LegacySettingsDefinitions {
         Add("CacheAuthUsername", "", LegacySettingSource.Registry, true);
         Add("CacheAuthPass", "", LegacySettingSource.Registry, true);
         Add("CacheAuthServerServer", "", LegacySettingSource.Registry, true);
+        Add("CacheAuthCredentialServer", "", LegacySettingSource.Registry, true);
         Add("CacheAuthServerName", "", LegacySettingSource.Registry, true);
         Add("CacheAuthServerRegister", "", LegacySettingSource.Registry, true);
         Add("CacheDownloadFolder", "", LegacySettingSource.Registry);
@@ -93,6 +94,10 @@ public static class LegacySettingsDefinitions {
         Add("LoginAuthEmail", "", LegacySettingSource.Registry, true);
         Add("LoginAuthPass", "", LegacySettingSource.Registry, true);
         Add("LoginType", hostDefault("LoginType"), LegacySettingSource.Registry);
+        // Living Fork: third-party skin sites (Yggdrasil / Authlib-Injector) usable like Microsoft and offline accounts.
+        Add("LfSkinSites", "", LegacySettingSource.Registry, true);
+        Add("LfSkinSiteActive", 0, LegacySettingSource.Registry);
+        Add("LfSkinSiteSelection", "", LegacySettingSource.Registry, true);
         Add("LoginPageType", 0);
         Add("LaunchSkinID", "", LegacySettingSource.Registry);
         Add("LaunchSkinType", 0, LegacySettingSource.Registry);
@@ -157,8 +162,8 @@ public static class LegacySettingsDefinitions {
         Add("ToolLauncherUpdateIgnoredTag", "", LegacySettingSource.Registry);
         Add("ToolLauncherUpdateSource", 0);
         Add("ToolLauncherUpdateChannel", 0);
-        Add("UiLauncherColorMode", 0);
-        Add("UiPanelOpacity", 960);
+        Add("UiLauncherColorMode", 1);
+        Add("UiPanelOpacity", 850);
         Add("UiLauncherTransparent", 600);
         Add("UiLauncherHue", hostDefault("UiLauncherHue"));
         Add("UiLauncherSat", hostDefault("UiLauncherSat"));
@@ -170,6 +175,8 @@ public static class LegacySettingsDefinitions {
         Add("UiLauncherLogo", false);
         Add("UiLauncherEmail", false);
         Add("UiBackgroundMode", 0);
+        Add("UiShellStyle", 1);
+        Add("UiGlassWallpaperPath", "");
         Add("UiBackgroundColorful", true);
         Add("UiBackgroundOpacity", hostDefault("UiBackgroundOpacity"));
         Add("UiBackgroundBlur", 0);

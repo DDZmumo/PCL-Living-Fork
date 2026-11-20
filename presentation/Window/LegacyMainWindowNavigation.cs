@@ -104,6 +104,18 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         PageLeft = (MyPageLeftView)targetLeft; PageRight = (MyPageRightView)targetRight!;
         ((MyPageLeftView)view.PanMainLeft().Child).TriggerHideAnimation(); ((MyPageRightView)view.PanMainRight().Child).PageOnExit();
         AniControlEnabled = checked(AniControlEnabled - 1);
+        if (view.UsesGlassShell?.Invoke() == true) {
+            Animations.Stop("FrmMain PageChangeLeft"); Animations.Stop("FrmMain PageChangeRight");
+            AniControlEnabled = checked(AniControlEnabled + 1);
+            ((MyPageRightView)view.PanMainRight().Child).PageOnForceExit();
+            view.PanMainLeft().Child = PageLeft; PageLeft.Opacity = 1; view.PanMainLeft().Background = null;
+            view.PanMainRight().Child = PageRight; PageRight.Opacity = 1; view.PanMainRight().Background = null;
+            AniControlEnabled = checked(AniControlEnabled - 1);
+            PageLeft.TriggerShowAnimation();
+            PageRight.PageOnEnter();
+            host.UiPosted(() => { ResizeLeft(view.PanMainLeft().ActualWidth); view.ExtraBack().ShowRefresh(); }, true);
+            return;
+        }
         AniStart([
             AaCode(() => {
                 AniControlEnabled = checked(AniControlEnabled + 1); view.PanMainLeft().Child = PageLeft; PageLeft.Opacity = 0; view.PanMainLeft().Background = null; AniControlEnabled = checked(AniControlEnabled - 1);

@@ -30,6 +30,9 @@ using PCLCS;
 using global::PCLLF.Presentation.Launch;
 using ThrottleDebounce;
 
+using PCLLF.Presentation.Launch;
+using SkinLoader = PCL.ModLoader.LoaderTask<PCLLF.Presentation.Launch.LegacySkinRequest, string>;
+
 namespace PCL
 {
 
@@ -87,106 +90,65 @@ namespace PCL
                     }
             }
         }
-        internal static readonly global::PCLLF.Presentation.Launch.LegacyLaunchSkins<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>> Skins = new global::PCLLF.Presentation.Launch.LegacyLaunchSkins<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>(new global::PCLLF.Presentation.Launch.LegacyLaunchSkinHost<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>()
-        {
-            ReadString = new Func<global::System.String, global::System.String>(Key => global::PCL.Settings.Get<string>(Key)),
-            ReadInteger = new Func<global::System.String, global::System.Int32>(Key => global::PCL.Settings.Get<int>(Key)),
-            WriteSetting = new Action<global::System.String, global::System.Object>((Key, Value) => global::PCL.Settings.Set(Key, Value)),
-            OfflinePageReloaded = new Func<global::System.Boolean>(() => (global::PCL.ModMain.FrmLoginLegacy is not null && (global::PCL.ModMain.FrmLoginLegacy.IsReloaded))),
-            OfflineName = new Func<global::System.String>(() => global::PCL.ModMain.FrmLoginLegacy.ComboName.Text),
-            Input = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, (global::System.String, global::System.String)>(Task => Task.Input),
-            ResetInput = new Action<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>>(Task => Task.Input = ((global::System.String, global::System.String))(default((global::System.String, global::System.String)))),
-            Output = new Action<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, global::System.String>((Task, Value) => Task.Output = Value),
-            Canceled = new Func<global::PCL.ModLoader.LoaderTask<(global::System.String, global::System.String), global::System.String>, global::System.Boolean>(Task => Task.IsCanceled),
-            Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
-            ClearSkin = global::PCL.LaunchPageRuntime.ClearSkin,
-            PageExists = global::PCL.LaunchPageRuntime.SkinPageExists,
-            RenderSkin = global::PCL.LaunchPageRuntime.RenderSkin,
-            ImagePath = new Func<global::System.String>(() => global::PCL.ModBase.PathImage),
-            AppDataPath = new Func<global::System.String>(() => global::MeloongCore.Paths.AppDataThenName),
-            OfflineUuid = Name => global::Microsoft.VisualBasic.CompilerServices.Conversions.ToString(global::PCL.ModLaunch.McLoginLegacyUuid(Name)),
-            SkinSex = global::PCL.ModMinecraft.McSkinSex,
-            DownloadSkin = global::PCL.ModMinecraft.McSkinDownload,
-            SkinAddress = global::PCL.ModMinecraft.McSkinGetAddress,
-            MojangUuid = (Name, ThrowOnNotFound) => global::Microsoft.VisualBasic.CompilerServices.Conversions.ToString(global::PCL.ModLaunch.McLoginMojangUuid(Name, ThrowOnNotFound)),
-            Hint = new Action<global::System.String>(Text => global::PCL.ModMain.Hint(Text))
+        internal static readonly LegacyLaunchSkins<SkinLoader> Skins = new(new() {
+            ReadString = key => Settings.Get<string>(key),
+            ReadInteger = key => Settings.Get<int>(key),
+            WriteSetting = (key, value) => Settings.Set(key, value),
+            OfflinePageReloaded = () => ModMain.FrmLoginLegacy?.IsReloaded == true,
+            OfflineName = () => ModMain.FrmLoginLegacy.ComboName.Text,
+            OfflineLibrarySkin = SkinLibraryApplicationService.FindOfflineSkinFile,
+            AccountInput = ReadAccountSkin,
+            Input = task => task.Input,
+            ResetInput = task => task.Input = default,
+            Output = (task, path) => task.Output = path,
+            Canceled = (task, thread) => task.IsCanceledWithThread(thread),
+            Dispatch = work => ModBase.RunInUi(work),
+            ClearSkin = kind => Skin(kind)?.Clear(),
+            PageExists = kind => Skin(kind) is not null,
+            RenderSkin = (kind, request, path, fetched) => Skin(kind)?.Load(kind, request, path, fetched),
+            ImagePath = () => ModBase.PathImage,
+            AppDataPath = () => Paths.AppDataThenName,
+            OfflineUuid = name => global::Microsoft.VisualBasic.CompilerServices.Conversions.ToString(ModLaunch.McLoginLegacyUuid(name)),
+            SkinSex = ModMinecraft.McSkinSex,
+            DownloadSkin = ModMinecraft.McSkinDownload,
+            SkinAddress = (kind, request) => request.UsesSkinSite
+                ? GlassSkinSites.SkinAddress(request.Server, request.Id).GetAwaiter().GetResult() ?? throw new InvalidOperationException("未设置自定义皮肤")
+                : ModMinecraft.McSkinGetAddress(request.Id, kind, request.Server),
+            MojangUuid = (name, throwOnNotFound) => global::Microsoft.VisualBasic.CompilerServices.Conversions.ToString(ModLaunch.McLoginMojangUuid(name, throwOnNotFound)),
+            Hint = text => ModMain.Hint(text)
         });
-        private static void ClearSkin(global::System.String Kind)
-        {
-            switch ((Kind ?? ""))
-            {
-                case "Legacy":
-                    {
-                        if ((global::PCL.ModMain.FrmLoginLegacy is not null && global::PCL.ModMain.FrmLoginLegacy.Skin is not null))
-                            global::PCL.ModMain.FrmLoginLegacy.Skin.Clear();
-                        break;
-                    }
-                case "Ms":
-                    {
-                        if ((global::PCL.ModMain.FrmLoginMsSkin is not null && global::PCL.ModMain.FrmLoginMsSkin.Skin is not null))
-                            global::PCL.ModMain.FrmLoginMsSkin.Skin.Clear();
-                        break;
-                    }
-                case "Nide":
-                    {
-                        if ((global::PCL.ModMain.FrmLoginNideSkin is not null && global::PCL.ModMain.FrmLoginNideSkin.Skin is not null))
-                            global::PCL.ModMain.FrmLoginNideSkin.Skin.Clear();
-                        break;
-                    }
-                case "Auth":
-                    {
-                        if ((global::PCL.ModMain.FrmLoginAuthSkin is not null && global::PCL.ModMain.FrmLoginAuthSkin.Skin is not null))
-                            global::PCL.ModMain.FrmLoginAuthSkin.Skin.Clear();
-                        break;
-                    }
-            }
-        }
-        private static global::System.Boolean SkinPageExists(global::System.String Kind)
-        {
-            switch ((Kind ?? ""))
-            {
-                case "Legacy":
-                    {
-                        return global::PCL.ModMain.FrmLoginLegacy is not null;
-                    }
-                case "Ms":
-                    {
-                        return global::PCL.ModMain.FrmLoginMsSkin is not null;
-                    }
-                case "Nide":
-                    {
-                        return global::PCL.ModMain.FrmLoginNideSkin is not null;
-                    }
 
-                default:
-                    {
-                        return global::PCL.ModMain.FrmLoginAuthSkin is not null;
-                    }
-            }
-        }
-        private static global::System.Action RenderSkin(global::System.String Kind)
-        {
-            switch ((Kind ?? ""))
-            {
-                case "Legacy":
-                    {
-                        return global::PCL.ModMain.FrmLoginLegacy.Skin.Load;
-                    }
-                case "Ms":
-                    {
-                        return global::PCL.ModMain.FrmLoginMsSkin.Skin.Load;
-                    }
-                case "Nide":
-                    {
-                        return global::PCL.ModMain.FrmLoginNideSkin.Skin.Load;
-                    }
+        internal static LegacySkinRequest SkinSiteRequest(SkinSiteCharacter character) =>
+            new(character.Profile.Name, character.Profile.Id, character.Site.Server, UsesSkinSite: true);
 
-                default:
-                    {
-                        return global::PCL.ModMain.FrmLoginAuthSkin.Skin.Load;
-                    }
-            }
+        internal static ImageSource Avatar(string kind, LegacySkinRequest request) =>
+            Skin(kind)?.AvatarFor(request) ?? GlassSkinHead.LastGood(kind, request);
+
+        private static LegacySkinRequest ReadAccountSkin(string kind)
+        {
+            var instance = ModMinecraft.McInstanceSelected;
+            if (kind == "Auth" && GlassSkinSites.CurrentForLaunch(instance) is { } character)
+                return SkinSiteRequest(character);
+            string prefix = kind == "Ms" ? "CacheMsV2" : "Cache" + kind;
+            var cache = Settings.AccountSnapshot(prefix);
+            string server = kind switch {
+                "Auth" => instance is null ? cache.GetValueOrDefault("CacheAuthServerServer") as string ?? "" : Settings.Get<string>("VersionServerAuthServer", instance),
+                "Nide" => instance is null ? cache.GetValueOrDefault("CacheNideServer") as string ?? "" : Settings.Get<string>("VersionServerNide", instance),
+                _ => ""
+            };
+            if (kind == "Auth" && !AuthlibEndpoint.Same(AuthlibEndpoint.ForServer(server), cache.GetValueOrDefault(AuthlibEndpoint.CredentialServerSetting) as string))
+                return new("", "", server);
+            return new(cache.GetValueOrDefault(prefix + "Name") as string ?? "", cache.GetValueOrDefault(prefix + "Uuid") as string ?? "", server);
         }
+
+        internal static MySkin Skin(string kind) => kind switch {
+            "Legacy" => ModMain.FrmLoginLegacy?.Skin,
+            "Ms" => ModMain.FrmLoginMsSkin?.Skin,
+            "Nide" => ModMain.FrmLoginNideSkin?.Skin,
+            "Auth" => ModMain.FrmLoginAuthSkin?.Skin,
+            _ => null
+        };
+
         internal static global::System.Windows.FrameworkElement ReadPage(global::PCLLF.Presentation.Launch.LegacyLoginPageKind Kind)
         {
             switch (Kind)

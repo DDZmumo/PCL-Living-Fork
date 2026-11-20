@@ -1,0 +1,5 @@
+/resource:"../../PCLCS/Launch/JavaWrapper.jar","Launch\JavaWrapper.jar"
+/resource:"../../PCLCS/Launch/LwjglUnsafeAgent.jar","Launch\LwjglUnsafeAgent.jar"
+/resource:"../../PCLCS/Launch/ModKeybindPatch.jar","Launch\ModKeybindPatch.jar"
+/resource:"../../PCLCS/Resource/WikiEntries.txt","Resource\WikiEntries.txt"
+/resource:"../../PCLCS/Minecraft/OptifineHashes.json","Minecraft\OptiFineHashes.json"

@@ -24,10 +24,21 @@ internal static class LegacySettingsTests {
     }
     private static void Definitions() {
         var fixture = new Fixture();
-        // LF main50 adds source/channel/color-mode/panel-opacity; no baseline key is removed.
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
-        Equal(225, fixture.Entries.Count);
+        Equal(231, fixture.Entries.Count);
+        Equal(1, fixture.Entries["UiShellStyle"].DefaultValue);
+        Equal("", fixture.Entries["UiGlassWallpaperPath"].DefaultValue);
+        foreach (string key in new[] { "CacheAuthCredentialServer", "LfSkinSites", "LfSkinSiteSelection" }) {
+            Equal("", fixture.Entries[key].DefaultValue);
+            Equal(typeof(string), fixture.Entries[key].Type);
+            Equal(LegacySettingSource.Registry, fixture.Entries[key].Source);
+            Equal(true, fixture.Entries[key].Encrypted);
+        }
+        Equal(0, fixture.Entries["LfSkinSiteActive"].DefaultValue);
+        Equal(typeof(int), fixture.Entries["LfSkinSiteActive"].Type);
+        Equal(LegacySettingSource.Registry, fixture.Entries["LfSkinSiteActive"].Source);
+        Equal(false, fixture.Entries["LfSkinSiteActive"].Encrypted);
         Equal(true, fixture.Entries["LaunchEnvironmentHistoryAutoEnabled"].DefaultValue);
         Equal(true, fixture.Entries["VersionEnvironmentHistoryAutoEnabled"].DefaultValue);
         Equal(false, fixture.Entries["LaunchWorldBackupKeepAll"].DefaultValue);
@@ -59,12 +70,15 @@ internal static class LegacySettingsTests {
         Equal(false, fixture.Entries["UiHiddenPageFavorites"].DefaultValue);
         Equal(typeof(bool), fixture.Entries["UiHiddenPageFavorites"].Type);
         Equal(LegacySettingSource.Normal, fixture.Entries["UiHiddenPageFavorites"].Source);
-        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel", "UiLauncherColorMode" }) {
+        foreach (string key in new[] { "ToolLauncherUpdateSource", "ToolLauncherUpdateChannel" }) {
             Equal(0, fixture.Entries[key].DefaultValue);
             Equal(typeof(int), fixture.Entries[key].Type);
             Equal(LegacySettingSource.Normal, fixture.Entries[key].Source);
         }
-        Equal(960, fixture.Entries["UiPanelOpacity"].DefaultValue);
+        Equal(1, fixture.Entries["UiLauncherColorMode"].DefaultValue);
+        Equal(typeof(int), fixture.Entries["UiLauncherColorMode"].Type);
+        Equal(LegacySettingSource.Normal, fixture.Entries["UiLauncherColorMode"].Source);
+        Equal(850, fixture.Entries["UiPanelOpacity"].DefaultValue);
         Equal(typeof(int), fixture.Entries["UiPanelOpacity"].Type);
         Equal(LegacySettingSource.Normal, fixture.Entries["UiPanelOpacity"].Source);
         Equal(typeof(LoginKind), fixture.Entries["LoginType"].Type);

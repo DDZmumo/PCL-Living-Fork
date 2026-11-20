@@ -24,7 +24,7 @@ internal static class PersonalOptionsPageChecks {
         scope.SetGlobal("LaunchPersonalOptionsSync", false); scope.SetGlobal("LaunchPersonalOptionsExcluded", "[]"); scope.SetGlobal("LaunchPersonalOptionsCapture", false);
         foreach (string category in new[] { "Keys", "Mouse", "View", "Accessibility", "Audio" }) scope.SetGlobal("LaunchPersonalOptions" + category, true);
         var previousPage = ModMain.FrmSetupPersonal; var previousLeft = ModMain.FrmInstanceLeft; var previousContext = PageInstanceLeft.Instance;
-        var selected = Native.Field(typeof(ModMinecraft), "_McInstanceSelected"); object? oldSelected = selected.GetValue(null); selected.SetValue(null, source);
+        var selected = Native.State(typeof(ModMinecraft), "_McInstanceSelected"); object? oldSelected = selected.GetValue(null); selected.SetValue(null, source);
         var app = System.Windows.Application.Current; var oldMain = app.MainWindow;
         var window = new Window { Width = 870, Height = 740, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
         try {
@@ -131,8 +131,9 @@ internal static class PersonalOptionsPageChecks {
             var keyPage = new PageInstanceKeybindings(); object keyController = Native.Get(keyPage, "Controller")!;
             object keyHost = Native.Get(keyController, "host")!;
             Native.Check(!(bool)Native.Get(keyHost,"CapturePersonalOnEdit")!, "Version key management still writes edits into the global scheme.");
-            var annotations = (IReadOnlyDictionary<string,string>)Native.Static("PCL.PersonalGameSettings", "BindingAnnotations", target)!;
-            Native.Check(annotations["key_key.forward"].Contains("个人方案：R",StringComparison.Ordinal) && !annotations.ContainsKey("key_mod.magic"), "Basic key annotations do not show the global values.");
+            var annotations = (IReadOnlyDictionary<string, KeybindingPersonalState>)Native.Static("PCL.PersonalGameSettings", "BindingAnnotations", target)!;
+            Native.Check(annotations["key_key.forward"] is { DisplayKey: "R", Participates: false } && !annotations.ContainsKey("key_mod.magic"),
+                "Basic key state lost the global binding or ignored this instance's sync policy.");
             ((MyComboBox)page.FindName("ComboPolicy")).SelectedIndex=0; Search("视场角");
             Native.Check(!Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"instance-value:fov")).IsEnabled &&
                 File.ReadAllBytes(profileFile).SequenceEqual(globalBefore), "Following global settings did not relock local editors.");

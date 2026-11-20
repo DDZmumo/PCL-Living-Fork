@@ -216,8 +216,8 @@ internal static class MmcGtnhLaunchAcceptance {
             foreach(var pair in new Dictionary<string,object>{["LaunchAdvanceJvm"]="",["LaunchAdvanceGame"]="",["LaunchAdvanceRun"]="",["LaunchAdvanceRunWait"]=true,["LaunchAdvanceDisableJLW"]=false,["LaunchArgumentJavaSelect"]="",
                 ["LaunchRamType"]=1,["LaunchRamCustom"]=21,["LaunchArgumentWindowType"]=3,["LaunchArgumentWindowWidth"]="1280",["LaunchArgumentWindowHeight"]="720",["LaunchPersonalOptionsSync"]=false,["LaunchPersonalOptionsKeys"]=false,
                 ["LaunchRecentWorlds"]=false,["UiMusicStop"]=false,["UiMusicStart"]=false,["LaunchArgumentVisible"]=1})Native.Cache(pair.Key,pair.Value);
-            Native.Field(typeof(ModMinecraft),"_McFolderSelected").SetValue(null,Path.Combine(imported.CaseRoot,"game")+Path.DirectorySeparatorChar);
-            instance=new(imported.InstanceRoot);Native.Field(typeof(ModMinecraft),"_McInstanceSelected").SetValue(null,instance);
+            Native.State(typeof(ModMinecraft),"_McFolderSelected").SetValue(null,Path.Combine(imported.CaseRoot,"game")+Path.DirectorySeparatorChar);
+            instance=new(imported.InstanceRoot);Native.State(typeof(ModMinecraft),"_McInstanceSelected").SetValue(null,instance);
             InstallUiBoundary();environment.AssertNoForbiddenIo();
         }
         private void ConfigureOwnedProfile() {

@@ -54,13 +54,18 @@ public static partial class ModLauncherUpdate
     internal static bool TryShowCurrentReleaseNotes(bool automatic, string summary, UpdateTransport transport = null)
     {
         if (automatic && FormMain.IsCurrentUpdateLogSuppressed) return true;
-        CurrentReleaseNotes notes = UsesPublishedReleaseNotes(ModBase.VersionBaseName, ModBase.ReleaseBaselineIsPrerelease, ModBase.BuildType)
+        // Automatic notes open once the startup splash has gone, using what it preloaded when available.
+        if (automatic && !GlassStartupPreload.WaitForInterface()) return true;
+        CurrentReleaseNotes preloaded = automatic ? GlassStartupPreload.TakeNotes() : null;
+        ReleaseNotesPromptView prebuilt = preloaded is { FromRelease: true } ? GlassStartupPreload.TakeNotesView() : null;
+        CurrentReleaseNotes notes = preloaded is { FromRelease: true } ? preloaded
+            : UsesPublishedReleaseNotes(ModBase.VersionBaseName, ModBase.ReleaseBaselineIsPrerelease, ModBase.BuildType)
             ? ReadCurrentReleaseNotes(ModBase.VersionBaseName, summary, PreferredUpdateSource(), transport)
             : new CurrentReleaseNotes { Version = ModBase.VersionBaseName, Markdown = summary ?? "", Url = ModBase.LauncherReleasesUrl };
         string caption = "基于 PCL 官方开源版的第三方版本。\r\n" +
             (notes.FromRelease ? "以下为当前版本的完整发布说明。" : "以下为当前版本的本地简述。");
         int choice = ModMain.MyMsgBoxConfirmContent(caption, ModBase.LauncherDisplayName + " " + notes.Version + " 更新说明", "确定",
-            () => new ReleaseNotesPromptView(notes.Markdown, FormMain.IsCurrentUpdateLogSuppressed, FormMain.PersistUpdateLogSuppression),
+            () => prebuilt ?? new ReleaseNotesPromptView(notes.Markdown, FormMain.IsCurrentUpdateLogSuppressed, FormMain.PersistUpdateLogSuppression),
             CancelText: "查看发布页", IsWarn: false);
         if (choice == 2) ModBase.OpenWebsite(notes.Url);
         return true;

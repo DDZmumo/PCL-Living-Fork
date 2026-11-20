@@ -58,6 +58,18 @@ public partial class MyIconButtonView : Border {
     }
     protected virtual void WithAnimationSuppressed(Action work) { suppressAnimation++; work(); suppressAnimation--; }
     public bool CanClick { get; set; } = true;
+    public void PerformClick() {
+        if (!IsEnabled || !CanClick) return;
+        Services.Info("按下图标按钮" + (string.IsNullOrEmpty(Name) ? "" : "：" + Name));
+        // Existing download actions consume the same routed payload as the pointer path.
+        // Passing this payload to the semantic callback does not inject or route mouse input.
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) {
+            RoutedEvent = MouseLeftButtonUpEvent, Source = this
+        };
+        OnClick(this, args);
+        args.Handled = true;
+        Services.RaiseCustomEvent(this);
+    }
     private void Button_MouseUp(object sender, MouseButtonEventArgs args) {
         if (!CanClick || !isMouseDown) return;
         Services.Info("按下图标按钮" + (string.IsNullOrEmpty(Name) ? "" : "：" + Name));
