@@ -48,6 +48,9 @@ internal static class ReviewedInformationNotice
         return Regex.Replace(withoutMarkers, @"\s+", " ").Trim();
     }
 
+    internal static bool IsConfirmButtonId(string id) =>
+        id.StartsWith("Btn1", StringComparison.Ordinal) && id.AsSpan(4).IndexOfAnyExceptInRange('0', '9') == -1;
+
     internal static void VerifyRichGeometry(Rect client, Rect title, Rect content, Rect document, Rect? suppression, Rect confirm, Rect published)
     {
         var all = new List<Rect> { title, content, document, confirm, published };
@@ -87,6 +90,8 @@ internal static class ReviewedInformationNotice
 
     internal static void VerifyPolicy()
     {
+        if (!IsConfirmButtonId("Btn1") || !IsConfirmButtonId("Btn191") || IsConfirmButtonId("Btn292") || IsConfirmButtonId("Btn1Other"))
+            throw new InvalidOperationException("Reviewed confirm button ID handling differs.");
         foreach (string version in new[] { "1.3.5-pre-3", "1.4.0-pre-4", "1.4.0", "1.4.1", "1.4.2-pre-1", "1.4.3", "1.5.0", "1.5.1", "1.6.0-pre-1", "dev_edition" })
         {
             string caption = CaptionForTitle("PCL Living Fork " + version + " 版本说明");

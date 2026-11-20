@@ -15,7 +15,7 @@ internal static class ShellUiPolicy
     ];
     internal static (string Id, string Name) HeaderTarget(string name) => Navigation.Single(item => item.Name == name);
     internal static bool IsGlassMarker(ShellNode node) => node.ClassName == "GlassLauncherView" ||
-        node.AutomationId is "AccountButton" or "NavigationMenuButton" || Navigation.Any(item => item.Id == node.AutomationId);
+        node.AutomationId is "AccountButton" or "SidebarScroller" || Navigation.Any(item => item.Id == node.AutomationId);
 
     internal static ObservedShell Detect(IReadOnlyList<ShellNode> nodes, System.Windows.Rect client, double scale)
     {
@@ -54,19 +54,15 @@ internal static class ShellUiPolicy
            node.Bounds.Bottom <= client.Top + 364 * scale && node.Bounds.Width >= 40 * scale &&
            node.Bounds.Width <= 56 * scale && node.Bounds.Height >= 36 * scale && node.Bounds.Height <= 48 * scale;
 
-    internal static bool IsGlassRailAnchor(ShellNode node, ShellNode account, System.Windows.Rect client, double scale)
-        => Scale(scale) && Inside(node.Bounds, client) && node.Type == ControlType.Button && node.ClassName == "Button" &&
-           node.AutomationId == "NavigationMenuButton" && node.Name == "展开全部页面选项" &&
-           node.Bounds.Left >= client.Left + 80 * scale && node.Bounds.Right <= client.Left + 322 * scale &&
-           node.Bounds.Top >= client.Top + 64 * scale && node.Bounds.Bottom <= client.Bottom - 12 * scale &&
-           node.Bounds.Width >= 28 * scale && node.Bounds.Width <= 44 * scale &&
-           node.Bounds.Height >= 28 * scale && node.Bounds.Height <= 44 * scale;
+    internal static bool IsGlassContextPane(ShellNode node, System.Windows.Rect client, double scale)
+        => Scale(scale) && Inside(node.Bounds, client) && node.Type == ControlType.Pane && node.ClassName == "ScrollViewer" &&
+           node.AutomationId == "SidebarScroller" && node.Bounds.Left >= client.Left + 80 * scale &&
+           node.Bounds.Right <= client.Left + 344 * scale && node.Bounds.Top >= client.Top + 64 * scale &&
+           node.Bounds.Bottom <= client.Bottom - 12 * scale;
 
-    internal static bool IsGlassContextTarget(ShellNode node, string name, ShellNode rail, ShellNode account, System.Windows.Rect client, double scale)
-        => IsGlassRailAnchor(rail, account, client, scale) && Inside(node.Bounds, client) &&
+    internal static bool IsGlassContextTarget(ShellNode node, string name, ShellNode pane, System.Windows.Rect client, double scale)
+        => IsGlassContextPane(pane, client, scale) && Inside(node.Bounds, pane.Bounds) &&
            node.Type == ControlType.Button && node.ClassName == "Button" && node.AutomationId.Length == 0 && node.Name == name &&
-           node.Bounds.Left >= client.Left + 80 * scale && node.Bounds.Right <= client.Left + 322 * scale &&
-           node.Bounds.Top >= client.Top + 64 * scale && node.Bounds.Bottom <= client.Bottom - 20 * scale &&
            node.Bounds.Width >= 100 * scale && node.Bounds.Width <= 232 * scale &&
            node.Bounds.Height >= 28 * scale && node.Bounds.Height <= 48 * scale;
 
@@ -116,16 +112,16 @@ internal static class ShellUiPolicy
                 account with { Bounds = Bounds(61, 418, 40, 40) }, account with { ClassName = "TextBlock" },
                 account with { Type = ControlType.Text }
             }) Reject(() => Detect(WithAccount(invalid), frame, scale));
-            var footer = new ShellNode("NavigationMenuButton", "展开全部页面选项", "Button", ControlType.Button, Bounds(250, 390, 36, 36));
-            var item = new ShellNode("", "个性化", "Button", ControlType.Button, Bounds(100, 140, 180, 36));
-            Require(IsGlassRailAnchor(footer, account, frame, scale), "Context command was refused.");
-            Require(IsGlassContextTarget(item, "个性化", footer, account, frame, scale), "Workspace contextual button was refused.");
-            Require(!IsGlassContextTarget(item with { Name = "初始化本页设置" }, "个性化", footer, account, frame, scale), "A reset action was admitted.");
-            Require(!IsGlassContextTarget(item with { Type = ControlType.Text }, "个性化", footer, account, frame, scale), "A text peer was admitted.");
-            Require(!IsGlassContextTarget(item with { Bounds = Bounds(350, 140, 180, 36) }, "个性化", footer, account, frame, scale), "A page-content or popup peer was admitted.");
-            Require(!IsGlassContextTarget(item with { Bounds = Bounds(120, 455, 86, 40) }, "个性化", footer, account, frame, scale), "An out-of-window peer was admitted.");
-            Require(!IsGlassContextTarget(item, "个性化", footer with { Name = "收起全部页面选项" }, account, frame, scale), "An open context popup was admitted.");
-            Require(!IsGlassContextTarget(item, "个性化", footer with { AutomationId = "OtherButton" }, account, frame, scale), "An unrelated command was admitted.");
+            var pane = new ShellNode("SidebarScroller", "", "ScrollViewer", ControlType.Pane, Bounds(113, 105, 204, 286));
+            var item = new ShellNode("", "个性化", "Button", ControlType.Button, Bounds(113, 140, 204, 36));
+            Require(IsGlassContextPane(pane, frame, scale), "Context sidebar was refused.");
+            Require(IsGlassContextTarget(item, "个性化", pane, frame, scale), "Workspace contextual button was refused.");
+            Require(!IsGlassContextTarget(item with { Name = "初始化本页设置" }, "个性化", pane, frame, scale), "A reset action was admitted.");
+            Require(!IsGlassContextTarget(item with { Type = ControlType.Text }, "个性化", pane, frame, scale), "A text peer was admitted.");
+            Require(!IsGlassContextTarget(item with { Bounds = Bounds(350, 140, 180, 36) }, "个性化", pane, frame, scale), "A page-content or popup peer was admitted.");
+            Require(!IsGlassContextTarget(item with { Bounds = Bounds(120, 408, 180, 36) }, "个性化", pane, frame, scale), "An out-of-sidebar peer was admitted.");
+            Require(!IsGlassContextTarget(item, "个性化", pane with { ClassName = "Button" }, frame, scale), "A context popup trigger was admitted.");
+            Require(!IsGlassContextTarget(item, "个性化", pane with { AutomationId = "PanBack" }, frame, scale), "An unrelated scroller was admitted.");
         }
         Console.WriteLine("PASS workspace shell policy: exact vertical navigation and integrated account/context controls; classic ownership/geometry rules retained; mixed, missing, duplicate, displaced and out-of-frame peers refused.");
     }

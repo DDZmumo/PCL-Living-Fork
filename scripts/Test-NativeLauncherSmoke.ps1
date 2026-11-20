@@ -252,7 +252,8 @@ try{
  $ownedAppData=Join-Path $appData 'PCL';[IO.Directory]::CreateDirectory($ownedAppData)|Out-Null;[IO.File]::WriteAllText((Join-Path $ownedAppData $marker),$id)
  [IO.Directory]::CreateDirectory((Join-Path $install '.minecraft/versions'))|Out-Null
  [IO.Directory]::CreateDirectory((Join-Path $install 'PCL'))|Out-Null
- [IO.File]::WriteAllText((Join-Path $install 'PCL/Setup.ini'),('NativeSmokeSentinel:'+$id+"`r`nLaunchFolderSelect:"+(Join-Path $install '.minecraft')+"\`r`nUiLauncherLogo:False`r`nUiCustomType:0`r`nLivingModpackMode:False`r`nToolLauncherUpdateSource:0`r`nToolLauncherUpdateChannel:0`r`n"),[Text.UTF8Encoding]::new($false))
+ $initialTheme=if($ExerciseInteraction){"UiLauncherColorMode:0`r`n"}else{''}
+ [IO.File]::WriteAllText((Join-Path $install 'PCL/Setup.ini'),('NativeSmokeSentinel:'+$id+"`r`nLaunchFolderSelect:"+(Join-Path $install '.minecraft')+"\`r`nUiLauncherLogo:False`r`nUiCustomType:0`r`nLivingModpackMode:False`r`nToolLauncherUpdateSource:0`r`nToolLauncherUpdateChannel:0`r`n"+$initialTheme),[Text.UTF8Encoding]::new($false))
  $gameSentinel=Join-Path $install '.minecraft/NativeSmoke.sentinel';[IO.File]::WriteAllText($gameSentinel,$id)
  Copy-Item -LiteralPath $ExecutablePath -Destination $installed
  if((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.sha256){throw 'Installed fixture bytes differ from actual candidate preflight.'}

@@ -232,13 +232,11 @@ internal sealed class Probe
         var observed = ObserveShell();
         if (shell == ObservedShell.Unverified || observed.Mode != shell) throw new InvalidOperationException("PENDING: admitted Main shell identity changed.");
         if (shell == ObservedShell.Classic) return Text(text, "LabTitle", left: true);
-        var account = Unique(observed.Nodes, node => node.Current.AutomationId == "AccountButton", "admitted glass account capsule");
-        ShellNode accountBounds = ShellMetadata(account);
-        var rail = Unique(observed.Nodes, node => ShellUiPolicy.IsGlassRailAnchor(ShellMetadata(node), accountBounds, observed.Client, observed.Scale),
-            "glass rail NavigationMenuButton footer");
-        ShellNode railBounds = ShellMetadata(rail);
-        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextTarget(ShellMetadata(node), text, railBounds, accountBounds, observed.Client, observed.Scale),
-            "glass contextual rail Button(" + text + ")");
+        var pane = Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextPane(ShellMetadata(node), observed.Client, observed.Scale),
+            "glass SidebarScroller");
+        ShellNode paneBounds = ShellMetadata(pane);
+        return Unique(observed.Nodes, node => ShellUiPolicy.IsGlassContextTarget(ShellMetadata(node), text, paneBounds, observed.Client, observed.Scale)
+                && IsDescendant(node, pane), "glass contextual sidebar Button(" + text + ")");
     }
     private void ClickNavigation(string text, bool contextual, string step)
     {
@@ -292,7 +290,7 @@ internal sealed class Probe
         {
             if (parent.Current.ProcessId != pid) throw new InvalidOperationException("Information notice parent is not owned.");
             if (parent.Current.ControlType != ControlType.Button) continue;
-            if (parent.Current.ClassName != "Button" || parent.Current.AutomationId != "Btn1" || parent.Current.Name != "确定" ||
+            if (parent.Current.ClassName != "Button" || !ReviewedInformationNotice.IsConfirmButtonId(parent.Current.AutomationId) || parent.Current.Name != "确定" ||
                 !parent.Current.BoundingRectangle.Contains(label.Current.BoundingRectangle) || !Native.Client(hwnd).Contains(parent.Current.BoundingRectangle))
                 throw new InvalidOperationException("PENDING: projected reviewed notice button identity/geometry differs.");
             AssertAncestor(parent); return parent;
@@ -330,7 +328,7 @@ internal sealed class Probe
         AutomationElement? current = TreeWalker.RawViewWalker.GetParent(node);
         for (int depth = 0; depth < 45 && current != null; depth++, current = TreeWalker.RawViewWalker.GetParent(current))
         {
-            if (current.Current.ProcessId != pid) throw new InvalidOperationException("Notice ancestor belongs to another process.");
+            if (current.Current.ProcessId != pid) throw new InvalidOperationException("UIA ancestor belongs to another process.");
             if (current.Equals(ancestor)) return true;
             if (current.Current.NativeWindowHandle != 0) break;
         }
@@ -356,9 +354,11 @@ internal sealed class Probe
         string text = ((TextPattern)pattern).DocumentRange.GetText(16001);
         noticePolicy.VerifyDocument(text);
         var published = Text("查看发布页", "LabText");
-        AutomationElement? suppression = noticePolicy.HasSuppression ? Text(ReviewedInformationNotice.SuppressionLabel, "LabText") : null;
-        if (suppression != null && (!IsDescendant(suppression, content) || IsDescendant(suppression, document)))
-            throw new InvalidOperationException("PENDING: native suppression label is not a separate footer in the owned notice content.");
+        AutomationElement? suppression = noticePolicy.HasSuppression ? Unique(node =>
+            node.Current.Name == ReviewedInformationNotice.SuppressionLabel &&
+            ((node.Current.ControlType == ControlType.Text && node.Current.AutomationId == "LabText") ||
+             (node.Current.ControlType == ControlType.CheckBox && node.Current.ClassName == "CheckBox" && node.Current.AutomationId == "PanBack")) &&
+            IsDescendant(node, content) && !IsDescendant(node, document), "separate owned notice suppression footer") : null;
         ReviewedInformationNotice.VerifyRichGeometry(Native.Client(hwnd), title.Current.BoundingRectangle, content.Current.BoundingRectangle, document.Current.BoundingRectangle,
             suppression?.Current.BoundingRectangle, button.Current.BoundingRectangle, published.Current.BoundingRectangle);
         evidence["ReviewedStartupNotice"] = new { noticePolicy.Title, noticePolicy.Style, noticePolicy.Source, CompleteLocalDocument = true,
