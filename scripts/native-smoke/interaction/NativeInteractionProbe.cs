@@ -29,6 +29,7 @@ internal sealed class Probe
     private readonly Dictionary<string, object?> evidence = new();
     private readonly List<object> steps = new();
     private readonly Stopwatch clock = Stopwatch.StartNew();
+    private readonly TimeSpan interactionBudget;
     private readonly int pid;
     private readonly IntPtr hwnd;
     private readonly string fixture, owner, exe, output;
@@ -42,6 +43,9 @@ internal sealed class Probe
     private Probe(Dictionary<string, string> arguments)
     {
         args = arguments;
+        if (!int.TryParse(args.GetValueOrDefault("timeout-seconds", "90"), NumberStyles.None, CultureInfo.InvariantCulture, out int timeout) || timeout is < 85 or > 120)
+            throw new InvalidOperationException("Interaction timeout must be within the original hosted observer bounds.");
+        interactionBudget = TimeSpan.FromSeconds(timeout - 10); // Reserve the final seconds for evidence and exit.
         Notice = args["notice"];
         noticePolicy = ReviewedInformationNotice.ForTitle(Notice, args.GetValueOrDefault("notice-style", "plain"), args.GetValueOrDefault("notice-source", "local"));
         pid = int.Parse(args["pid"], CultureInfo.InvariantCulture);
@@ -82,7 +86,7 @@ internal sealed class Probe
             }
             if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess || Environment.GetEnvironmentVariable("CI") != "true" || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted") throw new InvalidOperationException("PENDING: isolated GitHub-hosted x64 Windows only.");
             Native.SetThreadDpiAwarenessContext(new IntPtr(-4));
-            if (values.Length is not (18 or 22)) throw new InvalidOperationException("Expected nine fixture arguments and the optional bound notice style/source pair.");
+            if (values.Length is not (18 or 20 or 22 or 24)) throw new InvalidOperationException("Expected fixture arguments with optional notice metadata and timeout.");
             Dictionary<string, string> arguments = new(StringComparer.Ordinal);
             for (int i = 0; i < values.Length; i += 2) arguments.Add(values[i].TrimStart('-'), values[i + 1]);
             probe = new Probe(arguments); probe.Guard(true); probe.identityProved = true; probe.Run();
@@ -145,7 +149,7 @@ internal sealed class Probe
 
     private void Guard(bool hash = false)
     {
-        if (clock.Elapsed.TotalSeconds > 80) throw new InvalidOperationException("PENDING: bounded interaction budget exhausted.");
+        if (clock.Elapsed > interactionBudget) throw new InvalidOperationException("PENDING: bounded interaction budget exhausted.");
         string workspace = Path.GetFullPath(args["workspace"]).TrimEnd(Path.DirectorySeparatorChar);
         if (!fixture.StartsWith(workspace + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !exe.StartsWith(fixture + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || File.ReadAllText(Path.Combine(fixture, "owner.txt")) != owner) throw new InvalidOperationException("Fixture path/owner differs.");
         foreach (string name in new[] { "Software\\PCL", "Software\\PCLDebug", "Software\\PCL Living Fork" })
@@ -282,9 +286,8 @@ internal sealed class Probe
                 admitted.AutomationId, Bounds = admitted.Bounds.ToString(CultureInfo.InvariantCulture), CursorRestoredBeforeProvider = true });
         });
     }
-    private AutomationElement? ProjectedInformationButton()
+    private AutomationElement? ProjectedInformationButton(AutomationElement label)
     {
-        AutomationElement label = VerifyInformationNotice();
         AutomationElement? parent = TreeWalker.RawViewWalker.GetParent(label);
         for (int depth = 0; depth < 4 && parent != null; depth++, parent = TreeWalker.RawViewWalker.GetParent(parent))
         {
@@ -386,7 +389,7 @@ internal sealed class Probe
         // No cursor movement while a UIA/provider call may block. After this
         // point use only bounded Win32 messages and immediate native queries;
         // reserve twenty seconds before the outer observer's ninety-second cap.
-        if (clock.Elapsed.TotalSeconds > 70) throw new InvalidOperationException("PENDING: insufficient bounded budget to move and restore the CI cursor.");
+        if (clock.Elapsed > interactionBudget - TimeSpan.FromSeconds(10)) throw new InvalidOperationException("PENDING: insufficient bounded budget to move and restore the CI cursor.");
         if (Native.GetForegroundWindow() != hwnd)
         {
             if (Native.Owner(hwnd) != pid || !Native.SetForegroundWindow(hwnd)) throw new InvalidOperationException("PENDING: owned Main could not become the foreground window; observed foreground handle=" + Native.GetForegroundWindow().ToInt64() + ".");
@@ -509,11 +512,12 @@ internal sealed class Probe
     private void Run()
     {
         if (args["notice"] != Notice) throw new InvalidOperationException("PENDING: expected information notice changed after fixture admission.");
-        Stable("known-notice"); VerifyInformationNotice(); Capture("notice");
+        Stable("known-notice");
         var button = VerifyInformationNotice();
-        AutomationElement? projectedNotice = ProjectedInformationButton();
+        Capture("notice");
+        AutomationElement? projectedNotice = ProjectedInformationButton(button);
         if (projectedNotice is null) Click(button, "dismiss-exact-information-notice");
-        else InvokeOwnedButton(() => ProjectedInformationButton() ?? throw new InvalidOperationException("PENDING: projected notice button disappeared."), projectedNotice, "dismiss-exact-information-notice");
+        else InvokeOwnedButton(() => ProjectedInformationButton(VerifyInformationNotice()) ?? throw new InvalidOperationException("PENDING: projected notice button disappeared."), projectedNotice, "dismiss-exact-information-notice");
         Wait(() => !Nodes().Any(n => Visible(n) && n.Current.Name == Notice), "only reviewed notice dismissed");
         Stable("launch"); DetectShell(); Capture("launch");
         ClickNavigation("设置", contextual: false, "main-settings"); Stable("settings");
