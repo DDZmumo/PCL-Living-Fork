@@ -285,7 +285,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             }
         }
 
-        private static void ReadArchive(global::System.IO.Compression.ZipArchive Archive, global::System.String RootPath, global::System.String NestedPath, global::System.Boolean Enabled, global::System.Boolean Nested, global::System.Int32 Depth, TReport Report, ReadBudget Budget, global::System.Threading.CancellationToken Token)
+        private static void ReadArchive(global::System.IO.Compression.ZipArchive Archive, global::System.String RootPath, global::System.String NestedPath, global::System.Boolean Enabled, global::System.Boolean Nested, global::System.Int32 Depth, TReport Report, ReadBudget Budget, global::System.Threading.CancellationToken Token, bool fromFmlJarJar = false)
         {
             Token.ThrowIfCancellationRequested();
             if (IsLegacyForge(Report.Context))
@@ -311,6 +311,11 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             var Metadata = Choices.Distinct(global::System.StringComparer.Ordinal).Select(Name => Archive.GetEntry(Name)).FirstOrDefault(Entry => Entry is not null);
             if (Metadata is null)
             {
+                if (!IsLegacyForge(Report.Context) && (Loaders.ContainsKey("forge") || Loaders.ContainsKey("neoforge")) &&
+                    IsModernFmlLibrary(Archive, fromFmlJarJar)) {
+                    ReadNestedArchives(Archive, ReadJarJarPaths(Archive), RootPath, NestedPath, Enabled, Depth, Report, Budget, Token, fromFmlJarJar: true);
+                    return;
+                }
                 global::System.Int32 Before = Report.Mods.Count;
                 ReadLegacyArchive(Archive, RootPath, NestedPath, Enabled, Nested, Depth, Report, Budget, Token);
                 foreach (var Item in Report.Mods.Skip(Before))
@@ -321,6 +326,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             var NestedJars = new global::System.Collections.Generic.List<global::System.String>();
             global::System.String Content = ReadText(Metadata);
             global::System.String DeclaredPlatform = "";
+            bool fmlJarJar = false;
             switch ((Metadata.FullName ?? ""))
             {
                 case "fabric.mod.json":
@@ -405,7 +411,8 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                 case "META-INF/neoforge.mods.toml":
                     {
                         // NeoForge 1.20.4 also uses mods.toml; distinguish it using actual platform dependencies.
-                        var Platforms = ReadToml(Content).Where(Section => Section.IsArray && (((Section.Name.StartsWith("dependencies.", global::System.StringComparison.Ordinal)) && (Scalar(Section, "mandatory") != "false")) && (new[] { "", "required" }.Contains(Scalar(Section, "type"))))).Select(Section => Scalar(Section, "modId")).ToList();
+                        List<TomlSection> sections = ReadForgeToml(Content);
+                        var Platforms = sections.Where(Section => Section.IsArray && (((Section.Name.StartsWith("dependencies.", global::System.StringComparison.Ordinal)) && (Scalar(Section, "mandatory") != "false")) && (new[] { "", "required" }.Contains(Scalar(Section, "type"))))).Select(Section => Scalar(Section, "modId")).ToList();
                         if (((Metadata.FullName.Contains("neoforge")) || (Platforms.Contains("neoforge"))))
                         {
                             DeclaredPlatform = "neoforge";
@@ -415,18 +422,9 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                             DeclaredPlatform = "forge";
                         }
                         global::System.Boolean IsNeo = ((DeclaredPlatform == "neoforge") || (((string.IsNullOrEmpty(DeclaredPlatform) && (Loaders.ContainsKey("neoforge"))))));
-                        ReadForge(Content, Archive, RootPath, NestedPath + Metadata.FullName, Enabled, Nested, IsNeo, Items, Report);
-                        var JarJar = Archive.GetEntry("META-INF/jarjar/metadata.json");
-                        if (JarJar is not null)
-                        {
-                            foreach (var Jar in ArrayValues(global::Newtonsoft.Json.Linq.JObject.Parse(ReadText(JarJar))["jars"]))
-                            {
-                                global::System.String EntryName = Text(Jar["path"]);
-                                if (!string.IsNullOrEmpty(EntryName))
-                                    NestedJars.Add(EntryName);
-                            }
-                        }
-
+                        ReadForge(sections, Archive, RootPath, NestedPath + Metadata.FullName, Enabled, Nested, IsNeo, Items, Report);
+                        fmlJarJar = true;
+                        NestedJars.AddRange(ReadJarJarPaths(Archive));
                         break;
                     }
                 case "mcmod.info":
@@ -460,10 +458,28 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                 }
             }
             Report.Mods.AddRange((global::System.Collections.Generic.IEnumerable<TMod>)Items);
-            ReadNestedArchives(Archive, NestedJars, RootPath, NestedPath, Enabled, Depth, Report, Budget, Token);
+            ReadNestedArchives(Archive, NestedJars, RootPath, NestedPath, Enabled, Depth, Report, Budget, Token, fmlJarJar);
         }
 
-        private static void ReadNestedArchives(global::System.IO.Compression.ZipArchive Archive, global::System.Collections.Generic.IEnumerable<global::System.String> NestedJars, global::System.String RootPath, global::System.String NestedPath, global::System.Boolean Enabled, global::System.Int32 Depth, TReport Report, ReadBudget Budget, global::System.Threading.CancellationToken Token)
+        private static IEnumerable<string> ReadJarJarPaths(ZipArchive archive) {
+            var metadata = archive.GetEntry("META-INF/jarjar/metadata.json");
+            if (metadata is null) return Enumerable.Empty<string>();
+            return ArrayValues(JObject.Parse(ReadText(metadata))["jars"])
+                .Select(value => Text(value["path"])).Where(path => !string.IsNullOrEmpty(path)).ToArray();
+        }
+
+        private static bool IsModernFmlLibrary(ZipArchive archive, bool fromJarJar) {
+            // FML reads modern mod IDs from metadata. JarJar can also load ordinary
+            // Java libraries, and explicitly typed library bundles can contain mods.
+            var headers = ReadManifestHeaders(archive);
+            if (headers.ContainsKey("FMLCorePlugin") || headers.ContainsKey("TweakClass") || headers.ContainsKey("ContainedDeps"))
+                return false;
+            return headers.TryGetValue("FMLModType", out string type)
+                ? type is "LIBRARY" or "GAMELIBRARY" or "LANGPROVIDER"
+                : fromJarJar;
+        }
+
+        private static void ReadNestedArchives(global::System.IO.Compression.ZipArchive Archive, global::System.Collections.Generic.IEnumerable<global::System.String> NestedJars, global::System.String RootPath, global::System.String NestedPath, global::System.Boolean Enabled, global::System.Int32 Depth, TReport Report, ReadBudget Budget, global::System.Threading.CancellationToken Token, bool fromFmlJarJar = false)
         {
             foreach (var EntryName in NestedJars.Distinct(global::System.StringComparer.Ordinal))
             {
@@ -512,7 +528,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                         Buffer.Position = 0L;
                         using (var Inner = new global::System.IO.Compression.ZipArchive(Buffer, global::System.IO.Compression.ZipArchiveMode.Read, true))
                         {
-                            ReadArchive(Inner, RootPath, (NestedPath + EntryName) + "!", Enabled, true, (Depth) + (1), Report, Budget, Token);
+                            ReadArchive(Inner, RootPath, (NestedPath + EntryName) + "!", Enabled, true, (Depth) + (1), Report, Budget, Token, fromFmlJarJar);
                         }
                     }
                 }
@@ -831,9 +847,21 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
                 return Raw;
             return DefaultValue;
         }
-        private static void ReadForge(global::System.String Content, global::System.IO.Compression.ZipArchive Archive, global::System.String RootPath, global::System.String MetadataPath, global::System.Boolean Enabled, global::System.Boolean Nested, global::System.Boolean Neo, global::System.Collections.Generic.List<TMod> Items, TReport Report)
+        private static List<TomlSection> ReadForgeToml(string content) {
+            var sections = ReadToml(content);
+            var dependencyTables = sections.Where(section => section.IsArray && section.Name == "mods")
+                .Select(section => "dependencies." + Scalar(section, "modId")).ToHashSet(StringComparer.Ordinal);
+            var childPrefixes = sections.Where(section => section.IsArray && dependencyTables.Contains(section.Name))
+                .Select(section => section.Name + ".").Distinct(StringComparer.Ordinal).ToArray();
+            // A dependency array item may have auxiliary child tables such as
+            // publisher metadata. They do not define another dependency.
+            sections.RemoveAll(section => !dependencyTables.Contains(section.Name) &&
+                childPrefixes.Any(prefix => section.Name.StartsWith(prefix, StringComparison.Ordinal)));
+            return sections;
+        }
+
+        private static void ReadForge(List<TomlSection> Sections, global::System.IO.Compression.ZipArchive Archive, global::System.String RootPath, global::System.String MetadataPath, global::System.Boolean Enabled, global::System.Boolean Nested, global::System.Boolean Neo, global::System.Collections.Generic.List<TMod> Items, TReport Report)
         {
-            var Sections = ReadToml(Content);
             var GlobalSection = Sections[0];
             var FileProperties = Sections.FirstOrDefault(Entry => !Entry.IsArray && Entry.Name == "properties");
             if (Enabled && Sections.Any(section => section.Incomplete || section.Name == "?" ||
@@ -1111,6 +1139,18 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
         }
         private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, LegacyCacheEntry> LegacyCache = new global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, LegacyCacheEntry>(global::System.StringComparer.OrdinalIgnoreCase);
 
+        private static Dictionary<string, string> ReadManifestHeaders(ZipArchive archive) {
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var manifest = archive.GetEntry("META-INF/MANIFEST.MF");
+            if (manifest is null) return headers;
+            foreach (string line in Regex.Replace(ReadText(manifest), @"\r*\n ", "").Split('\n')) {
+                if (string.IsNullOrWhiteSpace(line)) break;
+                int colon = line.IndexOf(':');
+                if (colon > 0) headers[line[..colon]] = line[(colon + 1)..].Trim();
+            }
+            return headers;
+        }
+
         private static void ReadLegacyArchive(global::System.IO.Compression.ZipArchive Archive, global::System.String RootPath, global::System.String NestedPath, global::System.Boolean Enabled, global::System.Boolean Nested, global::System.Int32 Depth, TReport Report, ReadBudget Budget, global::System.Threading.CancellationToken Token)
         {
             // Forge 1.12 discovers class-level @Mod annotations, not modern TOML or every mcmod.info entry.
@@ -1150,19 +1190,7 @@ public sealed partial class ModDependencyInspection<TContext,TMod,TDependency,TE
             var Items = new global::System.Collections.Generic.List<TMod>();
             var Total = default(global::System.Int64);
             var Count = default(global::System.Int32);
-            var Manifest = Archive.GetEntry("META-INF/MANIFEST.MF");
-            var Headers = new global::System.Collections.Generic.Dictionary<global::System.String, global::System.String>(global::System.StringComparer.OrdinalIgnoreCase);
-            if (Manifest is not null)
-            {
-                foreach (var Line in global::System.Text.RegularExpressions.Regex.Replace(ReadText(Manifest), @"\r*\n ", "").Split('\n'))
-                {
-                    if (global::System.String.IsNullOrWhiteSpace(Line))
-                        break;
-                    global::System.Int32 Colon = Line.IndexOf(':');
-                    if (((Colon) > (0)))
-                        Headers[Line.Substring(0, Colon)] = Line.Substring((Colon) + (1)).Trim();
-                }
-            }
+            var Headers = ReadManifestHeaders(Archive);
             global::System.String PluginName = (global::System.String)null;
             if (Headers.TryGetValue("FMLCorePlugin", out PluginName))
             {

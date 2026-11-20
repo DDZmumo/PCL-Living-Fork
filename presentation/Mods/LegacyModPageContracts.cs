@@ -75,7 +75,7 @@ public sealed class LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDo
     public Func<string,string,List<TImpact>,int> ImpactConfirm = null!;
     public Func<TInstance,string[],List<TImpact>> InspectImpacts = null!;
     public Func<TInstance,TMod,LegacyModDependencyDetails> InspectDetails = null!;
-    public Action<Action> Dispatch = null!;
+    public Action<Action> Dispatch = null!, DispatchWait = null!;
     public Action<Action,string,ThreadPriority> Background = null!;
     public Func<TMod,bool,TItem> NewItem = null!;
     public Action<TMod,TItem> BindUpdate = null!;
@@ -91,7 +91,8 @@ public sealed class LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDo
     public Action<TInstance,string> NavigateDownload = null!;
     public Action<TProject> NavigateDetails = null!;
     public Func<TVersion,string,TDownload> ToNetFile = null!;
-    public Func<Func<string>,List<TDownload>,double,Action,LegacyModUpdateJob> CreateUpdateJob = null!;
+    public Func<Func<string>,List<TDownload>,double,Action<CancellationToken>,LegacyModUpdateJob> CreateUpdateJob = null!;
+    public Func<TInstance,IReadOnlyDictionary<string,string>,CancellationToken,IReadOnlyList<ModUpdateDependencyFinding>> CheckUpdateDependencies = null!;
     public Action<TInstance,string,CancellationToken> CaptureHistory = null!;
     public Action RefreshDownloadButton = null!, RibbleDownloadButton = null!;
     public Func<long,string> FormatSize = null!;

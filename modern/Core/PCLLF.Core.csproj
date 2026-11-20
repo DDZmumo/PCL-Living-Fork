@@ -27,7 +27,7 @@
     <Compile Include="../../PCLCS/**/*.cs" Exclude="../../PCLCS/**/bin/**;../../PCLCS/**/obj/**"
       Link="%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- Keep response-file resources in the compiler's incremental input graph. -->
-    <CustomAdditionalCompileInputs Include="CoreResources.rsp;../../PCLCS/Launch/JavaWrapper.jar;../../PCLCS/Launch/LwjglUnsafeAgent.jar;../../PCLCS/Resource/WikiEntries.txt;../../PCLCS/Minecraft/OptifineHashes.json" />
+    <CustomAdditionalCompileInputs Include="CoreResources.rsp;../../PCLCS/Launch/JavaWrapper.jar;../../PCLCS/Launch/LwjglUnsafeAgent.jar;../../PCLCS/Launch/ModKeybindPatch.jar;../../PCLCS/Resource/WikiEntries.txt;../../PCLCS/Minecraft/OptifineHashes.json" />
   </ItemGroup>
 
   <ItemGroup>

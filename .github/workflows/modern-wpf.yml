@@ -80,7 +80,7 @@ jobs:
             configuration = '${{ matrix.configuration }}'
             shared = $sharedRevision
             targetFramework = 'net10.0-windows'
-            scope = 'LF PCLCS modern graph, four resource payloads, STA WPF image decode and shared live controller checks; not the complete migrated launcher.'
+            scope = 'LF PCLCS modern graph, exact embedded resource payloads, STA WPF image decode and shared live controller checks.'
           } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $logDirectory 'context.json')
 
       - name: Restore the modern-only WPF test graph

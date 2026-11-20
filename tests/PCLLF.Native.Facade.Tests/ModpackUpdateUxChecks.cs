@@ -42,12 +42,45 @@ internal static class ModpackUpdateUxChecks
         ModpackDownloadProcess.RunParent();
         VersionsAndPreview(Path.Combine(root, "preview"));
         ConflictChoicesAndOwnership(Path.Combine(root, "ownership-preview"));
+        ConfigurationChoices();
         LargeNoticesScroll(Path.Combine(root, "large-preview"));
         AuthorActionsAndDisabledState(Path.Combine(root, "policy-preview"));
         ModpackLivePreviewChecks.Run(Path.Combine(root, "live-preview"));
         ModpackSidebarChecks.Run(Path.Combine(root, "pack-sidebar"));
         ModpackStageLayoutChecks.Run(Path.Combine(root, "stage-layout"));
         Console.WriteLine("PASS native modpack-update UX: UX-P1..P4 and UX-01..UX-13 (actual loopback, selection/modal and read-only preview).");
+    }
+
+    private static void ConfigurationChoices()
+    {
+        const string path = "config/keys.json";
+        byte[] Bytes(string text) => System.Text.Encoding.UTF8.GetBytes(text);
+        var merge = (PackConfigMerge)Native.Call(typeof(PackConfigMerge), "TryCreate", null, path,
+            Bytes("""{"cap":1,"speed":1,"mode":1}"""), Bytes("""{"cap":2,"speed":3,"mode":1}"""),
+            Bytes("""{"cap":8,"speed":9,"mode":2}"""))!;
+        object package = New("PackUpdatePackage");
+        Set(package, "Name", "Configuration fixture"); Set(package, "Version", "2"); Set(package, "Minecraft", "1.21.11");
+        object plan = New("PackUpdatePlan"); Set(plan, "Package", package);
+        object change = New("PackUpdateChange"), incoming = New("PackUpdateFile");
+        Set(change, "Relative", path); Set(change, "Before", "sha1:fixture"); Set(change, "Incoming", incoming);
+        Set(change, "ConfigurationMerge", merge);
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        Set(change, "AuthorConfigurationKeys", keys);
+        ((IList)Get(plan, "Changes")!).Add(change);
+        var preview = (FrameworkElement)Construct("ModpackUpdatePreviewView", plan, "1.21.11", new Dictionary<ModLoaders, string>());
+        Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(Native.Type("PCL.ModpackUpdatePreviewView+ChangeKind"), "Updated"));
+        var options = Descendants(FileCards(preview).Single()).OfType<MyRadioBox>()
+            .Where(option => option.Text.StartsWith("玩家值", StringComparison.Ordinal) || option.Text.StartsWith("作者值", StringComparison.Ordinal))
+            .ToDictionary(option => option.Text);
+        Native.Check(options.Count == 4 && options["玩家值 · 2"].Checked && options["玩家值 · 3"].Checked,
+            "Configuration choices default to personal values and only show actual conflicts. Observed " +
+            string.Join(", ", options.Select(pair => pair.Key + "=" + pair.Value.Checked)));
+        options["作者值 · 8"].Checked = true;
+        options["作者值 · 9"].Checked = true;
+        Native.Check(keys.SetEquals(["/cap", "/speed"]), "Selecting one conflict changed another key.");
+        options["玩家值 · 3"].Checked = true;
+        Native.Check(keys.SetEquals(["/cap"]), "Returning one conflict to its personal value changed another key.");
+        Console.WriteLine("PASS native configuration preview: default personal values and independent same-key choices.");
     }
 
     internal static void DownloadProgress(string folder)

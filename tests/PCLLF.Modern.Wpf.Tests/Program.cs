@@ -119,12 +119,13 @@ internal static class Program {
         Dictionary<string, string> resources = new Dictionary<string, string>(StringComparer.Ordinal) {
             { @"Launch\JavaWrapper.jar", Path.Combine(repositoryRoot, "PCLCS", "Launch", "JavaWrapper.jar") },
             { @"Launch\LwjglUnsafeAgent.jar", Path.Combine(repositoryRoot, "PCLCS", "Launch", "LwjglUnsafeAgent.jar") },
+            { @"Launch\ModKeybindPatch.jar", Path.Combine(repositoryRoot, "PCLCS", "Launch", "ModKeybindPatch.jar") },
             { @"Resource\WikiEntries.txt", Path.Combine(repositoryRoot, "PCLCS", "Resource", "WikiEntries.txt") },
             { @"Minecraft\OptiFineHashes.json", Path.Combine(repositoryRoot, "PCLCS", "Minecraft", "OptifineHashes.json") }
         };
         Require(core.GetManifestResourceNames().OrderBy(name => name, StringComparer.Ordinal)
             .SequenceEqual(resources.Keys.OrderBy(name => name, StringComparer.Ordinal), StringComparer.Ordinal),
-            "Modern PCLCS embedded names differ from LF's four original case-sensitive backslash resource names.");
+            "Modern PCLCS embedded names differ from the expected case-sensitive backslash resource names.");
         foreach (KeyValuePair<string, string> resource in resources) {
             byte[] expected = File.ReadAllBytes(resource.Value);
             using (Stream embedded = core.GetManifestResourceStream(resource.Key)) {
@@ -137,6 +138,8 @@ internal static class Program {
             // Execute the real LF Shared resource API against the actual modern Core assembly.
             Require(FileUtils.ReadAsBytes(resource.Key, typeof(Java)).SequenceEqual(expected),
                 "LF Shared could not read the modern Core resource bytes: " + resource.Key);
+            if (resource.Key == @"Launch\ModKeybindPatch.jar")
+                Require(ModKeybindPatch.SupportBytes().Span.SequenceEqual(expected), "The runtime keybind agent did not match the verified source JAR.");
             Console.WriteLine("PASS embedded resource and LF Shared read: " + resource.Key + " (" + expected.Length + " bytes).");
         }
     }

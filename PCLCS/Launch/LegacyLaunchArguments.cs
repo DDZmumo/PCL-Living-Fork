@@ -196,6 +196,22 @@ public List<string> McLaunchArgumentsJVM()
             Args.Add($"-javaagent:\"{LaunchUtils.ExtractPatch(@"Launch\LwjglUnsafeAgent.jar", host.PureFolder())}\"");
         McLaunchLog("使用 LUA：" + UseLUA);
 
+        var gameVersion = McInstanceSelected.Version;
+        if (CurrentLaunchOptions?.SaveBatch is null && gameVersion.Reliable &&
+            gameVersion.ModLoaderVersions.Any(loader =>
+                ModKeybindPatch.Applies(loader.Key, gameVersion.VanillaName, loader.Value, McLaunchJavaSelected.Version.Major)))
+        {
+            try
+            {
+                string agent = ModKeybindPatch.StageLegacy(host.PureFolder());
+                Args.Add($"\"{ModKeybindPatch.Argument(agent, McInstanceSelected.PathIndie)}\"");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                Logger.Warn(error, "未能应用模组键位保护");
+            }
+        }
+
         #region 内存管理
 
         McLaunchLog("当前剩余内存：" + Math.Round(host.AvailablePhysicalMemory() / 1024d / 1024d / 1024d * 10d) / 10 + "G");

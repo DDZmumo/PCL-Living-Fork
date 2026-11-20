@@ -111,7 +111,9 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
         if (!string.IsNullOrEmpty(difference.Reason)) body.Children.Add(Label(difference.Reason, 12, margin: new Thickness(0, 6, 0, 0)));
         string authorText = "采用新包方案";
         string personalText = difference.Ownership is PackUpdateOwnership.Deleted or PackUpdateOwnership.OptionalAbsent ? "保持本地未安装状态" : "保留当前文件状态";
-        if (editable && difference.CanChoose) {
+        if (difference.MergeConfiguration) {
+            AddConfigurationChoices(body, difference);
+        } else if (editable && difference.CanChoose) {
             files.TryGetValue(difference.ChangeId, out var selected);
             bool keepDisabled = selected?.KeepDisabled ?? difference.KeepDisabled;
             var options = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -132,6 +134,35 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
             body.Children.Add(options);
         } else body.Children.Add(Label("结果：" + (difference.ApplyAuthor ? authorText + (difference.KeepDisabled && difference.Ownership == PackUpdateOwnership.Disabled ? "，仍保持禁用" : "") : personalText), 12, true, margin: new Thickness(0, 8, 0, 0)));
         Rows.Children.Add(Section(difference.RelativePath + (difference.Conflict ? " · 冲突" : ""), body));
+    }
+    private void AddConfigurationChoices(StackPanel body, MmcPackageFileDifference difference) {
+        files.TryGetValue(difference.ChangeId, out var decision);
+        HashSet<string> keys = new(decision?.AuthorConfigurationKeys ?? [], StringComparer.Ordinal);
+        foreach (var conflict in difference.ConfigurationConflicts) {
+            body.Children.Add(Label(conflict.Key, 12, true, margin: new Thickness(0, 8, 0, 0)));
+            bool useAuthor = keys.Contains(conflict.Key);
+            if (!editable) {
+                body.Children.Add(Label(PackConfigConflict.ShortValue(useAuthor ? conflict.AuthorValue : conflict.PlayerValue), 12));
+                continue;
+            }
+            WrapPanel row = new() { Margin = new Thickness(0, 3, 0, 0) };
+            Add("玩家值", conflict.PlayerValue, false);
+            Add("作者值", conflict.AuthorValue, true);
+            body.Children.Add(row);
+
+            void Add(string label, string value, bool author) {
+                var option = RadioOption(label + " · " + PackConfigConflict.ShortValue(value), useAuthor == author, () => {
+                    if (author) keys.Add(conflict.Key); else keys.Remove(conflict.Key);
+                    if (keys.Count == 0) files.Remove(difference.ChangeId);
+                    else files[difference.ChangeId] = new(difference.ChangeId, PackUpdateChoice.UseAuthor) {
+                        AuthorConfigurationKeys = keys.OrderBy(key => key, StringComparer.Ordinal).ToImmutableArray()
+                    };
+                    ChangedSelection();
+                });
+                option.ToolTip = label + " · " + (value ?? "删除此键");
+                row.Children.Add(option);
+            }
+        }
     }
     private static string ComponentSummary(string value) {
         if (value == "absent") return "未包含";

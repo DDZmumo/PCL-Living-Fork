@@ -31,24 +31,47 @@ internal static class MmcInstancePackageUpdatePlanning<TNetFile> {
             !new[] { "logs/", "crash-reports/", "server-resource-packs/", "natives/" }.Any(prefix => lower.StartsWith(prefix, StringComparison.Ordinal));
     }
     internal static MmcPackageUpdatePackage Package(MmcStoredPrimaryDefinition primary, MmcSavedInstanceSources saved,
-        MmcCompiledProfile compiled, MmcInstancePaths paths, bool payloads) {
-        var package = new MmcPackageUpdatePackage { Name = saved.PackageConfiguration.Name ?? primary.Definition.Origin.OriginalName,
-            Version = primary.Definition.Origin.PackageSha256, Minecraft = compiled.MinecraftVersion,
-            Source = new JObject { ["type"] = "MMC-local-zip", ["packageSha256"] = primary.Definition.Origin.PackageSha256 } };
-        foreach (var component in saved.Resolved.Resolution.Profile!.Components.Where(value => value.Enabled && value.Version is not null)) {
+        MmcCompiledProfile compiled, MmcInstancePaths paths, bool payloads) => AuthorPackage(
+            saved.PackageConfiguration.Name ?? primary.Definition.Origin.OriginalName, primary.Definition.Origin.PackageSha256,
+            saved.Resolved.Resolution.Profile!, compiled.MinecraftVersion, paths.GameRootLeaf,
+            saved.Baseline.Baseline.Files, file => payloads ? paths.ResolveRelative(MmcPathRole.Instance, file.TargetRelativePath!) : null);
+
+    private static MmcPackageUpdatePackage AuthorPackage(string? name, string packSha256, MmcResolvedProfile resolved, string minecraft,
+        string gameRootLeaf, ImmutableArray<MmcPackageFileRecord> files, Func<MmcPackageFileRecord, string?> payload) {
+        var package = new MmcPackageUpdatePackage { Name = name, Version = packSha256, Minecraft = minecraft,
+            Source = new JObject { ["type"] = "MMC-local-zip", ["packageSha256"] = packSha256 } };
+        foreach (var component in resolved.Components.Where(value => value.Enabled && value.Version is not null)) {
             ModLoaders? loader = component.Uid switch { "net.minecraftforge" => ModLoaders.Forge, "net.neoforged" => ModLoaders.NeoForge,
                 "net.fabricmc.fabric-loader" => ModLoaders.Fabric, "com.mumfrey.liteloader" => ModLoaders.LiteLoader, _ => null };
             if (loader is { } type) package.Loaders[type] = component.Version!;
         }
-        string prefix = paths.GameRootLeaf + "/";
-        foreach (var file in saved.Baseline.Baseline.Files.Where(value => value.Role == PCLLF.MMCC.Core.MmcPackageFileRole.Game && value.TargetRelativePath is not null)) {
+        string prefix = gameRootLeaf + "/";
+        foreach (var file in files.Where(value => value.Role == PCLLF.MMCC.Core.MmcPackageFileRole.Game && value.TargetRelativePath is not null)) {
             if (!file.TargetRelativePath!.StartsWith(prefix, StringComparison.Ordinal)) throw new IOException("Author file belongs to another game-tree role.");
             string relative = file.TargetRelativePath[prefix.Length..]; if (!SafeAuthorFile(relative)) continue;
-            if (!package.Files.TryAdd(relative, new() { Relative = relative, Hash = "sha1:" + file.Sha1,
-                Payload = payloads ? paths.ResolveRelative(MmcPathRole.Instance, file.TargetRelativePath) : null }))
+            if (!package.Files.TryAdd(relative, new() { Relative = relative, Hash = "sha1:" + file.Sha1, Payload = payload(file) }))
                 throw new IOException("Author game paths collide in the update role.");
         }
         return package;
+    }
+    internal static MmcObjectReference? StageInitialConfigurationOwnership(MmcArchiveSource archive, MmcResolvedProfile resolved,
+        MmcCompiledProfile compiled, MmcValidatedPackageBaseline baseline, MmcPreparedPackageFiles prepared, MmcPreparedSourceBundle sources) {
+        string root = archive.Package.GameRootLeaf + "/";
+        if (!baseline.Baseline.Files.Any(file => file.Role == PCLLF.MMCC.Core.MmcPackageFileRole.Game && file.TargetRelativePath is { } path &&
+                path.StartsWith(root, StringComparison.Ordinal) && PackConfigMerge.Supports(path[root.Length..]) && SafeAuthorFile(path[root.Length..]))) return null;
+        var staged = prepared.Files.ToDictionary(file => file.RelativePath, file => file.StagedPath, StringComparer.Ordinal);
+        var package = AuthorPackage(archive.Package.Configuration.Name ?? Path.GetFileName(archive.OriginalPath), archive.PackageSha256,
+            resolved, compiled.MinecraftVersion, archive.Package.GameRootLeaf, baseline.Baseline.Files, file => staged.GetValueOrDefault(file.RelativePath));
+        var manifest = PackUpdateEngine<MmcPackageUpdateFile, MmcPackageUpdatePackage, MmcPackageUpdateChange, MmcPackageUpdatePlan, TNetFile>.Manifest(package);
+        if (!((JObject)manifest["files"]!).Properties().Any(property =>
+                property.Value[PackUpdateEngine<MmcPackageUpdateFile, MmcPackageUpdatePackage, MmcPackageUpdateChange, MmcPackageUpdatePlan, TNetFile>.OriginalConfiguration] is not null)) return null;
+        byte[] bytes = Encoding.UTF8.GetBytes(manifest.ToString(Newtonsoft.Json.Formatting.Indented));
+        if (bytes.Length > 16 * 1024 * 1024) return null;
+        string hash = MmcDurableFiles.Hash(bytes), path = "PCL/MmcSource/" + sources.Bundle.BundleSha256 + "/ownership/" + hash + ".json";
+        var reference = new MmcObjectReference(hash, path);
+        if (MmcPackageOwnershipCodec.Validate(bytes, reference, archive.PackageSha256).Any()) throw new IOException("无法验证初始整合包的作者配置记录。");
+        sources.Stage(path, bytes, hash);
+        return reference;
     }
     internal static JObject Baseline(MmcInstancePaths paths, MmcStoredPrimaryDefinition primary, MmcSavedInstanceSources saved,
         MmcCompiledProfile compiled, string stage) {
@@ -94,6 +117,9 @@ internal static class MmcInstancePackageUpdatePlanning<TNetFile> {
     }));
     internal static ImmutableArray<MmcPackageFileDifference> Describe(MmcPackageUpdatePlan plan) => plan.Changes.Concat(plan.PreviewChanges)
         .Select(change => new MmcPackageFileDifference(ChangeId(change), change.Relative ?? "", change.LocalRelative, change.Before,
-            change.Incoming?.Hash, change.Ownership, change.Conflict, change.CanChoose || change.AllowAuthor && !change.DisplayOnly && change.Ownership == PackUpdateOwnership.Disabled, change.ApplyAuthor, change.Choice, change.KeepDisabled, change.Reason))
+            change.Incoming?.Hash, change.Ownership, change.Conflict, change.CanChoose || change.AllowAuthor && !change.DisplayOnly && change.Ownership == PackUpdateOwnership.Disabled, change.ApplyAuthor, change.Choice, change.KeepDisabled, change.Reason) {
+                MergeConfiguration = change.ConfigurationMerge is not null,
+                ConfigurationConflicts = change.ConfigurationMerge?.Conflicts.ToImmutableArray() ?? []
+            })
         .OrderBy(value => value.ChangeId, StringComparer.Ordinal).ToImmutableArray();
 }

@@ -3,8 +3,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using PCLCS;
 using PCLLF.MMCC.Core;
 
@@ -672,6 +674,7 @@ internal static class MmcCommandExecutionTests {
                 }
             });
             childPid = WaitChildPid(ready, 10000);
+            using var observedJob = RetainCommandJob(cmdLease.Intent.JobName);
             Thread.Sleep(250);
             cts.Cancel();
             Equal("MMC_RUNTIME_COMMAND_UNCONFIRMED", task.GetAwaiter().GetResult(), tag + " must throw UNCONFIRMED instead of canceling cleanly");
@@ -738,6 +741,10 @@ internal static class MmcCommandExecutionTests {
             using Process host = Process.Start(psi) ?? throw new Exception("Failed to spawn host child.");
             WaitFileReady(leaseReady, 12000);
             childPid = WaitChildPid(childReady, 12000);
+            string commandId = Guid.ParseExact(File.ReadAllText(leaseReady), "N").ToString("N");
+            (var intent, _) = MmcDurableFiles.ReadRecord<MmcCommandIntentRecord>(
+                Path.Combine(instance.Root, "PCL", "MmcCommands", commandId, "intent.record"));
+            using var observedJob = RetainCommandJob(intent.JobName);
             Thread.Sleep(250); // Ensure cmd.exe root already exited leaving only start /b child alive.
             if (!host.HasExited) host.Kill(entireProcessTree: false); // Kill ONLY the host!
             Require(host.WaitForExit(5000), "Host process did not exit after Kill.");
@@ -769,6 +776,19 @@ internal static class MmcCommandExecutionTests {
             if (childPid > 0) IsProcessGone(childPid, 3000);
         }
     }
+
+    private static SafeWaitHandle RetainCommandJob(string name) {
+        // Retain the actual kernel evidence as the fixture's processes exit.
+        // Background processes on the runner can change during the fallback scan.
+        const uint query = 0x0004;
+        var job = OpenJobObjectW(query, false, name);
+        if (!job.IsInvalid) return job;
+        int error = Marshal.GetLastWin32Error();
+        job.Dispose();
+        throw new Win32Exception(error, "Could not retain the fixture's named command job.");
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern SafeWaitHandle OpenJobObjectW(uint desiredAccess, bool inheritHandle, string name);
 
     private static void InjectedKernelJobUnknownAndCrossSessionNeverDowngradeToScan() {
         // Explicit fault-injection boundary test: separates injected OS observation failures (no live child)

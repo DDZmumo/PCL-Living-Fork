@@ -10,7 +10,9 @@ public sealed record MmcInstancePackageUpdateRequest(string VersionRoot, Guid Ex
     internal MmcVerifiedPackageOrigin? VerifiedOrigin { get; init; }
 }
 public sealed record MmcPackageComponentDecision(string Uid, bool KeepUserOverride);
-public sealed record MmcPackageFileDecision(string ChangeId, PackUpdateChoice Choice, bool KeepDisabled = true);
+public sealed record MmcPackageFileDecision(string ChangeId, PackUpdateChoice Choice, bool KeepDisabled = true) {
+    public ImmutableArray<string> AuthorConfigurationKeys { get; init; } = [];
+}
 public sealed record MmcInstancePackageUpdateChoices(ImmutableArray<MmcPackageComponentDecision> Components,
     ImmutableArray<MmcPackageFileDecision> Files, bool AllowUnverifiedDependencies = false) {
     public static MmcInstancePackageUpdateChoices Default { get; } = new([], []);
@@ -19,7 +21,10 @@ public sealed record MmcPackageComponentDifference(string Uid, string Before, st
     bool HasUserOverride, bool Conflict, bool Removed, bool? KeepUserOverride);
 public sealed record MmcPackageFileDifference(string ChangeId, string RelativePath, string? LocalRelative,
     string? BeforeHash, string? AuthorHash, PackUpdateOwnership Ownership, bool Conflict, bool CanChoose,
-    bool ApplyAuthor, PackUpdateChoice Choice, bool KeepDisabled, string? Reason);
+    bool ApplyAuthor, PackUpdateChoice Choice, bool KeepDisabled, string? Reason) {
+    public bool MergeConfiguration { get; init; }
+    public ImmutableArray<PackConfigConflict> ConfigurationConflicts { get; init; } = [];
+}
 public sealed class MmcInstancePackageUpdatePreview {
     public MmcInstancePackageUpdateRequest Selection { get; }
     public MmcInstancePackageUpdateChoices Choices { get; }

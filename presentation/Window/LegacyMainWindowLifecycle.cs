@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 支持 MultiMC／Prism 实例导入、组件管理与整合包维护\r\n- 下载 Mod 前确认必需前置，卡片展示图标、版本与安装状态\r\n- 启动前可启用精确匹配且兼容的已禁用前置，减少重复核对提示\r\n- 存档备份与环境还原点支持全局默认、实例独立配置和全部保留\r\n- 加快本地版本列表扫描，优化备份与还原点设置界面\r\n- Windows x64 正式版不内带运行时，需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 整合包更新支持配置键值合并，同一键冲突可在预览选择\r\n- 批量更新模组前核对必需前置，完善 NeoForge 内嵌库识别\r\n- 修复拖拽安装模组时的线程错误\r\n- 保护受影响 Forge／NeoForge 实例的自定义键位和组合键\r\n- 修复 GTNH 等整合包接力启动时的崩溃误报\r\n- Windows x64 版需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());

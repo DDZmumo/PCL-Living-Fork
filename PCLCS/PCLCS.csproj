@@ -62,6 +62,7 @@
 	<ItemGroup>
 		<EmbeddedResource Include="Launch\JavaWrapper.jar" LogicalName="Launch\JavaWrapper.jar" />
 		<EmbeddedResource Include="Launch\LwjglUnsafeAgent.jar" LogicalName="Launch\LwjglUnsafeAgent.jar" />
+		<EmbeddedResource Include="Launch\ModKeybindPatch.jar" LogicalName="Launch\ModKeybindPatch.jar" />
 		<EmbeddedResource Include="Resource\WikiEntries.txt" LogicalName="Resource\WikiEntries.txt" />
 		<EmbeddedResource Include="Minecraft\OptifineHashes.json" LogicalName="Minecraft\OptiFineHashes.json" />
 	</ItemGroup>

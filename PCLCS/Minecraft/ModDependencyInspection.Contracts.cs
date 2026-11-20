@@ -13,6 +13,7 @@ using Newtonsoft.Json.Linq;
 namespace PCLCS;
 
 public enum ModDependencyMatchState { Unknown, Satisfied, Unsatisfied }
+public sealed record ModUpdateDependencyFinding(string Message, bool Confirmed);
 public enum ModDependencyFileProviderKind { None, Required, Possible }
 public enum ModDependencyKind { Required, Optional, Recommended, Suggested, Incompatible, Conflict }
 public enum ModDependencyIssueKind { MissingRequired, DuplicateId, VersionMismatch, Incompatible, Recommendation, LoaderMismatch }

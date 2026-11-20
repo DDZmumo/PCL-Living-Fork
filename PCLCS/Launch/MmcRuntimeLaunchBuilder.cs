@@ -60,6 +60,14 @@ public static partial class MmcRuntimeLaunchBuilder {
         }, cancellationToken), cancellationToken).ConfigureAwait(false);
         List<MmcRuntimeInputObservation> inputs = [.. observedInputs];
         var mutable = DescribeMutablePaths(currentPaths, request);
+        // The native JVM agent opener needs a short path. Use the owned session
+        // directory that already accommodates the native loaders.
+        string keybindPath = Path.Combine(mutable.SessionRoot, ModKeybindPatch.FileName);
+        ReadOnlyMemory<byte> keybindPatch = default;
+        if (ModKeybindPatch.Applies(compiled, request.Java.Major) && ModKeybindPatch.CanUsePath(keybindPath)) {
+            try { keybindPatch = ModKeybindPatch.SupportBytes(); }
+            catch (IOException error) { Logger.Warn(error, "未能读取模组键位保护"); }
+        }
         ImmutableArray<string> classpath = compiled.Classpath.Select(a => targets[a.Key].ActualPath).ToImmutableArray();
         // Targets/observations stay absolute. Only the Java representation is relative
         // to the fixed process/user.dir root, avoiding repeated deep instance prefixes.
@@ -77,6 +85,10 @@ public static partial class MmcRuntimeLaunchBuilder {
         // Package/user JVM tokens above still cannot authorize execution inputs.
         var authentication = await AuthenticationArgumentsAsync(request, view, mutable, inputs, logicalJvm.Select(a => a.Actual).ToArray(), cancellationToken).ConfigureAwait(false);
         logicalJvm.AddRange(authentication.Arguments);
+        if (!keybindPatch.IsEmpty) {
+            string argument = ModKeybindPatch.Argument(keybindPath, currentPaths.GameRoot);
+            logicalJvm.Add(new(argument, argument));
+        }
         foreach (var property in new[] {
             "-Duser.dir=" + currentPaths.GameRoot,
             "-Djava.library.path=" + MmcRuntimeFiles.JavaPath(request.Directories.NativeDirectory),
@@ -119,7 +131,16 @@ public static partial class MmcRuntimeLaunchBuilder {
         string argumentFingerprint = MmcRuntimeFiles.Fingerprint(new[] { "mmc-runtime-arguments-v1", settings.WrapperMode.ToString(), compiled.MainClass }
             .Concat(logicalJvm.Select(a => a.Redacted)).Concat(game.Select(a => a.Redacted)).Concat([cpProperty, request.Wrapper?.Sha256, request.Bridge?.Sha256]));
         InitializeMutablePaths(mutable, request);
-        try { await PublishAuthenticationExecutionAsync(request, mutable, authentication, inputs, cancellationToken).ConfigureAwait(false); }
+        try {
+            await PublishAuthenticationExecutionAsync(request, mutable, authentication, inputs, cancellationToken).ConfigureAwait(false);
+            if (!keybindPatch.IsEmpty) {
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateMutableOwner(request, mutable);
+                MmcDurableFiles.WriteNew(keybindPath, keybindPatch.Span);
+                inputs.Add(MmcRuntimeFiles.Observe("support:mod-keybinds", keybindPath,
+                    ModKeybindPatch.Sha256, keybindPatch.Length, cancellationToken));
+            }
+        }
         catch {
             // No launch plan has escaped this builder and no durable launch intent
             // exists. Retire only this freshly owned scope, preserving the source.

@@ -9,6 +9,7 @@ using PCLLF.MMCC.Core;
 
 internal static class MmcInstancePackageUpdateTests {
     internal static IEnumerable<(string Name, Action Run)> Cases() {
+        yield return ("MMC ZIP updates merge configuration keys from the imported original and undo the selected merged output", ConfigurationKeys);
         yield return ("MMC ZIP updates reuse three-way author ownership across personal changes, equal-declaration local revisions, undo and later updates", Continuity);
         yield return ("MMC ZIP updates explicitly resolve removed user roots and retain surviving user patches without adopting new author local bytes", Components);
         yield return ("MMC ZIP update stale choices, changed candidate bytes and active or pending states never alter live data", Refusals);
@@ -20,6 +21,29 @@ internal static class MmcInstancePackageUpdateTests {
         yield return ("MMC exact history coverage keeps legacy shape and rejects unknown unsafe noncanonical or contradictory payload roles", CoverageBoundaries);
         yield return ("MMC full safe inventory restores an early author point directly across later additions and removals without inventing personal absence", DirectOldPoint);
         yield return ("MMC full ZIP undo keeps personal runtime options out of safe managed paths while legacy fixed history retains its coverage", PersonalRuntimeFiles);
+    }
+    private static void ConfigurationKeys() {
+        using Fixture fixture = new();
+        const string file = "config/example.json";
+        const string player = """{"hud":false,"cap":3,"speed":1}""";
+        fixture.Import(fixture.Pack("config-A", "runtimeA", new() { [file] = """{"hud":true,"cap":1,"speed":1}""" }));
+        if (fixture.Primary().Definition.PackageOwnershipReference is null) throw new Exception("Import did not preserve the author configuration.");
+        fixture.Put("minecraft/" + file, player);
+        var preview = Prepare(fixture, fixture.Pack("config-B", "runtimeA", new() { [file] = """{"hud":true,"cap":4,"speed":2}""" }));
+        var change = preview.Files.Single(value => value.RelativePath == file);
+        Equal(true, change.MergeConfiguration);
+        Equal("/cap", change.ConfigurationConflicts.Single().Key);
+        var decision = new MmcPackageFileDecision(change.ChangeId, PackUpdateChoice.UseAuthor) { AuthorConfigurationKeys = ["/cap"] };
+        var rejected = fixture.Update().SelectAsync(preview, preview.PreviewSha256, new([], [decision with { AuthorConfigurationKeys = ["/speed"] }], true)).GetAwaiter().GetResult();
+        Equal(MmcInstanceBackendStatus.Rejected, rejected.Status);
+        var selected = fixture.Update().SelectAsync(preview, preview.PreviewSha256, new([], [decision], true)).GetAwaiter().GetResult();
+        if (selected.Preview is null) throw new Exception(selected.Failure);
+        var updated = fixture.Update().CommitAsync(NewCommit(selected.Preview)).GetAwaiter().GetResult();
+        Require(updated);
+        var merged = JObject.Parse(fixture.Read("minecraft/" + file));
+        Equal(false, merged.Value<bool>("hud")); Equal(4, merged.Value<int>("cap")); Equal(2, merged.Value<int>("speed"));
+        Restore(fixture, updated.UndoPoint!);
+        Equal(player, fixture.Read("minecraft/" + file));
     }
     private static void PersonalRuntimeFiles() {
         using Fixture fixture = new(); fixture.Import(fixture.Pack("personal-A", "runtimeA", new() { ["config/managed.cfg"] = "author A" }));
