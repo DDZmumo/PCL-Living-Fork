@@ -38,12 +38,13 @@ internal static class ShellUiPolicy
                 throw Pending("workspace primary navigation is not the exact ordered vertical rail");
         }
         var account = One(nodes, node => node.AutomationId == "AccountButton", "AccountButton");
+        const double accountBottomInset = 22; // 10 DIP workspace inset plus the rail's 12 DIP inner inset.
         if (account.Type != ControlType.Button || account.ClassName != "Button" ||
             !account.Name.StartsWith("当前账户：", StringComparison.Ordinal) || account.Name.Length <= "当前账户：".Length ||
             !Inside(account.Bounds, client) || Math.Abs(account.Bounds.Left - client.Left - 12 * scale) > 1 ||
             Math.Abs(account.Bounds.Right - client.Left - 52 * scale) > 1 ||
-            Math.Abs(account.Bounds.Top - client.Bottom + 52 * scale) > 1 ||
-            Math.Abs(account.Bounds.Bottom - client.Bottom + 12 * scale) > 1)
+            Math.Abs(account.Bounds.Top - client.Bottom + (accountBottomInset + 40) * scale) > 1 ||
+            Math.Abs(account.Bounds.Bottom - client.Bottom + accountBottomInset * scale) > 1)
             throw Pending("workspace integrated account control identity/geometry differs");
         return ObservedShell.Workspace;
     }
@@ -92,7 +93,7 @@ internal static class ShellUiPolicy
             var frame = new System.Windows.Rect(100, 200, width * scale, 470 * scale);
             System.Windows.Rect Bounds(double x, double y, double w, double h) => new(frame.Left + x * scale, frame.Top + y * scale, w * scale, h * scale);
             var workspace = Navigation.Select((item, index) => new ShellNode(item.Id, item.Name, "Button", ControlType.Button, Bounds(9, 85 + index * 52, 48, 42)))
-                .Append(new("AccountButton", "当前账户：CI", "Button", ControlType.Button, Bounds(12, 418, 40, 40))).ToArray();
+                .Append(new("AccountButton", "当前账户：CI", "Button", ControlType.Button, Bounds(12, 408, 40, 40))).ToArray();
             Require(Detect(workspace, frame, scale) == ObservedShell.Workspace, "Integrated workspace was refused.");
             Reject(() => Detect(workspace.Concat(classic).ToArray(), frame, scale));
             Reject(() => Detect(workspace.Where(node => node.AutomationId != "NavSettings").ToArray(), frame, scale));
@@ -105,11 +106,11 @@ internal static class ShellUiPolicy
             Reject(() => Detect(workspace.Select(node => node.AutomationId == "AccountButton" ? node with { Name = "账户" } : node).ToArray(), frame, scale));
             var account = workspace[^1];
             ShellNode[] WithAccount(ShellNode replacement) => workspace.Select(node => node.AutomationId == "AccountButton" ? replacement : node).ToArray();
-            Require(Detect(WithAccount(account with { Bounds = Bounds(12, 418 + .5 / scale, 40, 40) }), frame, scale) == ObservedShell.Workspace,
+            Require(Detect(WithAccount(account with { Bounds = Bounds(12, 408 + .5 / scale, 40, 40) }), frame, scale) == ObservedShell.Workspace,
                 "The exact account footer boundary was refused.");
             foreach (ShellNode invalid in new[] {
-                account with { Bounds = Bounds(12, 420, 40, 40) }, account with { Bounds = Bounds(12, 393, 40, 40) },
-                account with { Bounds = Bounds(61, 418, 40, 40) }, account with { ClassName = "TextBlock" },
+                account with { Bounds = Bounds(12, 410, 40, 40) }, account with { Bounds = Bounds(12, 418, 40, 40) },
+                account with { Bounds = Bounds(61, 408, 40, 40) }, account with { ClassName = "TextBlock" },
                 account with { Type = ControlType.Text }
             }) Reject(() => Detect(WithAccount(invalid), frame, scale));
             var pane = new ShellNode("SidebarScroller", "", "ScrollViewer", ControlType.Pane, Bounds(113, 105, 204, 286));
