@@ -9,6 +9,7 @@ public sealed class PageLoaderBinding {
     public object Original = null!;
     public Func<PageLoaderState> ReadState = null!;
     public Action<object?, bool> Start = null!;
+    public bool ProjectContent;
     public bool UsesStartGetInput;
     public Func<object?>? InitialInput;
     public Func<object?, object?>? StartGetInput;

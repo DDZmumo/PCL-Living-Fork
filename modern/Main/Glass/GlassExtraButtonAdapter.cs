@@ -11,6 +11,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using Path = System.Windows.Shapes.Path;
+using PCLLF.Wpf.Glass;
 using PCLLF.Wpf.Motion;
 
 namespace PCL;
@@ -22,6 +23,10 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
     private bool _rightHeld, _disposed;
     private bool? _darkText;
     private bool? _highContrast;
+    private Border? _backdropFrame;
+    private bool _trackingBackdrop, _backdropSuspended;
+    private readonly GlassSceneFrost _sceneFrost = new() { Margin = new Thickness(-13) };
+    private readonly Border _sceneTint = new() { Margin = new Thickness(-13), CornerRadius = new CornerRadius(23), IsHitTestVisible = false };
     internal Button View => _button;
     internal GlassExtraButtonAdapter(MyExtraButton source, bool useDarkText, bool reduceMotion = false) {
         _source = source ?? throw new ArgumentNullException(nameof(source));
@@ -77,11 +82,12 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
         // The ring glides to each new value on a soft spring instead of jumping between refresh ticks.
         _ringMotion = new SpringMotion(_button, 0, DrawRing, new SpringParameters(.6, 1)) { MaxFrameSeconds = 1 / 30d };
         content.Children.Add(ringTrack); content.Children.Add(_ring);
-        // Frosted base: the floating button sits over the page/wallpaper, so it blurs what is beneath it (a round glass
-        // disc under the icon) instead of painting an opaque slab. The chrome above it stays a light translucent tint.
-        _frost = new PCLLF.Wpf.Glass.GlassSurface { Margin = new Thickness(-13), CornerRadius = new CornerRadius(23), BorderThickness = new Thickness(0),
-            BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0, IsHitTestVisible = false };
+        _frost = new GlassSurface { Margin = new Thickness(-13), CornerRadius = new CornerRadius(23), BorderThickness = new Thickness(0),
+            BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0, Background = GlassCommandChrome.Brush("#96F2F4F8"), IsHitTestVisible = false };
         content.Children.Insert(0, _frost);
+        _sceneTint.SetBinding(Border.BackgroundProperty, new Binding(nameof(Control.Background)) { Source = _button });
+        content.Children.Insert(0, _sceneTint);
+        content.Children.Insert(0, _sceneFrost);
         // Ripple: rings that spread from the button when it appears.
         for (int index = 0; index < 2; index++)
         {
@@ -94,6 +100,11 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
         _button.PreviewMouseRightButtonDown += OnRightDown;
         _button.PreviewMouseRightButtonUp += OnRightUp;
         _button.MouseLeave += OnLeave;
+        _button.MouseEnter += OnHoverEnter;
+        _button.MouseLeave += OnHoverLeave;
+        _sceneTint.Loaded += OnBackdropLoaded;
+        _sceneTint.Unloaded += OnBackdropUnloaded;
+        _sceneTint.IsVisibleChanged += OnBackdropVisibilityChanged;
         RefreshAppearance(useDarkText, reduceMotion);
     }
     // Kept as a method to make the source binding explicit; the source Progress CLR property
@@ -104,30 +115,62 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
     internal void RefreshAppearance(bool useDarkText, bool reduceMotion = false) {
         if (_disposed) return;
         _button.ReduceMotion = reduceMotion;
-        Style style = GlassCommandChrome.ButtonStyle(useDarkText);
-        if (SystemParameters.HighContrast) {
+        bool contrast = SystemParameters.HighContrast;
+        if (contrast) {
             // Style.Resources becomes read-only after application. Element resources stay
             // mutable and take precedence over the cached style's initial native palette.
             GlassCommandChrome.RefreshContrastResources(_button.Resources);
             if (_button.ToolTip is ToolTip currentTooltip) GlassCommandChrome.RefreshContrastResources(currentTooltip.Resources);
         }
-        if (_darkText == useDarkText && _highContrast == SystemParameters.HighContrast) return;
-        _darkText = useDarkText;
-        _highContrast = SystemParameters.HighContrast;
-        _button.Style = style;
-        // Translucent tint over the frost (the shared style's fill is opaque); hover brightens the tint.
-        // High contrast keeps the system window/text colours from the shared style, without any glass.
-        bool contrast = SystemParameters.HighContrast;
-        _frost.Visibility = contrast ? Visibility.Collapsed : Visibility.Visible;
-        Color tint = useDarkText ? Color.FromArgb(150, 242, 244, 248) : Color.FromArgb(120, 28, 32, 40);
-        _frost.Background = new SolidColorBrush(tint);
-        // SetCurrentValue (not a local value) so any later style, such as a contrast style, still governs the fill.
-        if (!contrast) _button.SetCurrentValue(Control.BackgroundProperty, Brushes.Transparent);
-        _button.MouseEnter -= OnHoverEnter; _button.MouseLeave -= OnHoverLeave;
-        _button.MouseEnter += OnHoverEnter; _button.MouseLeave += OnHoverLeave;
-        var tooltip = GlassCommandChrome.ToolTip(_button, useDarkText);
-        tooltip.SetBinding(ContentControl.ContentProperty, new Binding(nameof(FrameworkElement.ToolTip)) { Source = _source, Converter = TooltipText.Instance });
-        _button.ToolTip = tooltip;
+        if (_darkText != useDarkText || _highContrast != contrast) {
+            _darkText = useDarkText;
+            _highContrast = contrast;
+            _button.Style = GlassCommandChrome.FloatingButtonStyle(useDarkText);
+            _frost.Visibility = !contrast && useDarkText ? Visibility.Visible : Visibility.Collapsed;
+            _sceneTint.Visibility = !contrast && !useDarkText ? Visibility.Visible : Visibility.Collapsed;
+            if (_button.ToolTip is ToolTip previous) previous.IsOpen = false;
+            var tooltip = GlassCommandChrome.ToolTip(_button, useDarkText);
+            tooltip.SetBinding(ContentControl.ContentProperty, new Binding(nameof(FrameworkElement.ToolTip)) { Source = _source, Converter = TooltipText.Instance });
+            _button.ToolTip = tooltip;
+        }
+        RefreshBackdrop();
+    }
+
+    internal void SetBackdrop(Border frame) {
+        _backdropFrame = frame;
+        RefreshBackdrop();
+    }
+
+    internal void SetBackdropSuspended(bool suspended) {
+        if (_backdropSuspended == suspended) return;
+        _backdropSuspended = suspended;
+        if (suspended) StopBackdrop();
+    }
+
+    private void RefreshBackdrop() {
+        if (!_disposed && !_backdropSuspended && _button.IsVisible && _sceneTint.IsLoaded && _sceneTint.IsVisible &&
+            _backdropFrame is { IsLoaded: true, IsVisible: true } frame && GlassMaterial.AllowsTransparency(_sceneTint) &&
+            PresentationSource.FromVisual(_sceneTint) is { } source && ReferenceEquals(source, PresentationSource.FromVisual(frame))) {
+            if (!_trackingBackdrop) {
+                _trackingBackdrop = true;
+                _button.LayoutUpdated += OnBackdropLayout;
+            }
+            _sceneFrost.UpdateBackdrop(_sceneTint, frame, frame, _sceneTint.CornerRadius.TopLeft);
+        } else StopBackdrop();
+    }
+    private void StopBackdrop() {
+        if (_trackingBackdrop) {
+            _trackingBackdrop = false;
+            _button.LayoutUpdated -= OnBackdropLayout;
+        }
+        _sceneFrost.ClearBackdrop();
+    }
+    private void OnBackdropLayout(object? sender, EventArgs args) => RefreshBackdrop();
+    private void OnBackdropLoaded(object sender, RoutedEventArgs args) => RefreshBackdrop();
+    private void OnBackdropUnloaded(object sender, RoutedEventArgs args) => StopBackdrop();
+    private void OnBackdropVisibilityChanged(object sender, DependencyPropertyChangedEventArgs args) {
+        if ((bool)args.NewValue) RefreshBackdrop();
+        else StopBackdrop();
     }
     private readonly ScaleTransform _presenceScale = new(1, 1);
     private readonly SpringMotion _presence;
@@ -145,6 +188,12 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
     /// shows it instead of the original button's own progress line, and hides when no task is running.
     /// </summary>
     internal Func<double?>? TotalProgress { get; set; }
+    /// <summary>An extra condition for showing the button (on top of the original button's own visibility).</summary>
+    internal Func<bool>? ShowGate { get; set; }
+    /// <summary>Replaces the original click (left button) when set.</summary>
+    internal Action? ClickOverride { get; set; }
+    /// <summary>Re-applies the visibility (after <see cref="ShowGate"/>'s answer changed).</summary>
+    internal void RefreshVisibility() => OnSourceVisibilityChanged(this, EventArgs.Empty);
 
     internal void RefreshProgress()
     {
@@ -164,14 +213,15 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
         else _ringMotion.Retarget(ring);
         if (completed && !_button.ReduceMotion && MotionPreferences.AllowsAnimation) Ripple();
     }
-    private readonly PCLLF.Wpf.Glass.GlassSurface _frost;
+    private readonly GlassSurface _frost;
 
     // Appearing pops in from 55 % on a bouncy spring and sends out a ripple; leaving (for example when the task page
     // opens) shrinks and fades before collapsing. Reduced motion switches immediately.
     private void OnSourceVisibilityChanged(object? sender, EventArgs args)
     {
         if (_disposed) return;
-        bool show = _source.Visibility == Visibility.Visible;
+        bool show = _source.Visibility == Visibility.Visible && (ShowGate?.Invoke() ?? true);
+        _wantShown = show;
         bool snap = _button.ReduceMotion || !MotionPreferences.AllowsAnimation || !_button.IsLoaded;
         if (show)
         {
@@ -182,7 +232,7 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
             _presence.Retarget(1);
             if (wasHidden) Ripple();
         }
-        else if (snap) { _presence.Snap(0); _button.Visibility = _source.Visibility; }
+        else if (snap) { _presence.Snap(0); _button.Visibility = Visibility.Collapsed; }
         else _presence.Retarget(0);
     }
 
@@ -190,8 +240,11 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
     {
         _presenceScale.ScaleX = _presenceScale.ScaleY = .55 + .45 * value;
         _button.Opacity = Math.Clamp(value, 0, 1);
-        if (_source.Visibility != Visibility.Visible && value <= MotionTokens.VisibilityThreshold) _button.Visibility = _source.Visibility;
+        // Collapse once faded out, whether the original button or the show gate hid it (so it leaves no gap).
+        if (!_wantShown && value <= MotionTokens.VisibilityThreshold) _button.Visibility = Visibility.Collapsed;
     }
+
+    private bool _wantShown = true;
 
     private void Ripple()
     {
@@ -260,7 +313,7 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
 
     private void OnHoverEnter(object sender, MouseEventArgs args) => _frost.Opacity = .8;
     private void OnHoverLeave(object sender, MouseEventArgs args) => _frost.Opacity = 1;
-    private void OnClick(object sender, RoutedEventArgs args) { if (!_disposed) _source.PerformClick(); }
+    private void OnClick(object sender, RoutedEventArgs args) { if (_disposed) return; if (ClickOverride is { } click) click(); else _source.PerformClick(); }
     private void OnRightDown(object sender, MouseButtonEventArgs args) {
         _rightHeld = !_disposed && _source.IsEnabled && _source.CanRightClick;
         if (_rightHeld) { _button.Focus(); args.Handled = true; }
@@ -291,6 +344,11 @@ internal sealed class GlassExtraButtonAdapter : IDisposable {
         _button.PreviewMouseRightButtonDown -= OnRightDown;
         _button.PreviewMouseRightButtonUp -= OnRightUp;
         _button.MouseLeave -= OnLeave;
+        _sceneTint.Loaded -= OnBackdropLoaded;
+        _sceneTint.Unloaded -= OnBackdropUnloaded;
+        _sceneTint.IsVisibleChanged -= OnBackdropVisibilityChanged;
+        StopBackdrop();
+        _backdropFrame = null;
         if (_button.ToolTip is ToolTip tooltip) tooltip.IsOpen = false;
         BindingOperations.ClearAllBindings(_button); _button.Dispose();
     }

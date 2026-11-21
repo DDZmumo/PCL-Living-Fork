@@ -34,13 +34,24 @@ internal sealed class GlassTideProgress : Grid
     private readonly StackPanel _center = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly SpringMotion _level, _presence;
     private double _phase, _target = -1, _radius;
-    private bool _rendering;
+    private bool _active, _rendering;
     private TimeSpan? _lastFrame;
 
     /// <summary>The card's normal content, faded out while the progress shows.</summary>
     internal UIElement? Covers { get; set; }
     /// <summary>Size of the percentage figure (46 by default; small hosts such as the rail use a compact one).</summary>
     internal double PercentSize { get => _percent.FontSize; set => _percent.FontSize = value; }
+    /// <summary>Renders the water behind a foreground layout that supplies its own progress label.</summary>
+    internal bool BackgroundOnly
+    {
+        get => _backgroundOnly;
+        init
+        {
+            _backgroundOnly = value;
+            if (value) _center.Visibility = Visibility.Collapsed;
+        }
+    }
+    private readonly bool _backgroundOnly;
     internal event EventHandler? StopRequested;
 
     /// <summary>
@@ -130,33 +141,39 @@ internal sealed class GlassTideProgress : Grid
     internal void Update(bool active, double? progress, string caption)
     {
         bool snap = !MotionPreferences.AllowsAnimation || !IsLoaded;
+        _active = active;
         if (active)
         {
             double value = progress is double amount && double.IsFinite(amount) ? Math.Clamp(amount, 0, 1) : 0;
-            int hundredths = value == 1 ? 10000 : Math.Min(9999, (int)((decimal)value * 10000));
-            string figure = (hundredths / 100d).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-            _percent.Text = figure + "%";
-            if (_poster && _posterText != figure)
-            {
-                RenderPoster(figure);
-                int wholePercent = hundredths / 100;
-                bool wholePercentChanged = wholePercent != _lastPoppedPercent;
-                _lastPoppedPercent = wholePercent;
-                if (wholePercentChanged && MotionPreferences.AllowsAnimation && IsLoaded)
-                {
-                    _popMotion ??= new SpringMotion(this, 1, v => _ridePop.ScaleX = _ridePop.ScaleY = v, new SpringParameters(.28, .55));
-                    _popMotion.Snap(1.14); _popMotion.Retarget(1);
-                }
-            }
-            _caption.Text = caption;
-            _caption.Visibility = string.IsNullOrWhiteSpace(caption) ? Visibility.Collapsed : Visibility.Visible;
-            AutomationProperties.SetName(this, $"{caption} {_percent.Text}");
+            if (!BackgroundOnly) UpdateFigure(value, caption);
             if (Math.Abs(value - _target) > .001) { _target = value; _level.Retarget(Math.Max(.04, value), snap); }
             Visibility = Visibility.Visible;
         }
-        IsHitTestVisible = active;
+        IsHitTestVisible = active && !BackgroundOnly;
         double presence = active ? 1 : 0;
         if (_presence.Target != presence) _presence.Retarget(presence, snap);
+    }
+
+    private void UpdateFigure(double value, string caption)
+    {
+        int hundredths = value == 1 ? 10000 : Math.Min(9999, (int)((decimal)value * 10000));
+        string figure = (hundredths / 100d).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        _percent.Text = figure + "%";
+        if (_poster && _posterText != figure)
+        {
+            RenderPoster(figure);
+            int wholePercent = hundredths / 100;
+            bool wholePercentChanged = wholePercent != _lastPoppedPercent;
+            _lastPoppedPercent = wholePercent;
+            if (wholePercentChanged && MotionPreferences.AllowsAnimation && IsLoaded)
+            {
+                _popMotion ??= new SpringMotion(this, 1, v => _ridePop.ScaleX = _ridePop.ScaleY = v, new SpringParameters(.28, .55));
+                _popMotion.Snap(1.14); _popMotion.Retarget(1);
+            }
+        }
+        _caption.Text = caption;
+        _caption.Visibility = string.IsNullOrWhiteSpace(caption) ? Visibility.Collapsed : Visibility.Visible;
+        AutomationProperties.SetName(this, $"{caption} {_percent.Text}");
     }
 
     private void ApplyPresence(double value)
@@ -164,7 +181,7 @@ internal sealed class GlassTideProgress : Grid
         double p = Math.Clamp(value, 0, 1);
         Opacity = p;
         if (Covers is not null) Covers.Opacity = 1 - p;
-        if (p <= .01 && !IsHitTestVisible) { Visibility = Visibility.Hidden; _target = -1; _level.Snap(0); }
+        if (p <= .01 && !_active) { Visibility = Visibility.Hidden; _target = -1; _level.Snap(0); }
         UpdateRendering();
     }
 

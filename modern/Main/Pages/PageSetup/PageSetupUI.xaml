@@ -142,6 +142,13 @@
                         <local:MyCheckBox Text="游戏启动后自动开始播放，游戏退出后自动暂停播放" Margin="0,0,0,5" Height="22" x:Name="CheckMusicStart" local:SettingService.Key="UiMusicStart" />
                         <local:MyCheckBox Text="游戏启动后自动暂停播放，游戏退出后自动开始播放" Margin="0,0,0,5" Height="22" x:Name="CheckMusicStop" local:SettingService.Key="UiMusicStop" />
                     </StackPanel>
+                    <StackPanel Visibility="Collapsed">
+                        <local:MyCheckBox x:Name="CheckMusicVisualizer" Text="音频可视化" local:SettingService.Key="UiMusicVisualizerEnabled" />
+                        <local:MyComboBox x:Name="ComboMusicVisualizerStyle" local:SettingService.Key="UiMusicVisualizerStyle">
+                            <local:MyComboBoxItem Content="柱状" local:SettingService.Value="0" />
+                            <local:MyComboBoxItem Content="线式" local:SettingService.Value="1" />
+                        </local:MyComboBox>
+                    </StackPanel>
                     <Grid Height="35">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />

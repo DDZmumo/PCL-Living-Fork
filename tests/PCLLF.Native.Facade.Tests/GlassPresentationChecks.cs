@@ -6,11 +6,13 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json.Linq;
 using PCL;
+using PCLCS;
 using PCLLF.Presentation.Foundation;
 using PCLLF.Presentation.Controls;
 using PCLLF.Wpf.Glass;
@@ -38,6 +40,9 @@ internal static class GlassPresentationChecks
             ResourceRows();
             ResourceEntryActivation(scope.Root);
             ResourceSearchLayout();
+            ResourceSearchTransitions();
+            ResourceSearchFirstSource();
+            HomepageCards();
             VirtualizedRows();
             ActualSettingsPage(scope.Root);
             SettingsChoiceLayout();
@@ -47,18 +52,163 @@ internal static class GlassPresentationChecks
         Console.WriteLine("PASS glass presentation: distinct native WPF tree, real source click/check/preview/text/selection/value pipelines, reverse state, dynamic membership and disposal; genuine settings BAML with explicit old-brand exclusions.");
     }
 
+    private static void HomepageCards()
+    {
+        const string markup = """
+            <StackPanel>
+                <StackPanel.Resources>
+                    <SolidColorBrush x:Key="AuthoredInk" Color="#FF128080"/>
+                    <ControlTemplate x:Key="AuthoredTemplate" TargetType="ContentControl">
+                        <Border x:Name="TemplateFace" Background="{StaticResource AuthoredInk}" Padding="4">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="hide">
+                                <Setter TargetName="TemplateFace" Property="Opacity" Value="0.25"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </StackPanel.Resources>
+                <Button x:Name="AuthoredAction" Content="初始名称"/>
+                <TextBlock x:Name="AuthoredLabel" Text="{Binding Content, ElementName=AuthoredAction}"/>
+                <ContentControl x:Name="AuthoredSection" Content="分组" Template="{StaticResource AuthoredTemplate}"/>
+                <Border MaxHeight="140" HorizontalAlignment="Center">
+                    <Image x:Name="FlexibleArtwork" Stretch="UniformToFill"/>
+                </Border>
+                <Border x:Name="AuthoredBadge" Width="170" Height="30" Margin="0,-20,0,0" Background="{DynamicResource ColorBrush3}">
+                    <TextBlock x:Name="AuthoredBadgeLabel" Text="版本标签" HorizontalAlignment="Center" Foreground="{DynamicResource ColorBrush7}"/>
+                </Border>
+                <Border Width="90" Height="58" ClipToBounds="True" HorizontalAlignment="Left">
+                    <Image x:Name="AuthoredCrop" Stretch="UniformToFill"/>
+                </Border>
+                <local:MyIconTextButton x:Name="AuthoredIconAction" Text="查看" Logo="M2,2 H18 V18 H2 Z"/>
+                <local:MyCard x:Name="AuthoredCard" Title="推荐">
+                    <StackPanel Margin="12,32,12,12">
+                        <Viewbox x:Name="AuthoredGallery">
+                            <StackPanel Orientation="Horizontal">
+                                <Border Width="200" Height="40" Background="Green"/>
+                                <Border Width="200" Height="40" Background="Orange"/>
+                                <Border Width="200" Height="40" Background="Purple"/>
+                                <Border Width="200" Height="40" Background="Blue"/>
+                            </StackPanel>
+                        </Viewbox>
+                    </StackPanel>
+                </local:MyCard>
+            </StackPanel>
+            """;
+        var page = new PageLaunchRight();
+        var source = (StackPanel)Native.Property(typeof(PageLaunchRight), "PanCustom").GetValue(page)!;
+        object loader = Native.Get(page, "Native")!;
+        void Load(string xaml) => Native.Call(loader.GetType(), "LoadContent", loader, xaml);
+
+        Load(markup);
+        var authored = (FrameworkElement)source.Children[0];
+        var button = (Button)authored.FindName("AuthoredAction");
+        var label = (TextBlock)authored.FindName("AuthoredLabel");
+        var section = (ContentControl)authored.FindName("AuthoredSection");
+        var gallery = (Viewbox)authored.FindName("AuthoredGallery");
+        var artwork = (Image)authored.FindName("FlexibleArtwork");
+        var crop = (Image)authored.FindName("AuthoredCrop");
+        var badge = (Border)authored.FindName("AuthoredBadge");
+        var badgeLabel = (TextBlock)authored.FindName("AuthoredBadgeLabel");
+        var iconAction = (MyIconTextButton)authored.FindName("AuthoredIconAction");
+        artwork.Source = crop.Source = new DrawingImage(new GeometryDrawing(Brushes.Tan, null, new RectangleGeometry(new Rect(0, 0, 640, 360))));
+        int clicks = 0;
+        button.Click += (_, _) => clicks++;
+
+        int theme = Settings.Get<int>("UiLauncherColorMode");
+        using var session = GlassPresentation.Create(page);
+        var window = new Window { Content = session.View, Width = 850, Height = 610, Left = -30000, Top = -30000,
+            WindowStyle = WindowStyle.None, ShowActivated = false, ShowInTaskbar = false };
+        try {
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            var outlet = Find<StackPanel>(session.View, "PanCustom");
+            Native.Check(source.Children.Count == 0 && ReferenceEquals(outlet.Children[0], authored) && authored.IsVisible,
+                "The new shell did not present the original parsed homepage tree.");
+            var face = (Border)section.Template.FindName("TemplateFace", section);
+            section.Tag = "hide";
+            button.Content = "更新名称";
+            VisualAssetChecks.Drain();
+            Native.Check(label.Text == "更新名称" && Math.Abs(face.Opacity - .25) < .01 &&
+                face.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(18, 128, 128),
+                "An authored template trigger, static resource or ElementName binding was lost.");
+            Invoke(button);
+            Native.Check(clicks == 1, "Hosting the authored homepage lost its original action.");
+            foreach (int mode in new[] { 0, 1 }) {
+                Native.Cache("UiLauncherColorMode", mode);
+                Native.Static("PCL.ModSecret", "ThemeRefresh", -1);
+                VisualAssetChecks.Drain();
+                Color badgeBackground = ((SolidColorBrush)badge.Background).Color;
+                Color badgeForeground = ((SolidColorBrush)badgeLabel.Foreground).Color;
+                static double Luminance(byte value) => Math.Pow((value / 255d + .055) / 1.055, 2.4);
+                double background = Luminance(badgeBackground.R), foreground = Luminance(badgeForeground.R);
+                double contrast = (Math.Max(background, foreground) + .05) / (Math.Min(background, foreground) + .05);
+                Native.Check(contrast >= 4.5 && badgeForeground.A == 255 && badge.Margin.Top == -20,
+                    $"The native homepage's badge lost contrast or its authored placement. Theme {mode}, contrast {contrast:F2}.");
+                var hover = (SolidColorBrush)iconAction.FindResource("ColorBrushBg1");
+                iconAction.SetCurrentValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)));
+                var animation = ModAnimation.AaColor(iconAction, Border.BackgroundProperty, "ColorBrushBg1", 100);
+                Color animated = ((ModBase.MyColor)animation.Value).ToMediaColor();
+                Native.Check(hover.Color.R == hover.Color.G && hover.Color.G == hover.Color.B && animated == hover.Color &&
+                    Equals(iconAction.FindResource("ColorObjectBg1"), hover.Color),
+                    "A native button animation did not resolve the scoped neutral color and its color-object alias.");
+            }
+
+            foreach (double width in new[] { 850d, 475d }) {
+                window.Width = width; window.UpdateLayout(); VisualAssetChecks.Drain();
+                var cards = ((StackPanel)gallery.Child).Children.Cast<FrameworkElement>().ToArray();
+                Native.Check(cards.All(card => {
+                    Rect bounds = card.TransformToVisual(gallery).TransformBounds(new Rect(card.RenderSize));
+                    return bounds.Width > 20 && bounds.Left >= -1 && bounds.Right <= gallery.ActualWidth + 1;
+                }), "A Viewbox authored in the original homepage clipped its gallery at " + width + " DIP.");
+                Native.Check(artwork.Stretch == Stretch.Uniform && artwork.ActualHeight <= 140.5 &&
+                    Math.Abs(artwork.ActualWidth / artwork.ActualHeight - 16d / 9) < .04 && crop.Stretch == Stretch.UniformToFill,
+                    "The homepage cropped a flexible cover or changed its explicitly fixed crop.");
+            }
+
+            Load(markup);
+            session.Refresh();
+            Native.Check(ReferenceEquals(outlet.Children[0], authored), "Refresh rebuilt an unchanged original homepage.");
+            session.Dispose();
+            Native.Check(ReferenceEquals(source.Children[0], authored) && BindingOperations.IsDataBound(label, TextBlock.TextProperty) &&
+                button.IsEnabled && artwork.Stretch == Stretch.UniformToFill && ReferenceEquals(section.Template.FindName("TemplateFace", section), face),
+                "Retiring the glass page cleared the original homepage's bindings, template or input.");
+
+            using var resumed = GlassPresentation.Create(page);
+            window.Content = resumed.View;
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var resumedOutlet = Find<StackPanel>(resumed.View, "PanCustom");
+            Native.Check(ReferenceEquals(resumedOutlet.Children[0], authored), "Reopening did not reuse the original homepage.");
+            Load("""<TextBlock x:Name="ReplacementHome" Text="替换后的主页"/>""");
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(source.Children.Count == 0 && resumedOutlet.Children.Count == 1 &&
+                ((FrameworkElement)resumedOutlet.Children[0]).FindName("ReplacementHome") is TextBlock { Text: "替换后的主页" },
+                "A live homepage refresh wrote to its hidden original outlet.");
+        } finally {
+            window.Content = null; window.Close();
+            Native.Cache("UiLauncherColorMode", theme);
+            Native.Static("PCL.ModSecret", "ThemeRefresh", -1);
+            VisualAssetChecks.Drain();
+        }
+    }
+
     private static void Controls()
     {
+        var unloadedCombo = new MyComboBox { IsEditable = true, Template = null };
+        unloadedCombo.Text = "1.21.1";
+        unloadedCombo.RefreshColor();
+        Native.Check(unloadedCombo.Text == "1.21.1", "Refreshing an editable combo before its template lost the user's text.");
         var source = new StackPanel();
         var button = new MyButton { Name = "ProjectedAction", Text = "实际按钮", Height = 35 };
         var check = new MyCheckBox { Name = "ProjectedToggle", Text = "实际设置", Height = 22 };
         var input = new MyTextBox { Name = "ProjectedInput", Text = "原始文本", HintText = "提示" };
+        var help = new MySearchBox { Name = "HelpSearch", HintText = "搜索帮助" };
         var combo = new MyComboBox { Name = "ProjectedChoice" };
         combo.Items.Add(new MyComboBoxItem { Content = "第一项" }); combo.Items.Add(new MyComboBoxItem { Content = "第二项" }); combo.SelectedIndex = 0;
-        var slider = new MySlider { Name = "ProjectedRange", MaxValue = 100, Value = 25 };
+        var slider = new MySlider { Name = "ProjectedRange", MaxValue = 1000, Value = 250, GetHintText = new Func<int, string>(value => $"{value / 10}%") };
         var icon = new MyIconButton { Name = "ProjectedGlyph", ToolTip = "延迟图标" };
         var iconText = new MyIconTextButton { Name = "ProjectedGlyphText", Text = "实际图标按钮" };
-        foreach (UIElement control in new UIElement[] { button, check, input, combo, slider, icon, iconText }) source.Children.Add(control);
+        foreach (UIElement control in new UIElement[] { button, check, input, help, combo, slider, icon, iconText }) source.Children.Add(control);
         int clicks = 0, checks = 0, customs = 0; bool veto = true;
         button.Click += (_, _) => clicks++;
         check.PreviewChange += (_, args) => args.Handled = veto;
@@ -87,6 +237,8 @@ internal static class GlassPresentationChecks
             veto = false; Toggle(toggle); Native.Check(check.Checked && toggle.IsChecked == true && checks == 1, "New native toggle did not call the original user-change pipeline exactly once.");
             check.SetChecked(false, false); session.Refresh(); Native.Check(toggle.IsChecked == false, "Original controller checkbox changes did not update the new view.");
             TextBox text = Find<TextBox>(session.View, "ProjectedInput");
+            CheckTextPlaceholder(text, "提示");
+            CheckTextPlaceholder(Find<TextBox>(session.View, "HelpSearchInput"), "搜索帮助");
             text.Text = "新文本"; VisualAssetChecks.Drain(); Native.Check(input.Text == "新文本", "New input did not reach the genuine validating text control.");
             input.Text = "控制器更新"; session.Refresh(); Native.Check(text.Text == "控制器更新", "Original text state did not update the new input.");
             ComboBox choice = Find<ComboBox>(session.View, "ProjectedChoice");
@@ -103,8 +255,25 @@ internal static class GlassPresentationChecks
             Native.Check(source.IsLoaded && combo.SelectedIndex == 1, "Dropdown selection did not reach the original source choice.");
             choice.IsDropDownOpen = false;
             Slider range = Find<Slider>(session.View, "ProjectedRange");
-            range.Value = 60; Native.Check(slider.Value == 60, "New slider did not update the original semantic value.");
-            slider.Value = 42; session.Refresh(); Native.Check(range.Value == 42, "Original slider did not update the new range control.");
+            range.Value = 600; Native.Check(slider.Value == 600, "New slider did not update the original semantic value.");
+            slider.Value = 420; session.Refresh(); Native.Check(range.Value == 420, "Original slider did not update the new range control.");
+            window.UpdateLayout();
+            var thumb = ((Track)range.Template.FindName("PART_Track", range)).Thumb;
+            thumb.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+            ToolTip? dragHint = null;
+            VisualAssetChecks.Pump(() => (dragHint = PresentationSource.CurrentSources.OfType<PresentationSource>()
+                .Where(popupSource => popupSource.RootVisual is not null).SelectMany(popupSource => Descendants(popupSource.RootVisual))
+                .OfType<ToolTip>().FirstOrDefault(tip => ReferenceEquals(tip.PlacementTarget, range))) is not null,
+                "drag tooltip opens in the WPF popup source");
+            Native.Check(dragHint!.IsOpen && Equals(dragHint.Content, "42%") && !dragHint.IsHitTestVisible,
+                "Pressing a formatted slider thumb did not open a noninteractive value tooltip.");
+            double startX = dragHint.PlacementRectangle.X;
+            range.Value = 750; window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(Equals(dragHint.Content, "75%") && dragHint.PlacementRectangle.X > startX + 1,
+                "The opened slider tooltip did not keep the formatter or follow the thumb.");
+            thumb.RaiseEvent(new DragCompletedEventArgs(0, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+            Native.Check(!dragHint.IsOpen, "Releasing the thumb kept its tooltip open.");
+            VisualAssetChecks.Pump(() => dragHint.PlacementTarget is null, "the drag tooltip detaches after its closed event");
             var later = new MyButton { Name = "DynamicAction", Text = "动态操作" }; source.Children.Add(later); session.Refresh();
             Native.Check(Find<Button>(session.View, "DynamicAction") != null, "A dynamically added original action was not projected.");
             source.Children.Remove(later); session.Refresh(); Native.Check(!Descendants(session.View).OfType<Button>().Any(item => item.Name == "DynamicAction"), "A removed original action remained visible.");
@@ -152,11 +321,8 @@ internal static class GlassPresentationChecks
             var options = (ScrollViewer)projected.Template.FindName("DropDownScroll", projected);
             var frost = (GlassSurface)projected.Template.FindName("DropDownSurface", projected);
             VisualAssetChecks.Pump(() => popup.IsOpen && options.ScrollableHeight > 0, "long wallpaper option list opens with its own scroll viewport");
-            VisualAssetChecks.Pump(() => GlassMaterial.GetWallpaperHost(frost) is { } sampleHost &&
-                PresentationSource.FromVisual(frost) is { } popupSource && ReferenceEquals(PresentationSource.FromVisual(sampleHost), popupSource),
-                "the dropdown's wallpaper sample host aligns with its popup window");
-            Native.Check(frost.ExtendWallpaper && frost.BlurRadius == 24 && ReferenceEquals(frost.WallpaperSource, wallpaper),
-                "The dropdown did not sample the current wallpaper with its frosted material.");
+            Native.Check(!frost.ExtendWallpaper && frost.BlurRadius == 24 && frost.Parent is Grid popupRoot && GlassPopupBackdrop.GetEnable(popupRoot),
+                "The dropdown did not use the window-aware frost shared by popup surfaces.");
             Native.Check(Wheel(options, Mouse.PreviewMouseWheelEvent), "The dropdown did not consume the preview wheel over its own options.");
             VisualAssetChecks.Pump(() => options.VerticalOffset > 0, "options scroll over the popup");
             double offset = options.VerticalOffset;
@@ -190,7 +356,16 @@ internal static class GlassPresentationChecks
         var nested = new MyCard { Name = "NestedCard", Title = "测试副本", CanSwap = true, BorderChild = replicas, SwapControl = replicas };
         body.Children.Add(nested);
         source.Children.Add(card);
+        var deferredBody = new StackPanel();
+        var deferredInput = new MyTextBox { Name = "DeferredCardInput", Text = "保留的输入" };
+        deferredBody.Children.Add(deferredInput);
+        for (int index = 0; index < 80; index++) deferredBody.Children.Add(new MyCheckBox { Text = $"高级选项 {index}" });
+        var deferredCard = new MyCard { Name = "DeferredCard", Title = "高级选项", CanSwap = true, IsSwapped = true,
+            BorderChild = deferredBody, SwapControl = deferredBody };
+        source.Children.Add(deferredCard);
+        var construction = System.Diagnostics.Stopwatch.StartNew();
         using GlassPresentationSession session = GlassPresentation.Create(source);
+        construction.Stop();
         Window? window = null;
         try
         {
@@ -211,6 +386,18 @@ internal static class GlassPresentationChecks
             expander.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
             Native.Check(!card.IsSwapped && ReferenceEquals(content, Find<TextBlock>(session.View, "CardPayload")),
                 "Reopening the projected card replaced or reparented its live content.");
+            var deferred = Descendants(Find<Border>(session.View, "DeferredCard")).OfType<Expander>().Single();
+            var projectedBody = (StackPanel)deferred.Content;
+            Console.WriteLine($"Collapsed settings fixture: initial projection {construction.Elapsed.TotalMilliseconds:F1} ms, closed content roots {projectedBody.Children.Count}.");
+            Native.Check(!deferred.IsExpanded && projectedBody.Children.Count == 0, "Opening a page built the hidden body of an initially collapsed card.");
+            deferred.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
+            var liveInput = Find<TextBox>(session.View, "DeferredCardInput");
+            liveInput.Text = "来自新界面";
+            Native.Check(!deferredCard.IsSwapped && deferredInput.Text == "来自新界面", "The lazy card lost its original text binding.");
+            deferred.IsExpanded = false; VisualAssetChecks.Drain(); session.Refresh();
+            deferred.IsExpanded = true; VisualAssetChecks.Drain(); session.Refresh();
+            Native.Check(ReferenceEquals(liveInput, Find<TextBox>(session.View, "DeferredCardInput")),
+                "The already opened lazy card discarded its live controls on collapse.");
         }
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }
@@ -426,6 +613,11 @@ internal static class GlassPresentationChecks
     private static void ActualSettingsPage(string fixtureRoot)
     {
         var page = new PageSetupUI();
+        var playbackSource = (StackPanel)page.FindName("PanMusicDetail");
+        playbackSource.Visibility = Visibility.Visible;
+        ((MySlider)page.FindName("SliderMusicVolume")).Value = 230;
+        ((ISettingControl)page.FindName("CheckMusicVisualizer")).RefreshSetting("true");
+        ((ISettingControl)page.FindName("ComboMusicVisualizerStyle")).RefreshSetting("0");
         var featureCard = (MyCard)page.FindName("CardSwitch");
         string[] removedFeatureNames = Descendants(featureCard).OfType<MyCheckBox>().Where(check => !string.IsNullOrEmpty(check.Name)).Select(check => check.Name).Append("CardSwitch").ToArray();
         using GlassPresentationSession session = GlassPresentation.Create(page);
@@ -457,6 +649,33 @@ internal static class GlassPresentationChecks
             "Settings editor lost its compact fixed-height/right-column proportions: " + appearance.ActualWidth + " x " + appearance.ActualHeight);
         FrameworkElement section = Descendants(session.View).OfType<FrameworkElement>().Single(element => element.Name == "CardLauncher");
         Native.Check(section.ActualWidth > 0 && section.ActualWidth <= 800, "Settings sections exceeded the reference-scale content measure.");
+        var music = Find<StackPanel>(session.View, "CardMusic");
+        var gamePolicy = Find<ComboBox>(music, "ComboMusicGamePolicy");
+        var startMusic = (MyCheckBox)page.FindName("CheckMusicStart");
+        var stopMusic = (MyCheckBox)page.FindName("CheckMusicStop");
+        Native.Check(Find<TextBlock>(music, "MusicVolumePercent").Text == "23%" &&
+            Find<WrapPanel>(music, "MusicFileActions").Children.Count == 3 && gamePolicy.Items.Count == 3,
+            "The music card lost its live volume, file actions or game policy choices.");
+        gamePolicy.SelectedIndex = 1;
+        Native.Check(startMusic.Checked && !stopMusic.Checked, "The play policy did not update the original mutually exclusive music switches.");
+        gamePolicy.SelectedIndex = 2;
+        Native.Check(!startMusic.Checked && stopMusic.Checked, "The pause policy did not update the original mutually exclusive music switches.");
+        gamePolicy.SelectedIndex = 0;
+        Native.Check(!startMusic.Checked && !stopMusic.Checked, "Keeping playback unchanged left a game music action enabled.");
+        var visualize = Find<CheckBox>(music, "CheckMusicVisualizer");
+        var spectrum = Find<ComboBox>(music, "ComboMusicVisualizerStyle");
+        spectrum.SelectedIndex = 1;
+        visualize.IsChecked = false;
+        Native.Check(!spectrum.IsEnabled && ((ISettingControl)page.FindName("ComboMusicVisualizerStyle")).GetCurrentSetting() == "1" &&
+            !((MyCheckBox)page.FindName("CheckMusicVisualizer")).Checked,
+            "Disabling visualization lost the chosen line style or failed to reach the original settings control.");
+        visualize.IsChecked = true;
+        playbackSource.Visibility = Visibility.Collapsed;
+        VisualAssetChecks.Drain();
+        Native.Check(spectrum.IsEnabled && spectrum.SelectedIndex == 1 &&
+            Find<StackPanel>(music, "MusicPlaybackSettings").Visibility == Visibility.Collapsed && visualize.Visibility == Visibility.Visible,
+            "The visualization controls could not be configured when the music folder was empty.");
+        playbackSource.Visibility = Visibility.Visible;
         // Cards frost the wallpaper beneath them; fields and other controls never carry their own material.
         Native.Check(Descendants(session.View).OfType<PCLLF.Wpf.Glass.GlassSurface>().All(surface => surface.BlurRadius > 0) &&
             !Descendants(session.View).OfType<Control>().Any(control => control is TextBoxBase or ComboBox or Slider or System.Windows.Controls.Primitives.ToggleButton or PasswordBox &&
@@ -490,6 +709,21 @@ internal static class GlassPresentationChecks
                 "Resource search did not use the compact toolbar or unexpectedly ran the backend Loaded flow.");
             search.Text = "layout-only-query";
             Native.Check(((MyTextBox)source.FindName("TextSearchName")).Text == "layout-only-query", "The compact search field lost the actual search input.");
+            var originalInput = (MyTextBox)source.FindName("TextSearchName");
+            Binding liveBinding = search.GetBindingExpression(TextBox.TextProperty)!.ParentBinding;
+            // IME preedit lives in the visible editor before the composed text reaches the source.
+            search.SetBinding(TextBox.TextProperty, new Binding(nameof(TextBox.Text)) {
+                Source = originalInput, Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.Explicit
+            });
+            search.SetCurrentValue(TextBox.TextProperty, "zhong");
+            session.Refresh();
+            Native.Check(search.Text == "zhong" && originalInput.Text == "layout-only-query",
+                "Refreshing resource results overwrote uncommitted text in the search editor.");
+            search.SetBinding(TextBox.TextProperty, liveBinding);
+            originalInput.Text = "";
+            Native.Check(search.Text.Length == 0, "Resetting the source left the visible search out of date.");
+            CheckTextPlaceholder(search, "搜索");
+            search.Text = "layout-only-query";
             Invoke(filter);
             VisualAssetChecks.Pump(() => panel.Height > 100 && panel.Opacity > .99, "resource filter expansion");
             Native.Check(Descendants(panel).OfType<ComboBox>().Count() == 3, "The compact filter did not preserve the three available original choices.");
@@ -523,6 +757,125 @@ internal static class GlassPresentationChecks
                 "The old search card heading remained in the flat resource page.");
         }
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
+    }
+
+    private static void CheckTextPlaceholder(TextBox input, string text)
+    {
+        var hint = ((Panel)input.Parent).Children.OfType<TextBlock>().Single(label => label.Text == text);
+        MultiBinding binding = BindingOperations.GetMultiBinding(hint, UIElement.VisibilityProperty)!;
+        Native.Check(binding.Bindings.OfType<Binding>().Any(part => ReferenceEquals(part.Source, input) &&
+            part.Path.Path == nameof(UIElement.IsKeyboardFocusWithin)), "The placeholder did not track the visible editor's focus.");
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        Native.Check(Equals(binding.Converter.Convert(["", true, text], typeof(Visibility), null, culture), Visibility.Hidden) &&
+            Equals(binding.Converter.Convert(["", false, text], typeof(Visibility), null, culture), Visibility.Visible) &&
+            Equals(binding.Converter.Convert(["中文", false, text], typeof(Visibility), null, culture), Visibility.Collapsed),
+            "The placeholder can overlap preedit or committed text.");
+    }
+
+    private sealed class ProjectedResourceLoaderPage : MyPageRight
+    {
+        protected override bool UseProjectedNavigation => true;
+    }
+
+    private static void ResourceSearchTransitions()
+    {
+        var source = new PageResource();
+        var wrapper = new ProjectedResourceLoaderPage();
+        var projects = (StackPanel)source.FindName("PanProjects");
+        var content = (FrameworkElement)source.FindName("PanContent");
+        var loading = (FrameworkElement)source.FindName("PanLoad");
+        projects.Children.Add(new TextBlock { Name = "PreviousSearchRow", Text = "旧结果" });
+        PageLoaderState state = PageLoaderState.Finished;
+        Action<PageLoaderState, PageLoaderState>? changed = null;
+        wrapper.InitializeLoader(new PageLoaderBinding {
+            ProjectContent = true, ReadState = () => state, ConnectState = callback => changed = callback,
+            SetLoadingState = () => { }, ConnectClick = _ => { }
+        }, loading, content, null, autoRun: false);
+        wrapper.PageOnEnter();
+        using var session = GlassPresentation.Create(source);
+        var window = new Window { Content = session.View, Width = 800, Height = 620, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        try
+        {
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            var plate = Find<Grid>(session.View, "ResourceResultsPlate");
+            var progress = Find<ContentControl>(session.View, "ResourceSearchLoading");
+            var search = Find<TextBox>(session.View, "ResourceSearchInput");
+            var old = Find<TextBlock>(plate, "PreviousSearchRow");
+            Native.Check(plate.Opacity == 1, "Already loaded results replayed the search animation on page mount.");
+
+            SetState(PageLoaderState.Loading);
+            Native.Check(content.Visibility == Visibility.Collapsed && loading.Visibility == Visibility.Visible && wrapper.NativePageState == MyPageRightView.PageStates.LoaderStay,
+                "Resource search retained the legacy loader wait.");
+            if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
+                VisualAssetChecks.Pump(() => plate.Opacity is > .08 and < .98 && !plate.IsHitTestVisible && old.IsVisible, "resource search old rows exit");
+            projects.Children.Clear();
+            projects.Children.Add(new MyVirtualizingElement<TextBlock>(() => new TextBlock { Name = "NewSearchRow", Text = "新结果" }));
+            Native.Call(typeof(PageResource), "NotifyResultsChanged", source);
+            SetState(PageLoaderState.Finished);
+            Native.Check(content.Visibility == Visibility.Visible && loading.Visibility == Visibility.Collapsed && wrapper.NativePageState == MyPageRightView.PageStates.ContentStay,
+                "A ready search was held behind a minimum loading time.");
+            if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
+                VisualAssetChecks.Pump(() => !old.IsVisible && plate.Visibility == Visibility.Visible && plate.Opacity < .99, "resource search new rows enter");
+            VisualAssetChecks.Pump(() => plate.Opacity > .999 && progress.Visibility == Visibility.Collapsed &&
+                Descendants(plate).OfType<TextBlock>().Any(row => row.Name == "NewSearchRow"), "resource search settles with viewport-realized results");
+            session.Refresh();
+            Native.Check(plate.IsHitTestVisible && plate.Opacity > .999 && ReferenceEquals(search, Find<TextBox>(session.View, "ResourceSearchInput")),
+                "Realizing results replayed the entrance or replaced the editing surface.");
+
+            // Local query changes replace rows without toggling the source loading panel.
+            projects.Children.Clear();
+            projects.Children.Add(new TextBlock { Name = "LocalSearchRow", Text = "收藏查询" });
+            Native.Call(typeof(PageResource), "NotifyResultsChanged", source);
+            VisualAssetChecks.Pump(() => Descendants(plate).OfType<TextBlock>().Any(row => row.Name == "LocalSearchRow") && plate.Opacity > .999,
+                "local search publishes its replacement rows without polling");
+        }
+        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+
+        void SetState(PageLoaderState next)
+        {
+            var previous = state;
+            state = next;
+            changed!(next, previous);
+        }
+    }
+
+    private static void ResourceSearchFirstSource()
+    {
+        using var slow = new ManualResetEventSlim();
+        var available = new TaskCompletionSource<IReadOnlyList<ResourceProject>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new ResourceSearcher.SearchResult();
+        var request = new ResourceSearcher.SearchRequest(ResourceTypes.Mod, storage, 40);
+        var engine = new ResourceSearchEngine<ResourceProject, ResourceSearcher.SearchResult>(new ResourceSearchHost<ResourceProject> {
+            CreateProject = json => new ResourceProject(json), SimplifyChinese = text => text,
+            WikiEntries = () => [], Info = _ => { }, Warning = _ => { }, Warn = (_, _) => { },
+            StartThread = (action, name) => { var thread = new Thread(() => action()) { IsBackground = true, Name = name }; thread.Start(); return thread; },
+            Request = url => {
+                if (url.Contains("curseforge.com", StringComparison.Ordinal)) {
+                    if (!slow.Wait(TimeSpan.FromSeconds(6))) throw new TimeoutException("Timed out waiting for fixture to release CurseForge.");
+                    return new JObject { ["data"] = new JArray(Project(ResourcePlatforms.CurseForge, "1")), ["pagination"] = new JObject { ["totalCount"] = 1 } };
+                }
+                return new JObject { ["hits"] = new JArray(Project(ResourcePlatforms.Modrinth, "fixture1")), ["total_hits"] = 1 };
+            }
+        });
+        var run = Task.Run(() => engine.Run(request, new ResourceSearchTask {
+            IsCanceled = () => false, Progress = () => 0, SetProgress = _ => { }
+        }, results => available.TrySetResult(results)));
+        try
+        {
+            Native.Check(available.Task.Wait(TimeSpan.FromSeconds(5)) && available.Task.Result.Single().Platform == ResourcePlatforms.Modrinth && !run.IsCompleted,
+                "The ready source was not published before the slower one responded.");
+            Native.Check(storage.Results.Count == 0, "Preliminary search rows changed the completed result store.");
+        }
+        finally { slow.Set(); run.GetAwaiter().GetResult(); }
+        Native.Check(storage.Results.Select(project => project.Platform).ToHashSet().SetEquals([ResourcePlatforms.CurseForge, ResourcePlatforms.Modrinth]),
+            "The final resource search lost one of the selected sources.");
+
+        static JObject Project(ResourcePlatforms platform, string id) => new() {
+            ["Platform"] = (int)platform, ["Types"] = (int)ResourceTypes.Mod, ["Id"] = id, ["Slug"] = "test-" + id,
+            ["RawName"] = "Fixture " + id, ["Description"] = "Fixture resource " + id, ["LastUpdate"] = new DateTime(2024, 1, 1),
+            ["DownloadCount"] = 42, ["Tags"] = new JArray(), ["Drops"] = new JArray(210), ["ModLoaders"] = (int)ModLoaders.Fabric,
+            ["Website"] = "https://example.invalid/" + id
+        };
     }
 
     private static void VirtualizedRows()

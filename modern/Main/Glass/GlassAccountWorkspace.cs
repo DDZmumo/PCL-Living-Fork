@@ -300,7 +300,12 @@ internal sealed class GlassAccountWorkspace : IDisposable
                     double p = Math.Clamp(value, 0, 1);
                     outScale.ScaleX = outScale.ScaleY = 1 + (forward ? -.14 : .12) * p;
                     previous.Opacity = 1 - p;
-                    if (value >= .995) { _stage.Children.Remove(previous); leave?.Dispose(); }
+                    if (value >= .995)
+                    {
+                        leave?.Dispose();
+                        // Hiding the account workspace can snap this spring during WPF's visibility walk.
+                        _stage.Dispatcher.InvokeAsync(() => _stage.Children.Remove(previous));
+                    }
                 }, new SpringParameters(.34, 1));
                 leave.Retarget(1);
             }
@@ -367,30 +372,21 @@ internal sealed class GlassAccountWorkspace : IDisposable
     /// <summary>Called when the page opens: rebuild and bring the account in use to the front.</summary>
     internal void Open() { ShowLibrary(false, instant: true); _deckSignature = string.Empty; _front = -1; _rebuildInstantly = true; Refresh(); }
 
-    private GlassPresentationSession? _customLoginSession;
-
     internal void Refresh()
     {
         if (_disposed) return;
         List<SkinSite> sites = GlassSkinSites.Load();
-        SkinSiteCharacter? siteCharacter = AuthSelected && _source.PanType.Visibility == Visibility.Visible ? GlassSkinSites.Current(sites) : null;
+        SkinSiteCharacter? siteCharacter = GlassSkinSites.Current(sites);
         bool siteMode = siteCharacter is not null;
-        bool custom = CustomProviderSelected;
-        bool customSignedIn = AuthSignedIn || NideSignedIn;
-        bool microsoft = MicrosoftSelected;
-        string kind = AuthSelected ? "Auth" : NideSelected ? "Nide" : microsoft ? "Ms" : "Legacy";
+        bool microsoft = !siteMode && _source.RadioLoginType5.Checked;
+        string kind = siteMode ? "Auth" : microsoft ? "Ms" : "Legacy";
         var skinRequest = siteCharacter is null ? LaunchPageRuntime.Skins.Input(kind) : LaunchPageRuntime.SkinSiteRequest(siteCharacter);
         string name = kind == "Legacy" ? LaunchPageRuntime.Skins.OfflineAccountName() :
-            siteMode || customSignedIn || microsoft && MicrosoftSignedIn ? skinRequest.Name : "";
+            siteMode || microsoft && MicrosoftSignedIn ? skinRequest.Name : "";
         ImageSource? avatar = string.IsNullOrWhiteSpace(name) ? null : LaunchPageRuntime.Avatar(kind, skinRequest);
-        string customLabel = !string.IsNullOrWhiteSpace(_source.LabTypeOne.Text)
-            ? _source.LabTypeOne.Text
-            : AuthSelected ? "Authlib-Injector" : "统一通行证";
         string siteName = siteCharacter?.Site.Name ?? "";
         string method = siteMode
             ? (siteName.Length > 0 ? siteName + " · 外置登录" : "外置登录账号")
-            : custom
-            ? (customSignedIn ? customLabel : customLabel + " · 未登录")
             : microsoft ? (MicrosoftSignedIn ? "正版账号 · Microsoft" : "正版账号 · 未登录") : "离线账号";
         string shownName = string.IsNullOrWhiteSpace(name) ? "未登录" : name;
         // Another account (or method) in use: the identity panel swaps in depth instead of changing in place.
@@ -413,46 +409,21 @@ internal sealed class GlassAccountWorkspace : IDisposable
         }
         _skin.Visibility = SkinMenu() is null ? Visibility.Hidden : Visibility.Visible;
         if (_libraryOpen) _library.Refresh();
-        _edit.Visibility = !siteMode && ((microsoft && MicrosoftSignedIn) || customSignedIn) ? Visibility.Visible : Visibility.Collapsed;
-        _exit.Visibility = siteMode || (microsoft && MicrosoftSignedIn) || customSignedIn ? Visibility.Visible : Visibility.Hidden;
+        _edit.Visibility = microsoft && MicrosoftSignedIn ? Visibility.Visible : Visibility.Collapsed;
+        _exit.Visibility = siteMode || (microsoft && MicrosoftSignedIn) ? Visibility.Visible : Visibility.Hidden;
         string exitTip = siteMode ? "切换外置登录服务器" : "切换账号";
         if (!Equals(_exit.ToolTip, exitTip)) { _exit.ToolTip = exitTip; AutomationProperties.SetName(_exit, exitTip); }
         RefreshTypes();
-        RefreshDeck(microsoft, custom, customLabel, siteCharacter, name, avatar);
+        RefreshDeck(microsoft, siteCharacter, name, avatar);
         RefreshLoginProgress();
     }
 
-    private bool AuthSelected => _source.PanLogin.Children.OfType<UIElement>().Any(child => child is PageLoginAuth or PageLoginAuthSkin);
-    private bool NideSelected => _source.PanLogin.Children.OfType<UIElement>().Any(child => child is PageLoginNide or PageLoginNideSkin);
-    // A skin-site character in use on an instance that leaves the login method free (not locked to one server).
-    private bool SiteMode => AuthSelected && _source.PanType.Visibility == Visibility.Visible && GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null;
-    // The original third-party page is shown only when the instance itself locks the login method to that server; on a
-    // free-choice instance an Authlib page that is still on screen is just the skin site being switched away from.
-    private bool CustomProviderSelected => (AuthSelected || NideSelected) && _source.PanType.Visibility != Visibility.Visible;
-    private bool AuthSignedIn => ModMain.FrmLoginAuthSkin is { } skin && _source.PanLogin.Children.Contains(skin);
-    private bool NideSignedIn => ModMain.FrmLoginNideSkin is { } skin && _source.PanLogin.Children.Contains(skin);
-    private bool MicrosoftSelected => !SiteMode && !CustomProviderSelected && (_source.RadioLoginType5.Checked ||
-        (_source.PanType.Visibility != Visibility.Visible && _source.PanLogin.Children.OfType<UIElement>().Any(child => child is PageLoginMs or PageLoginMsSkin)));
+    private bool SiteMode => GlassSkinSites.CurrentForLaunch() is not null;
     private bool MicrosoftSignedIn => ModMain.FrmLoginMsSkin is { } skin && _source.PanLogin.Children.Contains(skin);
 
     private void RefreshTypes()
     {
-        if (_source.PanType.Visibility != Visibility.Visible)
-        {
-            string lockedLabel = _source.LabTypeOne.Text ?? string.Empty;
-            string lockedSig = "locked:" + lockedLabel;
-            if (lockedSig == _typeSignature) return;
-            _typeSignature = lockedSig;
-            _types.Children.Clear();
-            if (!string.IsNullOrWhiteSpace(lockedLabel))
-            {
-                var pill = Pill(lockedLabel, PillKind.Selected, static () => { });
-                pill.IsHitTestVisible = false;
-                _types.Children.Add(pill);
-            }
-            return;
-        }
-        var radios = _source.PanType.Children.OfType<MyRadioButton>().Where(radio => radio.Visibility == Visibility.Visible).ToList();
+        MyRadioButton[] radios = [_source.RadioLoginType5, _source.RadioLoginType0];
         bool siteMode = SiteMode;
         bool external = siteMode || _sideMode != SideMode.Identity;
         string signature = string.Join("|", radios.Select(radio => radio.Text + ":" + (radio.Checked && !external))) + "#" + external;
@@ -511,8 +482,8 @@ internal sealed class GlassAccountWorkspace : IDisposable
         var heading = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         heading.ColumnDefinitions.Add(new ColumnDefinition());
-        if (back is not null && GlassSkinSites.RoleSelectionPending) {
-            var backButton = IconButton(ChevronLeft, "返回", () => { if (!_siteBusy) back(); }, 30);
+        if (back is not null) {
+            var backButton = IconButton(ChevronLeft, "返回外置登录服务器列表", () => { if (!_siteBusy) back(); }, 30);
             backButton.Margin = new Thickness(0, 0, 8, 0);
             heading.Children.Add(backButton);
         }
@@ -638,44 +609,11 @@ internal sealed class GlassAccountWorkspace : IDisposable
 
     private sealed record DeckAccount(string Key, string Name, Action Use, SkinSiteCharacter? Character = null);
 
-    private void RefreshDeck(bool microsoft, bool custom, string customLabel, SkinSiteCharacter? selected, string currentName, ImageSource? avatar)
+    private void RefreshDeck(bool microsoft, SkinSiteCharacter? selected, string currentName, ImageSource? avatar)
     {
         SkinSite? site = selected?.Site;
         SetDeckTitle(_choosing is null && site is null ? "切换账号" : "切换角色");
         if (_choosing is { } choosing) { RefreshChoosingDeck(choosing.Site, choosing.Account); return; }
-        if (custom)
-        {
-            string customSig = "custom|" + AuthSelected + "|" + NideSelected + "|" + (AuthSignedIn || NideSignedIn);
-            if (customSig == _deckSignature)
-            {
-                _customLoginSession?.Refresh();
-                return;
-            }
-            _pendingSignature = null;
-            _deckSignature = customSig;
-            foreach (FrameworkElement leaving in _presence.Where(pair => pair.Value.Leaving).Select(pair => pair.Key).ToList())
-                RemoveCard(leaving);
-            foreach (FrameworkElement old in _cards.ToList())
-                RemoveCard(old);
-            _cards.Clear();
-            _dots.Children.Clear();
-            _customLoginSession ??= GlassPresentation.Create(_source.PanLogin);
-            _customLoginSession.Refresh();
-            var scroller = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Content = _customLoginSession.View
-            };
-            FrameworkElement hostCard = DeckCard(scroller, string.IsNullOrWhiteSpace(customLabel) ? "外置账号" : customLabel);
-            _cards.Add(hostCard);
-            _deck.Children.Add(hostCard);
-            _front = 0;
-            _deckMotion.Snap(0);
-            Enter(hostCard, 0);
-            LayoutDeck();
-            return;
-        }
         var accounts = new List<DeckAccount>();
         if (site is not null)
         {
@@ -838,16 +776,20 @@ internal sealed class GlassAccountWorkspace : IDisposable
         if (state.Leaving)
         {
             card.Opacity = state.BaseOpacity * Math.Clamp(p, 0, 1);
-            if (p <= MotionTokens.VisibilityThreshold) RemoveCard(card);
+            if (p <= MotionTokens.VisibilityThreshold)
+            {
+                state.Motion.Dispose();
+                _deck.Dispatcher.InvokeAsync(() => RemoveCard(card));
+            }
         }
         else LayoutDeck();
     }
 
     private void RemoveCard(FrameworkElement card)
     {
-        _deck.Children.Remove(card);
         _inUse.Remove(card);
         if (_presence.Remove(card, out Presence? state)) { state.Leaving = true; state.Motion.Dispose(); }
+        _deck.Children.Remove(card);
     }
 
     private string? _pendingSignature;
@@ -1194,8 +1136,9 @@ internal sealed class GlassAccountWorkspace : IDisposable
         (Border userField, TextBox userBox) = FormField("账号 / 邮箱", "");
         (Border passField, PasswordBox passBox) = PasswordField("密码");
         foreach (Border field in new[] { nameField, serverField, userField, passField }) form.Children.Add(field);
-        var remember = new CheckBox { Content = "记住密码", Margin = new Thickness(2, 6, 0, 6) };
-        remember.SetResourceReference(Control.ForegroundProperty, "GlassTextBrush");
+        var remember = new CheckBox {
+            Content = "记住密码", Style = (Style)_view.FindResource("GlassCheckBox"), Margin = new Thickness(2, 0, 0, 0)
+        };
         form.Children.Add(remember);
         var error = Text("", 12, FontWeights.Normal);
         error.Foreground = new SolidColorBrush(DarkText ? Color.FromRgb(196, 43, 28) : Color.FromRgb(255, 128, 118));
@@ -1426,9 +1369,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         box.SetResourceReference(Control.ForegroundProperty, "GlassTextBrush");
         box.SetResourceReference(TextBoxBase.CaretBrushProperty, "GlassTextBrush");
         AutomationProperties.SetName(box, placeholder);
-        Border field = FieldShell(box, placeholder, () => box.Text.Length == 0);
-        box.TextChanged += (_, _) => field.Tag = box.Text.Length == 0;
-        return (field, box);
+        return (FieldShell(box, placeholder), box);
     }
 
     private (Border Field, PasswordBox Box) PasswordField(string placeholder)
@@ -1437,9 +1378,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         box.SetResourceReference(Control.ForegroundProperty, "GlassTextBrush");
         box.SetResourceReference(PasswordBox.CaretBrushProperty, "GlassTextBrush");
         AutomationProperties.SetName(box, placeholder);
-        Border field = FieldShell(box, placeholder, () => box.Password.Length == 0);
-        box.PasswordChanged += (_, _) => field.Tag = box.Password.Length == 0;
-        return (field, box);
+        return (FieldShell(box, placeholder), box);
     }
 
     // Just the text host: no border, no focus rectangle (the glass field shows focus with its own outline).
@@ -1453,8 +1392,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         return new ControlTemplate(type) { VisualTree = host };
     }
 
-    // Rounded glass field with an in-field placeholder that fades as soon as there is text.
-    private static Border FieldShell(Control box, string placeholder, Func<bool> empty)
+    private static Border FieldShell(Control box, string placeholder)
     {
         var field = new Border { CornerRadius = new CornerRadius(11), BorderThickness = new Thickness(1), Padding = new Thickness(12, 0, 12, 0), Height = 38, Margin = new Thickness(0, 0, 0, 8) };
         field.SetResourceReference(Border.BackgroundProperty, "GlassSelectedBrush");
@@ -1464,10 +1402,14 @@ internal sealed class GlassAccountWorkspace : IDisposable
         var layers = new Grid();
         layers.Children.Add(hint); layers.Children.Add(box);
         field.Child = layers;
-        void Sync() => hint.Opacity = empty() ? 1 : 0;
-        Sync();
-        var descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(FrameworkElement.TagProperty, typeof(Border));
-        descriptor.AddValueChanged(field, (_, _) => Sync());
+        if (box is TextBox input) GlassPresentationSession.BindTextPlaceholder(input, hint);
+        if (box is PasswordBox password) {
+            void SyncHint() => hint.Visibility = !password.IsKeyboardFocusWithin && password.Password.Length == 0
+                ? Visibility.Visible : Visibility.Hidden;
+            password.PasswordChanged += (_, _) => SyncHint();
+            password.IsKeyboardFocusWithinChanged += (_, _) => SyncHint();
+            SyncHint();
+        }
         box.GotKeyboardFocus += (_, _) => field.SetResourceReference(Border.BorderBrushProperty, "GlassTextBrush");
         box.LostKeyboardFocus += (_, _) => field.SetResourceReference(Border.BorderBrushProperty, "GlassOutlineBrush");
         return field;
@@ -1536,13 +1478,9 @@ internal sealed class GlassAccountWorkspace : IDisposable
         catch (Exception error) { Logger.Error(error, "切换离线账号失败", LogBehavior.Toast); }
     }
 
-    private ContextMenu? SkinMenu() => AuthSelected
-        ? (AuthSignedIn ? ModMain.FrmLoginAuthSkin?.Skin.ContextMenu : null)
-        : NideSelected
-            ? (NideSignedIn ? ModMain.FrmLoginNideSkin?.Skin.ContextMenu : null)
-            : MicrosoftSelected
-                ? (MicrosoftSignedIn ? ModMain.FrmLoginMsSkin?.BtnSkin.ContextMenu : null)
-                : null; // offline: the skin library replaces the original offline-skin menu
+    private ContextMenu? SkinMenu() => SiteMode
+        ? ModMain.FrmLoginAuthSkin?.Skin.ContextMenu
+        : _source.RadioLoginType5.Checked && MicrosoftSignedIn ? ModMain.FrmLoginMsSkin?.BtnSkin.ContextMenu : null;
 
     // Changing the skin or cape lives in the skin library now; the account menu keeps the rest (save, refresh, …).
     private static readonly HashSet<string> LibraryHandled = new(StringComparer.Ordinal) { "修改皮肤", "修改披风", "刷新披风列表", "更换披风", "更换皮肤", "保存皮肤文件", "另存为" };
@@ -1566,17 +1504,13 @@ internal sealed class GlassAccountWorkspace : IDisposable
 
     private void OpenEditMenu()
     {
-        if (AuthSignedIn) { ModMain.FrmLoginAuthSkin?.BtnEdit.PerformClick(); Refresh(); return; }
-        if (NideSignedIn) { ModMain.FrmLoginNideSkin?.BtnEdit.PerformClick(); Refresh(); return; }
         if (ModMain.FrmLoginMsSkin?.BtnEdit.ContextMenu is ContextMenu menu) GlassActionMenu.FromContextMenu(menu, _edit, DarkText).IsOpen = true;
     }
 
     private void SignOut()
     {
         if (SiteMode) { if (!_siteBusy) OpenServers(); return; }
-        if (AuthSignedIn) ModMain.FrmLoginAuthSkin?.BtnExit.PerformClick();
-        else if (NideSignedIn) ModMain.FrmLoginNideSkin?.BtnExit.PerformClick();
-        else if (MicrosoftSignedIn) ModMain.FrmLoginMsSkin?.BtnExit.PerformClick();
+        if (MicrosoftSignedIn) ModMain.FrmLoginMsSkin?.BtnExit.PerformClick();
         Refresh();
     }
 
@@ -1710,8 +1644,6 @@ internal sealed class GlassAccountWorkspace : IDisposable
         GlassSkinSites.EndRoleSelection(this);
         foreach (Presence state in _presence.Values) state.Motion.Dispose();
         _presence.Clear();
-        _customLoginSession?.Dispose();
-        _customLoginSession = null;
         _deckMotion.Dispose();
         _library.Dispose();
         _actionsMotion.Dispose();

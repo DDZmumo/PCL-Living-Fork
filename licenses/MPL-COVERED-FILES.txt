@@ -255,12 +255,15 @@ modern/Main/Glass/GlassModalState.cs
 modern/Main/Glass/GlassActionMenu.cs
 modern/Main/Glass/GlassCommandChrome.cs
 modern/Main/Glass/GlassExtraButtonAdapter.cs
+modern/Main/Glass/GlassSceneFrost.cs
 modern/Main/Glass/GlassPresentation.Controls.cs
+modern/Main/Glass/GlassPresentation.Music.cs
 modern/Main/Glass/GlassPresentation.Documents.cs
 modern/Main/Glass/GlassPresentation.Layout.cs
 modern/Main/Glass/GlassPresentation.Memory.cs
 modern/Main/Glass/GlassPresentation.Resources.cs
 modern/Main/Glass/GlassPresentation.Tasks.cs
+modern/Main/Glass/GlassPresentation.Update.cs
 modern/Main/Glass/GlassResourceInfo.cs
 modern/Main/Glass/GlassAccountWorkspace.cs
 modern/Main/Glass/GlassSkinHead.cs
@@ -272,6 +275,8 @@ modern/Main/Glass/GlassSkinLibrary.cs
 modern/Main/Glass/GlassSkinRender.cs
 modern/Main/Glass/GlassCrashBanner.cs
 modern/Main/Glass/GlassStatusGlyph.cs
+modern/Main/Glass/GlassAudioVisualizer.cs
+modern/Main/Glass/GlassMusicCapsule.cs
 modern/Main/Glass/GlassPresentation.cs
 modern/Main/Glass/GlassPresentationResources.xaml
 modern/Main/Glass/GlassToastHost.cs

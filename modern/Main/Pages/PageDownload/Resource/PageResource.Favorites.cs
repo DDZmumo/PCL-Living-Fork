@@ -124,5 +124,6 @@ public partial class PageResource {
         LabPage.Text = (Page + 1).ToString(CultureInfo.InvariantCulture);
         BtnPageFirst.IsEnabled = BtnPageLeft.IsEnabled = Page > 0; BtnPageFirst.Opacity = BtnPageLeft.Opacity = Page > 0 ? 1 : 0.2;
         BtnPageRight.IsEnabled = Page + 1 < pages; BtnPageRight.Opacity = BtnPageRight.IsEnabled ? 1 : 0.2;
+        NotifyResultsChanged();
     }
 }

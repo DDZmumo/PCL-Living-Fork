@@ -192,6 +192,8 @@ public static class LegacySettingsDefinitions {
         Add("UiMusicStart", false);
         Add("UiMusicRandom", true);
         Add("UiMusicAuto", true);
+        Add("UiMusicVisualizerEnabled", true);
+        Add("UiMusicVisualizerStyle", 0);
         Add("UiHiddenPageDownload", false);
         Add("UiHiddenPageFavorites", false);
         Add("UiHiddenPageLink", false);

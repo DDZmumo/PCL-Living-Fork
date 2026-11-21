@@ -343,7 +343,7 @@
             <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="None" HorizontalOffset="-12">
                 <Border x:Name="DropDownShadowHost" Padding="12,2,12,18" Background="Transparent">
                     <Grid glass:GlassPopupBackdrop.Enable="True" glass:GlassPopupBackdrop.CornerRadius="10">
-                        <glass:GlassSurface x:Name="DropDownSurface" CornerRadius="10" Padding="4" BlurRadius="24" ExtendWallpaper="True"
+                        <glass:GlassSurface x:Name="DropDownSurface" CornerRadius="10" Padding="4" BlurRadius="24"
                                Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="1"
                                MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="{TemplateBinding MaxDropDownHeight}" RenderTransformOrigin="0.5,0">
                             <glass:GlassSurface.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="6" Direction="270" Opacity="0.28" Color="Black" RenderingBias="Performance" /></glass:GlassSurface.Effect>

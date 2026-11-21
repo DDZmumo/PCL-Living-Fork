@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置\r\n- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡\r\n- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 修复资源中心和收藏的中文输入，搜索先展示已返回的结果\r\n- 改善动态壁纸、页面过渡和崩溃提示的流畅度\r\n- 更新背景音乐设置、播放器和音频可视化\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());

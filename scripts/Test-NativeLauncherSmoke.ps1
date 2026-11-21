@@ -310,8 +310,9 @@ try{
    }
    Assert-OwnedProcessImage $image $installed
    $windows=@([PclLfNativeSmoke.Win32]::Windows($nativeProcess.Id))
-   foreach($window in $windows){if($window.Title.Length -gt 0 -and ($window.ClassName -notlike 'HwndWrapper*' -or $window.Title.Trim() -cne 'LivingPCL')){Pending ('Unexpected native product window: '+$window.Title+' / '+$window.ClassName)}}
-   $mainWindow=@($windows|Where-Object {$_.Title.Trim() -ceq 'LivingPCL' -and $_.ClassName -like 'HwndWrapper*' -and $_.Right -gt $_.Left -and $_.Bottom -gt $_.Top})|Select-Object -First 1
+   $mainTitles=@('LivingPCL',$proof.displayName)
+   foreach($window in $windows){if($window.Title.Length -gt 0 -and ($window.ClassName -notlike 'HwndWrapper*' -or $window.Title.Trim() -cnotin $mainTitles)){Pending ('Unexpected native product window: '+$window.Title+' / '+$window.ClassName)}}
+   $mainWindow=@($windows|Where-Object {$_.Title.Trim() -cin $mainTitles -and $_.ClassName -like 'HwndWrapper*' -and $_.Right -gt $_.Left -and $_.Bottom -gt $_.Top})|Select-Object -First 1
    $text=Read-OwnedLog;Check-Log $text $expectedNotice
    $allStages=$text.Contains('第一阶段加载用时：') -and $text.Contains('第二阶段加载用时：') -and $text.Contains('第三阶段加载用时：') -and $text.Contains('PCL 位置：') -and $text.Contains($installed) -and (Test-ReviewedStartupNotice -Text $text -Notice $expectedNotice -NativeVersion $proof.versionBaseName -NativePhase -NativeStyle $proof.startupNoticeStyle -NativeSource $proof.startupNoticeSource)
    $fresh=$pass -eq 1 -or ([IO.File]::Exists($log) -and (Hash-OwnedFile $log) -cne $previousLogHash)

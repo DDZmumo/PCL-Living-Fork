@@ -52,7 +52,7 @@ internal static class SkinSiteAuthenticationChecks {
             ["LfSkinSites"] = $$"""[{"Server":"{{SavedSite}}","Accounts":[{"Username":"site-user","AccessToken":"site-token","SelectedId":"{{identity}}","Profiles":[{"Id":"{{identity}}","Name":"Site Player"}]}]}]""",
             ["CacheAuthServerServer"] = OtherSite,
             ["CacheAuthAccess"] = "instance-token",
-            ["LoginPageType"] = 0
+            ["LoginPageType"] = 4
         };
         var previous = settings.Keys.ToDictionary(key => key, key => Settings.Entries[key].ValueCache.GetValueOrDefault(""));
         var selection = Native.State(typeof(ModMinecraft), "_McInstanceSelected");
@@ -61,18 +61,25 @@ internal static class SkinSiteAuthenticationChecks {
         Directory.CreateDirectory(instancePath);
         var instance = new ModMinecraft.McInstance(instancePath);
         var mode = Settings.Entries["VersionServerLogin"].ValueCache;
+        var server = Settings.Entries["VersionServerAuthServer"].ValueCache;
         try {
             foreach (var (key, value) in settings) Native.Cache(key, value);
-            selection.SetValue(null, null);
+            selection.SetValue(null, instance);
+            mode[instance.PathVersion] = 4;
+            server[instance.PathVersion] = OtherSite;
+            Native.Check(Settings.Get<int>("VersionServerLogin", instance) == 0 && Settings.Get<int>("LoginPageType") == 0,
+                "A saved version login requirement was still effective.");
             var login = (ModLaunch.McLoginServer)Native.Call(typeof(ModLaunch), "ReadLoginInput", null, 3, true)!;
             Native.Check(login.BaseUrl == SavedSite + "/authserver" && login.UserName == "site-user" && login.Password is null,
                 "The global skin-site launch input picked up the dedicated instance's endpoint or exposed a shared password.");
-            Settings.Set("VersionServerLogin", 4, instance);
-            Native.Check(Native.Static("PCL.GlassSkinSites", "CurrentForLaunch", instance) is null, "A dedicated instance inherited global skin-site authentication.");
-            Settings.Set("VersionServerLogin", 0, instance);
-            Native.Check(Native.Static("PCL.GlassSkinSites", "CurrentForLaunch", instance) is not null, "Returning to a free-choice instance lost the selected global skin-site account.");
+            Native.Check(Native.Static("PCL.GlassSkinSites", "CurrentForLaunch") is not null, "An old instance requirement hid the selected global skin-site account.");
+            Native.Cache("LfSkinSiteActive", 0);
+            var unselected = (ModLaunch.McLoginServer)Native.Call(typeof(ModLaunch), "ReadLoginInput", null, 3, true)!;
+            Native.Check(Native.Get(unselected, "SkinSite") is null && string.IsNullOrEmpty(unselected.BaseUrl) && string.IsNullOrEmpty(unselected.Password),
+                "A missing global role fell back to a previously configured instance server.");
         } finally {
             mode.TryRemove(instance.PathVersion, out _);
+            server.TryRemove(instance.PathVersion, out _);
             selection.SetValue(null, previousInstance);
             foreach (var (key, value) in previous) {
                 if (value is null) Settings.Entries[key].ValueCache.TryRemove("", out _);

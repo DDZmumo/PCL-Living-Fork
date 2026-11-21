@@ -202,6 +202,7 @@ internal static class LauncherUpdatePageChecks
                 CurrentVersionNotesClick(CurrentRow());
             }
             window.Close(); window = null;
+            CheckProjectedScrollEdges(page);
             bool drained = false;
             Application.Current.Dispatcher.BeginInvoke((Action)(() => drained = true), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             VisualAssetChecks.Pump(() => drained, "Update-page unload did not drain its callbacks.");
@@ -216,6 +217,31 @@ internal static class LauncherUpdatePageChecks
             Native.Field(typeof(ModMain), "FrmSetupUpdate").SetValue(null, previousUpdate);
             Native.Field(typeof(ModMain), "FrmSetupLeft").SetValue(null, previousLeft);
         }
+    }
+
+    private static void CheckProjectedScrollEdges(PageSetupUpdate page)
+    {
+        using var session = GlassPresentation.Create(page);
+        var fade = ((ContentControl)session.View).Content as PCLLF.Wpf.Glass.ScrollEdgeFade;
+        Native.Check(fade is not null, "The OTA page did not use the shared scroll-edge fade.");
+        if (SystemParameters.HighContrast) return;
+        var window = new Window { Content = session.View, Width = 750, Height = 310, Left = -24000, Top = -24000,
+            ShowInTaskbar = false, ShowActivated = false, WindowStyle = WindowStyle.None };
+        try {
+            window.Show(); window.UpdateLayout();
+            var scroll = fade!.ScrollViewer;
+            VisualAssetChecks.Pump(() => scroll.ScrollableHeight > 160 &&
+                scroll.Template.FindName("PART_ScrollContentPresenter", scroll) is FrameworkElement { OpacityMask: LinearGradientBrush },
+                "The projected update page has no scrollable content or mask.");
+            var viewport = (FrameworkElement)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+            byte Leading() => ((LinearGradientBrush)viewport.OpacityMask).GradientStops[0].Color.A;
+            byte Trailing() => ((LinearGradientBrush)viewport.OpacityMask).GradientStops[^1].Color.A;
+            Native.Check(Leading() == 255 && Trailing() < 255, "The update page faded the wrong edge at the top.");
+            scroll.ScrollToVerticalOffset(scroll.ScrollableHeight / 2);
+            VisualAssetChecks.Pump(() => Leading() < 255 && Trailing() < 255, "The update page did not fade both edges while scrolled.");
+            scroll.ScrollToEnd();
+            VisualAssetChecks.Pump(() => Leading() < 255 && Trailing() == 255, "The update page faded the wrong edge at the bottom.");
+        } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
     }
 
     private static void CurrentVersionNotesClick(MyListItem row)

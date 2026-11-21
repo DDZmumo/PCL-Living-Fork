@@ -58,11 +58,11 @@ public partial class MyIconTextButtonView : Border {
                     SetForeground("ColorBrush3", 100); Animations.Start(Animations.ColorResource(this, BackgroundProperty, "ColorBrushBg1", new(100)), "MyIconTextButton Color " + Uuid);
                 } else {
                     SetForeground(IsEnabled ? ColorType == ColorState.Black ? "ColorBrush1" : "ColorBrush3" : "ColorBrushGray5", IsEnabled ? 150 : 100);
-                    Animations.Start(Animations.ColorTo(this, BackgroundProperty, Services.ThemeColor(ControlThemeColor.SemiTransparent), new(150)), "MyIconTextButton Color " + Uuid);
+                    Animations.Start(Animations.ColorResource(this, BackgroundProperty, "ColorBrushSemiTransparent", new(150)), "MyIconTextButton Color " + Uuid);
                 }
             } else {
                 Animations.Stop("MyIconTextButton Checked " + Uuid); Animations.Stop("MyIconTextButton Color " + Uuid);
-                Background = Services.ThemeColor(ControlThemeColor.SemiTransparent).ToBrush();
+                SetResourceReference(BackgroundProperty, "ColorBrushSemiTransparent");
                 string color = IsEnabled ? ColorType == ColorState.Black ? "ColorBrush1" : "ColorBrush3" : "ColorBrushGray5";
                 ShapeLogo.SetResourceReference(Path.FillProperty, color); LabText.SetResourceReference(TextBlock.ForegroundProperty, color);
             }

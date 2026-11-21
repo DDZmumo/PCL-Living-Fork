@@ -21,6 +21,22 @@ public static class ModMusic {
         Hint = (text, type, log) => ModMain.Hint(text, (ModMain.HintType)type, log)
     });
     public static MusicStates MusicState => (MusicStates)(int)Native.State;
+    public static string MusicCurrentName => Native.CurrentName;
+    public static double MusicProgress => Native.Progress;
+    /// <summary>Holds the first automatic start until <see cref="MusicReleaseStart"/> (the shell's splash).</summary>
+    public static void MusicHoldStart() => Native.HoldStart();
+    public static void MusicReleaseStart() => Native.ReleaseStart();
+    /// <summary>The latest samples sent to the audio device (for the background visualiser).</summary>
+    public static MusicSampleTap MusicSamples => Native.Samples;
+    public static int MusicCount => Native.Count;
+    public static IReadOnlyList<string> MusicTracks => Native.Tracks;
+    public static string MusicCurrentPath => Native.CurrentPath;
+    public static System.TimeSpan MusicPosition => Native.Position;
+    public static System.TimeSpan MusicDuration => Native.Duration;
+    public static void MusicSeek(double Fraction) => Native.Seek(Fraction);
+    public static void MusicControlPrevious() => Native.ControlPrevious();
+    public static void MusicPlayTrack(string Path) => Native.PlayTrack(Path);
+    public static void MusicReshuffle() => Native.Reshuffle();
     public static void MusicControlPause() => Native.ControlPause();
     public static void MusicControlNext() => Native.ControlNext();
     public static void MusicRefreshPlay(bool ShowHint, bool IsFirstLoad = false) => Native.RefreshPlay(ShowHint, IsFirstLoad);

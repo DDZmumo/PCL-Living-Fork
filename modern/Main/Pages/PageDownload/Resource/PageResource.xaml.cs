@@ -58,7 +58,7 @@ namespace PCL
         public PageResource()
         {
             __LfAttachOwnHandles();
-            Loader = global::PCL.ResourceSearcher.GetLoader(this.LoaderInput);
+            Loader = global::PCL.ResourceSearcher.GetLoader(this.LoaderInput, QueueSearchPreview);
             this.Storage = new global::PCL.ResourceSearcher.SearchResult();
             this.Page = 0;
             this.InitializeComponent();
@@ -82,7 +82,7 @@ namespace PCL
                 ShouldStart = new Func<global::PCL.ResourceSearcher.SearchRequest, global::System.Boolean>(Input => this.Loader.ShouldStart(ref Input)),
                 Start = new Action(() => this.Loader.Start()),
                 ResetFinishedTime = new Action(() => this.Loader.LastFinishedTime = 0L),
-                InitializeLoader = new Action(() => ((global::PCL.MyPageRight)this.Parent).PageLoaderInit(this.Load, this.PanLoad, this.PanContent, this.PanAlways, this.Loader, (_) => this.Load_OnFinish(), this.LoaderInput)),
+                InitializeLoader = new Action(() => ((global::PCL.MyPageRight)this.Parent).PageLoaderInit(this.Load, this.PanLoad, this.PanContent, this.PanAlways, this.Loader, (_) => this.Load_OnFinish(), this.LoaderInput, ProjectContent: true)),
                 Restart = new Action(() => ((global::PCL.MyPageRight)this.Parent).PageLoaderRestart()),
                 BackToTop = new Action(() => global::PCL.ModMain.FrmMain.BackToTop()),
                 InstallPack = new Action(() => global::PCL.ModModpack.ModpackInstall()),
@@ -187,6 +187,45 @@ namespace PCL
         {
             if (FavoriteStore is not null) { FavoritesChanged(); return; }
             this.Service.LoadOnFinish();
+            NotifyResultsChanged();
+        }
+
+        private ResourceSearcher.SearchRequest previewInput;
+        private StackPanel previewRows;
+        internal StackPanel SearchPreview
+        {
+            get
+            {
+                if (previewInput is null) return null;
+                if (MatchesSearch(previewInput) && (Loader.State == ModBase.LoadState.Loading ||
+                    Loader.State == ModBase.LoadState.Finished && PanContent.Visibility != Visibility.Visible)) return previewRows;
+                previewInput = null;
+                previewRows = null;
+                return null;
+            }
+        }
+        internal int ResultsRevision { get; private set; }
+        internal event Action ResultsChanged;
+        internal void NotifyResultsChanged()
+        {
+            ResultsRevision++;
+            ResultsChanged?.Invoke();
+        }
+        private bool MatchesSearch(ResourceSearcher.SearchRequest input) => Page == 0 &&
+            ReferenceEquals(input, Loader.Input) && ReferenceEquals(input.Storage, Storage);
+        private void QueueSearchPreview(ResourceSearcher.SearchRequest input, IReadOnlyList<ResourceProject> projects)
+        {
+            _ = Dispatcher.InvokeAsync(() => {
+                if (Loader.State != ModBase.LoadState.Loading || !MatchesSearch(input)) return;
+                var rows = new StackPanel();
+                bool showVersion = input.GameVersion is null;
+                bool showLoader = input.ModLoaders == ModLoaders.None && input.Type is ResourceTypes.Mod or ResourceTypes.ModPack;
+                foreach (ResourceProject project in projects)
+                    rows.Children.Add(project.ToResourceItem(showVersion, showLoader, input.Type));
+                previewInput = input;
+                previewRows = rows;
+                NotifyResultsChanged();
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void Load_State(global::System.Object sender, global::PCL.MyLoading.MyLoadingState state, global::PCL.MyLoading.MyLoadingState oldState)

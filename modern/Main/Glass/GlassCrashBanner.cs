@@ -17,7 +17,7 @@ namespace PCL;
 /// <summary>
 /// The playful crash banner shown above the "Minecraft 出现错误" dialog: a winking round face pops in, a thumbs-up
 /// swings in front of it and gives a few quick taps, then "干得好啊" slides in and "您的游戏崩溃啦!!!" slams down with a
-/// little shake. Afterwards the face bobs gently and the thumb taps again now and then. Layout follows the artwork:
+/// little shake. The artwork rests after the entrance. Layout follows the artwork:
 /// face on the left, the thumb over its lower right, two lines of text tilted slightly upwards to the right.
 /// </summary>
 internal sealed class GlassCrashBanner : Viewbox
@@ -27,12 +27,13 @@ internal sealed class GlassCrashBanner : Viewbox
     private readonly Canvas _canvas = new() { Width = Width0, Height = Height0, ClipToBounds = false };
     private readonly FrameworkElement _face, _hand, _praise, _crashed;
     private readonly ScaleTransform _faceScale = new(1, 1), _handScale = new(1, 1), _praiseScale = new(1, 1), _crashedScale = new(1, 1);
+    private readonly ScaleTransform _exitScale = new(1, 1);
     private readonly RotateTransform _faceTurn = new(), _handTurn = new(), _handWiggle = new();
-    private readonly TranslateTransform _faceBob = new(), _handShift = new(), _praiseShift = new(), _shake = new();
+    private readonly TranslateTransform _handShift = new(), _praiseShift = new(), _shake = new();
     private readonly SpringMotion _faceIn, _handIn, _praiseIn, _crashedIn, _out;
     private readonly Stopwatch _clock = new();
-    private double _wiggleStart = double.NaN, _shakeStart = double.NaN, _nextWiggle = double.NaN;
-    private bool _landed, _running;
+    private double _wiggleStart = double.NaN, _shakeStart = double.NaN;
+    private bool _handTapped, _landed, _running;
     private Action? _gone;
 
     internal GlassCrashBanner()
@@ -42,9 +43,11 @@ internal sealed class GlassCrashBanner : Viewbox
         IsHitTestVisible = false;
         Child = _canvas;
         _canvas.RenderTransform = _shake;
+        RenderTransformOrigin = new Point(.5, .5);
+        RenderTransform = _exitScale;
 
         _face = Picture("Face.png", 200, 0, 50,
-            new TransformGroup { Children = { _faceScale, _faceTurn, _faceBob } }, new Point(.5, .5));
+            new TransformGroup { Children = { _faceScale, _faceTurn } }, new Point(.5, .5));
         _praise = Picture("Praise.png", 272, 178, 40,
             new TransformGroup { Children = { _praiseScale, new RotateTransform(-3.5), _praiseShift } }, new Point(0, 1));
         _crashed = Picture("Crashed.png", 820, 194, 106,
@@ -68,7 +71,7 @@ internal sealed class GlassCrashBanner : Viewbox
             _handScale.ScaleX = _handScale.ScaleY = .55 + .45 * value;
             _handTurn.Angle = 48 * (1 - value);
             _handShift.X = 70 * (1 - value); _handShift.Y = 90 * (1 - value);
-            if (value > .96 && double.IsNaN(_wiggleStart)) _wiggleStart = Seconds;
+            if (!_handTapped && value > .96) { _handTapped = true; _wiggleStart = Seconds; }
         }, new SpringParameters(.42, .62));
         _praiseIn = new SpringMotion(this, 0, value =>
         {
@@ -81,15 +84,13 @@ internal sealed class GlassCrashBanner : Viewbox
             _crashed.Opacity = Math.Clamp(value * 2.2, 0, 1);
             _crashedScale.ScaleX = _crashedScale.ScaleY = 1.9 - .9 * value;
             // The moment it lands the whole banner shakes once, as if hit.
-            if (!_landed && value > .97) { _landed = true; _shakeStart = Seconds; _nextWiggle = Seconds + 2.6; }
+            if (!_landed && value > .97) { _landed = true; _shakeStart = Seconds; }
         }, new SpringParameters(.36, .6));
         _out = new SpringMotion(this, 1, value =>
         {
             Opacity = Math.Clamp(value, 0, 1);
-            var scale = .94 + .06 * value;
-            RenderTransformOrigin = new Point(.5, .5);
-            RenderTransform = new ScaleTransform(scale, scale);
-            if (value <= .01 && _gone is { } gone) { _gone = null; Stop(); gone(); }
+            _exitScale.ScaleX = _exitScale.ScaleY = .94 + .06 * value;
+            if (value <= .01 && _gone is { } gone) { _gone = null; gone(); }
         }, new SpringParameters(.3, 1));
         Unloaded += (_, _) => Stop();
     }
@@ -125,6 +126,7 @@ internal sealed class GlassCrashBanner : Viewbox
     /// <summary>Fades and shrinks the banner away, then calls <paramref name="gone"/>.</summary>
     internal void Dismiss(Action gone)
     {
+        Stop();
         _gone = gone;
         if (!MotionPreferences.AllowsAnimation) { _out.Snap(0); return; }
         _out.Retarget(0);
@@ -137,8 +139,7 @@ internal sealed class GlassCrashBanner : Viewbox
         timer.Start();
     }
 
-    // Wiggle: three quick taps of the thumb (a damped sine about the wrist). Shake: a short damped sideways jolt.
-    // Idle: the face bobs slowly; the thumb taps again every few seconds.
+    // Three quick taps about the wrist and one short jolt, then let the render loop go idle.
     private void OnFrame(object? sender, EventArgs args)
     {
         double now = Seconds;
@@ -154,11 +155,7 @@ internal sealed class GlassCrashBanner : Viewbox
             if (t < .42) _shake.X = 9 * Math.Sin(t * Math.PI * 2 * 7) * (1 - t / .42);
             else { _shake.X = 0; _shakeStart = double.NaN; }
         }
-        if (_landed)
-        {
-            _faceBob.Y = 3.5 * Math.Sin(now * 2.1);
-            if (!double.IsNaN(_nextWiggle) && now >= _nextWiggle && double.IsNaN(_wiggleStart)) { _wiggleStart = now; _nextWiggle = now + 3.8; }
-        }
+        if (_landed && double.IsNaN(_wiggleStart) && double.IsNaN(_shakeStart)) Stop();
     }
 
     private void Stop()

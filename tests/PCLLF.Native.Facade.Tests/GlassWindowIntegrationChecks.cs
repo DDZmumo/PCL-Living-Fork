@@ -115,6 +115,7 @@ internal static class GlassWindowIntegrationChecks {
             ConstructorInfo constructor = typeof(FormMain).GetConstructor(Native.Flags, null, [typeof(Action<MainHost>)], null)
                 ?? throw new MissingMethodException("Actual FormMain guarded constructor is unavailable.");
             window = (FormMain)constructor.Invoke([configure]);
+            Native.Check(window.Title == ModBase.LauncherDisplayName, "The product window does not expose its launcher display name.");
             window.Loaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), window, Native.Method(typeof(FormMain), "FormMain_Loaded"));
             window.Closing -= (CancelEventHandler)Delegate.CreateDelegate(typeof(CancelEventHandler), window, Native.Method(typeof(FormMain), "FormMain_Closing"));
             var state = new Func<GlassLauncherViewState>(() => new GlassLauncherViewState {
@@ -180,16 +181,22 @@ internal static class GlassWindowIntegrationChecks {
                 Native.Check(!ReferenceEquals(view.PageContentHost.Content, departing) && ReferenceEquals(departingHost.Content, departing) &&
                     departing.Content is not null && !departingHost.IsHitTestVisible,
                     "The shell disposed the outgoing right-page projection before its animation.");
-                VisualAssetChecks.Pump(() => departingHost.Content is null && departing.Content is null,
-                    "right-page exit and deferred projection disposal");
-                previewMotion = false;
-                previewPage = 0;
-                window.PageCurrent = FormMain.PageType.Launch;
+                var interrupted = (ContentControl)view.PageContentHost.Content;
                 window.PageRight = right;
                 legacyRight.Child = right;
                 right.PageOnEnter();
+                Refresh(window);
+                bool returnedToMountedPage = ReferenceEquals(view.PageContentHost.Content, departing) && departingHost.IsHitTestVisible;
+                VisualAssetChecks.Pump(() => interrupted.Content is null && !view.IsTransitioning,
+                    "rapid A to B to A settles and the interrupted page is disposed");
+                Native.Check(returnedToMountedPage && departing.Content is not null,
+                    "Returning to an outgoing page constructed another projection or disposed the restored one.");
+                previewMotion = false;
+                previewPage = 0;
+                window.PageCurrent = FormMain.PageType.Launch;
                 Refresh(window); VisualAssetChecks.Drain();
             }
+            if (!interactive) CheckInstanceProjectionCache(window, view, scope.Root);
             var root = (Grid)window.Content;
             foreach (string part in new[] { "PanHint", "PanMsg" })
                 Native.Check(!ReferenceEquals(VisualTreeHelper.GetParent(Part<FrameworkElement>(window, part)), root) &&
@@ -198,6 +205,13 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(((UIElement)Native.Get(integration, "_legacyRoot")!).Visibility == Visibility.Hidden,
                 "Original BAML root must remain loaded and hidden beneath the shell.");
             CheckSurfaces(view);
+            double allowance = view.LeftExpansionAllowance;
+            view.SetLeftExpansionAllowance(GlassLauncherView.RailExpandDelta + GlassLauncherView.RailOvershootHeadroom);
+            window.UpdateLayout(); VisualAssetChecks.Drain(); Refresh(window);
+            Native.Check(view.GetSurfaceRegions()[0].Bounds.Left > 100, "The collapsed rail fixture did not reserve space for expansion.");
+            CheckSurfaces(view);
+            view.SetLeftExpansionAllowance(allowance);
+            window.UpdateLayout(); VisualAssetChecks.Drain(); Refresh(window);
             CheckResizeGrips(window, view);
             window.Width = 980; window.Height = 560;
             window.UpdateLayout(); VisualAssetChecks.Drain(); Refresh(window);
@@ -223,6 +237,7 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "Wallpaper mode created a native desktop-blur companion.");
             CheckWallpaperToolTip(window, view, source);
+            if (!interactive) CheckCrashDialog(window, integration);
             var boundedBrush = (ImageBrush)Native.Call(Native.Type("PCL.SetupPageRuntime"), "LoadBoundedBackgroundBrush", null, wallpaper)!;
             Native.Check(!boundedBrush.IsFrozen && boundedBrush.ImageSource is { IsFrozen: true },
                 "Pictures background brush must remain mutable for suit/alignment updates while keeping a frozen BitmapSource.");
@@ -298,6 +313,42 @@ internal static class GlassWindowIntegrationChecks {
         Console.WriteLine("PASS workspace FormMain: independent presentation over hidden state sources; original commands and resize handlers, launcher wallpaper/opaque background, zero desktop composition windows, minimize/restore and cleanup; startup/account/game/profile access guarded.");
     }
 
+    private static void CheckInstanceProjectionCache(FormMain window, GlassLauncherView view, string root)
+    {
+        var legacy = Part<Border>(window, "PanMainRight");
+        var previous = window.PageCurrent;
+        var previousPage = window.PageRight;
+        var previousChild = legacy.Child;
+        var previousInstance = PageInstanceLeft.Instance;
+        try {
+            PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-one"));
+            window.PageCurrent = FormMain.PageType.InstanceSetup;
+            var pages = Enumerable.Range(0, 5).Select(index => new MyPageRight { Child = new TextBlock { Text = "实例页 " + index } }).ToArray();
+            ContentControl Mount(MyPageRight page) {
+                window.PageRight = page;
+                legacy.Child = page;
+                Refresh(window);
+                return (ContentControl)view.PageContentHost.Content;
+            }
+            var first = Mount(pages[0]);
+            var second = Mount(pages[1]);
+            VisualAssetChecks.Drain();
+            Native.Check(ReferenceEquals(Mount(pages[0]), first), "Switching back to the same instance rebuilt its detached page.");
+            Mount(pages[2]); Mount(pages[3]); Mount(pages[4]);
+            VisualAssetChecks.Pump(() => second.Content is null, "Old instance pages exceeded the bounded cache.");
+            var old = (ContentControl)view.PageContentHost.Content;
+            PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-two"));
+            Native.Check(!ReferenceEquals(Mount(pages[4]), old), "A different instance reused the old instance's page projection.");
+        } finally {
+            PageInstanceLeft.Instance = previousInstance;
+            window.PageCurrent = previous;
+            window.PageRight = previousPage;
+            legacy.Child = previousChild;
+            Refresh(window);
+            VisualAssetChecks.Drain();
+        }
+    }
+
     private static void VerifyHiddenShortcut(FormMain window, MainHost host) {
         object controller = Native.Get(window, "Controller")!;
         FieldInfo viewField = controller.GetType().GetFields(Native.Flags).Single(field => field.FieldType == typeof(LegacyMainWindowView));
@@ -313,6 +364,63 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(host.HiddenForceShow() != previousHidden, "The classic shell lost its original F12 visibility shortcut.");
         }
         finally { view.UsesGlassShell = previousMode; host.WriteHiddenForceShow(previousHidden); }
+    }
+
+    private static void CheckCrashDialog(FormMain window, object integration) {
+        var panel = Part<Grid>(window, "PanMsg");
+        var projection = (FrameworkElement)Native.Get(integration, "_modalView")!;
+        var effects = Native.Get(integration, "_modalEffects")!;
+        PropertyInfo progress = Native.Property(effects.GetType(), "Progress");
+        double Progress() => (double)progress.GetValue(effects)!;
+        FieldInfo videoPaused = Native.Field(Native.Type("PCL.GlassVideoWallpaper"), "_paused");
+        var message = new ModMain.MyMsgBoxConverter {
+            Title = "Minecraft 出现错误",
+            Text = string.Join("\n", Enumerable.Range(1, 48).Select(i => $"- 配置 / 环境资源 · 修改 · config/fixture-{i}.json")),
+            Button1 = "确定", Button2 = "最近变更", Button3 = "导出错误报告"
+        };
+        var modal = new MyMsgText(message);
+        double previousHeight = window.Height;
+        int marginChanges = 0;
+        var margin = DependencyPropertyDescriptor.FromProperty(FrameworkElement.MarginProperty, typeof(FrameworkElement));
+        EventHandler observeMargin = (_, _) => {
+            if (++marginChanges > 16) throw new InvalidOperationException("Crash report layout keeps changing the dialog inset.");
+        };
+        try {
+            window.Height = 680;
+            window.UpdateLayout();
+            margin.AddValueChanged(projection, observeMargin);
+            panel.Children.Add(modal);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => Native.Get(integration, "_crashBanner") is not null && Progress() > .999, "long crash report opens");
+            int settledInsets = marginChanges;
+            for (int pass = 0; pass < 7; pass++) {
+                Native.Call(integration.GetType(), "AlignModalToBody", integration);
+                window.UpdateLayout();
+            }
+            Native.Check(marginChanges == settledInsets, "Rearranging a long crash report restarted measurement of its banner inset.");
+            Console.WriteLine($"Crash report layout settled after {marginChanges} inset changes.");
+            Native.Check(!(bool)videoPaused.GetValue(null)!, "The crash dialog paused wallpaper playback.");
+            object banner = Native.Get(integration, "_crashBanner")!;
+            VisualAssetChecks.Pump(() => !(bool)Native.Get(banner, "_running")!, "crash banner stops rendering after entrance");
+            message.IsExited = true;
+            Refresh(window);
+            if (Progress() > .001) {
+                Native.Check(!(bool)videoPaused.GetValue(null)!, "The modal blur exit paused wallpaper playback.");
+                message.IsExited = false;
+                Refresh(window);
+                Native.Check(!(bool)videoPaused.GetValue(null)!, "Reopening a crash report paused wallpaper playback.");
+                message.IsExited = true;
+                Refresh(window);
+            }
+            VisualAssetChecks.Pump(() => !(bool)videoPaused.GetValue(null)! && Progress() <= .001,
+                "crash backdrop closes during wallpaper playback");
+        } finally {
+            margin.RemoveValueChanged(projection, observeMargin);
+            panel.Children.Remove(modal);
+            window.Height = previousHeight;
+            Refresh(window);
+            VisualAssetChecks.Drain();
+        }
     }
 
     private static void CheckWallpaperToolTip(FormMain window, GlassLauncherView view, ImageSource wallpaper) {
@@ -336,9 +444,17 @@ internal static class GlassWindowIntegrationChecks {
                     var pane = (Panel)VisualTreeHelper.GetChild(tooltip, 0);
                     var frost = pane.Children.OfType<GlassSurface>().Single();
                     FrameworkElement? host = GlassMaterial.GetWallpaperHost(frost);
-                    Native.Check(frost.BlurRadius == 24 && ReferenceEquals(GlassMaterial.GetWallpaperSource(frost), wallpaper) &&
-                        host is not null && ReferenceEquals(PresentationSource.FromVisual(host), PresentationSource.FromVisual(tooltip)),
-                        "The tooltip did not align a frosted copy of the current wallpaper to its popup.");
+                    Rect ScreenBounds(FrameworkElement element) => new(element.PointToScreen(new Point()),
+                        element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight)));
+                    bool onWallpaper = ScreenBounds(Part<FrameworkElement>(view, "WallpaperViewport")).Contains(ScreenBounds(frost));
+                    Native.Check(frost.BlurRadius == 24 && !frost.ExtendWallpaper && GlassPopupBackdrop.GetEnable(pane),
+                        "The tooltip did not use the popup's window-aware frost.");
+                    Native.Check(onWallpaper
+                        ? ReferenceEquals(frost.WallpaperSource, wallpaper) && host is not null &&
+                          ReferenceEquals(PresentationSource.FromVisual(host), PresentationSource.FromVisual(tooltip))
+                        : frost.WallpaperSource is null && host is null &&
+                          (GlassMaterial.GetDesktopBackdropEnabled(frost) || !GlassMaterial.GetIsEnabled(frost)),
+                        "The tooltip's material did not match its position relative to the wallpaper.");
                     if (!SystemParameters.HighContrast) {
                         var text = ((SolidColorBrush)tooltip.Foreground).Color;
                         Native.Check((text.R + text.G + text.B > 450) == (mode == 1), "Tooltip text did not follow the current appearance.");
@@ -421,6 +537,9 @@ internal static class GlassWindowIntegrationChecks {
             Point rightStep = new((regions[1].Bounds.Right + regions[2].Bounds.Right) / 2, (regions[2].Bounds.Bottom + regions[1].Bounds.Bottom) / 2);
             Native.Check(!Contains(gap) && !Contains(topStep) && !Contains(rightStep),
                 "The actual HWND still includes the transparent gap or staggered insets outside the three surfaces.");
+            if (!view.IsRailExpanded && !view.IsRailAnimating && regions[0].Bounds.Left > 1)
+                Native.Check(!Contains(new Point(regions[0].Bounds.Left / 2, view.ActualHeight / 2)),
+                    "The collapsed rail's invisible expansion space still intercepts pointer input.");
             foreach (GlassWindowRegion surface in regions) {
                 Rect area = surface.Bounds;
                 Native.Check(Contains(new Point(area.Left + area.Width / 2, area.Top + area.Height / 2)), "A painted workspace surface lies outside its native region.");
