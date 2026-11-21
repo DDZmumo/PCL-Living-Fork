@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
@@ -54,6 +55,7 @@ public sealed partial class GlassPresentationSession
         var placeholder = PlainText("搜索"); placeholder.Margin = new Thickness(35, 0, 12, 0);
         placeholder.VerticalAlignment = VerticalAlignment.Center; placeholder.IsHitTestVisible = false;
         placeholder.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary"); searchHost.Children.Add(placeholder);
+        BindTextPlaceholder(search, placeholder);
 
         Button ToolbarButton(string text) => new() {
             Content = text, Style = Style("GlassPresentationButton"), Height = 32, MinHeight = 32,
@@ -99,11 +101,16 @@ public sealed partial class GlassPresentationSession
 
         var results = new StackPanel();
         var error = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch }; results.Children.Add(error);
+        var pending = PlainText("正在补充搜索结果…");
+        pending.Margin = new Thickness(12, 8, 12, 4);
+        pending.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+        results.Children.Add(pending);
         var items = new ContentControl { Name = "ResourceFlatResults", HorizontalContentAlignment = HorizontalAlignment.Stretch }; results.Children.Add(items);
         var pages = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 8) };
-        Bind(pages, UIElement.VisibilityProperty, source.CardPages, nameof(UIElement.Visibility)); results.Children.Add(pages);
+        var pageActions = new Border { Child = pages }; results.Children.Add(pageActions);
+        Bind(pages, UIElement.VisibilityProperty, source.CardPages, nameof(UIElement.Visibility));
         Bind(pages, UIElement.IsEnabledProperty, source.CardPages, nameof(UIElement.IsEnabled));
-        var content = new Grid();
+        var content = new Grid { ClipToBounds = true };
         var scroller = new ScrollViewer { Name = "ResourceResultsScroll", Style = Style("GlassPresentationScrollViewer"), Content = results, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
         SmoothScroll.SetIsEnabled(scroller, true);
         var resultsHost = new ScrollEdgeFade(scroller);
@@ -113,36 +120,102 @@ public sealed partial class GlassPresentationSession
         var plateBackground = new GlassSurface { CornerRadius = new CornerRadius(18), BorderThickness = new Thickness(0), Margin = new Thickness(4), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0, IsHitTestVisible = false,
             Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 14, KernelType = System.Windows.Media.Effects.KernelType.Gaussian, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance } };
         plateBackground.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill");
-        var resultsPlate = new Grid();
+        var resultsPlate = new Grid { Name = "ResourceResultsPlate", Visibility = Visibility.Collapsed };
         resultsPlate.Children.Add(plateBackground);
         resultsHost.Margin = new Thickness(6, 4, 2, 4);
         resultsPlate.Children.Add(resultsHost);
-        Bind(resultsPlate, UIElement.VisibilityProperty, source.PanContent, nameof(UIElement.Visibility)); content.Children.Add(resultsPlate);
-        // The first results belong to the page entrance. Later search and pagination updates can animate in place.
-        bool resultsShown = false, cascadeArmed = false; DateTime cascadeDeadline = default;
-        resultsPlate.IsVisibleChanged += (_, args) =>
-        {
-            if (args.NewValue is not true || !Live(resultsPlate)) return;
-            if (!resultsShown) { resultsShown = true; return; }
-            if (!MotionPreferences.AllowsAnimation) return;
-            plateBackground.Opacity = 0;
-            var plateFade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(260)) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-            plateBackground.BeginAnimation(UIElement.OpacityProperty, plateFade);
-            // Rows may be projected by a later refresh; play on the first layout pass that has them (or give up after a second).
-            cascadeDeadline = DateTime.UtcNow.AddSeconds(1);
-            if (!cascadeArmed) { cascadeArmed = true; resultsPlate.LayoutUpdated += PlayResultsCascade; }
-        };
-        void PlayResultsCascade(object? sender, EventArgs args)
-        {
-            bool expired = DateTime.UtcNow > cascadeDeadline || !Live(resultsPlate) || !resultsPlate.IsVisible;
-            Panel? rows = expired ? null : StaggeredEntrance.FindItemsPanel(items);
-            if (!expired && rows is null) return;
-            cascadeArmed = false; resultsPlate.LayoutUpdated -= PlayResultsCascade;
-            if (rows is not null) StaggeredEntrance.Play(rows.Children.OfType<UIElement>().Where(row => row.Visibility == Visibility.Visible).Take(16));
-        }
-        var loading = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 38, 0, 0) };
-        Bind(loading, UIElement.VisibilityProperty, source.PanLoad, nameof(UIElement.Visibility)); content.Children.Add(loading);
+        content.Children.Add(resultsPlate);
+        var loading = new ContentControl { Name = "ResourceSearchLoading", Visibility = Visibility.Collapsed,
+            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 38, 0, 0) };
+        content.Children.Add(loading);
         Grid.SetRow(content, 2); layout.Children.Add(content);
+
+        // Move the rows in depth while keeping the live wallpaper sample fixed to the viewport.
+        var resultScale = new ScaleTransform();
+        var resultOffset = new TranslateTransform();
+        var resultTransform = new TransformGroup();
+        resultTransform.Children.Add(resultScale);
+        resultTransform.Children.Add(resultOffset);
+        resultsHost.RenderTransform = resultTransform;
+        resultsHost.RenderTransformOrigin = new Point(.5, .5);
+        const double ExitThreshold = .04;
+        bool leavingResults = false, showLoading = false;
+        var resultsMotion = new SpringMotion(frame, 0, value => {
+            double p = Math.Clamp(value, 0, 1);
+            resultsPlate.Opacity = p;
+            resultScale.ScaleX = resultScale.ScaleY = MotionTokens.RevealScale + (1 - MotionTokens.RevealScale) * p;
+            resultOffset.Y = MotionTokens.PageTravel * (1 - p);
+            if (leavingResults && p <= ExitThreshold) QueueRefresh();
+        }, MotionTokens.Reveal);
+        var loadingMotion = new SpringMotion(frame, 0, value => {
+            loading.Opacity = Math.Clamp(value, 0, 1);
+            if (!showLoading && loading.Visibility == Visibility.Visible && value <= ExitThreshold) QueueRefresh();
+        }, MotionTokens.Reveal);
+        DependencyObject[] displayedRows = [];
+        Func<Node> createRows = () => ProjectStack(source.PanProjects, () => displayedRows);
+        StackPanel displayedPanel = null;
+        ResourceSearcher.SearchRequest displayedInput = null;
+        int displayedRevision = -1;
+        int displayedPage = source.Page;
+        bool scrollResultsHome = false;
+
+        void UpdateSearchStage()
+        {
+            StackPanel preview = source.SearchPreview;
+            StackPanel next = preview ?? (source.PanContent.Visibility == Visibility.Visible ? source.PanProjects : null);
+            int revision = preview is null ? source.ResultsRevision : -1;
+            bool merge = displayedPanel is not null && !ReferenceEquals(displayedPanel, source.PanProjects) &&
+                ReferenceEquals(next, source.PanProjects) && ReferenceEquals(displayedInput, source.Loader.Input);
+            bool changed = next is not null && (!ReferenceEquals(displayedPanel, next) || displayedRevision != revision);
+            bool replace = changed && !merge;
+            bool animate = frame.IsLoaded && frame.IsVisible && MotionPreferences.AllowsAnimation;
+
+            // Keep the old row objects attached through the exit, even when a fast search already completed.
+            if (animate && (leavingResults || replace || next is null) && resultsMotion.Value > ExitThreshold)
+            {
+                leavingResults = true;
+                resultsPlate.IsHitTestVisible = false;
+                if (resultsMotion.Target != 0) resultsMotion.Retarget(0);
+            }
+            else
+            {
+                bool entering = leavingResults || replace || resultsPlate.Visibility != Visibility.Visible;
+                leavingResults = false;
+                resultsPlate.Visibility = next is not null ? Visibility.Visible : Visibility.Collapsed;
+                resultsPlate.IsHitTestVisible = next is not null;
+                displayedPanel = next;
+                displayedInput = source.Loader.Input;
+                if (next is not null)
+                {
+                    // Viewport realization can replace an individual source row without changing the result batch.
+                    displayedRows = next.Children.OfType<DependencyObject>().ToArray();
+                    displayedRevision = revision;
+                    if (replace || displayedPage != source.Page || scrollResultsHome) scroller.ScrollToHome();
+                    displayedPage = source.Page;
+                    scrollResultsHome = false;
+                    if (entering)
+                    {
+                        if (animate) resultsMotion.Snap(0);
+                        resultsMotion.Retarget(1, immediate: !animate);
+                    }
+                }
+                else
+                {
+                    displayedRows = [];
+                    if (resultsMotion.Value != 0) resultsMotion.Snap(0);
+                }
+            }
+
+            bool showingPreview = displayedPanel is not null && !ReferenceEquals(displayedPanel, source.PanProjects);
+            pending.Visibility = showingPreview ? Visibility.Visible : Visibility.Collapsed;
+            pageActions.Visibility = error.Visibility = showingPreview ? Visibility.Collapsed : Visibility.Visible;
+            showLoading = next is null && !leavingResults && source.PanLoad.Visibility == Visibility.Visible;
+            if (showLoading) loading.Visibility = Visibility.Visible;
+            loading.IsHitTestVisible = showLoading;
+            double loadingTarget = showLoading ? 1 : 0;
+            if (loadingMotion.Target != loadingTarget) loadingMotion.Retarget(loadingTarget, immediate: !animate);
+            if (!showLoading && loadingMotion.Value <= ExitThreshold) loading.Visibility = Visibility.Collapsed;
+        }
 
         bool open = false;
         double filterHeight = 200;
@@ -176,22 +249,35 @@ public sealed partial class GlassPresentationSession
         }
         void RunSearch() {
             if (!Live(frame)) return;
-            source.BtnSearchRun.PerformClick(); scroller.ScrollToHome(); ToggleFilters(false); Refresh();
+            // Binding owns committed text, including the value produced by an IME composition.
+            scrollResultsHome = true;
+            source.BtnSearchRun.PerformClick(); ToggleFilters(false); QueueRefresh();
         }
         filter.Click += (_, _) => ToggleFilters(!open);
         apply.Click += (_, _) => RunSearch();
-        reset.Click += (_, _) => { if (!Live(frame)) return; source.BtnSearchReset.PerformClick(); scroller.ScrollToHome(); Refresh(); MeasureFilters(); };
+        reset.Click += (_, _) => { if (!Live(frame)) return; scrollResultsHome = true; source.BtnSearchReset.PerformClick(); QueueRefresh(); MeasureFilters(); };
         search.PreviewKeyDown += (_, args) => { if (args.Key == Key.Enter) { args.Handled = true; RunSearch(); } };
         frame.PreviewKeyDown += (_, args) => { if (args.Key == Key.Escape && open) { ToggleFilters(false); filter.Focus(); args.Handled = true; } };
         frame.SizeChanged += (_, _) => { if (Live(frame) && open) MeasureFilters(); };
-        search.TextChanged += (_, _) => placeholder.Visibility = string.IsNullOrEmpty(search.Text) ? Visibility.Visible : Visibility.Collapsed;
         var node = new Node(frame);
         node.Cleanup.Add(reveal.Dispose);
-        int displayedPage = source.Page;
+        node.Cleanup.Add(resultsMotion.Dispose);
+        node.Cleanup.Add(loadingMotion.Dispose);
+        var visibility = DependencyPropertyDescriptor.FromProperty(UIElement.VisibilityProperty, typeof(UIElement));
+        EventHandler panelChanged = (_, _) => QueueRefresh();
+        RoutedEventHandler frameLoaded = (_, _) => QueueRefresh();
+        visibility.AddValueChanged(source.PanContent, panelChanged);
+        visibility.AddValueChanged(source.PanLoad, panelChanged);
+        source.ResultsChanged += QueueRefresh;
+        frame.Loaded += frameLoaded;
+        node.Cleanup.Add(() => {
+            visibility.RemoveValueChanged(source.PanContent, panelChanged);
+            visibility.RemoveValueChanged(source.PanLoad, panelChanged);
+            source.ResultsChanged -= QueueRefresh;
+            frame.Loaded -= frameLoaded;
+        });
         node.Pull = () => {
-            if (displayedPage != source.Page) { displayedPage = source.Page; scroller.ScrollToHome(); }
-            search.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
-            placeholder.Visibility = string.IsNullOrEmpty(search.Text) ? Visibility.Visible : Visibility.Collapsed;
+            UpdateSearchStage();
             foreach (var editor in editors) {
                 UIElement next = Project(editor.Source);
                 if (next is FrameworkElement element) { element.Margin = new Thickness(); element.Width = double.NaN; element.HorizontalAlignment = HorizontalAlignment.Stretch; }
@@ -201,7 +287,7 @@ public sealed partial class GlassPresentationSession
             if (!ReferenceEquals(installPack.Content, packView)) installPack.Content = packView;
             UIElement errorView = Project(source.HintError);
             if (!ReferenceEquals(error.Content, errorView)) error.Content = errorView;
-            UIElement itemView = Project(source.PanProjects);
+            UIElement itemView = Project(source.PanProjects, create: createRows);
             if (itemView is FrameworkElement itemElement) itemElement.Margin = new Thickness();
             if (!ReferenceEquals(items.Content, itemView)) items.Content = itemView;
             UIElement loadView = Project(source.Load);

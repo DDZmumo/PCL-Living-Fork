@@ -338,10 +338,12 @@ namespace PCL
                 AprilScale = () => ModMain.FrmLaunchLeft.AprilScaleTrans,
                 SettingsInstance = () => PageInstanceLeft.Instance, SelectedInstance = () => ModMinecraft.McInstanceSelected,
                 InstanceName = value => value.Name,
-                InstanceSettingsTitlePrefix = value => PageInstanceLeft.ObserveInstanceContext(value).SettingsTitlePrefix,
+                InstanceSettingsTitlePrefix = value => ModMain.FrmInstanceLeft is { } left && ReferenceEquals(PageInstanceLeft.Instance, value)
+                    ? left.CurrentSidebarState.SettingsTitlePrefix : PageInstanceLeft.ObserveInstanceContext(value).SettingsTitlePrefix,
                 InstanceLocked = value => ModMinecraft.McInstanceLock.IsLocked(value),
                 InstanceBlocksNavigation = value => ModMinecraft.McInstanceLock.BlocksNavigation(value),
                 WriteInstanceSetting = (key, value, target) => Settings.Set(key, value, Instance: target),
+                UsesGlobalAccounts = true,
                 ValidateHttp = value => new ValidateHttp().Validate(value), ReloadInstanceSetup = () => ModMain.FrmInstanceSetup.Reload(),
                 RefreshLaunchPage = () => ModMain.FrmLaunchLeft.RefreshPage(true, false), RefreshCustomHome = () => ModMain.FrmLaunchRight.ForceRefresh(),
                 InstallMods = value => PageInstanceMod.InstallMods(value), InstallModpack = value => ModModpack.ModpackInstall(value), CreateCrashAnalyzer = CrashPort,
@@ -467,7 +469,7 @@ namespace PCL
                 case PageType.TaskManager: if (ModMain.FrmSpeedLeft == null) ModMain.FrmSpeedLeft = new PageSpeedLeft(); break;
                 case PageType.InstanceSetup:
                     if (ModMain.FrmInstanceLeft == null) ModMain.FrmInstanceLeft = new PageInstanceLeft();
-                    ModMain.FrmInstanceLeft.SyncInstanceContext();
+                    else ModMain.FrmInstanceLeft.SyncInstanceContext();
                     break;
             }
         }

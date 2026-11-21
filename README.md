@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.5.1"><img src="Plain Craft Launcher 2/Images/Branding/LivingPCL-256.png" alt="PCL Living Fork 正式版图标" width="90" height="90"></a>&nbsp;&nbsp;<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-1"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/pcllf-preview-dark.svg"><img src="modern/Main/Images/Branding/PCLLF.svg" alt="PCL Living Fork 新版 WPF 图标" width="90" height="90"></picture></a>
+<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.5.1"><img src="Plain Craft Launcher 2/Images/Branding/LivingPCL-256.png" alt="PCL Living Fork 正式版图标" width="90" height="90"></a>&nbsp;&nbsp;<a href="https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-2"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/pcllf-preview-dark.svg"><img src="modern/Main/Images/Branding/PCLLF.svg" alt="PCL Living Fork 新版 WPF 图标" width="90" height="90"></picture></a>
 
 # PCL Living Fork
 
@@ -13,7 +13,7 @@
 [![QQ 交流群](https://img.shields.io/badge/QQ%20%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white)](https://qm.qq.com/q/MX1RivlHeE)
 
 [下载 1.5.1 正式版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.5.1) ·
-[下载 1.6.0-pre-1 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-1) ·
+[下载 1.6.0-pre-2 预发布版](https://github.com/DDZmumo/PCL-Living-Fork/releases/tag/v1.6.0-pre-2) ·
 [CNB 国内镜像](https://cnb.cool/ddzmumo/PCL-Living-Fork/-/releases) ·
 [历史版本](https://github.com/DDZmumo/PCL-Living-Fork/releases) ·
 [问题反馈](https://github.com/DDZmumo/PCL-Living-Fork/issues) ·
@@ -21,7 +21,7 @@
 
 </div>
 
-**1.5.1** 为当前正式版。**1.6.0-pre-1** 提供新版 WPF 工作台和皮肤库，更新说明见对应的 GitHub Release。
+**1.5.1** 为当前正式版。**1.6.0-pre-2** 提供新版 WPF 工作台和皮肤库，更新说明见对应的 GitHub Release。
 
 ---
 
@@ -51,7 +51,7 @@
 
 ## 功能亮点
 
-### 新版 WPF 工作台（1.6.0-pre-1）
+### 新版 WPF 工作台（1.6.0-pre-2）
 
 - 首页集中显示当前实例、启动和实例管理入口。资源中心、账号与任务页沿用统一的导航与控件。
 - 外置登录按服务器选择账号和角色。皮肤库可管理离线角色的皮肤和披风。

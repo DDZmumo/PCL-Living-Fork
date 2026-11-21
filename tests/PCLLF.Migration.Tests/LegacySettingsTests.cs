@@ -26,9 +26,15 @@ internal static class LegacySettingsTests {
         var fixture = new Fixture();
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
-        Equal(231, fixture.Entries.Count);
+        Equal(233, fixture.Entries.Count);
         Equal(1, fixture.Entries["UiShellStyle"].DefaultValue);
         Equal("", fixture.Entries["UiGlassWallpaperPath"].DefaultValue);
+        Equal(true, fixture.Entries["UiMusicVisualizerEnabled"].DefaultValue);
+        Equal(typeof(bool), fixture.Entries["UiMusicVisualizerEnabled"].Type);
+        Equal(LegacySettingSource.Normal, fixture.Entries["UiMusicVisualizerEnabled"].Source);
+        Equal(0, fixture.Entries["UiMusicVisualizerStyle"].DefaultValue);
+        Equal(typeof(int), fixture.Entries["UiMusicVisualizerStyle"].Type);
+        Equal(LegacySettingSource.Normal, fixture.Entries["UiMusicVisualizerStyle"].Source);
         foreach (string key in new[] { "CacheAuthCredentialServer", "LfSkinSites", "LfSkinSiteSelection" }) {
             Equal("", fixture.Entries[key].DefaultValue);
             Equal(typeof(string), fixture.Entries[key].Type);

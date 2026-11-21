@@ -99,7 +99,7 @@ internal sealed class MmcLaunchAuthentication {
     }
     private static string ReadServer(ModMinecraft.McInstance instance, MmcRuntimeAuthenticationKind? kind) => kind switch {
         MmcRuntimeAuthenticationKind.Nide => Settings.Get<string>("VersionServerNide", instance),
-        MmcRuntimeAuthenticationKind.AuthlibInjector => GlassSkinSites.CurrentForLaunch(instance)?.Site.Server ?? Settings.Get<string>("VersionServerAuthServer", instance),
+        MmcRuntimeAuthenticationKind.AuthlibInjector => GlassSkinSites.CurrentForLaunch()?.Site.Server ?? "",
         _ => ""
     };
     private static void ValidateServer(MmcRuntimeAuthenticationKind? kind, string server) {

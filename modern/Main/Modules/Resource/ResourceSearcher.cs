@@ -63,18 +63,23 @@ namespace PCL
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
         private static extern int LCMapStringEx(string localeName, uint flags, string source, int sourceCount,
             [Out] char[] destination, int destinationCount, IntPtr version, IntPtr reserved, IntPtr sortHandle);
-        public static ModLoader.LoaderTask<SearchRequest, int> GetLoader(Func<SearchRequest> InputDelegate)
+        public static ModLoader.LoaderTask<SearchRequest, int> GetLoader(Func<SearchRequest> InputDelegate,
+            Action<SearchRequest, IReadOnlyList<ResourceProject>> ShowAvailable = null)
         {
-            return new ModLoader.LoaderTask<SearchRequest, int>("社区资源获取", Run, InputDelegate) { ReloadTimeout = 60 * 1000 };
+            return new ModLoader.LoaderTask<SearchRequest, int>("社区资源获取", task => Run(task, ShowAvailable), InputDelegate) { ReloadTimeout = 60 * 1000 };
         }
-        private static void Run(ModLoader.LoaderTask<SearchRequest, int> Task)
+        private static void Run(ModLoader.LoaderTask<SearchRequest, int> Task, Action<SearchRequest, IReadOnlyList<ResourceProject>> ShowAvailable)
         {
-            Engine.Run(Task.Input, new ResourceSearchTask()
+            SearchRequest input = Task.Input;
+            Thread worker = Thread.CurrentThread;
+            bool Canceled() => Task.IsCanceledWithThread(worker);
+            Engine.Run(input, new ResourceSearchTask()
             {
-                IsCanceled = new Func<bool>(() => Task.IsCanceled),
+                IsCanceled = Canceled,
                 Progress = new Func<double>(() => Task.Progress),
-                SetProgress = new Action<double>(Value => Task.Progress = Value)
-            });
+                SetProgress = value => { if (!Canceled()) Task.Progress = value; }
+            }, ShowAvailable is not null && input.TargetResultCount == PageResource.PAGE_SIZE && ModMain.FrmMain?.GlassShellActive == true
+                ? results => ShowAvailable(input, results) : null);
         }
     }
 }

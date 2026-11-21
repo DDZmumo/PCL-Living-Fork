@@ -81,6 +81,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
     private bool _refreshQueued;
     private bool _regionRefreshQueued;
     private bool _usedDwmPolicy;
+    private bool _resetCompositionHost;
     private Color? _originalTargetBackground;
     private GlassCompositionHost? _compositionHost;
 
@@ -182,6 +183,11 @@ public sealed class GlassWindowBackdrop : IDisposable {
         GlassSystemPreferences.Refresh();
         if (_handle == 0 || _source?.CompositionTarget is not { } target) return;
 
+        if (_resetCompositionHost) {
+            _resetCompositionHost = false;
+            DisposeCompositionHost();
+        }
+
         var oldStatus = Status;
         var oldBackend = Backend;
         Backend = GlassBackdropBackend.None;
@@ -264,8 +270,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
         SystemParameters.StaticPropertyChanged -= OnSystemParameterChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _source?.RemoveHook(_hook);
-        _compositionHost?.Dispose();
-        _compositionHost = null;
+        DisposeCompositionHost();
         if (_handle != 0 && IsWindow(_handle)) {
             var none = DwmSystemBackdropNone;
             DwmSetWindowAttribute(_handle, DwmwaSystemBackdropType, ref none, sizeof(int));
@@ -331,8 +336,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
         try { operation(host); }
         catch (Exception exception) when (exception is COMException or Win32Exception) {
             // Device loss or region allocation failure must never escape a native window hook.
-            _compositionHost = null;
-            host.Dispose();
+            DisposeCompositionHost();
             Backend = GlassBackdropBackend.None;
             LastHResult = exception.HResult;
             SetStatus(GlassBackdropStatus.Failed, $"Desktop composition became unavailable (0x{exception.HResult:X8}); using opaque material.");
@@ -342,6 +346,11 @@ public sealed class GlassWindowBackdrop : IDisposable {
             GlassMaterial.SetIsEnabled(_window, false);
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
+    private void DisposeCompositionHost() {
+        var host = _compositionHost;
+        _compositionHost = null;
+        host?.Dispose();
     }
     private void OnSystemParameterChanged(object? sender, PropertyChangedEventArgs args) => QueueRefresh();
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs args) => QueueRefresh();
@@ -357,7 +366,12 @@ public sealed class GlassWindowBackdrop : IDisposable {
 
     private nint WindowHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled) {
         // Never consume input, resize, or DPI messages owned by the shell.
-        if (message is 0x031E or 0x031A or 0x001A) QueueRefresh(); // DWM composition, theme, settings.
+        if (GlassCompositionHost.IsResetNotification(message, wParam)) {
+            // Rebuild off the native callback and coalesce notifications in the same burst.
+            _resetCompositionHost = true;
+            QueueRefresh();
+        }
+        else if (message is 0x031A or 0x001A) QueueRefresh(); // Theme, settings.
         else if (message is 0x02E0 or 0x0005) { // DPI changed / size.
             _appliedRegions = null;
             QueueRegionRefresh();

@@ -224,7 +224,7 @@ namespace PCL
 
         public static void Set(string Key, object Value, ModMinecraft.McInstance Instance = null)
         {
-            Backend.Set(Key, Value, Instance);
+            if (RetiredLoginDefault(Key) is null) Backend.Set(Key, Value, Instance);
         }
         public static void SetInstanceUserPreference(string Key, object Value, ModMinecraft.McInstance Instance = null)
         {
@@ -240,12 +240,22 @@ namespace PCL
         }
         public static void SetSafe(string Key, object Value, ModMinecraft.McInstance Instance = null)
         {
-            Backend.SetSafe(Key, Value, Instance);
+            if (RetiredLoginDefault(Key) is null) Backend.SetSafe(Key, Value, Instance);
         }
+
+        // These values remain in the schema for existing profiles. Current launch and
+        // account pages use the global account selection regardless of their stored values.
+        private static object RetiredLoginDefault(string key) => key switch
+        {
+            "VersionServerLogin" or "LoginPageType" => 0,
+            "VersionServerNide" or "VersionServerAuthServer" or "VersionServerAuthName" or "VersionServerAuthRegister" => "",
+            _ => null
+        };
+
         public static object Get(string Key, ModMinecraft.McInstance Instance = null)
         {
             if (GlassClientUiPolicy.IgnoresHiddenSetting(Key)) return false;
-            return Backend.Get(Key, Instance);
+            return RetiredLoginDefault(Key) ?? Backend.Get(Key, Instance);
         }
         private static object GetCore(string Key, ModMinecraft.McInstance Instance, Func<Setting, string> ReadRaw = null, string DeviceIdentify = null)
         {
@@ -258,7 +268,7 @@ namespace PCL
         public static object GetSafe(string Key, ModMinecraft.McInstance Instance = null)
         {
             if (GlassClientUiPolicy.IgnoresHiddenSetting(Key)) return false;
-            return Backend.GetSafe(Key, Instance);
+            return RetiredLoginDefault(Key) ?? Backend.GetSafe(Key, Instance);
         }
         public static void Reset(string Key, ModMinecraft.McInstance Instance = null)
         {

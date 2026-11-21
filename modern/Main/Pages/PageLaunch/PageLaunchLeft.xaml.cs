@@ -42,7 +42,7 @@ namespace PCL
         {
             __LfAttachOwnHandles();
             this.Native = new global::PCLLF.Presentation.Launch.LegacyLaunchLeft<global::PCL.ModMinecraft.McInstance, global::PCL.ModAnimation.AniData>(this.CreateView(), this.CreateHost(), global::PCL.LaunchPageRuntime.Animations(),
-                () => GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null);
+                () => GlassSkinSites.CurrentForLaunch() is not null);
             this.InitializeComponent();
             CheckMoreSettings.Checked = Settings.Get<bool>("UiLaunchMoreSettings");
             CheckMoreSettings.Change += (_, user) => {

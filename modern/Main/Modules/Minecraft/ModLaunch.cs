@@ -774,7 +774,7 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        return GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is not null ? "" : PageLoginAuth.IsVaild(PageLoginAuth.GetLoginData());
+                        return GlassSkinSites.CurrentForLaunch() is not null ? "" : "请先在账号页选择外置登录角色。";
                     }
 
                 default:
@@ -802,7 +802,7 @@ namespace PCL
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
                         var login = (McLoginServer)Data;
-                        return login.SkinSite is not null ? "" : PageLoginAuth.IsVaild(login);
+                        return login.SkinSite is not null ? "" : "请先在账号页选择外置登录角色。";
                     }
 
                 default:
@@ -829,14 +829,13 @@ namespace PCL
                     }
                 case global::PCL.ModLaunch.McLoginType.Auth:
                     {
-                        if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) {
+                        if (GlassSkinSites.CurrentForLaunch() is { } character) {
                             return new McLoginServer(McLoginType.Auth) {
                                 SkinSite = character, Token = "Auth", UserName = character.Account.Username,
                                 BaseUrl = global::PCLCS.AuthlibEndpoint.ForServer(character.Site.Server), Description = "外置登录"
                             };
                         }
-                        if (Skin && PageLoginAuthSkin.GetLoginData() is { UserName.Length: > 0 } known) return known;
-                        return PageLoginAuth.GetLoginData();
+                        return new McLoginServer(McLoginType.Auth) { Token = "Auth", Description = "外置登录" };
                     }
 
                 default:
@@ -1008,7 +1007,7 @@ namespace PCL
         }
         public static global::System.String McLoginName()
         {
-            if (GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character) return character.Profile.Name;
+            if (GlassSkinSites.CurrentForLaunch() is { } character) return character.Profile.Name;
             return global::PCL.ModLaunch.Service.McLoginName();
         }
         public static global::System.String McLoginAble()

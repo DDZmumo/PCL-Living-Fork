@@ -48,6 +48,8 @@ internal static class GlassVideoWallpaper
     internal static void SetFrostViewport(double width, double height, bool stretch, double blur) =>
         _synchronized?.SetFrostViewport(width, height, stretch, blur);
 
+    internal static void SetNavigationActive(bool active) => _synchronized?.SetNavigationActive(active);
+
     private static void OnSynchronizedPlaybackFailed(VideoWallpaperPlayback playback, Exception error) {
         if (!ReferenceEquals(_synchronized, playback) || Brush is null || _path is not { } path) return;
         _synchronized = null;
@@ -87,9 +89,10 @@ internal static class GlassVideoWallpaper
         Brush = null;
     }
 
-    /// <summary>Pauses (minimised window) or resumes the background video.</summary>
+    /// <summary>Holds the displayed video frame or resumes playback.</summary>
     internal static void SetPaused(bool paused)
     {
+        if (_paused == paused) return;
         _paused = paused;
         _synchronized?.SetPaused(paused);
         if (_player is null) return;

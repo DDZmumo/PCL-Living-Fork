@@ -42,6 +42,7 @@ public sealed partial class GlassPresentationSession : IDisposable
     private HashSet<DependencyObject> _alive;
     private bool _refreshing;
     private bool _disposed;
+    private System.Windows.Threading.DispatcherOperation _queuedRefresh;
     private readonly HashSet<StackPanel> _responsiveStacks = new(ReferenceEqualityComparer.Instance);
     private (bool HighContrast, bool Dark, bool Material, double Density, Color? Accent, Color? OnAccent)? _lastPalette;
     private bool _blendPalette;
@@ -75,14 +76,24 @@ public sealed partial class GlassPresentationSession : IDisposable
             ApplyPalette();
             UIElement next = Project(_source);
             if (!ReferenceEquals(_root.Content, next)) _root.Content = next;
+            HashSet<DependencyObject> retired = null;
             foreach (DependencyObject removed in _nodes.Keys.Where(key => !_alive.Contains(key)).ToArray())
             {
-                _nodes[removed].Dispose();
+                _nodes[removed].Dispose(retired ??= new(ReferenceEqualityComparer.Instance));
                 _nodes.Remove(removed);
             }
             _pageAppearance?.DiscardDetachedBindings();
         }
         finally { _alive = null; _refreshing = false; }
+    }
+
+    private void QueueRefresh()
+    {
+        if (_disposed || _queuedRefresh?.Status == System.Windows.Threading.DispatcherOperationStatus.Pending) return;
+        _queuedRefresh = _root.Dispatcher.InvokeAsync(() => {
+            _queuedRefresh = null;
+            Refresh();
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     internal void HoldPageAppearance() { if (_pageAppearance is not null) _pageAppearance.IsHeld = true; }
@@ -96,12 +107,60 @@ public sealed partial class GlassPresentationSession : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (!BeginDisposal()) return;
+        foreach (DependencyObject _ in DisposeProjection()) { }
+    }
+
+    // Released pages are already detached from the viewport. Their bindings can be unwired
+    // in idle slices without blocking the first frame or input on the new page.
+    internal void DisposeReleasedPage()
+    {
+        if (!BeginDisposal()) return;
+        var remaining = DisposeProjection().GetEnumerator();
+        void UnwireSlice()
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            do
+            {
+                if (!remaining.MoveNext()) { remaining.Dispose(); return; }
+            }
+            while (System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds < 4);
+            _root.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(UnwireSlice));
+        }
+        _root.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(UnwireSlice));
+    }
+
+    private bool BeginDisposal()
+    {
+        if (_disposed) return false;
         _source.Dispatcher.VerifyAccess();
         _disposed = true;
+        _queuedRefresh?.Abort();
+        _queuedRefresh = null;
         _root.Loaded -= RootLoaded;
         _root.SizeChanged -= RootSizeChanged;
-        foreach (Node node in _nodes.Values) node.Dispose();
+        return true;
+    }
+
+    private IEnumerable<DependencyObject> DisposeProjection()
+    {
+        // Removing one content root with hundreds of descendants still invalidates their WPF inheritance at
+        // once. Unparent long projected lists a row at a time; the nodes still own and retire those rows below.
+        foreach (Node node in _nodes.Values)
+        {
+            if (node.View is not StackPanel { Children.Count: > 32 } panel || panel is HomepageViewport) continue;
+            for (int index = panel.Children.Count - 1; index >= 0; index--)
+            {
+                UIElement child = panel.Children[index];
+                if (child.GetValue(LifetimeProperty) is not Node row || !ReferenceEquals(row.View, child)) continue;
+                panel.Children.RemoveAt(index);
+                yield return child;
+            }
+        }
+        // Nested projections share logical and visual descendants. Retire each element once.
+        var retired = new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance);
+        foreach (Node node in _nodes.Values)
+            foreach (DependencyObject element in node.Retire(retired)) yield return element;
         _nodes.Clear();
         _responsiveStacks.Clear();
         _root.Content = null;
@@ -129,18 +188,20 @@ public sealed partial class GlassPresentationSession : IDisposable
         for (DependencyObject item = source; item != null; item = LogicalTreeHelper.GetParent(item))
         {
             string name = item.GetType().Name;
-            if (name.StartsWith("PageSetup", StringComparison.Ordinal) || name is "PageInstanceSetup" or "PageInstanceOverall") return true;
+            if (name.StartsWith("PageSetup", StringComparison.Ordinal)) return true;
+            // Instance management: all of its pages share the settings layout (its secondary list is not a page body).
+            if (name.StartsWith("PageInstance", StringComparison.Ordinal) && name != "PageInstanceLeft") return true;
         }
         return false;
     }
 
-    private UIElement Project(DependencyObject source, bool cardContent = false)
+    private UIElement Project(DependencyObject source, bool cardContent = false, Func<Node> create = null)
     {
         if (source is null || Excluded(source)) return null;
         if (_alive != null && !_alive.Add(source)) return _nodes.TryGetValue(source, out Node repeated) ? repeated.View : null;
         if (!_nodes.TryGetValue(source, out Node node))
         {
-            node = CreateNode(source);
+            node = create is null ? CreateNode(source) : create();
             _nodes.Add(source, node);
             if (source is FrameworkElement original)
             {
@@ -481,7 +542,7 @@ public sealed partial class GlassPresentationSession : IDisposable
         if (!ReferenceEquals(old, next)) _root.Resources[key] = next;
     }
 
-    private sealed class Node : IDisposable
+    private sealed class Node
     {
         internal readonly UIElement View;
         internal Action Pull;
@@ -490,32 +551,47 @@ public sealed partial class GlassPresentationSession : IDisposable
         internal bool IsDisposed { get; private set; }
         internal readonly List<Action> Cleanup = new();
         internal Node(UIElement view) { View = view; view.SetValue(LifetimeProperty, this); }
-        public void Dispose()
+        internal void Dispose(HashSet<DependencyObject> retired)
         {
-            if (IsDisposed) return;
+            foreach (DependencyObject _ in Retire(retired)) { }
+        }
+        internal IEnumerable<DependencyObject> Retire(HashSet<DependencyObject> retired)
+        {
+            if (IsDisposed) yield break;
             IsDisposed = true;
             foreach (Action action in Cleanup) action();
             Cleanup.Clear();
-            Retire(View, new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance), this);
+            foreach (DependencyObject element in Retire(View, retired, this)) yield return element;
         }
-        private static void Retire(DependencyObject target, HashSet<DependencyObject> visited, Node owner)
+        private static IEnumerable<DependencyObject> Retire(DependencyObject target, HashSet<DependencyObject> visited, Node owner)
         {
-            if (!visited.Add(target)) return;
+            if (!visited.Add(target)) yield break;
             target.SetValue(LifetimeProperty, owner);
             if (target is FrameworkElement { ContextMenu: { } menu })
             {
-                menu.IsOpen = false; Retire(menu, visited, owner); (menu as IDisposable)?.Dispose();
+                menu.IsOpen = false;
+                foreach (DependencyObject element in Retire(menu, visited, owner)) yield return element;
+                (menu as IDisposable)?.Dispose();
             }
-            foreach (object child in LogicalTreeHelper.GetChildren(target))
-                if (child is DependencyObject dependency) Retire(dependency, visited, owner);
-            if (target is Visual)
-                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(target); index++) Retire(VisualTreeHelper.GetChild(target, index), visited, owner);
+            // The homepage outlet returns its authored children to the original page on disposal.
+            if (target is not HomepageViewport)
+            {
+                // Template children can change between dispatcher slices. Queue a snapshot.
+                var logical = LogicalTreeHelper.GetChildren(target).OfType<DependencyObject>().ToArray();
+                var visual = target is Visual ? Enumerable.Range(0, VisualTreeHelper.GetChildrenCount(target))
+                    .Select(index => VisualTreeHelper.GetChild(target, index)).ToArray() : Array.Empty<DependencyObject>();
+                foreach (DependencyObject child in logical)
+                    foreach (DependencyObject element in Retire(child, visited, owner)) yield return element;
+                foreach (DependencyObject child in visual)
+                    foreach (DependencyObject element in Retire(child, visited, owner)) yield return element;
+            }
             BindingOperations.ClearAllBindings(target);
             if (target is System.Windows.Controls.Primitives.ButtonBase button) button.Command = null;
             if (target is MenuItem item) item.Command = null;
             if (target is System.Windows.Documents.Hyperlink link) link.Command = null;
-            if (target is UIElement element) element.IsEnabled = false;
+            if (target is UIElement interactive) interactive.IsEnabled = false;
             if (target is ContentElement content) content.IsEnabled = false;
+            yield return target;
         }
     }
 }

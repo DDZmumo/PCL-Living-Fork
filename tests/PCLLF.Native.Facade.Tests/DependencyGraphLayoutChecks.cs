@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using PCL;
 using PCLCS;
 
@@ -48,7 +49,34 @@ internal static partial class DependencyCases<TContext,TMod,TDependency,TEdge,TI
             MyButton button = (MyButton)modal.FindName("Btn1"); Point position = button.TransformToAncestor(modal).Transform(new Point(0, 0)); G(315, modal.ActualWidth <= 471 && modal.ActualHeight <= 371 && position.Y + button.ActualHeight <= modal.ActualHeight + 1);
             Grid graph = (Grid)caption.Content; ScrollViewer scroll = (ScrollViewer)graph.Children[0]; Canvas canvas = GCanvas(graph);
             G(318, (canvas.Width <= scroll.ViewportWidth + 1 || scroll.ScrollableWidth > 0) && (canvas.Height <= scroll.ViewportHeight + 1 || scroll.ScrollableHeight > 0));
+            GlassGraphTheme(modal, canvas);
             Native.Check(!modal.IsLoaded && converter.Result is null && System.Windows.Application.Current.Windows.Count == 0, "Offscreen graph dialog entered a modal/real-window workflow or implicitly confirmed.");
         } finally { smallHost.Children.Clear(); caption.Content = null; ModMain.FrmMain = previous; }
+    }
+
+    private static void GlassGraphTheme(MyMsgText modal, Canvas graph) {
+        using var presentation = GlassPresentation.Create(modal);
+        var glass = (Canvas)Native.Call(typeof(GlassPresentationSession), "Project", presentation, graph, false, null)!;
+        var links = graph.Children.OfType<Shape>().ToArray();
+        var projected = glass.Children.OfType<Shape>().ToArray();
+        Native.Check(links.Length != 0 && links.Length == projected.Length, "Glass projection dropped dependency connectors.");
+        foreach (bool dark in new[] { true, false }) {
+            presentation.View.Resources["GlassTextBrush"] = dark ? Brushes.White : Brushes.Black;
+            presentation.View.Resources["GlassAccentBrush"] = dark ? Brushes.LightGray : Brushes.DimGray;
+            presentation.Refresh();
+            foreach (var (source, target) in links.Zip(projected)) {
+                string brush = source.Tag switch {
+                    ModDependencyGraphRelation.Conflict => "GlassPresentationWarnText",
+                    ModDependencyGraphRelation.Candidate => "GlassPresentationSecondary",
+                    _ => "GlassPresentationAccent"
+                };
+                Native.Check(ReferenceEquals(target is Polygon ? target.Fill : target.Stroke, presentation.View.FindResource(brush)) &&
+                    target.StrokeDashArray.SequenceEqual(source.StrokeDashArray) &&
+                    (source is not Polygon points || target is Polygon arrow && arrow.Points.SequenceEqual(points.Points)),
+                    "Dependency connectors lost the current palette, their dash pattern, or the arrowhead.");
+            }
+            Native.Check(glass.Children.OfType<Border>().All(node => node.CornerRadius.TopLeft == 9 && node.Background is SolidColorBrush),
+                "Dependency cards did not adopt the projected theme's field and selection surfaces.");
+        }
     }
 }

@@ -19,6 +19,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using PCLLF.Wpf.Motion;
 using ThemeTransition = PCL.ThemeTransition;
+using GlassMusicSurface = PCL.GlassMusicSurface;
 
 namespace PCLLF.Wpf.Glass;
 
@@ -78,6 +79,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private bool _hasSidebar;
     private bool _accountOpen;
     private bool _layoutPending;
+    private bool _disposed;
     private bool _keyboardInteraction;
     private double _homeProgress = 1;
     private PageSlot _currentPage, _alternatePage;
@@ -91,7 +93,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private bool _blendPalette;
     private readonly RectangleGeometry _bodyContentClip = new();
     private readonly RectangleGeometry _controlsWallpaperClip = new();
-    private (Rect Body, Rect Cutout, double BodyRadius, double CutoutRadius)? _lastBodyClipKey;
+    private (Rect Body, Rect Cutout, double BodyRadius, double CutoutRadius, Rect Dock)? _lastBodyClipKey;
     // The body's notch under the window buttons (BodyFrame coordinates); the splash cuts it too, so the buttons' own
     // frosted slice looks the same during the splash and after it (no jump when the normal clip takes over).
     private (Rect Rect, double Radius)? _controlsCutout;
@@ -264,7 +266,12 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _updatingState = true;
         try
         {
-            if (homeChanged) _homeMotion.Retarget(state.IsHome ? 1 : 0, ShouldSnapMotion);
+            if (homeChanged)
+            {
+                ApplyRail(_railMotion.Value);
+                SideRail.IsHitTestVisible = _hasSidebar && !state.IsHome;
+                _homeMotion.Retarget(state.IsHome ? 1 : 0, ShouldSnapMotion);
+            }
             // The panel flips the moment navigation changes, in the same frame as the rail selection. A non-home page's
             // rows arrive a little later; until then the old rows are hidden so the panel never shows stale content.
             if (navigationChanged)
@@ -526,6 +533,23 @@ public partial class GlassLauncherView : UserControl, IDisposable
     }
 
     private UIElement _sidebarCustom;
+    private global::PCL.GlassTideProgress _sidebarTide;
+
+    internal void SetSidebarProgress(double? progress)
+    {
+        if (_sidebarTide is null)
+        {
+            if (!progress.HasValue || SecondarySurface.Child is not Grid card) return;
+            _sidebarTide = new global::PCL.GlassTideProgress(SecondarySurface.CornerRadius.TopLeft)
+            {
+                BackgroundOnly = true,
+                Margin = new Thickness(-card.Margin.Left, 0, -card.Margin.Right, 0)
+            };
+            Grid.SetRowSpan(_sidebarTide, card.RowDefinitions.Count);
+            card.Children.Insert(0, _sidebarTide);
+        }
+        _sidebarTide.Update(progress.HasValue, progress, string.Empty);
+    }
 
     /// <summary>
     /// Page-specific content shown in the sidebar below its rows (for example the task manager's progress and rates).
@@ -634,7 +658,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         var caption = new TextBlock
         {
-            Text = item.Label ?? string.Empty, FontSize = 12, Margin = new Thickness(12, first ? 2 : 14, 12, 6),
+            Text = item.Label ?? string.Empty, FontSize = 12, Margin = new Thickness(12, first ? 2 : 10, 12, 4),
             TextTrimming = TextTrimming.CharacterEllipsis, Style = (Style)Resources["GlassText"],
         };
         caption.SetResourceReference(TextBlock.ForegroundProperty, "GlassSecondaryTextBrush");
@@ -647,28 +671,28 @@ public partial class GlassLauncherView : UserControl, IDisposable
         var button = new Button
         {
             Style = (Style)Resources["GlassButton"],
-            Height = 36,
-            MinHeight = 36,
-            Padding = new Thickness(11, 5, 11, 5),
+            Height = 33,
+            MinHeight = 33,
+            Padding = new Thickness(11, 4, 11, 4),
             BorderThickness = new Thickness(0),
             Background = Brushes.Transparent,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             IsEnabled = item.IsEnabled,
-            ToolTip = string.IsNullOrWhiteSpace(item.ToolTip) ? item.Label : item.ToolTip,
+            ToolTip = string.IsNullOrWhiteSpace(item.ToolTip) || item.ToolTip == item.Label ? null : item.ToolTip,
         };
         AutomationProperties.SetName(button, item.Label ?? string.Empty);
         AutomationProperties.SetHelpText(button, item.ToolTip ?? string.Empty);
         var contents = new StackPanel { Orientation = Orientation.Horizontal };
         if (item.Image != null)
         {
-            contents.Children.Add(new Image { Source = item.Image, Width = 18, Height = 18, Margin = new Thickness(0, 0, 9, 0), Stretch = Stretch.Uniform });
+            contents.Children.Add(new Image { Source = item.Image, Width = 17, Height = 17, Margin = new Thickness(0, 0, 10, 0), Stretch = Stretch.Uniform });
         }
-        else if (SidebarGlyph(item.IconData, 18) is Path path)
+        else if (SidebarGlyph(item.IconData, 16) is Path path)
         {
-            path.Margin = new Thickness(0, 0, 9, 0);
+            path.Margin = new Thickness(0, 0, 10, 0);
             contents.Children.Add(path);
         }
-        var label = new TextBlock { Text = item.Label ?? string.Empty, FontSize = item.IsCommand ? 14 : 15, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Style = (Style)Resources["GlassText"] };
+        var label = new TextBlock { Text = item.Label ?? string.Empty, FontSize = item.IsCommand ? 13.5 : 14.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Style = (Style)Resources["GlassText"] };
         if (item.IsCommand) label.SetResourceReference(TextBlock.ForegroundProperty, "GlassSecondaryTextBrush");
         else if (item.IsSelected) label.SetResourceReference(TextBlock.ForegroundProperty, "GlassAccentBrush");
         contents.Children.Add(label);
@@ -677,7 +701,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         if (item.ContextRequested is { } context)
             button.MouseRightButtonUp += (_, args) => { args.Handled = true; context(button); };
 
-        var row = new Grid { Margin = new Thickness(0, 0, 0, 3), Tag = item.IsSelected ? SelectedRowTag : null };
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 2), Tag = item.IsSelected ? SelectedRowTag : null };
         row.Children.Add(button);
         if (item.Actions.Count > 0)
         {
@@ -878,11 +902,22 @@ public partial class GlassLauncherView : UserControl, IDisposable
             return Array.Empty<GlassWindowRegion>();
         if (_splashActive || _splashRequested) return new[] { new GlassWindowRegion(new Rect(RenderSize), 0) };
 
-        return new[] {
+        var surfaces = new List<GlassWindowRegion>(5) {
             new GlassWindowRegion(NavigationSurface.TransformToAncestor(this).TransformBounds(new Rect(NavigationSurface.RenderSize)), NavigationSurface.CornerRadius.TopLeft),
             new GlassWindowRegion(BodyFrame.TransformToAncestor(this).TransformBounds(new Rect(BodyFrame.RenderSize)), BodyFrame.CornerRadius.TopLeft),
             new GlassWindowRegion(WindowControlsSurface.TransformToAncestor(this).TransformBounds(new Rect(WindowControlsSurface.RenderSize)), WindowControlsChrome.CornerRadius.TopLeft)
         };
+        // The bottom-right dock protrudes like the window controls: its own region after the controls.
+        if (MusicDockShown) surfaces.Add(MusicRegion(MusicDockSurface));
+        if (_musicDockCompanion is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0, Opacity: > .01 } playlist)
+            surfaces.Add(MusicRegion(playlist));
+        return surfaces;
+
+        GlassWindowRegion MusicRegion(GlassMusicSurface surface) {
+            Rect bounds = surface.TransformToAncestor(this).TransformBounds(new Rect(surface.RenderSize));
+            double scale = Math.Min(bounds.Width / surface.ActualWidth, bounds.Height / surface.ActualHeight);
+            return new(bounds, surface.Chrome.CornerRadius.TopLeft * scale, surface.Opacity);
+        }
     }
 
     public IReadOnlyList<GlassWindowRegion> GetDesktopBackdropRegions() => GetDesktopBackdropRegions(RenderSize);
@@ -928,7 +963,17 @@ public partial class GlassLauncherView : UserControl, IDisposable
             rail = rail with { Bounds = ResizeBounds(rail.Bounds, 0, heightDelta) };
             body = body with { Bounds = ResizeBounds(body.Bounds, 0, heightDelta) };
         }
-        return WallpaperImage.Source is null ? new[] { rail, body, controls } : new[] { rail, controls };
+        var backdrop = new List<GlassWindowRegion>(surfaces.Count) { rail };
+        if (WallpaperImage.Source is null) backdrop.Add(body);
+        backdrop.Add(controls);
+        for (int index = 3; index < surfaces.Count; index++)
+        {
+            GlassWindowRegion surface = surfaces[index];
+            Rect moved = surface.Bounds;
+            if (Math.Abs(widthDelta) > .5 || Math.Abs(heightDelta) > .5) moved.Offset(widthDelta, heightDelta);
+            backdrop.Add(surface with { Bounds = moved });
+        }
+        return backdrop;
 
         static Rect ResizeBounds(Rect bounds, double widthDelta, double heightDelta) =>
             new(bounds.Location, new Size(Math.Max(1, bounds.Width + widthDelta), Math.Max(1, bounds.Height + heightDelta)));
@@ -939,11 +984,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
         IReadOnlyList<GlassWindowRegion> surfaces = GetSurfaceRegions();
         if (surfaces.Count < 3 || !IsRailAnimating || _leftExpansionAllowance <= 0) return surfaces;
         Rect rail = surfaces[0].Bounds;
-        return new[] {
-            new GlassWindowRegion(new Rect(0, rail.Top, rail.Right, rail.Height), surfaces[0].CornerRadius),
-            surfaces[1],
-            surfaces[2]
-        };
+        GlassWindowRegion[] expanded = surfaces.ToArray();
+        expanded[0] = surfaces[0] with { Bounds = new Rect(0, rail.Top, rail.Right, rail.Height) };
+        return expanded;
     }
 
     private static string NavigationTitle(int page) => page switch
@@ -1360,11 +1403,12 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     private void ScheduleLayout()
     {
-        if (_layoutPending) return;
+        if (_layoutPending || _disposed) return;
         _layoutPending = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
             _layoutPending = false;
+            if (_disposed) return;
             bool compact = IsCompactViewport;
             double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
             SetSecondaryColumnWidth(columnWidth, animate: false);
@@ -1418,6 +1462,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         if (_state.ReduceMotion || !MotionPreferences.AllowsAnimation) return;
         _splashRequested = true;
+        // The splash uses a rectangular envelope for its moving surfaces. Only the
+        // individual splash panels may paint a fallback inside that envelope.
+        ShellRoot.Background = Brushes.Transparent;
         Opacity = 0; // revealed by StartSplash with the splash's own first frame
         if (IsLoaded) StartSplash();
     }
@@ -1475,6 +1522,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
             WindowControlsSurface.RenderTransform = bubble = new ScaleTransform();
         }
         bubble.ScaleX = bubble.ScaleY = 1 - .22 * controls;
+        // The music dock and its playlist go the same way, at the same time.
+        ApplyMusicFarewell(controls);
         // 2. The body folds towards the rail: its right edge travels left, its content fading near the end.
         Rect visible = FarewellBodyRect();
         BodyFrame.Clip = visible.Width <= .5 ? Geometry.Empty : new RectangleGeometry(visible, BodyFrame.CornerRadius.TopLeft, BodyFrame.CornerRadius.TopLeft);
@@ -1504,6 +1553,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _byeControls = _byeBody = _byeRail = null;
         WindowControlsSurface.Opacity = 1;
         WindowControlsSurface.RenderTransform = null;
+        ApplyMusicFarewell(0);
         BodyContentRoot.Opacity = 1;
         NavigationSurface.Opacity = 1;
         FarewellOverlayFade?.Invoke(0);
@@ -1534,6 +1584,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
         if (!body.IsEmpty && body.Width > 1 && WallpaperImage.Source is null)
             regions.Add(surfaces[1] with { Bounds = BodyFrame.TransformToAncestor(this).TransformBounds(body) });
         if (controls < .999) regions.Add(surfaces[2] with { Opacity = surfaces[2].Opacity * (1 - controls) });
+        // The music dock and playlist (their regions already carry the fading opacity and shrinking bounds).
+        for (int index = 3; index < surfaces.Count; index++)
+            if (surfaces[index].Opacity > .001) regions.Add(surfaces[index]);
         return regions;
     }
 
@@ -1781,6 +1834,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
             BodyFrame.Clip = null;
             _lastBodyClipKey = null; // let the window-controls cutout rebuild the body clip
             SyncSurfaceRegions();
+            ShellRoot.SetResourceReference(Panel.BackgroundProperty, "GlassWindowBrush");
             RegionsChanged?.Invoke(this, EventArgs.Empty);
         } finally {
             SplashFinished?.Invoke(this, EventArgs.Empty);
@@ -1969,6 +2023,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 WindowControlsWallpaperFrost.Clip = _controlsWallpaperClip;
 
             const double blurPad = 36;
+            MusicDockSurface.UpdateBackdrop(BodyFrame, BodyBackdropLayer);
+            // The playlist overlaps the workspace. Its frosted slice needs the painted page,
+            // including the frame's background underneath translucent cards and wallpaper.
+            _musicDockCompanion?.UpdateBackdrop(BodyFrame, BodyFrame);
+            UpdatePlaylistCutout(_musicDockCompanion);
             Rect bodyInControls = BodyFrame.TransformToVisual(WindowControlsSurface).TransformBounds(new Rect(BodyFrame.RenderSize));
             double sliceLeft = Math.Max(bodyInControls.Left, -blurPad);
             double sliceTop = bodyInControls.Top;
@@ -1999,14 +2058,20 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 Math.Max(0, controlsInBody.Height + 1));
             double cutoutRadius = Math.Max(0, capsuleRadius - 1);
             _controlsCutout = (insetCutout, cutoutRadius);
-            var bodyClipKey = (fullBody, insetCutout, BodyFrame.CornerRadius.TopRight, cutoutRadius);
+            Rect dockCutout = MusicDockShown ? MusicDockCutout() : Rect.Empty;
+            double dockRadius = cutoutRadius;
+            // The dock notch is part of the key: it follows the dock while it grows out of / folds into the corner.
+            var bodyClipKey = (fullBody, insetCutout, BodyFrame.CornerRadius.TopRight, cutoutRadius, dockCutout);
             if (_lastBodyClipKey != bodyClipKey)
             {
                 _lastBodyClipKey = bodyClipKey;
+                Geometry cutouts = new RectangleGeometry(insetCutout, cutoutRadius, cutoutRadius);
+                if (!dockCutout.IsEmpty)
+                    cutouts = new CombinedGeometry(GeometryCombineMode.Union, cutouts, new RectangleGeometry(dockCutout, dockRadius, dockRadius));
                 var bodyCut = new CombinedGeometry(
                     GeometryCombineMode.Exclude,
                     new RectangleGeometry(fullBody, BodyFrame.CornerRadius.TopLeft, BodyFrame.CornerRadius.TopLeft),
-                    new RectangleGeometry(insetCutout, cutoutRadius, cutoutRadius));
+                    cutouts);
                 bodyCut.Freeze();
                 if (!_splashActive && !_farewellActive) BodyFrame.Clip = bodyCut; // the splash / farewell own the body clip while they run
             }
@@ -2015,9 +2080,66 @@ public partial class GlassLauncherView : UserControl, IDisposable
         {
             _lastBodyClipKey = null;
             _controlsCutout = null;
+            MusicDockSurface.ClearBackdrop();
+            _musicDockCompanion?.ClearBackdrop();
+            UpdatePlaylistCutout(null);
             if (WindowControlsBodyBrush.Visual is not null) WindowControlsBodyBrush.Visual = null;
             if (BodyFrame.Clip is not null && !_splashActive && !_farewellActive) BodyFrame.Clip = null;
         }
+    }
+
+    private readonly RectangleGeometry _playlistBody = new(), _playlistNotch = new();
+    private readonly SolidColorBrush _pageBehindPlaylist = new(Colors.White);
+    private CombinedGeometry _outsidePlaylist;
+    private DrawingBrush _playlistFadeMask;
+
+    private void UpdatePlaylistCutout(GlassMusicSurface playlist)
+    {
+        if (playlist is not { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0, Opacity: > .01 } ||
+            !playlist.Chrome.IsTransparencyActive || _splashActive || _farewellActive)
+        {
+            BodyPresentation.Clip = null;
+            BodyPresentation.OpacityMask = null;
+            return;
+        }
+        // Cut the sharp page out of its presentation only. The playlist's brush still sees
+        // the intact BodyFrame, including its border, with room for the Gaussian halo.
+        Rect body = new(BodyPresentation.RenderSize);
+        Rect notch = playlist.TransformToVisual(BodyPresentation).TransformBounds(new Rect(playlist.RenderSize));
+        double radius = playlist.Chrome.CornerRadius.TopLeft * notch.Width / playlist.ActualWidth;
+        notch.Inflate(-1, -1);
+        if (notch.IsEmpty) return;
+        if (_playlistBody.Rect != body) _playlistBody.Rect = body;
+        if (_playlistNotch.Rect != notch) _playlistNotch.Rect = notch;
+        radius = Math.Max(0, radius - 1);
+        if (_playlistNotch.RadiusX != radius) _playlistNotch.RadiusX = _playlistNotch.RadiusY = radius;
+        if (_outsidePlaylist is null)
+        {
+            _outsidePlaylist = new CombinedGeometry(GeometryCombineMode.Exclude, _playlistBody, _playlistNotch);
+            var drawing = new DrawingGroup();
+            drawing.Children.Add(new GeometryDrawing(Brushes.White, null, _outsidePlaylist));
+            drawing.Children.Add(new GeometryDrawing(_pageBehindPlaylist, null, _playlistNotch));
+            _playlistFadeMask = new DrawingBrush(drawing) { ViewboxUnits = BrushMappingMode.Absolute, ViewportUnits = BrushMappingMode.Absolute };
+        }
+        if (playlist.Opacity >= .999)
+        {
+            BodyPresentation.Clip = _outsidePlaylist;
+            BodyPresentation.OpacityMask = null;
+        }
+        else
+        {
+            _pageBehindPlaylist.Opacity = 1 - playlist.Opacity;
+            if (_playlistFadeMask.Viewbox != body) _playlistFadeMask.Viewbox = _playlistFadeMask.Viewport = body;
+            BodyPresentation.OpacityMask = _playlistFadeMask;
+            BodyPresentation.Clip = null;
+        }
+    }
+
+    private Rect MusicDockCutout()
+    {
+        Rect capsuleBounds = new(MusicDockSurface.RenderSize);
+        Rect dockInBody = MusicDockSurface.TransformToVisual(BodyFrame).TransformBounds(capsuleBounds);
+        return new Rect(dockInBody.Left + 1, dockInBody.Top + 1, Math.Max(0, dockInBody.Width + 2), Math.Max(0, dockInBody.Height + 1));
     }
 
     private static void UpdateClip(GeometryGroup clip, IReadOnlyList<GlassWindowRegion> regions, GeneralTransform transform)
@@ -2102,6 +2224,144 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public bool IsAccountWorkspaceOpen => _workspaceOpen;
 
     /// <summary>Supplies the account workspace: a side card (replaces the secondary panel) and a main scene.</summary>
+    // ---------- Bottom-right dock (music) ----------
+
+    /// <summary>Content of the bottom-right dock's chrome (the music bar); null empties the dock.</summary>
+    public void SetMusicDock(FrameworkElement content)
+    {
+        MusicDockSurface.Host.Content = content;
+        MusicDockSurface.SizeChanged -= OnMusicDockSizeChanged;
+        MusicDockSurface.SizeChanged += OnMusicDockSizeChanged;
+    }
+
+    /// <summary>Shows or hides the dock (it protrudes from the corner only while shown) and refreshes the window shape.</summary>
+    public void SetMusicDockVisible(bool visible)
+    {
+        if (_musicDockVisible == visible) return;
+        _musicDockVisible = visible;
+        if (visible) MusicDockSurface.Visibility = Visibility.Visible;
+        _musicDockMotion ??= new SpringMotion(this, 0, ApplyMusicDock, new SpringParameters(.42, .78));
+        _musicDockMotion.Retarget(visible ? 1 : 0, ShouldSnapMotion);
+        _lastBodyClipKey = null;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(SyncSurfaceRegions));
+    }
+
+    private bool _musicDockVisible;
+    private double _musicDockContentOpacity = 1, _musicDockVeilOpacity = 1;
+    private SpringMotion _musicDockMotion;
+    private readonly ScaleTransform _musicDockScale = new(1, 1);
+    // Closing: the music dock and its playlist leave with the window controls (a bubble shrinking about its centre).
+    private readonly ScaleTransform _musicDockBye = new(1, 1), _musicPlaylistBye = new(1, 1);
+    private TransformGroup _musicDockTransform;
+    private double _musicDockByeOpacity = 1;
+    private readonly System.Windows.Media.Effects.BlurEffect _musicDockVeil = new() { Radius = 0, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance };
+
+    // The dock grows out of (and shrinks back into) the window's bottom-right corner. The layout never moves for it:
+    // the body is only notched around the dock, as around the window controls.
+    private void ApplyMusicDock(double value)
+    {
+        double v = Math.Clamp(value, 0, 1);
+        // The chrome (and the frost behind it) stays opaque and grows out of the corner, so the notch never shows the
+        // window colour through a half-faded dock; only the controls fade.
+        MusicDockSurface.Opacity = _musicDockByeOpacity;
+        _musicDockContentOpacity = Math.Clamp(value * 1.4 - .3, 0, 1);
+        MusicDockSurface.Host.Opacity = _musicDockContentOpacity * _musicDockVeilOpacity;
+        MusicDockSurface.RenderTransformOrigin = new Point(1, 1);
+        _musicDockTransform ??= new TransformGroup { Children = { _musicDockScale, _musicDockBye } };
+        MusicDockSurface.RenderTransform = _musicDockTransform;
+        _musicDockScale.ScaleX = _musicDockScale.ScaleY = Math.Max(.001, Math.Clamp(value, 0, 1.06));
+        // The notch and window shape follow the scaled dock on every frame (they read its transformed bounds).
+        if (MusicDockSurface.Visibility == Visibility.Visible) SyncSurfaceRegions();
+        if (v < .01 && !_musicDockVisible) { MusicDockSurface.Visibility = Visibility.Collapsed; _lastBodyClipKey = null; SyncSurfaceRegions(); }
+    }
+
+    /// <summary>Veils the dock with a dialog's blur (0 = clear, 1 = fully under the veil).</summary>
+    public void SetMusicDockVeil(double progress)
+    {
+        double p = Math.Clamp(progress, 0, 1);
+        _musicDockVeil.Radius = 6 * p;
+        MusicDockSurface.Chrome.Effect = p > .001 ? _musicDockVeil : null;
+        _musicDockVeilOpacity = 1 - .35 * p;
+        MusicDockSurface.Host.Opacity = _musicDockContentOpacity * _musicDockVeilOpacity;
+        MusicDockSurface.IsHitTestVisible = p < .5;
+    }
+
+    internal const double MusicPlaylistGap = 8;
+    private GlassMusicSurface _musicDockCompanion;
+
+    // Fades and shrinks the dock and the playlist about their centres (0 = in place, 1 = gone).
+    private void ApplyMusicFarewell(double progress)
+    {
+        double scale = 1 - .22 * progress;
+        _musicDockByeOpacity = 1 - progress;
+        if (MusicDockSurface.Visibility == Visibility.Visible)
+        {
+            _musicDockTransform ??= new TransformGroup { Children = { _musicDockScale, _musicDockBye } };
+            if (!ReferenceEquals(MusicDockSurface.RenderTransform, _musicDockTransform)) MusicDockSurface.RenderTransform = _musicDockTransform;
+            // RenderTransformOrigin is the bottom-right corner: the centre lies half the size up and to the left of it.
+            _musicDockBye.CenterX = -MusicDockSurface.ActualWidth / 2;
+            _musicDockBye.CenterY = -MusicDockSurface.ActualHeight / 2;
+            MusicDockSurface.Opacity = _musicDockByeOpacity;
+        }
+        _musicDockBye.ScaleX = _musicDockBye.ScaleY = scale;
+        if (_musicDockCompanion is { } playlist)
+        {
+            if (playlist.RenderTransform is TransformGroup group && !group.IsFrozen && !group.Children.Contains(_musicPlaylistBye)) group.Children.Add(_musicPlaylistBye);
+            _musicPlaylistBye.CenterX = -playlist.ActualWidth / 2;
+            _musicPlaylistBye.CenterY = -playlist.ActualHeight / 2;
+            _musicPlaylistBye.ScaleX = _musicPlaylistBye.ScaleY = scale;
+            // A shown playlist fades with the dock; when closing is cancelled, an open one (still hit-testable) comes back.
+            if (playlist.Visibility == Visibility.Visible)
+            {
+                if (progress > 0) playlist.Opacity = Math.Min(playlist.Opacity, 1 - progress);
+                else if (playlist.IsHitTestVisible) playlist.Opacity = 1;
+            }
+        }
+    }
+
+    internal void AddMusicDockCompanion(GlassMusicSurface companion)
+    {
+        if (MusicDockSurface.Parent is not Panel layer) return;
+        _musicDockCompanion = companion;
+        Panel.SetZIndex(companion, Panel.GetZIndex(MusicDockSurface) + 1);
+        layer.Children.Add(companion);
+        companion.SizeChanged += OnSurfaceGeometryChanged;
+        UpdateMusicPlaylistPlacement();
+    }
+
+    private void UpdateMusicPlaylistPlacement()
+    {
+        if (_musicDockCompanion is not { } playlist) return;
+        var margin = new Thickness(0, 0, 0, MusicDockSurface.ActualHeight + MusicPlaylistGap);
+        if (playlist.Margin != margin) playlist.Margin = margin;
+        if (MusicDockSurface.ActualWidth > 0 && playlist.Width != MusicDockSurface.ActualWidth)
+            playlist.Width = MusicDockSurface.ActualWidth;
+    }
+
+    private void OnMusicDockSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        UpdateMusicPlaylistPlacement();
+        _lastBodyClipKey = null;
+        SyncSurfaceRegions();
+    }
+
+    internal void RefreshMusicDockRegions() => SyncSurfaceRegions();
+
+    /// <summary>The dock itself (for placing things above it).</summary>
+    public FrameworkElement MusicDock => MusicDockSurface;
+
+    internal Rect MusicOverlayBounds(Visual relativeTo)
+    {
+        Rect bounds = MusicDockShown ? Bounds(MusicDockSurface) : Rect.Empty;
+        if (_musicDockCompanion is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0, Opacity: > .01 } playlist)
+            bounds.Union(Bounds(playlist));
+        return bounds;
+
+        Rect Bounds(FrameworkElement surface) => surface.TransformToVisual(relativeTo).TransformBounds(new Rect(surface.RenderSize));
+    }
+
+    private bool MusicDockShown => MusicDockSurface.IsVisible && MusicDockSurface.ActualWidth > 0 && MusicDockSurface.ActualHeight > 0;
+
     public void SetAccountWorkspace(FrameworkElement side, FrameworkElement scene)
     {
         AccountSideHost.Content = side;
@@ -2225,6 +2485,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _titleFallback?.Stop();
         _sidebarRowsFallback?.Stop();
         WindowControlsBodyBrush.Visual = null;

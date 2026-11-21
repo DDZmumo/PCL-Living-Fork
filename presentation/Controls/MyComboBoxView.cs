@@ -35,16 +35,27 @@ public class MyComboBoxView : ComboBox {
         else Initialized += (_, _) => LegacyThemePalette.Watch(this, RefreshColor);
     }
     public override void OnApplyTemplate() {
-        base.OnApplyTemplate(); if (!IsEditable) return;
-        try {
-            textBox = (MyTextBoxView)Template.FindName("PART_EditableTextBox", this);
-            textBox.AddHandler(LostFocusEvent, new RoutedEventHandler((_, _) => RefreshColor()));
-            textBox.ChangedEventList.Add((sender, args) => RaiseTextChanged(sender, (TextChangedEventArgs)args));
-            textBox.Tag = Tag;
-            if (Same(Text, "")) textBox.Text = rawText; else RaiseTextChanged(this, null);
-            if (HintText.Length > 0) textBox.HintText = HintText;
-        } catch (Exception error) { ReportError(error, "初始化可编辑文本框失败（" + (Name ?? "") + "）"); }
+        if (textBox is { } previous) {
+            rawText = previous.Text;
+            previous.RemoveHandler(LostFocusEvent, new RoutedEventHandler(OnEditorLostFocus));
+            previous.ChangedEventList.Remove(OnEditorChanged);
+            textBox = null;
+        }
+        base.OnApplyTemplate();
+        if (IsEditable && GetTemplateChild("PART_EditableTextBox") is MyTextBoxView editor) {
+            try {
+                textBox = editor;
+                editor.AddHandler(LostFocusEvent, new RoutedEventHandler(OnEditorLostFocus));
+                editor.ChangedEventList.Add(OnEditorChanged);
+                editor.Tag = Tag;
+                if (Same(Text, "")) editor.Text = rawText; else RaiseTextChanged(this, null);
+                if (HintText.Length > 0) editor.HintText = HintText;
+            } catch (Exception error) { ReportError(error, "初始化可编辑文本框失败（" + (Name ?? "") + "）"); }
+        }
+        RefreshColor();
     }
+    private void OnEditorLostFocus(object sender, RoutedEventArgs args) => RefreshColor();
+    private void OnEditorChanged(object sender, RoutedEventArgs args) => RaiseTextChanged(sender, (TextChangedEventArgs)args);
     private string? rawText;
     private static bool Same(string? left, string? right) => string.Equals(left ?? "", right ?? "", StringComparison.Ordinal);
     public new string Text {
@@ -55,7 +66,7 @@ public class MyComboBoxView : ComboBox {
     public void RefreshColor() {
         string foreground, background; int time;
         if (IsEnabled) {
-            if (isMouseDown || IsDropDownOpen || (IsEditable && ((MyTextBoxView)Template.FindName("PART_EditableTextBox", this)).IsFocused)) { foreground = "ColorBrush3"; background = "ColorBrush7"; time = 10; }
+            if (isMouseDown || IsDropDownOpen || (IsEditable && textBox?.IsFocused == true)) { foreground = "ColorBrush3"; background = "ColorBrush7"; time = 10; }
             else if (IsMouseOver) { foreground = "ColorBrush4"; background = "ColorBrush7"; time = 100; }
             else { foreground = "ColorBrushBg0"; background = "ColorBrushHalfWhite"; time = 100; }
         } else { foreground = "ColorBrushGray5"; background = "ColorBrushGray6"; time = 200; }

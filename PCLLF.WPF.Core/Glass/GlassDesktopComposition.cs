@@ -40,6 +40,18 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
     private static readonly Guid PropertyValueStaticsId = new("629bdbc8-d932-4ff4-96b9-8d96c5c1e858");
     private static readonly Guid PropertyValueId = new("4bd682dd-7554-40e9-9a9b-82654ede7e62");
     private static readonly Guid GaussianBlurClsid = new("1feb6d69-2fe6-4ac9-8c58-1d7f93e7a6a5");
+    private static readonly Guid ColorMatrixClsid = new("921f03d6-641c-47df-852d-b4bb6153ae11");
+    private const float NearBlackAlphaScale = 255f / 24f;
+    // An unavailable host sample can be opaque black even when its API calls succeed.
+    // Keep RGB and ramp alpha to one over the darkest eight gray levels, revealing
+    // the scene through the WPF tint where Windows supplied only black.
+    private static readonly float[] BackdropColorMatrix = [
+        1, 0, 0, NearBlackAlphaScale,
+        0, 1, 0, NearBlackAlphaScale,
+        0, 0, 1, NearBlackAlphaScale,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ];
     [ThreadStatic] private static nint _dispatcherQueueController;
 
     private ComReference? _compositor;
@@ -77,7 +89,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
             using var compositor3 = activated.Query(Compositor3Id);
             using var rawHostBrush = GetObject(compositor3, 6); // ICompositor3.CreateHostBackdropBrush.
             _hostBrush = rawHostBrush.Query(BrushId);
-            _brush = TryCreateGaussianBlurBrush(_compositor, _hostBrush) ?? _hostBrush.Query(BrushId);
+            _brush = CreateBackdropEffectBrush(_compositor, _hostBrush);
         } catch {
             Dispose();
             throw;
@@ -165,7 +177,8 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
             var size = new Vector2((float)(bounds.Width * toDevice.M11), (float)(bounds.Height * toDevice.M22));
             var radius = Math.Min(region.CornerRadius, Math.Min(bounds.Width, bounds.Height) / 2);
             SetVector2(Visual, 36, size); // IVisual.put_Size.
-            SetVector3(Visual, 21, new Vector3((float)(bounds.X * toDevice.M11), (float)(bounds.Y * toDevice.M22), 0)); // put_Offset.
+            var offset = toDevice.Transform(bounds.TopLeft);
+            SetVector3(Visual, 21, new Vector3((float)offset.X, (float)offset.Y, 0)); // put_Offset.
             Check(((delegate* unmanaged[Stdcall]<nint, float, int>)Visual.Method(23))(Visual.Pointer, (float)region.Opacity)); // IVisual.put_Opacity.
             SetVector2(_geometry, 7, new Vector2((float)(radius * toDevice.M11), (float)(radius * toDevice.M22))); // put_CornerRadius.
             SetVector2(_geometry, 11, size); // put_Size.
@@ -236,51 +249,53 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         } finally { WindowsDeleteString(name); }
     }
 
-    private ComReference? TryCreateGaussianBlurBrush(ComReference compositor, ComReference hostBackdropBrush) {
+    private ComReference CreateBackdropEffectBrush(ComReference compositor, ComReference hostBackdropBrush) {
+        var effectFactoryId = new Guid("be5624af-ba7e-4510-9850-41c0b4ff74df");
+        var effectBrushId = new Guid("bf7f795e-83cc-44bf-a447-3e3c071789ec");
+        using var pvStatics = GetFactory("Windows.Foundation.PropertyValue", PropertyValueStaticsId);
+        using var deviation = CreatePropertySingle(pvStatics, 28f);
+        using var balanced = CreatePropertyUInt32(pvStatics, 1u); // D2D1_GAUSSIANBLUR_OPTIMIZATION_BALANCED.
+        using var hardBorder = CreatePropertyUInt32(pvStatics, 1u); // D2D1_BORDER_MODE_HARD.
+        using var matrix = CreatePropertySingleArray(pvStatics, BackdropColorMatrix);
+        // Keep the existing premultiplied RGB channels. The straight matrix mode
+        // updates alpha without tinting or multiplying the backdrop colours again.
+        using var straight = CreatePropertyUInt32(pvStatics, 2u); // D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT.
+        using var clamp = CreateTrueProperty(pvStatics);
+        using var sourceFactory = GetFactory("Windows.UI.Composition.CompositionEffectSourceParameter", SourceParameterFactoryId);
+        Check(WindowsCreateString("Backdrop", 8, out var sourceName));
         try {
-            var effectFactoryId = new Guid("be5624af-ba7e-4510-9850-41c0b4ff74df");
-            var effectBrushId = new Guid("bf7f795e-83cc-44bf-a447-3e3c071789ec");
-            using var pvStatics = GetFactory("Windows.Foundation.PropertyValue", PropertyValueStaticsId);
-            using var propDeviation = CreatePropertySingle(pvStatics, 28f);
-            using var propBalanced = CreatePropertyUInt32(pvStatics, 1u); // D2D1_GAUSSIANBLUR_OPTIMIZATION_BALANCED.
-            using var propHardBorder = CreatePropertyUInt32(pvStatics, 1u); // D2D1_BORDER_MODE_HARD.
-            using var spFactory = GetFactory("Windows.UI.Composition.CompositionEffectSourceParameter", SourceParameterFactoryId);
-            Check(WindowsCreateString("Backdrop", 8, out var sourceName));
-            try {
-                nint rawSourceParam = 0;
-                Check(((delegate* unmanaged[Stdcall]<nint, nint, nint*, int>)spFactory.Method(6))(spFactory.Pointer, sourceName, &rawSourceParam));
-                using var sourceParam = new ComReference(rawSourceParam);
-                using var effectSource = sourceParam.Query(GraphicsEffectSourceId);
-                GaussianBlurEffect* effect = GaussianBlurEffect.Create(
-                    effectSource.Pointer, propDeviation.Pointer, propBalanced.Pointer, propHardBorder.Pointer);
-                nint rawFactory = 0;
-                int hr = ((delegate* unmanaged[Stdcall]<nint, nint, nint*, int>)compositor.Method(11))(
-                    compositor.Pointer, (nint)(&effect->InspectableVtbl), &rawFactory);
-                GaussianBlurEffect.ReleaseCore((nint)effect);
-                Check(hr);
-                using var createdFactory = new ComReference(rawFactory);
-                using var effectFactory = createdFactory.Query(effectFactoryId);
-                int loadStatus = 0;
-                Check(((delegate* unmanaged[Stdcall]<nint, int*, int>)effectFactory.Method(8))(effectFactory.Pointer, &loadStatus));
-                // 0 = Success, 2 = Pending (DWM finishes compiling the D2D shader asynchronously when the brush renders).
-                if (loadStatus is not (0 or 2)) {
-                    int ext = 0;
-                    ((delegate* unmanaged[Stdcall]<nint, int*, int>)effectFactory.Method(7))(effectFactory.Pointer, &ext);
-                    BlurDiagnostic = $"loadStatus={loadStatus}, ext=0x{ext:X8}";
-                    return null;
-                }
-                using var rawBrush = GetObject(effectFactory, 6); // ICompositionEffectFactory.CreateBrush.
-                using var effectBrush = rawBrush.Query(effectBrushId);
-                Check(((delegate* unmanaged[Stdcall]<nint, nint, nint, int>)effectBrush.Method(7))(
-                    effectBrush.Pointer, sourceName, hostBackdropBrush.Pointer));
-                var compiled = effectBrush.Query(BrushId);
-                IsBlurredEffectBrush = true;
-                return compiled;
-            } finally { WindowsDeleteString(sourceName); }
-        } catch (Exception ex) {
-            BlurDiagnostic = $"{ex.GetType().Name} (0x{ex.HResult:X8}): {ex.Message} @ {ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}";
-            return null;
-        }
+            nint rawSource = 0;
+            Check(((delegate* unmanaged[Stdcall]<nint, nint, nint*, int>)sourceFactory.Method(6))(sourceFactory.Pointer, sourceName, &rawSource));
+            using var sourceParameter = new ComReference(rawSource);
+            using var source = sourceParameter.Query(GraphicsEffectSourceId);
+            using var blur = new ComReference((nint)BackdropEffect.Create(GaussianBlurClsid, source.Pointer,
+                deviation.Pointer, balanced.Pointer, hardBorder.Pointer));
+            using var blurredSource = blur.Query(GraphicsEffectSourceId);
+            using var guarded = new ComReference((nint)BackdropEffect.Create(ColorMatrixClsid, blurredSource.Pointer,
+                matrix.Pointer, straight.Pointer, clamp.Pointer));
+            nint rawFactory = 0;
+            Check(((delegate* unmanaged[Stdcall]<nint, nint, nint*, int>)compositor.Method(11))(
+                compositor.Pointer, guarded.Pointer, &rawFactory));
+            using var createdFactory = new ComReference(rawFactory);
+            using var effectFactory = createdFactory.Query(effectFactoryId);
+            int loadStatus = 0;
+            Check(((delegate* unmanaged[Stdcall]<nint, int*, int>)effectFactory.Method(8))(effectFactory.Pointer, &loadStatus));
+            BlurDiagnostic = $"loadStatus={loadStatus}";
+            // Success or pending (DWM compiles the D2D shader asynchronously when it renders).
+            if (loadStatus is not (0 or 2)) {
+                int extendedError = 0;
+                ((delegate* unmanaged[Stdcall]<nint, int*, int>)effectFactory.Method(7))(effectFactory.Pointer, &extendedError);
+                throw new COMException($"Backdrop effect factory load status: {loadStatus} (0x{extendedError:X8}).",
+                    extendedError < 0 ? extendedError : unchecked((int)0x80004005));
+            }
+            using var rawBrush = GetObject(effectFactory, 6);
+            using var effectBrush = rawBrush.Query(effectBrushId);
+            Check(((delegate* unmanaged[Stdcall]<nint, nint, nint, int>)effectBrush.Method(7))(
+                effectBrush.Pointer, sourceName, hostBackdropBrush.Pointer));
+            var compiled = effectBrush.Query(BrushId);
+            IsBlurredEffectBrush = true;
+            return compiled;
+        } finally { WindowsDeleteString(sourceName); }
     }
 
     private static ComReference CreatePropertySingle(ComReference statics, float value) {
@@ -297,33 +312,50 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         return inspectable.Query(PropertyValueId);
     }
 
+    private static ComReference CreatePropertySingleArray(ComReference statics, float[] values) {
+        nint raw = 0;
+        fixed (float* data = values)
+            Check(((delegate* unmanaged[Stdcall]<nint, uint, float*, nint*, int>)statics.Method(33))(statics.Pointer, (uint)values.Length, data, &raw));
+        using var inspectable = new ComReference(raw);
+        return inspectable.Query(PropertyValueId);
+    }
+
+    private static ComReference CreateTrueProperty(ComReference statics) {
+        nint raw = 0;
+        Check(((delegate* unmanaged[Stdcall]<nint, byte, nint*, int>)statics.Method(17))(statics.Pointer, 1, &raw));
+        using var inspectable = new ComReference(raw);
+        return inspectable.Query(PropertyValueId);
+    }
+
     [StructLayout(LayoutKind.Sequential)]
-    private struct GaussianBlurEffect {
+    private struct BackdropEffect {
         private static readonly nint* SharedInspectableVtbl = AllocateInspectableVtbl();
         private static readonly nint* SharedInteropVtbl = AllocateInteropVtbl();
 
         public nint InspectableVtbl;
         public nint InteropVtbl;
         public int RefCount;
+        public Guid EffectId;
         public nint Source;
-        public nint PropDeviation;
-        public nint PropOptimization;
-        public nint PropBorderMode;
+        public nint Property0;
+        public nint Property1;
+        public nint Property2;
 
-        public static GaussianBlurEffect* Create(nint source, nint deviation, nint optimization, nint borderMode) {
-            var ptr = (GaussianBlurEffect*)NativeMemory.AllocZeroed((nuint)sizeof(GaussianBlurEffect));
+        public static BackdropEffect* Create(Guid effectId, nint source, nint property0, nint property1, nint property2) {
+            var ptr = (BackdropEffect*)NativeMemory.AllocZeroed((nuint)sizeof(BackdropEffect));
             ptr->InspectableVtbl = (nint)SharedInspectableVtbl;
             ptr->InteropVtbl = (nint)SharedInteropVtbl;
             ptr->RefCount = 1;
+            ptr->EffectId = effectId;
             Marshal.AddRef(source); ptr->Source = source;
-            Marshal.AddRef(deviation); ptr->PropDeviation = deviation;
-            Marshal.AddRef(optimization); ptr->PropOptimization = optimization;
-            Marshal.AddRef(borderMode); ptr->PropBorderMode = borderMode;
+            Marshal.AddRef(property0); ptr->Property0 = property0;
+            Marshal.AddRef(property1); ptr->Property1 = property1;
+            Marshal.AddRef(property2); ptr->Property2 = property2;
             return ptr;
         }
 
         private static nint* AllocateInspectableVtbl() {
-            var vtbl = (nint*)RuntimeHelpers.AllocateTypeAssociatedMemory(typeof(GaussianBlurEffect), sizeof(nint) * 8);
+            var vtbl = (nint*)RuntimeHelpers.AllocateTypeAssociatedMemory(typeof(BackdropEffect), sizeof(nint) * 8);
             vtbl[0] = (nint)(delegate* unmanaged[Stdcall]<nint, Guid*, nint*, int>)&QueryInterface;
             vtbl[1] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&AddRef;
             vtbl[2] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&Release;
@@ -336,7 +368,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         }
 
         private static nint* AllocateInteropVtbl() {
-            var vtbl = (nint*)RuntimeHelpers.AllocateTypeAssociatedMemory(typeof(GaussianBlurEffect), sizeof(nint) * 9);
+            var vtbl = (nint*)RuntimeHelpers.AllocateTypeAssociatedMemory(typeof(BackdropEffect), sizeof(nint) * 9);
             vtbl[0] = (nint)(delegate* unmanaged[Stdcall]<nint, Guid*, nint*, int>)&InteropQueryInterface;
             vtbl[1] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&InteropAddRef;
             vtbl[2] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&InteropRelease;
@@ -351,7 +383,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
 
         private static int QueryInterfaceCore(nint selfPtr, Guid* iid, nint* result) {
             if (result is null || iid is null) return unchecked((int)0x80004003);
-            var self = (GaussianBlurEffect*)selfPtr;
+            var self = (BackdropEffect*)selfPtr;
             if (*iid == UnknownId || *iid == InspectableId || *iid == GraphicsEffectId || *iid == GraphicsEffectSourceId) {
                 Interlocked.Increment(ref self->RefCount);
                 *result = (nint)(&self->InspectableVtbl);
@@ -366,16 +398,16 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
             return unchecked((int)0x80004002);
         }
 
-        private static uint AddRefCore(nint selfPtr) => (uint)Interlocked.Increment(ref ((GaussianBlurEffect*)selfPtr)->RefCount);
+        private static uint AddRefCore(nint selfPtr) => (uint)Interlocked.Increment(ref ((BackdropEffect*)selfPtr)->RefCount);
 
         public static uint ReleaseCore(nint selfPtr) {
-            var self = (GaussianBlurEffect*)selfPtr;
+            var self = (BackdropEffect*)selfPtr;
             int remaining = Interlocked.Decrement(ref self->RefCount);
             if (remaining == 0) {
                 if (self->Source != 0) Marshal.Release(self->Source);
-                if (self->PropDeviation != 0) Marshal.Release(self->PropDeviation);
-                if (self->PropOptimization != 0) Marshal.Release(self->PropOptimization);
-                if (self->PropBorderMode != 0) Marshal.Release(self->PropBorderMode);
+                if (self->Property0 != 0) Marshal.Release(self->Property0);
+                if (self->Property1 != 0) Marshal.Release(self->Property1);
+                if (self->Property2 != 0) Marshal.Release(self->Property2);
                 NativeMemory.Free(self);
             }
             return (uint)remaining;
@@ -421,7 +453,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
         private static int GetEffectId(nint interopPtr, Guid* id) {
             if (id is null) return unchecked((int)0x80004003);
-            *id = GaussianBlurClsid;
+            *id = ((BackdropEffect*)(interopPtr - sizeof(nint)))->EffectId;
             return 0;
         }
 
@@ -438,11 +470,11 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
         private static int GetProperty(nint interopPtr, uint index, nint* value) {
             if (value is null) return unchecked((int)0x80004003);
-            var self = (GaussianBlurEffect*)(interopPtr - sizeof(nint));
+            var self = (BackdropEffect*)(interopPtr - sizeof(nint));
             nint prop = index switch {
-                0 => self->PropDeviation,
-                1 => self->PropOptimization,
-                2 => self->PropBorderMode,
+                0 => self->Property0,
+                1 => self->Property1,
+                2 => self->Property2,
                 _ => 0
             };
             if (prop == 0) { *value = 0; return unchecked((int)0x80070057); }
@@ -454,7 +486,7 @@ internal sealed unsafe class GlassDesktopComposition : IDisposable {
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
         private static int GetSource(nint interopPtr, uint index, nint* source) {
             if (source is null) return unchecked((int)0x80004003);
-            var self = (GaussianBlurEffect*)(interopPtr - sizeof(nint));
+            var self = (BackdropEffect*)(interopPtr - sizeof(nint));
             if (index != 0 || self->Source == 0) { *source = 0; return unchecked((int)0x80070057); }
             Marshal.AddRef(self->Source);
             *source = self->Source;

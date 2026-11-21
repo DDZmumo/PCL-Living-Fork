@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -202,6 +203,7 @@ public sealed partial class GlassPresentationSession
     private Node ProjectSlider(MySlider source)
     {
         var slider = new Slider { Style = Style("GlassPresentationSlider"), Minimum = 0, SmallChange = source.ValueByKey, LargeChange = Math.Max(1, source.ValueByKey * 5) };
+        var dragHint = new SliderDragHint(slider);
         bool pulling = false;
         slider.ValueChanged += (_, _) =>
         {
@@ -220,11 +222,93 @@ public sealed partial class GlassPresentationSession
             {
                 slider.Maximum = Math.Max(1, source.MaxValue); slider.Value = source.Value;
                 slider.SmallChange = Math.Max(1, source.ValueByKey);
-                slider.ToolTip = source.GetHintText?.DynamicInvoke(source.Value)?.ToString() ?? source.ToolTip;
+                string valueText = source.GetHintText?.DynamicInvoke(source.Value)?.ToString();
+                slider.ToolTip = valueText ?? source.ToolTip;
+                dragHint.SetText(valueText);
             }
             finally { pulling = false; }
         };
+        node.Cleanup.Add(dragHint.Dispose);
         return node;
+    }
+
+    private sealed class SliderDragHint : IDisposable
+    {
+        private readonly Slider _slider;
+        private ToolTip _hint;
+        private Thumb _thumb;
+        private string _valueText;
+
+        internal SliderDragHint(Slider slider)
+        {
+            _slider = slider;
+            _slider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnDragStarted), handledEventsToo: true);
+            _slider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnDragCompleted), handledEventsToo: true);
+            _slider.Unloaded += OnUnloaded;
+            _slider.IsVisibleChanged += OnAvailabilityChanged;
+            _slider.IsEnabledChanged += OnAvailabilityChanged;
+        }
+
+        internal void SetText(string text)
+        {
+            _valueText = text;
+            if (_hint is null) return;
+            if (text is null) Close();
+            else if (!Equals(_hint.Content, text)) _hint.Content = text;
+        }
+
+        private void OnDragStarted(object sender, DragStartedEventArgs e)
+        {
+            if (e.OriginalSource is not Thumb thumb || _valueText is null || !_slider.IsVisible || !_slider.IsEnabled) return;
+            Close();
+            _thumb = thumb;
+            _hint = new ToolTip {
+                Style = _slider.TryFindResource(typeof(ToolTip)) as Style ?? GlassCommandChrome.ToolTipStyle(!ModTheme.IsDarkTheme),
+                PlacementTarget = _slider, Placement = PlacementMode.Custom, CustomPopupPlacementCallback = PlaceDragHint,
+                Content = _valueText, IsHitTestVisible = false, Focusable = false
+            };
+            _hint.Closed += (owner, _) => ((ToolTip)owner).PlacementTarget = null;
+            UpdatePosition(this, EventArgs.Empty);
+            _slider.LayoutUpdated += UpdatePosition;
+            _hint.IsOpen = true;
+        }
+
+        private void OnDragCompleted(object sender, DragCompletedEventArgs e) => Close();
+        private void OnUnloaded(object sender, RoutedEventArgs e) => Close();
+        private void OnAvailabilityChanged(object sender, DependencyPropertyChangedEventArgs e) { if (!(bool)e.NewValue) Close(); }
+
+        private void UpdatePosition(object sender, EventArgs e)
+        {
+            if (_hint is not { } hint || _thumb is not { } thumb) return;
+            var anchor = new Rect(thumb.TranslatePoint(new Point(), _slider), thumb.RenderSize);
+            if (hint.PlacementRectangle != anchor) hint.PlacementRectangle = anchor;
+        }
+
+        private static CustomPopupPlacement[] PlaceDragHint(Size popup, Size thumb, Point offset)
+        {
+            double x = (thumb.Width - popup.Width) / 2;
+            return [new(new Point(x, -popup.Height - 5), PopupPrimaryAxis.Horizontal),
+                    new(new Point(x, thumb.Height + 5), PopupPrimaryAxis.Horizontal)];
+        }
+
+        private void Close()
+        {
+            if (_hint is not { } hint) return;
+            _slider.LayoutUpdated -= UpdatePosition;
+            _hint = null;
+            _thumb = null;
+            hint.IsOpen = false;
+        }
+
+        public void Dispose()
+        {
+            Close();
+            _slider.RemoveHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnDragStarted));
+            _slider.RemoveHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(OnDragCompleted));
+            _slider.Unloaded -= OnUnloaded;
+            _slider.IsVisibleChanged -= OnAvailabilityChanged;
+            _slider.IsEnabledChanged -= OnAvailabilityChanged;
+        }
     }
 
     private sealed class EditorProjection(Action commit)
@@ -241,6 +325,31 @@ public sealed partial class GlassPresentationSession
         source.IsKeyboardFocusWithin ||
         (ProjectedEditors.TryGetValue(source, out var editor) &&
          editor.VisibleEditor?.TryGetTarget(out var visible) == true && visible.IsKeyboardFocusWithin);
+
+    internal static void BindTextPlaceholder(TextBox input, TextBlock placeholder)
+    {
+        var visibility = new MultiBinding { Mode = BindingMode.OneWay, Converter = TextPlaceholderVisibility.Instance };
+        visibility.Bindings.Add(new Binding(nameof(TextBox.Text)) { Source = input });
+        visibility.Bindings.Add(new Binding(nameof(UIElement.IsKeyboardFocusWithin)) { Source = input });
+        visibility.Bindings.Add(new Binding(nameof(TextBlock.Text)) { Source = placeholder });
+        placeholder.SetBinding(UIElement.VisibilityProperty, visibility);
+    }
+
+    private sealed class TextPlaceholderVisibility : IMultiValueConverter
+    {
+        internal static readonly TextPlaceholderVisibility Instance = new();
+
+        public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) => values switch
+        {
+            // An IME can display preedit even while Text still contains the last committed value.
+            [_, true, string { Length: > 0 }] => Visibility.Hidden,
+            [string { Length: 0 }, false, string { Length: > 0 }] => Visibility.Visible,
+            _ => Visibility.Collapsed
+        };
+
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+            throw new NotSupportedException();
+    }
 
     private Node ProjectTextInput(TextBox source)
     {
@@ -262,6 +371,7 @@ public sealed partial class GlassPresentationSession
         var host = new Grid(); host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); host.Children.Add(input);
         var placeholder = new TextBlock { Margin = new Thickness(15, 0, 15, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
         TextStyle(placeholder); placeholder.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary"); host.Children.Add(placeholder);
+        BindTextPlaceholder(input, placeholder);
         var validationText = new TextBlock { FontSize = 11, Margin = new Thickness(3, 6, 3, 0), Visibility = Visibility.Collapsed };
         TextStyle(validationText); validationText.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationDanger"); Grid.SetRow(validationText, 1); host.Children.Add(validationText);
         var node = new Node(host);
@@ -275,7 +385,6 @@ public sealed partial class GlassPresentationSession
         node.Pull = () =>
         {
             placeholder.Text = (source as MyTextBoxView)?.HintText ?? string.Empty;
-            placeholder.Visibility = string.IsNullOrEmpty(source.Text) && !string.IsNullOrEmpty(placeholder.Text) ? Visibility.Visible : Visibility.Collapsed;
             string validation = (source as MyTextBoxView)?.ValidateResult;
             input.ToolTip = string.IsNullOrEmpty(validation) ? source.ToolTip : validation;
             validationText.Text = validation ?? string.Empty;
@@ -526,6 +635,15 @@ public sealed partial class GlassPresentationSession
             if (action is ToggleButton toggle) toggle.IsChecked = source.Checked;
             image.Source = (source.PathLogo as Image)?.Source ?? ((source.PathLogo as Panel)?.Background as ImageBrush)?.ImageSource;
             geometry.Data = (source.PathLogo as Path)?.Data;
+            // Launcher releases: the WPF edition (1.6 and later, and development builds) shows its own mark in the theme's
+            // text colour; earlier releases keep the classic icon.
+            if (InPage<PageSetupUpdate>(source) && LauncherEdition.IsWpf(source.Title) && LauncherEdition.WpfMark is { } mark)
+            {
+                image.Source = null;
+                geometry.Data = mark;
+                geometry.Width = geometry.Height = 32;
+                geometry.Margin = new Thickness(0, 0, 12, 0);
+            }
             image.Visibility = image.Source is null ? Visibility.Collapsed : Visibility.Visible;
             geometry.Visibility = geometry.Data is null ? Visibility.Collapsed : Visibility.Visible;
             Children(accessories, downloadRow ? Array.Empty<UIElement>() : ((MyListItemView)source).Buttons?.OfType<DependencyObject>().Select(item => Project(item)).Where(item => item != null).ToArray() ?? Array.Empty<UIElement>());

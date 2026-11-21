@@ -20,6 +20,9 @@ namespace PCL
         private readonly LegacyLaunchRight<ModMinecraft.McInstance, RecentWorld, ModAnimation.AniData> Native;
         // 保留真实下载任务与输入身份；读取/版本/缓存/内容处理在 C# 中。
         private ModLoader.LoaderTask<(string Address, bool ShouldRefresh), int> OnlineLoader;
+        private Panel _homepageViewport;
+        private Panel HomepagePanel => _homepageViewport ?? PanCustom;
+        internal bool HasHomepageContent => HomepagePanel.Children.Count > 0;
         private bool? moreSettingsVisible;
         internal Func<bool> MoreSettingsLaunchLoading = () => ModLaunch.McLaunchLoader.State == ModBase.LoadState.Loading;
         public PageLaunchRight()
@@ -47,12 +50,42 @@ namespace PCL
                 LogPanel = new Func<FrameworkElement>(() => this.PanLog),
                 DependencyPanel = new Func<FrameworkElement>(() => this.PanDependencyChecks),
                 DependencyTransform = new Func<TranslateTransform>(() => this.TransDependencyChecks),
-                CustomPanel = new Func<Panel>(() => this.PanCustom),
+                CustomPanel = new Func<Panel>(() => HomepagePanel),
                 DependencyCheck = new Func<bool>(() => this.CheckModDependencies.Checked),
                 PageId = new Func<string>(() => this.PageUuid.ToString()),
-                ScrollToHome = new Action(() => this.PanBack.ScrollToHome()),
+                ScrollToHome = ScrollHomepageToTop,
                 ResizeDependencyCard = new Action(() => this.CardDependencyChecks.TriggerForceResize())
             };
+        }
+
+        internal Action PresentHomepageIn(Panel viewport)
+        {
+            MoveHomepage(viewport);
+            return () => {
+                if (ReferenceEquals(_homepageViewport, viewport)) MoveHomepage(null);
+            };
+        }
+
+        private void MoveHomepage(Panel viewport)
+        {
+            Panel previous = HomepagePanel;
+            _homepageViewport = viewport;
+            Panel next = HomepagePanel;
+            if (ReferenceEquals(previous, next)) return;
+            var children = previous.Children.Cast<UIElement>().ToArray();
+            previous.Children.Clear();
+            foreach (UIElement child in children) next.Children.Add(child);
+        }
+
+        private void ScrollHomepageToTop()
+        {
+            for (DependencyObject parent = _homepageViewport; parent is not null; parent = VisualTreeHelper.GetParent(parent))
+            {
+                if (parent is not ScrollViewer scroll) continue;
+                scroll.ScrollToHome();
+                return;
+            }
+            PanBack.ScrollToHome();
         }
 
         private LegacyLaunchRightHost CreateHost()

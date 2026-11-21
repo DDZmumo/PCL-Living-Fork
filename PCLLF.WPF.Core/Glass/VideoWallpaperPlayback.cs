@@ -28,6 +28,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
     private WriteableBitmap? _pictureBitmap, _frostBitmap;
     private FramePair? _pending;
     private bool _paused, _disposed, _queued, _decodeFailed, _presenterFinished;
+    private volatile bool _navigationActive;
     private FrostParameters _parameters = new(0, 0, false, 24);
 
     private sealed record FrostParameters(double Width, double Height, bool Stretch, double Radius);
@@ -60,6 +61,12 @@ public sealed class VideoWallpaperPlayback : IDisposable {
     public void SetFrostViewport(double width, double height, bool stretch, double backgroundBlur) =>
         Volatile.Write(ref _parameters, new(width, height, stretch, Math.Sqrt(24 * 24 + backgroundBlur * backgroundBlur)));
 
+    public void SetNavigationActive(bool active) => _navigationActive = active;
+
+    // Compare source timestamps so 24/25/30 fps clips keep all their frames. Allow for rounded media timestamps.
+    internal static bool ShouldPrepareFrame(bool navigating, long offset, long? previous) =>
+        !navigating || previous is null || offset - previous.Value >= TimeSpan.TicksPerSecond / 30 - TimeSpan.TicksPerMillisecond;
+
     public void SetPaused(bool paused) {
         lock (_gate) {
             if (_disposed || _paused == paused) return;
@@ -75,6 +82,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
             if (!WaitForDecodeSlot()) return;
             using var reader = new MediaFoundationVideoReader(path);
             long? firstTimestamp = null;
+            long? lastPreparedOffset = null;
             long loopOffset = 0, previousOffset = 0, frameDuration = TimeSpan.TicksPerSecond / 60;
             while (WaitForDecodeSlot()) {
                 if (!reader.Read(out var decoded)) {
@@ -93,6 +101,10 @@ public sealed class VideoWallpaperPlayback : IDisposable {
                     long offset = loopOffset + Math.Max(0, color.Timestamp - startTimestamp);
                     if (!first && offset > previousOffset) frameDuration = offset - previousOffset;
                     previousOffset = offset;
+                    // While pages cross-fade, avoid blurring and uploading every frame of a high-rate video.
+                    // Scheduling still uses the original media timeline, and both textures always advance together.
+                    if (!ShouldPrepareFrame(_navigationActive, offset, lastPreparedOffset)) continue;
+                    lastPreparedOffset = offset;
                     double scale = Math.Min(1, Math.Min(320d / color.Width, 240d / color.Height));
                     int width = Math.Max(1, (int)Math.Round(color.Width * scale));
                     int height = Math.Max(1, (int)Math.Round(color.Height * scale));

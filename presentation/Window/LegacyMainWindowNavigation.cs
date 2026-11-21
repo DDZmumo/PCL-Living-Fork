@@ -23,7 +23,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         if (stack.PageCode == (int)LegacyMainPage.Setup) subType = host.NormalizeSetupPage(subType);
         if (stack.PageCode == (int)LegacyMainPage.InstanceSetup) subType = host.NormalizeInstancePage(subType);
         if (stack.PageCode == (int)LegacyMainPage.Other && subType > 2) subType = 1;
-        if (string.IsNullOrEmpty(PageNameGet(stack))) {
+        if (stack.PageCode != (int)LegacyMainPage.InstanceSetup && string.IsNullOrEmpty(PageNameGet(stack))) {
             PageChangeExit(); host.WriteChangingPage(true);
             // Page codes are stable persisted identities, not title-panel indexes.
             MyRadioButtonView title = view.PanTitleSelect().Children.OfType<MyRadioButtonView>()
@@ -47,15 +47,17 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public void PageChangeActual(TStack stack, int subType = -1) {
         if (host.PackBlocksPage(stack.PageCode)) return;
         if (stack.PageCode == (int)LegacyMainPage.Setup && subType >= 0) subType = host.NormalizeSetupPage(subType);
+        LegacyMainLeftPage? instanceLeft = null;
         if (stack.PageCode == (int)LegacyMainPage.InstanceSetup) {
             if (host.InstanceBlocksNavigation(host.SettingsInstance())) { Hint("该版本正在被修改，暂时无法进入版本设置！", LegacyMainHint.Red); return; }
-            LegacyMainLeftPage left = EnsureLeft(stack.PageCode);
-            if (subType < 0) subType = left.PageId();
+            // EnsureLeft refreshes the instance's on-disk context. Reuse that inspection within this dispatch.
+            instanceLeft = EnsureLeft(stack.PageCode);
+            if (subType < 0) subType = instanceLeft.PageId();
             subType = host.NormalizeInstancePage(subType);
             if (host.InstanceLocked(host.SettingsInstance()!) && InstanceNavigationRules.IsEditingPage(subType)) subType = 0;
         }
         if (Same(PageCurrent, stack) && (PageCurrentSub == subType || subType == -1)) {
-            if (stack.PageCode == (int)LegacyMainPage.InstanceSetup) EnsureLeft(stack.PageCode).SyncSelection(subType);
+            if (instanceLeft is not null) instanceLeft.SyncSelection(subType);
             return;
         }
         AniControlEnabled = checked(AniControlEnabled + 1);
@@ -83,7 +85,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
                     LegacyMainLeftPage left = EnsureLeft(stack.PageCode); PageChangeAnim(left.Element, left.PageGet(subType)); break;
                 }
                 case LegacyMainPage.InstanceSetup: {
-                    LegacyMainLeftPage left = EnsureLeft(stack.PageCode); MyPageRightView target = left.PageGet(subType); left.SyncSelection(subType); PageChangeAnim(left.Element, target); break;
+                    MyPageRightView target = instanceLeft!.PageGet(subType); instanceLeft.SyncSelection(subType); PageChangeAnim(instanceLeft.Element, target); break;
                 }
                 case LegacyMainPage.Link:
                     if (host.LegacyLink) { host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode)); } else return;

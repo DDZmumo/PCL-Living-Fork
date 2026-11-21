@@ -122,7 +122,7 @@ internal static class MmcJavaDiscovery {
         catch (Exception error) when (error is System.IO.InvalidDataException or ArgumentException) {
             throw new MmcLaunchJavaException("MMC_JAVA_PREFERENCE", error.Message);
         }
-        var authentication = MmcLaunchAuthentication.JavaRequirementsForType(LoginType(instance));
+        var authentication = MmcLaunchAuthentication.JavaRequirementsForType(LoginType());
         var result = await MmcLaunchJava.SelectAsync(instance, primary.Definition, saved.Resolved.Resolution.Profile!, preference,
             token, authentication.Majors, minimumVersion: authentication.MinimumVersion).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
@@ -132,15 +132,8 @@ internal static class MmcJavaDiscovery {
         return result;
     }
 
-    private static ModLaunch.McLoginType LoginType(ModMinecraft.McInstance instance) => Settings.Get<int>("VersionServerLogin", instance) switch {
-        1 => ModLaunch.McLoginType.Ms,
-        2 => ModLaunch.McLoginType.Legacy,
-        3 => ModLaunch.McLoginType.Nide,
-        4 => ModLaunch.McLoginType.Auth,
-        // A settings page may inspect B while A remains selected globally. Ordinary/unknown
-        // instance modes never inherit A's third-party account constraint.
-        _ => ModLaunch.McLoginType.Legacy
-    };
+    private static ModLaunch.McLoginType LoginType() => GlassSkinSites.CurrentForLaunch() is null
+        ? ModLaunch.McLoginType.Legacy : ModLaunch.McLoginType.Auth;
     private static string Declaration(MmcResolvedProfile resolved) {
         var majors = resolved.Components.Where(component => component.Enabled)
             .SelectMany(component => component.Patch.Fields.TryGetValue("compatibleJavaMajors", out var values)

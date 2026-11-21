@@ -28,9 +28,11 @@ internal enum GlassToastKind { Info, Success, Error }
 /// </summary>
 internal sealed class GlassToastHost : StackPanel, IDisposable {
     private const int MaxToasts = 4;
+    private const double InsetRight = 34, InsetBottom = 24, ToastWidth = 380, OverlayGap = 12;
     private readonly Panel _source;
     private readonly Dictionary<Border, Toast> _toasts = new(ReferenceEqualityComparer.Instance);
     private readonly EventHandler _sourceLayoutUpdated;
+    private readonly TranslateTransform _placement = new();
     private long _lastRefreshMs;
     private bool _dark = true;
     private bool _disposed;
@@ -40,7 +42,9 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Bottom;
         IsHitTestVisible = false;
-        MaxWidth = 380;
+        MaxWidth = ToastWidth;
+        Margin = new Thickness(0, 0, InsetRight, InsetBottom);
+        RenderTransform = _placement;
         AutomationProperties.SetLiveSetting(this, AutomationLiveSetting.Polite);
         // Hints are added by the original runtime on the UI thread; throttle layout bursts while keeping entrance immediate.
         _sourceLayoutUpdated = (_, _) => {
@@ -51,6 +55,23 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
             Refresh();
         };
         _source.LayoutUpdated += _sourceLayoutUpdated;
+    }
+
+    internal void AvoidOverlays(Size viewport, Rect overlays) {
+        double bottom = InsetBottom, right = InsetRight, width = ToastWidth;
+        if (!overlays.IsEmpty) {
+            double above = viewport.Height - overlays.Top + OverlayGap;
+            if (above + ActualHeight + OverlayGap <= viewport.Height)
+                bottom = Math.Max(bottom, above);
+            else {
+                right = Math.Max(right, viewport.Width - overlays.Left + OverlayGap);
+                width = Math.Clamp(viewport.Width - right - OverlayGap, 0, ToastWidth);
+            }
+        }
+        // Follow the player's animation without remeasuring the toast stack on every frame.
+        _placement.X = InsetRight - right;
+        _placement.Y = InsetBottom - bottom;
+        if (MaxWidth != width) MaxWidth = width;
     }
 
     internal void SetTheme(bool dark) {

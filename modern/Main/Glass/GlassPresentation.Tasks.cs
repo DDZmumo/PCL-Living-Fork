@@ -418,16 +418,14 @@ internal sealed class GlassTaskSidebar : Grid
         return value;
     }
 
-    internal void Refresh()
+    internal void Refresh(PageSpeedLeft left)
     {
-        if (ModMain.FrmSpeedLeft is not PageSpeedLeft left) return;
         _percent.Text = left.LabProgress.Text;
         _values["下载速度"].Text = left.LabSpeed.Text;
         _values["读取速度"].Text = left.LabReadSpeed.Text;
         _values["写入速度"].Text = left.LabWriteSpeed.Text;
         _values["剩余文件"].Text = left.LabFile.Text;
-        string digits = new(left.LabProgress.Text.Where(ch => char.IsDigit(ch) || ch == '.').ToArray());
-        double value = double.TryParse(digits, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed) ? Math.Clamp(parsed / 100, 0, 1) : 0;
+        double value = left.OverallProgress;
         if (Math.Abs(value - _target) < .0005) return;
         _target = value;
         _motion.Retarget(value);
