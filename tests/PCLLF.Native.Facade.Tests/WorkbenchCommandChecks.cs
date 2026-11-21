@@ -7,6 +7,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using PCL;
 using PCLLF.Presentation.Controls;
 using PCLLF.Wpf.Glass;
@@ -14,8 +15,7 @@ using Application = System.Windows.Application;
 
 namespace PCLLF.Native.Facade.Tests;
 
-// New view primitives over genuine original logical actions. No pointer synthesis, desktop
-// material, account data, game launch, settings persistence or substitute Main assembly.
+// New view primitives over genuine original logical actions and an isolated in-window backdrop.
 internal static class WorkbenchCommandChecks {
     internal static void Run(FixtureEnvironment environment) {
         VisualAssetChecks.VerifyChild(environment);
@@ -59,6 +59,7 @@ internal static class WorkbenchCommandChecks {
             var sourceViews = Descendants<UIElement>(source).Append(source).ToHashSet();
             Native.Check(!Descendants<UIElement>(button).Any(sourceViews.Contains), "A source PCL visual was embedded in the new Button.");
             CheckContrastStyle(button, source);
+            if (!SystemParameters.HighContrast) CheckFloatingFrost(window, button, adapter, source);
 
             int clicks = 0, commands = 0, opened = 0, closed = 0;
             var menuTrace = new List<string>();
@@ -105,6 +106,91 @@ internal static class WorkbenchCommandChecks {
         }
         Console.WriteLine("PASS wallpaper-only workbench commands: new standard Button views, exact logical action/custom-event guards, observable availability/label/progress, fresh menu visuals with original command lifecycle, zero desktop backdrop HWNDs and complete cleanup.");
     }
+
+    private static void CheckFloatingFrost(Window window, Button button, object adapter, MyExtraButton source)
+    {
+        var host = new Grid();
+        var wallpaper = new Image { Stretch = Stretch.Fill };
+        var frame = new Border { Margin = new Thickness(32, 15, 17, 22), Background = Stripes(Brushes.White, Brushes.Black), Child = wallpaper };
+        window.Content = null;
+        host.Children.Add(frame);
+        host.Children.Add(button);
+        window.Content = host;
+        try {
+            Native.Call(adapter.GetType(), "SetBackdrop", adapter, frame);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var fills = button.Style.Setters.OfType<Setter>().Concat(button.Style.Triggers.OfType<Trigger>().SelectMany(trigger => trigger.Setters.OfType<Setter>()));
+            Native.Check(fills.Where(setter => setter.Property == Control.BackgroundProperty || setter.Property == Control.BorderBrushProperty)
+                .All(setter => setter.Value is SolidColorBrush brush && brush.Color.R == brush.Color.G && brush.Color.G == brush.Color.B),
+                "A dark floating action still has a colored fill or edge in one of its interaction states.");
+            if (!GlassMaterial.AllowsTransparency(button)) return;
+
+            var brush = (VisualBrush)Native.Get(Native.Get(adapter, "_sceneFrost")!, "_body")!;
+            Native.Check(!GlassMaterial.GetDesktopBackdropEnabled(button) && ReferenceEquals(brush.Visual, frame),
+                "The dark action did not sample the default page when native glass was unavailable.");
+            button.Opacity = 0;
+            int sharpContrast = Contrast(Sample(host, button));
+            button.Opacity = 1;
+            var gray = Sample(host, button);
+            int frostContrast = Contrast(gray);
+            Native.Check(sharpContrast > 160 && frostContrast < sharpContrast / 3 &&
+                gray.Chunk(4).All(pixel => Math.Abs(pixel[0] - pixel[2]) <= 1 && Math.Abs(pixel[1] - pixel[2]) <= 1),
+                $"Default page stripes did not render as neutral frost: contrast {sharpContrast}->{frostContrast}.");
+
+            var wallpaperSource = new DrawingImage(new GeometryDrawing(Stripes(Brushes.DarkOrange, Brushes.Maroon), null,
+                new RectangleGeometry(new Rect(0, 0, frame.ActualWidth, frame.ActualHeight))));
+            wallpaper.Source = wallpaperSource;
+            GlassMaterial.SetWallpaperSource(host, wallpaperSource);
+            GlassMaterial.SetWallpaperHost(host, wallpaper);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var colored = Sample(host, button).Chunk(4).ToArray();
+            Native.Check(ReferenceEquals(brush.Visual, frame) && colored.Average(pixel => pixel[2] - pixel[0]) > 18,
+                "Dark floating frost did not keep the wallpaper color from the same page sample.");
+
+            Native.Call(adapter.GetType(), "RefreshAppearance", adapter, true, true);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(brush.Visual is null, "The light action retained the dark scene sample.");
+            Native.Call(adapter.GetType(), "RefreshAppearance", adapter, false, true);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(ReferenceEquals(brush.Visual, frame) && button.Background is SolidColorBrush { Color.A: > 0 },
+                $"Switching back to the dark theme did not restore the frost and tint. Source bound: {ReferenceEquals(brush.Visual, frame)}. Tint: {button.Background}.");
+            Native.Call(adapter.GetType(), "SetBackdropSuspended", adapter, true);
+            window.Width += 10; window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Call(adapter.GetType(), "RefreshAppearance", adapter, false, true);
+            Native.Check(brush.Visual is null && button.IsVisible, "Layout during page motion reattached the live backdrop or hid the floating action.");
+            Native.Call(adapter.GetType(), "SetBackdropSuspended", adapter, false);
+            Native.Call(adapter.GetType(), "RefreshAppearance", adapter, false, true);
+            Native.Check(ReferenceEquals(brush.Visual, frame), "The floating backdrop did not return once the page settled.");
+            source.Visibility = Visibility.Collapsed;
+            Native.Check(brush.Visual is null, "A hidden dark floating action kept sampling the page.");
+            Console.WriteLine($"Floating action dark frost over the default page and colored wallpaper: stripe contrast {sharpContrast}->{frostContrast}.");
+        } finally {
+            source.Visibility = Visibility.Visible;
+            host.Children.Remove(button);
+            window.Content = button;
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+        }
+
+        static DrawingBrush Stripes(Brush light, Brush dark) {
+            var drawing = new DrawingGroup();
+            drawing.Children.Add(new GeometryDrawing(light, null, new RectangleGeometry(new Rect(0, 0, 4, 8))));
+            drawing.Children.Add(new GeometryDrawing(dark, null, new RectangleGeometry(new Rect(4, 0, 4, 8))));
+            return new DrawingBrush(drawing) { ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, 8, 8), TileMode = TileMode.Tile };
+        }
+        static byte[] Sample(Grid host, Button button) {
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(host.ActualWidth), (int)Math.Ceiling(host.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(host);
+            var point = button.TranslatePoint(new Point(11, 11), host);
+            var pixels = new byte[24 * 4];
+            bitmap.CopyPixels(new Int32Rect((int)point.X, (int)point.Y, 24, 1), pixels, pixels.Length, 0);
+            return pixels;
+        }
+        static int Contrast(byte[] pixels) {
+            int[] channels = pixels.Chunk(4).Select(pixel => (int)pixel[2]).ToArray();
+            return channels.Max() - channels.Min();
+        }
+    }
+
     private static void CheckContrastStyle(Button button, MyExtraButton source) {
         Type chrome = Native.Type("PCL.GlassCommandChrome");
         MethodInfo create = chrome.GetMethod("BuildButton", Native.Flags, null, [typeof(bool), typeof(bool)], null)!;

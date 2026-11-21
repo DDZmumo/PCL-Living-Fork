@@ -61,13 +61,14 @@ namespace PCL
         {
             ModBase.RunInUiWait(Work);
         }
-        public void PageLoaderInit<TIn, TOut>(MyLoading LoaderUi, FrameworkElement PanLoader, FrameworkElement PanContent, FrameworkElement PanAlways, ModLoader.LoaderTask<TIn, TOut> RealLoader, Action<ModLoader.LoaderTask<TIn, TOut>> FinishedInvoke = null, Func<TIn> InputInvoke = null, bool AutoRun = true)
+        public void PageLoaderInit<TIn, TOut>(MyLoading LoaderUi, FrameworkElement PanLoader, FrameworkElement PanContent, FrameworkElement PanAlways, ModLoader.LoaderTask<TIn, TOut> RealLoader, Action<ModLoader.LoaderTask<TIn, TOut>> FinishedInvoke = null, Func<TIn> InputInvoke = null, bool AutoRun = true, bool ProjectContent = false)
         {
             var Binding = new PageLoaderBinding()
             {
                 Original = RealLoader,
                 ReadState = new Func<PageLoaderState>(() => (PageLoaderState)(int)RealLoader.State),
                 Start = new Action<object, bool>((Input, Force) => RealLoader.Start(Input, IsForceRestart: Force)),
+                ProjectContent = ProjectContent,
                 UsesStartGetInput = true,
                 InitialInput = new Func<object>(() => RealLoader.StartGetInput(default, InputInvoke)),
                 StartGetInput = new Func<object, object>(Input => NewLateBinding.LateGet(RealLoader, null, "StartGetInput", new[] { Input, InputInvoke }, null, null, null)),

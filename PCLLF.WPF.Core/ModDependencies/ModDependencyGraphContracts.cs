@@ -21,6 +21,8 @@ public class ModDependencyGraphNodeData {
     public double Height = 50;
 }
 
+public enum ModDependencyGraphRelation { Confirmed, Candidate, Conflict }
+
 /// <summary>Only the original LF bitmap resource and local JAR icon adapters cross this boundary.</summary>
 public sealed class ModDependencyGraphHost {
     public Func<string, ImageSource> DefaultIcon = null!;

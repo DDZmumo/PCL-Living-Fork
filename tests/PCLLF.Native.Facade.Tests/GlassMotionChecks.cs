@@ -165,9 +165,14 @@ internal static class GlassMotionChecks
         ContentControl oldHost = view.PageContentHost;
         window.UpdateLayout();
         if (animates) {
+            view.SetSidebar(new[] { new GlassSidebarItem { Label = "设置", IsSelected = true } });
+            Check(Part<FrameworkElement>(view, "SideRail").IsVisible, "The departing fixture has no context rows to hide.");
             view.SetState(State(icon, false, home: true));
+            Check(!Part<FrameworkElement>(view, "SideRail").IsVisible,
+                "The new Home panel can overlap the previous section's sidebar while the right page swaps.");
             Check(Part<FrameworkElement>(view, "PageScene").Opacity > .99,
                 "Returning home hid the departing right page before its replacement was ready.");
+            view.SetSidebar(Array.Empty<GlassSidebarItem>());
             view.SetState(State(icon, true, home: false));
         }
         view.SetState(State(icon, false, home: false));

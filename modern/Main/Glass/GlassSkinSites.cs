@@ -132,8 +132,7 @@ internal static class GlassSkinSites
         } catch (JsonException) { return null; }
     }
 
-    internal static SkinSiteCharacter? CurrentForLaunch(ModMinecraft.McInstance? instance) =>
-        IsActive && (instance is null ? Settings.Get<int>("LoginPageType") : Settings.Get<int>("VersionServerLogin", instance)) == 0 ? Current(Load()) : null;
+    internal static SkinSiteCharacter? CurrentForLaunch() => IsActive ? Current(Load()) : null;
 
     internal static bool SameServer(string a, string b) => AuthlibEndpoint.Same(a, b);
     internal static bool SameCharacter(SkinSiteCharacter a, SkinSiteCharacter b) =>
@@ -170,7 +169,7 @@ internal static class GlassSkinSites
     internal static void Deactivate() { lock (StoreGate) Settings.Set("LfSkinSiteActive", 0); }
 
     internal static async Task<ModLaunch.McLoginResult> LoginForLaunch(SkinSiteCharacter requested, Func<bool> canceled) {
-        var character = CurrentForLaunch(ModMinecraft.McInstanceSelected);
+        var character = CurrentForLaunch();
         if (character is null || !SameCharacter(character, requested)) throw new SkinSiteException("外置登录角色已改变，请重新启动。");
         if (canceled()) throw new OperationCanceledException();
         string previousAccess = character.Account.AccessToken, previousClient = character.Account.ClientToken;

@@ -25,9 +25,11 @@ internal static class LegacyFoundationTests {
         Assert(Request(caption => caption == "Plain Craft Launcher　" ? new IntPtr(17) : IntPtr.Zero), "official caption activation");
         Assert(order.SequenceEqual(new[] { "queue", "foreground" }) && pauses == 0, "queue before foreground");
         order.Clear();
+        Assert(Request(caption => caption == "PCL Living Fork" ? new IntPtr(17) : IntPtr.Zero), "modern display caption activation");
+        order.Clear();
         Assert(Request(caption => pauses == 2 && caption == "LivingPCL　" ? new IntPtr(17) : IntPtr.Zero) && pauses == 2, "delayed LF caption retry");
         order.Clear(); pauses = 0;
-        Assert(!Request(_ => { searches++; return IntPtr.Zero; }) && searches == 30 && pauses == 9 && order.Count == 0, "missing window bounds");
+        Assert(!Request(_ => { searches++; return IntPtr.Zero; }) && searches == 40 && pauses == 9 && order.Count == 0, "missing window bounds");
         Assert(!Request(_ => new IntPtr(17), (_, _) => false) && order.SequenceEqual(new[] { "foreground" }), "failed post still requests foreground and reports false");
         var expected = new InvalidOperationException("lookup failure");
         try { Request(_ => throw expected); throw new Exception("Expected lookup failure"); }

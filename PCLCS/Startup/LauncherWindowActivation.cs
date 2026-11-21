@@ -14,6 +14,7 @@ namespace PCLCS.Startup;
 // stays compatible; CE is not a replacement implementation for this LF helper.
 // This startup path deliberately depends only on BCL/Win32, before settings/logs.
 public static class LauncherWindowActivation {
+    public const string ModernCaption = "PCL Living Fork";
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern IntPtr FindWindowW(string? className, string windowName);
     [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
@@ -28,7 +29,7 @@ public static class LauncherWindowActivation {
     public static bool RequestActivation(Func<string, IntPtr> lookup, Func<IntPtr, uint, bool> queue,
             Action<IntPtr> foreground, Action<int> pause) {
         for (int attempt = 0; attempt <= 9; attempt++) {
-            foreach (string caption in new[] { "LivingPCL　", "Plain Craft Launcher　", "Plain Craft Launcher 2　" }) {
+            foreach (string caption in new[] { ModernCaption, "LivingPCL　", "Plain Craft Launcher　", "Plain Craft Launcher 2　" }) {
                 IntPtr window = lookup(caption);
                 if (window == IntPtr.Zero) continue;
                 bool queued = queue(window, 6402U);

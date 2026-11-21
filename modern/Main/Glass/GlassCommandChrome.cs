@@ -48,7 +48,9 @@ internal static class GlassCommandChrome {
     internal static readonly ComponentResourceKey ContrastHighlightKey = new(typeof(GlassCommandChrome), "NativeContrastHighlight");
     internal static readonly ComponentResourceKey ContrastHighlightTextKey = new(typeof(GlassCommandChrome), "NativeContrastHighlightText");
     private static readonly Style LightButton = BuildButton(true, false), DarkButton = BuildButton(false, false), ContrastButton = BuildButton(false, true);
+    private static readonly Style LightFloatingButton = BuildButton(true, false, floating: true), DarkFloatingButton = BuildButton(false, false, floating: true);
     internal static Style ButtonStyle(bool darkText) => SystemParameters.HighContrast ? ContrastButton : darkText ? LightButton : DarkButton;
+    internal static Style FloatingButtonStyle(bool darkText) => SystemParameters.HighContrast ? ContrastButton : darkText ? LightFloatingButton : DarkFloatingButton;
     internal static void RefreshContrastResources(ResourceDictionary resources) {
         // Legacy theme code shadows public SystemColors keys in Application.Resources.
         // Private keys retain live native system colors without changing that engine.
@@ -84,17 +86,11 @@ internal static class GlassCommandChrome {
     }
     internal static FrameworkElementFactory PopupRoot(FrameworkElementFactory content, bool darkText, double radius, Thickness padding, bool allowDesktopBackdrop = false) {
         var root = new FrameworkElementFactory(typeof(Grid));
-        if (allowDesktopBackdrop) {
-            root.SetValue(GlassPopupBackdrop.EnableProperty, true);
-            root.SetValue(GlassPopupBackdrop.CornerRadiusProperty, radius);
-        } else {
-            root.SetValue(WallpaperPopupContext.EnableProperty, true);
-            root.SetValue(WallpaperPopupContext.CornerRadiusProperty, radius);
-        }
+        root.SetValue(GlassPopupBackdrop.EnableProperty, true);
+        root.SetValue(GlassPopupBackdrop.CornerRadiusProperty, radius);
         root.SetValue(GlassMaterial.FallbackColorProperty, darkText ? Color.FromRgb(246, 248, 252) : Color.FromRgb(32, 32, 32));
         var surface = new FrameworkElementFactory(typeof(GlassSurface));
         surface.SetValue(GlassSurface.CornerRadiusProperty, new CornerRadius(radius));
-        surface.SetValue(GlassSurface.ExtendWallpaperProperty, true);
         // Light enough a tint that the sampled wallpaper blur reads through (a frosted pane, not a solid card).
         surface.SetValue(GlassSurface.BackgroundProperty, Brush(darkText ? "#C8F6F8FC" : "#B0202020"));
         surface.SetValue(GlassSurface.BorderBrushProperty, Brush(darkText ? "#24172330" : "#20FFFFFF"));
@@ -147,9 +143,12 @@ internal static class GlassCommandChrome {
         }
     }
     internal static ToolTip ToolTip(FrameworkElement owner, bool darkText) => new() { PlacementTarget = owner, Style = ToolTipStyle(darkText) };
-    private static Style BuildButton(bool darkText, bool highContrast) {
+    private static Style BuildButton(bool darkText, bool highContrast) => BuildButton(darkText, highContrast, floating: false);
+    private static Style BuildButton(bool darkText, bool highContrast, bool floating) {
         var style = new Style(typeof(GlassCommandButton));
-        style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(darkText ? "#EAF2F4F8" : "#D9232B38")));
+        bool sceneFill = floating && !darkText;
+        Brush fill = floating && darkText ? Brushes.Transparent : Brush(sceneFill ? "#78202020" : darkText ? "#EAF2F4F8" : "#D9232B38");
+        style.Setters.Add(new Setter(Control.BackgroundProperty, fill));
         style.Setters.Add(new Setter(Control.ForegroundProperty, Brush(darkText ? "#EF25333C" : "#F5FFFFFF")));
         style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(darkText ? "#24172330" : "#20FFFFFF")));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(.7)));
@@ -168,7 +167,9 @@ internal static class GlassCommandChrome {
         chrome.SetBinding(Border.CornerRadiusProperty, new Binding(nameof(GlassCommandButton.ShapeRadius)) {
             RelativeSource = RelativeSource.TemplatedParent, Converter = RadiusConverter.Instance
         });
-        chrome.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        // Dark floating actions bind the fill above their own scene sample.
+        if (sceneFill) chrome.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        else chrome.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         chrome.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
         chrome.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
         chrome.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
@@ -178,10 +179,13 @@ internal static class GlassCommandChrome {
         content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
         chrome.AppendChild(content);
         style.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(GlassCommandButton)) { VisualTree = chrome }));
-        foreach (var (property, background) in new[] { (UIElement.IsMouseOverProperty, darkText ? "#FFF8FAFD" : "#F5323E50"), (Button.IsPressedProperty, darkText ? "#FFE3E9F1" : "#FF283445"), (UIElement.IsKeyboardFocusedProperty, darkText ? "#FFF3F6FB" : "#F5323E50") }) {
+        var fills = sceneFill
+            ? new[] { (UIElement.IsMouseOverProperty, "#96525252"), (UIElement.IsKeyboardFocusedProperty, "#96525252"), (Button.IsPressedProperty, "#B81C1C1C") }
+            : new[] { (UIElement.IsMouseOverProperty, darkText ? "#FFF8FAFD" : "#F5323E50"), (Button.IsPressedProperty, darkText ? "#FFE3E9F1" : "#FF283445"), (UIElement.IsKeyboardFocusedProperty, darkText ? "#FFF3F6FB" : "#F5323E50") };
+        foreach (var (property, background) in fills) {
             var trigger = new Trigger { Property = property, Value = true };
             trigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush(background)));
-            trigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(darkText ? "#655C7FAE" : "#707EA5DA")));
+            trigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(sceneFill ? "#55FFFFFF" : darkText ? "#655C7FAE" : "#707EA5DA")));
             if (highContrast) {
                 trigger.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension(ContrastHighlightKey)));
                 trigger.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension(ContrastHighlightTextKey)));

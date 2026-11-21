@@ -55,6 +55,8 @@ public static class GlassMaterial {
     public static void SetWallpaperStretch(DependencyObject element, Stretch value) => element.SetValue(WallpaperStretchProperty, value);
     public static bool GetIsEnabled(DependencyObject element) => (bool)element.GetValue(IsEnabledProperty);
     public static void SetIsEnabled(DependencyObject element, bool value) => element.SetValue(IsEnabledProperty, value);
+    public static bool AllowsTransparency(DependencyObject element) =>
+        GetIsEnabled(element) && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled;
     public static double GetOpacityMultiplier(DependencyObject element) => (double)element.GetValue(OpacityMultiplierProperty);
     public static void SetOpacityMultiplier(DependencyObject element, double value) => element.SetValue(OpacityMultiplierProperty, value);
     public static Color GetFallbackColor(DependencyObject element) => (Color)element.GetValue(FallbackColorProperty);

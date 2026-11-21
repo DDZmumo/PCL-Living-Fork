@@ -172,7 +172,7 @@
                             <ColumnDefinition Width="1*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -180,8 +180,8 @@
                             <RowDefinition Height="28" />
                             <RowDefinition Height="3" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="登录方式" Margin="0,0,25,0" />
-                        <local:MyComboBox x:Name="ComboServerLogin" Grid.Row="0" Grid.ColumnSpan="2" Grid.Column="1">
+                        <TextBlock Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="登录方式" Margin="0,0,25,0" Visibility="Collapsed" />
+                        <local:MyComboBox x:Name="ComboServerLogin" Grid.Row="0" Grid.ColumnSpan="2" Grid.Column="1" Visibility="Collapsed">
                             <local:MyComboBoxItem Content="正版登录或离线登录" IsSelected="True" />
                             <local:MyComboBoxItem Content="仅正版登录" />
                             <local:MyComboBoxItem Content="仅离线登录" />
@@ -223,14 +223,14 @@
                             </local:MyTextBox.ValidateRules>
                         </local:MyTextBox>
                     </Grid>
-                    <Grid Height="35" Name="PanServerNide" Margin="0,12,0,0">
+                    <Grid Height="35" Name="PanServerNide" Margin="0,12,0,0" Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                         </Grid.ColumnDefinitions>
                         <local:MyButton Grid.Column="0" MinWidth="140" Text="服主后台" Padding="13,0" Margin="0,0,20,0" HorizontalAlignment="Left" ColorType="Highlight"
                                         local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://login.mc-user.com:233/server/intro" />
                     </Grid>
-                    <local:MyButton x:Name="BtnServerAuthLittle" Height="35" MinWidth="150" Margin="0,12,0,0" Text="设置为 LittleSkin" HorizontalAlignment="Left" ColorType="Highlight" />
+                    <local:MyButton x:Name="BtnServerAuthLittle" Height="35" MinWidth="150" Margin="0,12,0,0" Text="设置为 LittleSkin" HorizontalAlignment="Left" ColorType="Highlight" Visibility="Collapsed" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard x:Name="CardAdvance" Margin="0,0,0,15" Title="高级选项" IsSwapped="True" CanSwap="True">

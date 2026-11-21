@@ -120,20 +120,17 @@ public static class LauncherApplicationServices {
     private static AccountApplicationSnapshot ReadAccount() {
         AccountProvider provider = CurrentProvider();
         ModLoader.LoaderBase task = IsTaskActive(AccountOwner.Runtime.Login) ? AccountOwner.Runtime.Login : ProviderTask(provider);
-        if (provider == AccountProvider.Auth && GlassSkinSites.CurrentForLaunch(ModMinecraft.McInstanceSelected) is { } character)
-            return new(provider, character.Profile.Name, ReadTask(task), true);
+        if (provider == AccountProvider.Auth) {
+            var character = GlassSkinSites.CurrentForLaunch();
+            return new(provider, character?.Profile.Name, ReadTask(task), character is not null);
+        }
         string? marker = provider switch {
-            AccountProvider.Microsoft => "CacheMsV2OAuthRefresh", AccountProvider.Auth => "CacheAuthAccess",
+            AccountProvider.Microsoft => "CacheMsV2OAuthRefresh",
             AccountProvider.Nide => "CacheNideAccess", _ => null
         };
         bool authenticated = marker is not null && !string.IsNullOrEmpty(Settings.Get<string>(marker));
-        if (authenticated && provider == AccountProvider.Auth) {
-            var instance = ModMinecraft.McInstanceSelected;
-            string server = instance is null ? Settings.Get<string>("CacheAuthServerServer") : Settings.Get<string>("VersionServerAuthServer", instance);
-            authenticated = PCLCS.AuthlibEndpoint.Same(PCLCS.AuthlibEndpoint.ForServer(server), Settings.Get<string>(PCLCS.AuthlibEndpoint.CredentialServerSetting));
-        }
         string nameKey = provider switch {
-            AccountProvider.Microsoft => "CacheMsV2Name", AccountProvider.Auth => "CacheAuthName",
+            AccountProvider.Microsoft => "CacheMsV2Name",
             AccountProvider.Nide => "CacheNideName", _ => "LoginLegacyName"
         };
         string? name = Settings.Get<string>(nameKey);

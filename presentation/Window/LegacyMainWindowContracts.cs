@@ -155,6 +155,7 @@ public sealed class LegacyMainWindowHost<TStack, TInstance, TAnimation>
     public Func<TInstance, bool> InstanceLocked = null!;
     public Func<TInstance?, bool> InstanceBlocksNavigation = null!;
     public Action<string, object?, TInstance> WriteInstanceSetting = null!;
+    public bool UsesGlobalAccounts;
     public Func<string, string?> ValidateHttp = null!;
     public Action ReloadInstanceSetup = null!, RefreshLaunchPage = null!, RefreshCustomHome = null!;
     public Func<List<string>, bool> InstallMods = null!;

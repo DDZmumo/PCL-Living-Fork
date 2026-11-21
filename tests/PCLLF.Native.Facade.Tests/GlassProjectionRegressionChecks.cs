@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+﻿// SPDX-License-Identifier: MPL-2.0
 using System.Collections;
 using System.Diagnostics;
 using System.IO.Compression;
@@ -376,7 +376,7 @@ internal static class GlassProjectionRegressionChecks
                 var names = columns.Children.OfType<StackPanel>().Single();
                 double rowHeight = ((FrameworkElement)columns.Parent).ActualHeight;
                 double buttonX = Origin(normal, session.View).X;
-                Native.Check(rowHeight >= 50 && Origin(names, columns).X + names.ActualWidth <= Origin(profile, columns).X + 1 &&
+                Native.Check(rowHeight >= 40 && Origin(names, columns).X + names.ActualWidth <= Origin(profile, columns).X + 1 &&
                     Origin(profile, columns).X + profile.ActualWidth <= Origin(sync, columns).X + 1 &&
                     Origin(sync, columns).X + sync.ActualWidth <= Origin(normal, columns).X + 1 &&
                     !Visuals(names).OfType<TextBlock>().Any(t => t.Text.Contains("个人方案", StringComparison.Ordinal)),

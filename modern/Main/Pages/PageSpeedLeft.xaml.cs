@@ -56,6 +56,8 @@ namespace PCL
 
         // 定时器任务
         private readonly Dictionary<ModLoader.LoaderBase, MyCard> RightCards;
+        internal double OverallProgress { get; private set; } = 1;
+        internal bool HasActiveTasks { get; private set; }
 
         internal IEnumerable<ModLoader.LoaderBase> FailedTasks() =>
             RightCards.Keys.Concat(MmcImportCards.Keys).Where(loader => loader.State == ModBase.LoadState.Failed);
@@ -78,6 +80,8 @@ namespace PCL
                 if (!ModLoader.LoaderTaskbar.Any())
                 {
                     // 无任务
+                    OverallProgress = 1;
+                    HasActiveTasks = false;
                     this.LabProgress.Text = "100 %";
                     this.LabSpeed.Text = "0 B/s";
                     FileRates.Reset(); this.LabReadSpeed.Text = this.LabWriteSpeed.Text = "0 B/s";
@@ -89,6 +93,8 @@ namespace PCL
                     // 有任务，输出基本信息
                     var Tasks = ModLoader.LoaderTaskbar.Where(l => l.Show).ToList(); // 筛选掉启动 MC 的任务（#6270）
                     double RawPercent = Tasks.Any() ? Tasks.Select(l => l.Progress).Average().Clamp(0d, 1d) : 1d;
+                    OverallProgress = RawPercent;
+                    HasActiveTasks = Tasks.Any(loader => loader.State is ModBase.LoadState.Loading or ModBase.LoadState.Waiting);
                     string PredictText = Math.Floor(RawPercent * 100d) + "." + Math.Floor((RawPercent * 100d - Math.Floor(RawPercent * 100d)) * 100d).ToString().EnsureLength('0', 2) + " %";
                     this.LabProgress.Text = RawPercent > 0.999999d ? "100 %" : PredictText;
                     this.LabSpeed.Text = StringUtils.FormatByteSize(ModNet.NetManager.Speed) + "/s";

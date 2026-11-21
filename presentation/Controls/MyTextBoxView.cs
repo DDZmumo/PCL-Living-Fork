@@ -24,8 +24,9 @@ public class MyTextBoxView : TextBox {
     private TextBlock? hint;
     private TextBlock? Hint { get { if (Template is null) return null; return hint ??= (TextBlock?)Template.FindName("labHint", this); } }
     public override void OnApplyTemplate() {
-        base.OnApplyTemplate(); if (Same(HintText, "") || !Same(Hint!.Text, "")) return;
-        Hint.Text = Same(Text, "") ? HintText : "";
+        base.OnApplyTemplate();
+        wrong = hint = null;
+        if (!Same(HintText, "")) RefreshHint();
     }
     public int Uuid;
     public static event EventHandler? ValidateChanged;
@@ -52,6 +53,7 @@ public class MyTextBoxView : TextBox {
     public MyTextBoxView() {
         Uuid = Services.NewUuid();
         Loaded += (_, _) => Validate(); TextChanged += (sender, args) => TextChangedHandler((MyTextBoxView)sender, args);
+        IsKeyboardFocusWithinChanged += (_, _) => RefreshHint();
         IsEnabledChanged += (_, _) => RefreshColor(); MouseEnter += (_, _) => RefreshColor(); MouseLeave += (_, _) => RefreshColor();
         GotFocus += (_, _) => RefreshColor(); LostFocus += (_, _) => RefreshColor(); IsEnabledChanged += (_, _) => RefreshTextColor();
         KeyUp += (_, args) => { if (args.Key == Key.Enter) Services.RaiseCustomEvent(this); };
@@ -110,10 +112,13 @@ public class MyTextBoxView : TextBox {
     private bool isTextChanged;
     public string HintText { get => (string)GetValue(HintTextProperty); set => SetValue(HintTextProperty, value); }
     public static readonly DependencyProperty HintTextProperty = DependencyProperty.Register(nameof(HintText), typeof(string), typeof(MyTextBoxView),
-        new PropertyMetadata("", (sender, _) => { MyTextBoxView view = (MyTextBoxView)sender; if (view.Hint is not null) view.Hint.Text = Same(view.Text, "") ? view.HintText : ""; }));
+        new PropertyMetadata("", (sender, _) => ((MyTextBoxView)sender).RefreshHint()));
+    private void RefreshHint() {
+        if (Hint is { } label) label.Text = !IsKeyboardFocusWithin && Same(Text, "") ? HintText : "";
+    }
     private void TextChangedHandler(MyTextBoxView sender, TextChangedEventArgs args) {
         try {
-            if (Hint is not null) Hint.Text = Same(Text, "") ? HintText : "";
+            RefreshHint();
             isTextChanged = IsLoaded; Validate(); if (!IsValidated) return; RaiseValidatedTextChanged(sender, args);
         } catch (Exception error) { ReportError(error, "进行输入验证时出错"); }
     }

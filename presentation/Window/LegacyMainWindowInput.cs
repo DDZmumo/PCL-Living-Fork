@@ -77,6 +77,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
                     string text = Conversions.ToString(args.Data.GetData(DataFormats.Text))!; Logger.Info($"接受文本拖拽：{text}");
                     if (text.StartsWithF("authlib-injector:yggdrasil-server:")) {
                         args.Handled = true; args.Effects = DragDropEffects.Copy;
+                        if (host.UsesGlobalAccounts) { Hint("请在账号页的外置登录中添加验证服务器。", LegacyMainHint.Red); return; }
                         string server = StringUtils.FormUrlUnescape(text.Substring("authlib-injector:yggdrasil-server:".Length)); Logger.Info($"Authlib 拖拽：{server}");
                         if (!string.IsNullOrEmpty(host.ValidateHttp(server))) { Hint($"输入的 Authlib 验证服务器不符合网址格式（{server}）！", LegacyMainHint.Red); return; }
                         TInstance? target = IsPage(PageCurrent, LegacyMainPage.InstanceSetup) ? host.SettingsInstance() : host.SelectedInstance();

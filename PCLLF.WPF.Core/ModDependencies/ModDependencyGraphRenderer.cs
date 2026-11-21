@@ -132,7 +132,7 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
         RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality); content.Children.Add(icon);
         StackPanel text = new() { VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = node.Title, FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Foreground = ModDependencyVisualTheme.Brush("ColorBrushTextSecondary") });
-        text.Children.Add(new TextBlock { Text = node.Condition, FontSize = 11, Foreground = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate),
+        text.Children.Add(new TextBlock { Tag = node, Text = node.Condition, FontSize = 11, Foreground = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate),
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), Visibility = SameText(node.Condition, "") ? Visibility.Collapsed : Visibility.Visible });
         Grid.SetColumn(text, 2); content.Children.Add(text); return content;
     }
@@ -182,10 +182,13 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
         double half = (target.X - from.X) / 2;
         if (down) figure.Segments.Add(new LineSegment(target, true));
         else figure.Segments.Add(new BezierSegment(new Point(from.X + (conflict ? 26 : half), from.Y), new Point(target.X + (conflict ? 26 : -half), target.Y), target, true));
-        System.Windows.Shapes.Path line = new() { Data = new PathGeometry(new[] { figure }), Stroke = Accent(conflict, possible), StrokeThickness = 1.5, IsHitTestVisible = false };
+        ModDependencyGraphRelation relation = conflict ? ModDependencyGraphRelation.Conflict :
+            possible ? ModDependencyGraphRelation.Candidate : ModDependencyGraphRelation.Confirmed;
+        Brush brush = Accent(conflict, possible);
+        System.Windows.Shapes.Path line = new() { Tag = relation, Data = new PathGeometry(new[] { figure }), Stroke = brush, StrokeThickness = 1.5, IsHitTestVisible = false };
         if (conflict || possible) line.StrokeDashArray = new DoubleCollection(new[] { 4.0, 3.0 });
         GraphCanvas.Children.Add(line);
         GraphCanvas.Children.Add(new Polygon { Points = new PointCollection(down ? new[] { target, new Point(target.X - 4, target.Y - 6), new Point(target.X + 4, target.Y - 6) } : new[] { target, new Point(target.X + (conflict ? 6 : -6), target.Y - 4), new Point(target.X + (conflict ? 6 : -6), target.Y + 4) }),
-            Fill = Accent(conflict, possible), IsHitTestVisible = false });
+            Tag = relation, Fill = brush, IsHitTestVisible = false });
     }
 }

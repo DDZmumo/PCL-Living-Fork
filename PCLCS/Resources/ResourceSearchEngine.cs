@@ -16,7 +16,8 @@ public sealed class ResourceSearchEngine<TProject, TResult>
     private List<ResourceSearchEntry<WikiEntry>>? curseForgeEntries, modrinthEntries;
     public ResourceSearchEngine(ResourceSearchHost<TProject> host) { this.host = host; }
 
-    public void Run(ResourceSearchRequestData<TProject, TResult> request, ResourceSearchTask task) {
+    public void Run(ResourceSearchRequestData<TProject, TResult> request, ResourceSearchTask task,
+        Action<IReadOnlyList<TProject>>? showAvailable = null) {
         TResult storage = request.Storage; // Capture the original storage even if another thread replaces request.Storage.
         if (storage.Results.Count >= request.TargetResultCount) {
             host.Info($"已有 {storage.Results.Count} 个结果，多于所需的 {request.TargetResultCount} 个结果，结束处理"); return;
@@ -64,15 +65,35 @@ public sealed class ResourceSearchEngine<TProject, TResult>
         }
         task.SetProgress(0.05);
         List<TProject> realResults = new();
+        int previewPublished = 0;
         while (true) {
             List<TProject> rawResults;
             List<Thread> workThreads = new();
             ConcurrentBag<(Exception Ex, ResourcePlatforms Source)> errors = new();
             bool ignoreModLoaderFilter = request.ModLoaders == ModLoaders.Forge && McVersion.VersionToDrop(request.GameVersion) < 140;
+            bool searchCurseForge = request.Sources.HasFlagF(ResourcePlatforms.CurseForge) &&
+                !(storage.CurseForgeTotal > -1 && storage.CurseForgeTotal <= storage.CurseForgeOffset) &&
+                (!isChineseSearch || !string.IsNullOrEmpty(curseForgeAltSearchText));
+            bool searchModrinth = request.Sources.HasFlagF(ResourcePlatforms.Modrinth) &&
+                !(storage.ModrinthTotal > -1 && storage.ModrinthTotal <= storage.ModrinthOffset) &&
+                (!isChineseSearch || !string.IsNullOrEmpty(modrinthAltSearchText));
+            bool getModrinth = request.Sources.HasFlagF(ResourcePlatforms.Modrinth) &&
+                !(storage.ModrinthTotal > -1 && storage.ModrinthTotal <= storage.ModrinthOffset) && modrinthSlugs.Count > 0;
+            bool preview = showAvailable is not null && realResults.Count == 0 && storage.Results.Count == 0 &&
+                (searchCurseForge && (searchModrinth || getModrinth) || searchModrinth && getModrinth);
             ConcurrentBag<TProject> searchResults = new();
             void AdvanceProgress() { if (task.Progress() < 0.75) task.SetProgress(task.Progress() + 0.25); }
+            void PublishAvailable(List<TProject> projects) {
+                if (!preview || projects.Count == 0 || task.IsCanceled()) return;
+                var candidates = projects.Where(p => !ignoreModLoaderFilter || p.ModLoaders == ModLoaders.None || p.ModLoaders.HasFlagF(ModLoaders.Forge)).ToList();
+                if (candidates.Count == 0 || Interlocked.CompareExchange(ref previewPublished, 1, 0) != 0) return;
+                try {
+                    var ranked = Rank(candidates.Distinct((a, b) => a.IsLike(b)), request.Type, rawSearchText, isChineseSearch).Take(request.TargetResultCount).ToArray();
+                    if (!task.IsCanceled()) showAvailable!(ranked);
+                } catch (Exception error) { host.Warn(error, "无法显示先返回的搜索结果"); }
+            }
             try {
-                if (request.Sources.HasFlagF(ResourcePlatforms.CurseForge) && !(storage.CurseForgeTotal > -1 && storage.CurseForgeTotal <= storage.CurseForgeOffset) && (!isChineseSearch || !string.IsNullOrEmpty(curseForgeAltSearchText))) {
+                if (searchCurseForge) {
                     workThreads.Add(host.StartThread(() => {
                         try {
                             string url = request.GetCurseForgeAddress(curseForgeAltSearchText ?? rawSearchText, ignoreModLoaderFilter);
@@ -89,11 +110,12 @@ public sealed class ResourceSearchEngine<TProject, TResult>
                             storage.CurseForgeOffset += result["data"]!.Count();
                             storage.CurseForgeTotal = result["pagination"]!["totalCount"]!.ToObject<int>();
                             host.Info($"从 CurseForge 搜索到了 {projects.Count} 个工程（总计已获取 {storage.CurseForgeOffset} 个，共 {storage.CurseForgeTotal} 个）");
+                            PublishAvailable(projects);
                         } catch (Exception ex) { host.Warn(ex, "CurseForge 搜索失败"); storage.CurseForgeTotal = -1; errors.Add((ex, ResourcePlatforms.CurseForge)); }
                         AdvanceProgress();
                     }, "CurseForge Search"));
                 }
-                if (request.Sources.HasFlagF(ResourcePlatforms.Modrinth) && !(storage.ModrinthTotal > -1 && storage.ModrinthTotal <= storage.ModrinthOffset) && (!isChineseSearch || !string.IsNullOrEmpty(modrinthAltSearchText))) {
+                if (searchModrinth) {
                     workThreads.Add(host.StartThread(() => {
                         try {
                             string url = request.GetModrinthAddress(modrinthAltSearchText ?? rawSearchText, ignoreModLoaderFilter);
@@ -105,11 +127,12 @@ public sealed class ResourceSearchEngine<TProject, TResult>
                             storage.ModrinthOffset += result["hits"]!.Count();
                             storage.ModrinthTotal = result["total_hits"]!.ToObject<int>();
                             host.Info($"从 Modrinth 搜索到了 {projects.Count} 个工程（总计已获取 {storage.ModrinthOffset} 个，共 {storage.ModrinthTotal} 个）");
+                            PublishAvailable(projects);
                         } catch (Exception ex) { host.Warn(ex, "Modrinth 搜索失败"); storage.ModrinthTotal = -1; errors.Add((ex, ResourcePlatforms.Modrinth)); }
                         AdvanceProgress();
                     }, "Modrinth Search"));
                 }
-                if (request.Sources.HasFlagF(ResourcePlatforms.Modrinth) && !(storage.ModrinthTotal > -1 && storage.ModrinthTotal <= storage.ModrinthOffset) && modrinthSlugs.Any()) {
+                if (getModrinth) {
                     workThreads.Add(host.StartThread(() => {
                         try {
                             string url = "https://api.modrinth.com/v2/projects?ids=[\"" + string.Join("\",\"", modrinthSlugs) + "\"]";
@@ -137,6 +160,7 @@ public sealed class ResourceSearchEngine<TProject, TResult>
                             projects.ForEach(p => searchResults.Add(p));
                             host.Info($"从 Modrinth 直接获取到了 {projects.Count} 个工程");
                             modrinthSlugs.Clear();
+                            PublishAvailable(projects);
                         } catch (Exception ex) { host.Warn(ex, "Modrinth 直接获取失败"); errors.Add((ex, ResourcePlatforms.Modrinth)); }
                         AdvanceProgress();
                     }, "Modrinth Get"));
@@ -171,28 +195,33 @@ public sealed class ResourceSearchEngine<TProject, TResult>
             }
             break;
         }
+        TProject[] ranked = Rank(realResults, request.Type, rawSearchText, isChineseSearch).ToArray();
+        if (task.IsCanceled()) throw new OperationCanceledException();
+        storage.Results.AddRange(ranked);
+    }
+
+    private static IEnumerable<TProject> Rank(IEnumerable<TProject> projects, ResourceTypes type, string query, bool isChineseSearch) {
         Dictionary<TProject, double> scores = new();
-        double DownloadMultiplier(TProject project) => request.Type switch {
+        double DownloadMultiplier(TProject project) => type switch {
             ResourceTypes.Mod or ResourceTypes.ModPack => project.Platform == ResourcePlatforms.CurseForge ? 1 : 5,
             ResourceTypes.DataPack => project.Platform == ResourcePlatforms.CurseForge ? 10 : 1,
             ResourceTypes.ResourcePack or ResourceTypes.Shader => project.Platform == ResourcePlatforms.CurseForge ? 1 : 4,
             _ => 1
         };
-        if (string.IsNullOrEmpty(rawSearchText)) {
-            foreach (TProject result in realResults) scores[result] = result.DownloadCount * DownloadMultiplier(result);
+        if (string.IsNullOrEmpty(query)) {
+            foreach (TProject result in projects) scores[result] = result.DownloadCount * DownloadMultiplier(result);
         } else {
             List<ResourceSearchEntry<TProject>> entries = new();
-            foreach (TProject result in realResults) {
+            foreach (TProject result in projects) {
                 scores[result] = (result.WikiId > 0 ? 0.2 : 0) + Math.Log10(Math.Max(result.DownloadCount, 1) * DownloadMultiplier(result)) / 9;
                 entries.Add(new ResourceSearchEntry<TProject> { Item = result, Sources = new() {
                     new ResourceSearchSource((isChineseSearch ? result.TranslatedName : result.RawName)!.Split('/', true), 1),
                     new ResourceSearchSource(result.Description!, 0.05)
                 } });
             }
-            var searchResults = ResourceSearchMatching.Search(entries, rawSearchText, 10000, -1);
+            var searchResults = ResourceSearchMatching.Search(entries, query, 10000, -1);
             foreach (var result in searchResults) scores[result.Item] += (result.AbsoluteRight ? 10 : result.Similarity) / (searchResults.First().AbsoluteRight ? 10 : searchResults.First().Similarity);
         }
-        if (task.IsCanceled()) throw new OperationCanceledException();
-        storage.Results.AddRange(scores.OrderByDescending(s => s.Value).Select(r => r.Key));
+        return scores.OrderByDescending(s => s.Value).Select(r => r.Key);
     }
 }

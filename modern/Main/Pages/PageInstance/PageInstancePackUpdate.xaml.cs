@@ -73,8 +73,10 @@ public partial class PageInstancePackUpdate : IRefreshable {
             await Dispatcher.InvokeAsync(() => {
             if (current != revision || !Current()) return;
             record = data;
-            LabName.Text = record?["name"]?.ToString() ?? owner.Name;
+            string recordedName = record?["name"]?.ToString();
             LabVersion.Text = record?["version"]?.ToString() ?? "未记录整合包版本";
+            // Some platforms record the version as the name; show the instance's name then rather than the version twice.
+            LabName.Text = string.IsNullOrWhiteSpace(recordedName) || recordedName == LabVersion.Text ? owner.Name : recordedName;
             var source = record?["source"] as JObject;
             LabSource.Text = (source?["platform"]?.ToString() ?? "本地整合包") + (record?["minecraft"] is null ? "" : " · Minecraft " + record["minecraft"]);
             BtnOnline.IsEnabled = source is not null;

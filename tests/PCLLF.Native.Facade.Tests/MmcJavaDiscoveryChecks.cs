@@ -83,9 +83,9 @@ internal static class MmcJavaDiscoveryChecks {
             string pending=Path.Combine(unknown.Version,"PCL","MmcImportPending.json"); File.WriteAllText(pending,"owned pending marker");
             Controller().UpdateJavaUi(); Native.Check(Hint().Contains("未完成",StringComparison.Ordinal),"Pending MMC ownership did not show a diagnosis."); File.Delete(pending);
             Native.Cache("LoginType",ModLaunch.McLoginType.Nide);
-            foreach(int mode in new[] { 0,2 }) {
+            foreach(int mode in new[] { 0,2,3,4 }) {
                 Preferences(unknown.Owner,new() { ["VersionServerLogin"]=mode.ToString() });
-                var type=(ModLaunch.McLoginType)Native.Static("PCL.MmcJavaDiscovery","LoginType",unknown.Owner)!;
+                var type=(ModLaunch.McLoginType)Native.Static("PCL.MmcJavaDiscovery","LoginType")!;
                 var constraints=Native.Static("PCL.MmcLaunchAuthentication","JavaRequirementsForType",type)!;
                 Native.Check(((ImmutableArray<MmcJavaConstraint>)Native.Property(constraints.GetType(),"Majors").GetValue(constraints)!).IsEmpty &&
                     Native.Property(constraints.GetType(),"MinimumVersion").GetValue(constraints) is null,"Viewing ordinary/offline B inherited selected A's global Nide floor.");

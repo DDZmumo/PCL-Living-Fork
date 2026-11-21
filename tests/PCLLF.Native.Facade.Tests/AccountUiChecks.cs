@@ -39,7 +39,7 @@ internal static class AccountUiChecks
                 ReferenceEquals(Part<MyRadioButton>(launch, "RadioLoginType0").Parent, providerPanel),
                 "New account elements must not reparent or display the original provider controls.");
         }
-        scope.SetCache("LoginPageType", 1);
+        Part<MyRadioButton>(launch, "RadioLoginType5").Checked = true;
         launch.RefreshPage(false, false);
         PageLoginMs page = scope.Current<PageLoginMs>();
         scope.VerifyController(page);
@@ -140,7 +140,7 @@ internal static class AccountUiChecks
     private static void CheckAvatars(FixtureEnvironment environment, PageLaunchLeft launch, MySkin skin, string name, string uuid) {
         var oldAvatar = new DrawingImage(new GeometryDrawing(Brushes.Red, null, new RectangleGeometry(new Rect(0, 0, 32, 32))));
         oldAvatar.Freeze();
-        var view = new GlassLauncherView();
+        using var view = new GlassLauncherView();
         view.SetState(new GlassLauncherViewState { AccountName = "FixtureA", AccountAvatar = oldAvatar });
         Type workspaceType = Native.Type("PCL.GlassAccountWorkspace");
         var constructor = workspaceType.GetConstructor(Native.Flags, null, [typeof(PageLaunchLeft), typeof(GlassLauncherView)], null)!;
@@ -186,6 +186,17 @@ internal static class AccountUiChecks
             Native.Check(Part<Image>(view, "AccountAvatarImage").Source is null && Part<TextBlock>(view, "AccountFallbackGlyph").Text == "?",
                 "The signed-out rail displayed a Minecraft avatar.");
             SavedSiteWaitsForChoice(view, workspace, workspaceType, confirmed);
+            var types = (Panel)Native.Get(workspace, "_types")!;
+            Native.Check(types.Children.OfType<Button>().Count() == 3 &&
+                types.Children.OfType<Button>().Any(button => AutomationProperties.GetName(button) == "外置登录"),
+                "The global account workspace did not offer all three login methods.");
+            Native.Call(workspaceType, "OpenSiteForm", workspace, new object?[] { null });
+            var form = (Panel)Native.Get(workspace, "_stageCurrent")!;
+            var remember = form.Children.OfType<CheckBox>().Single();
+            Native.Check(Equals(remember.Content, "记住密码") && remember.IsChecked == false &&
+                ReferenceEquals(remember.Style, view.FindResource("GlassCheckBox")),
+                "The external-login checkbox lost the workspace style or its opt-in default.");
+            SiteFormTransitions(view, workspaceType, workspace);
         } finally {
             skin.Loader.Input = previousInput;
             skin.Clear();
@@ -197,6 +208,43 @@ internal static class AccountUiChecks
             var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
             converted.CopyPixels(new Int32Rect(70, 70, 1, 1), bytes, 4, 0);
             return bytes;
+        }
+    }
+
+    private static void SiteFormTransitions(GlassLauncherView view, Type workspaceType, object workspace) {
+        var window = new System.Windows.Window { Content = view, Width = 1080, Height = 680,
+            Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        try {
+            view.SetAccountWorkspace((FrameworkElement)Native.Property(workspaceType, "Side").GetValue(workspace)!,
+                (FrameworkElement)Native.Property(workspaceType, "Scene").GetValue(workspace)!);
+            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            view.SetAccountWorkspaceOpen(true, immediate: true);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var stage = (Panel)Native.Get(workspace, "_stage")!;
+
+            // Close while the outgoing server list is still a visual child. Hiding the workspace snaps the spring.
+            Native.Call(workspaceType, "OpenServers", workspace, true);
+            Native.Call(workspaceType, "OpenSiteForm", workspace, new object?[] { null });
+            if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
+                Native.Check(stage.Children.Count > 1, "No outgoing form was mounted when the account workspace was closed.");
+            view.SetAccountWorkspaceOpen(false, immediate: true);
+            VisualAssetChecks.Drain();
+            Native.Check(stage.Children.Count == 1 && ReferenceEquals(stage.Children[0], Native.Get(workspace, "_stageCurrent")),
+                "Closing during a side panel swap did not settle to the current panel.");
+
+            view.SetAccountWorkspaceOpen(true, immediate: true);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            var form = (Panel)Native.Get(workspace, "_stageCurrent")!;
+            var back = ((Grid)form.Children[0]).Children.OfType<Button>().Single();
+            Native.Check(AutomationProperties.GetName(back) == "返回外置登录服务器列表", "The add-server form lacks an accessible server-list back action.");
+            back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var servers = (Panel)Native.Get(workspace, "_stageCurrent")!;
+            Native.Check(Native.Get(workspace, "_sideMode")?.ToString() == "Servers" &&
+                ((Grid)servers.Children[0]).Children.OfType<Button>().Count() == 0,
+                "The form back button did not return to the external server list.");
+        } finally {
+            view.SetAccountWorkspace(null!, null!);
+            window.Content = null; window.Close(); VisualAssetChecks.Drain();
         }
     }
 

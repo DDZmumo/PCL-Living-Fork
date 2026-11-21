@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using MeloongCore;
 using PCL;
 using PCLCS;
@@ -21,7 +22,7 @@ internal static partial class MmcLaunchChecks {
             retained.RunAuthentication(); environment.AssertNoForbiddenIo();
             Native.Check(System.Windows.Application.Current.Windows.Count == 0, "MMC authentication replay opened a window.");
             File.WriteAllText(Path.Combine(environment.Root, Receipt), MainHash());
-            Console.WriteLine("PASS mmc-authentication: actual Main Authlib/Nide owned-agent argv and JVM premain, client prefetch, token-free persisted source, exact Nide Java constraint, source allowlist, changed settings refusal and cancellation/download drain. Self-authored JVM only; real account acceptance pending.");
+            Console.WriteLine("PASS mmc-authentication: global skin-site account, owned Authlib agent and JVM premain, client prefetch, token-free source, legacy requirement ignored, changed account refusal and cancellation/download drain.");
             Console.Out.Flush(); Console.Error.Flush(); using ManualResetEventSlim keepGuards = new(); keepGuards.Wait();
         } catch (Exception error) {
             retained?.StopOwnedChildren(); File.WriteAllText(Path.Combine(environment.Root, Receipt + ".failed"), error.ToString());
@@ -45,19 +46,24 @@ internal static partial class MmcLaunchChecks {
             network.RequestTempFolder = () => Path.Combine(root, "agent-network-work-" + Guid.NewGuid().ToString("N")) + Path.DirectorySeparatorChar;
             network.AppData = () => Path.Combine(root, "agent-app-data") + Path.DirectorySeparatorChar;
             network.MinecraftFolders = () => [game + Path.DirectorySeparatorChar];
+            const string expectedServer = "https://owned-auth.invalid/auth-server";
+            const string metadata = "{\"meta\":{\"serverName\":\"owned-synthetic-auth\"}}";
+            object runtime = Native.Field(typeof(ModNet), "NativeRuntime").GetValue(null)!;
+            object? previousClient = Native.Get(runtime, "requestClient");
+            using var metadataClient = new HttpClient(new MetadataResponse(metadata, expectedServer));
+            var legacyServers = Settings.Entries["VersionServerNide"].ValueCache;
             try {
                 AgentMetadataSources(helper);
-                byte[] auth = CompileAgent("auth"), nide = CompileAgent("nide");
-                string metadata = "{\"meta\":{\"serverName\":\"owned-synthetic-auth\"}}";
-                server.Add("/agent-auth", auth); server.Add("/agent-nide", nide); server.Add("/auth-server", Encoding.UTF8.GetBytes(metadata));
+                Native.Set(runtime, "requestClient", metadataClient);
+                byte[] auth = CompileAgent("auth");
+                string expectedHash = Convert.ToHexStringLower(SHA256.HashData(auth));
+                server.Add("/agent-auth", auth);
                 sourceProperty.SetValue(null, new Func<MmcRuntimeAuthenticationKind, string, CancellationToken, Task<(ImmutableArray<string>, string)>>((kind, _, token) => {
-                    token.ThrowIfCancellationRequested(); byte[] bytes = kind == MmcRuntimeAuthenticationKind.Nide ? nide : auth;
-                    string digest = Convert.ToHexStringLower(kind == MmcRuntimeAuthenticationKind.Nide ? MD5.HashData(bytes) : SHA256.HashData(bytes));
-                    return Task.FromResult<(ImmutableArray<string>, string)>(([server.Url(kind == MmcRuntimeAuthenticationKind.Nide ? "/agent-nide" : "/agent-auth")], digest));
+                    token.ThrowIfCancellationRequested();
+                    Native.Check(kind == MmcRuntimeAuthenticationKind.AuthlibInjector, "The global skin-site account used a legacy agent.");
+                    return Task.FromResult<(ImmutableArray<string>, string)>(([server.Url("/agent-auth")], expectedHash));
                 }));
                 byte[] before = File.ReadAllBytes(Path.Combine(version, "PCL", "InstanceDefinition.json"));
-                string expectedServer = server.Url("/auth-server"); string expectedHash = Convert.ToHexStringLower(SHA256.HashData(auth));
-                bool authMode = true;
                 Native.Property(typeof(MmcLaunch), "ProcessCreated").SetValue(null, new Action<Guid, Process>((id, process) => {
                     observer(id, process);
                     string token = process.StartInfo.ArgumentList.Single(value => value.StartsWith("-javaagent:", StringComparison.Ordinal));
@@ -67,34 +73,52 @@ internal static partial class MmcLaunchChecks {
                         actual.StartsWith(environment.Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
                         Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(actual))) == expectedHash,
                         "Actual Main JVM does not target its short owned adopted authentication execution copy.");
-                    if (authMode) Native.Check(process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.side=client") && process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.noLogFile=true") &&
+                    Native.Check(process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.side=client") && process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.noLogFile=true") &&
                         process.StartInfo.ArgumentList.Contains("-Dauthlibinjector.yggdrasil.prefetched=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(metadata))), "Actual Main omitted Authlib live metadata/client bindings.");
                 }));
-                ModLaunch.McLoginLoader.Output.Type = "Auth"; Settings.Set("VersionServerAuthServer", expectedServer, instance); instance.Config.Save();
+                SelectFixtureSkinSite(expectedServer);
+                ModLaunch.McLoginLoader.Output.Type = "Auth";
+                var selected = ModLaunch.McLoginLoader.Input;
                 ModLaunch.McLoginLoader.Input = new ModLaunch.McLoginServer(ModLaunch.McLoginType.Auth) { Token = "Auth", BaseUrl = server.Url("/different-site/authserver") };
                 try {
                     Native.Call(helper, "Capture", null, instance, ModLaunch.McLoginLoader.Output);
                     throw new IOException("MMC accepted an account bound to another authentication endpoint.");
                 } catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_CHANGED") { }
-                ModLaunch.McLoginLoader.Input = new ModLaunch.McLoginServer(ModLaunch.McLoginType.Auth) { Token = "Auth", BaseUrl = expectedServer + "/authserver" };
+                ModLaunch.McLoginLoader.Input = selected;
                 Launch("authentication-authlib", false, false);
                 Native.Check(!File.Exists(AgentExecutionPath(children[currentSession])), "Verified Authlib exit retained its mutable execution agent.");
                 CheckAgentLog(metadata, expectedServer);
-                authMode = false; expectedServer = "synthetic-nide-id"; expectedHash = Convert.ToHexStringLower(SHA256.HashData(nide));
-                Settings.Set("VersionServerNide", expectedServer, instance); ModLaunch.McLoginLoader.Output.Type = "Nide"; instance.Config.Save();
-                object captured = Native.Call(helper, "Capture", null, instance, ModLaunch.McLoginLoader.Output)!;
-                try { Native.Call(helper, "Revalidate", captured, instance, ModLaunch.McLoginLoader.Output, new Java(Path.GetDirectoryName(java8)!, new Version(8, 0, 140))); throw new IOException("Old Nide Java was accepted."); }
-                catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_JAVA") { }
-                Launch("authentication-nide", false, false); CheckAgentLog(null, expectedServer);
-                Native.Check(!File.Exists(AgentExecutionPath(children[currentSession])), "Verified Nide exit retained its mutable execution agent.");
+                legacyServers[instance.PathVersion] = "previous-instance-nide-id";
+                ModLaunch.McLoginLoader.Output.Type = "Nide";
+                try {
+                    Native.Call(helper, "Capture", null, instance, ModLaunch.McLoginLoader.Output);
+                    throw new IOException("The old per-instance Nide setting still granted a launch.");
+                } catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_SERVER") { }
+                ModLaunch.McLoginLoader.Output.Type = "Auth";
                 Native.Check(before.SequenceEqual(File.ReadAllBytes(Path.Combine(version, "PCL", "InstanceDefinition.json"))), "Authentication/account data altered persisted package sources or definition.");
-                ChangedAuthenticationSettings(helper, sourceProperty, nide);
+                ChangedAuthenticationSelection(sourceProperty, expectedHash);
+                SelectFixtureSkinSite(expectedServer);
                 CancelAgentPreparation(sourceProperty);
-                Native.Check(starts == 2 && forbidden == 0 && !MmcLaunch.HasActiveSessions, "Authentication fixture created an unapproved process or crossed ordinary launch.");
+                Native.Check(starts == 1 && forbidden == 0 && !MmcLaunch.HasActiveSessions, "Authentication fixture created an unapproved process or crossed ordinary launch.");
                 Until(() => watcherThreads.All(thread => !thread.IsAlive), "authentication watcher threads exit");
                 Native.Check(asyncErrors.IsEmpty, "Authentication watcher failed.");
                 InstanceConfigProviders.FlushAndDisposeWithin(root); server.Dispose(); client.Dispose(); environment.AssertNoForbiddenIo();
-            } finally { sourceProperty.SetValue(null, originalSource); Native.Property(typeof(MmcLaunch), "ProcessCreated").SetValue(null, observer); }
+            } finally {
+                Native.Cache("LfSkinSiteActive", 0);
+                legacyServers.TryRemove(instance.PathVersion, out _);
+                Native.Set(runtime, "requestClient", previousClient);
+                sourceProperty.SetValue(null, originalSource);
+                Native.Property(typeof(MmcLaunch), "ProcessCreated").SetValue(null, observer);
+            }
+        }
+        private static void SelectFixtureSkinSite(string address) {
+            const string id = "00000000000000000000000000000001", user = "owned-auth-fixture";
+            Native.Cache("LfSkinSites", JsonSerializer.Serialize(new[] { new { Server = address, Accounts = new[] {
+                new { Username = user, SelectedId = id, AccessToken = "fixture-site-token", Profiles = new[] { new { Id = id, Name = user } } }
+            } } }));
+            Native.Cache("LfSkinSiteSelection", JsonSerializer.Serialize(new { Server = address, Username = user, ProfileId = id }));
+            Native.Cache("LfSkinSiteActive", 1);
+            ModLaunch.McLoginLoader.Input = (ModLaunch.McLoginData)Native.Static("PCL.ModLaunch", "ReadLoginInput", (int)ModLaunch.McLoginType.Auth, true)!;
         }
         private static string AgentExecutionPath(Process child) {
             string token = child.StartInfo.ArgumentList.Single(value => value.StartsWith("-javaagent:", StringComparison.Ordinal));
@@ -108,11 +132,10 @@ internal static partial class MmcLaunchChecks {
             Native.Check(lines.All(line => !line.Contains(expectedServer, StringComparison.Ordinal) && !line.Contains(secret, StringComparison.Ordinal) &&
                 (encoded.Length == 0 || !line.Contains(encoded, StringComparison.Ordinal))), "Main Watcher retained live authentication/account values.");
         }
-        private void ChangedAuthenticationSettings(Type helper, System.Reflection.PropertyInfo sourceProperty, byte[] bytes) {
-            string hash = Convert.ToHexStringLower(MD5.HashData(bytes));
+        private void ChangedAuthenticationSelection(System.Reflection.PropertyInfo sourceProperty, string hash) {
             sourceProperty.SetValue(null, new Func<MmcRuntimeAuthenticationKind, string, CancellationToken, Task<(ImmutableArray<string>, string)>>((_, _, _) => {
-                Settings.Set("VersionServerNide", "changed-synthetic-id", instance);
-                return Task.FromResult<(ImmutableArray<string>, string)>(([server.Url("/agent-nide")], hash));
+                SelectFixtureSkinSite("https://other-owned-auth.invalid/auth-server");
+                return Task.FromResult<(ImmutableArray<string>, string)>(([server.Url("/agent-auth")], hash));
             }));
             RunWithoutChild("authentication-setting-change", () => { }, () => Native.Check(plan.State == ModBase.LoadState.Failed && plan.Error?.ToString().Contains("认证方式或服务器设置", StringComparison.Ordinal) == true, "Changed authentication settings were not refused before process creation."));
         }
@@ -120,7 +143,7 @@ internal static partial class MmcLaunchChecks {
             using ManualResetEventSlim entered = new(), release = new(); byte[] bytes = CompileAgent("cancel");
             server.Add("/agent-cancel", bytes, entered, release);
             sourceProperty.SetValue(null, new Func<MmcRuntimeAuthenticationKind, string, CancellationToken, Task<(ImmutableArray<string>, string)>>((_, _, _) =>
-                Task.FromResult<(ImmutableArray<string>, string)>(([server.Url("/agent-cancel")], Convert.ToHexStringLower(MD5.HashData(bytes))))));
+                Task.FromResult<(ImmutableArray<string>, string)>(([server.Url("/agent-cancel")], Convert.ToHexStringLower(SHA256.HashData(bytes))))));
             var previousDownloads = ModNet.NetManager.Tasks.ToHashSet();
             try {
                 RunWithoutChild("authentication-download-cancel", () => {
@@ -204,8 +227,11 @@ public final class AuthenticationAgent {
             try { Resolve(MmcRuntimeAuthenticationKind.AuthlibInjector, "{\"download_url\":\"https://unknown.invalid/agent.jar?token=synthetic-secret\",\"checksums\":{\"sha256\":\"" + digest + "\"}}").GetAwaiter().GetResult(); throw new IOException("Unknown agent source was accepted."); }
             catch (MmcRuntimeLaunchException error) when (error.Code == "MMC_AUTHENTICATION_METADATA") { Native.Check(!error.ToString().Contains("synthetic-secret", StringComparison.Ordinal), "Authentication metadata error exposed source credentials."); }
         }
-        private sealed class MetadataResponse(string json) : HttpMessageHandler {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+        private sealed class MetadataResponse(string json, string? expected = null) : HttpMessageHandler {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) {
+                Native.Check(expected is null || request.RequestUri?.AbsoluteUri == expected, "The metadata request used an unexpected skin-site endpoint.");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+            }
         }
     }
 }

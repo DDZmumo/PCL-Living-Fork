@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+﻿// SPDX-License-Identifier: MPL-2.0
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using PCLCS;
 using PCLLF.Presentation.Controls;
+using PCLLF.Presentation.Foundation;
 using PCLLF.Wpf.Glass;
 using PCLLF.Wpf.Motion;
 using Path = System.Windows.Shapes.Path;
@@ -27,6 +28,7 @@ public sealed partial class GlassPresentationSession
         return source switch
         {
             PageResource resourcePage => ProjectResourcePage(resourcePage),
+            PageSetupUpdate updatePage => ProjectLauncherUpdate(updatePage),
             PageSpeedRight taskPage => ProjectTaskManager(taskPage),
             MySearchBox search => ProjectSearch(search),
             FrameworkElement virtualElement when virtualElement is IControlVirtualElement virtualized => ProjectVirtual(virtualElement, virtualized),
@@ -68,7 +70,9 @@ public sealed partial class GlassPresentationSession
             Grid { Name: "PanRamDisplay" } memory => ProjectMemoryMeter(memory),
             Grid grid => ProjectGrid(grid),
             StackPanel { Name: "PanBindings" } bindings => ProjectKeybindingList(bindings),
-            StackPanel { Name: "PanCustom" } custom when custom.Parent is StackPanel { Name: "PanMain" } => ProjectHomeContent(custom),
+            StackPanel { Name: "PanOptions" } options when SourceAncestor<PageInstanceExport>(options) is not null => ProjectExportOptions(options),
+            StackPanel { Name: "PanCustom" } custom when SourceAncestor<PageLaunchRight>(custom) is { } homepage &&
+                ReferenceEquals(homepage.PanCustom, custom) => ProjectHomeContent(homepage),
             StackPanel stack => ProjectStack(stack),
             WrapPanel wrap => ProjectWrap(wrap),
             UniformGrid uniform => ProjectUniformGrid(uniform),
@@ -77,7 +81,6 @@ public sealed partial class GlassPresentationSession
             Border border => ProjectBorder(border),
             Decorator decorator => ProjectDecorator(decorator),
             Expander expander => ProjectExpander(expander),
-            ContentControl { Content: string, Template: not null } section when InHomepage(section) => ProjectHomeSection(section),
             ContentControl content => ProjectContentControl(content),
             ItemsControl items => ProjectItems(items),
             ContentPresenter presenter => ProjectPresenter(presenter),
@@ -261,6 +264,73 @@ public sealed partial class GlassPresentationSession
         } };
     }
 
+    /// <summary>
+    /// Export options: each top-level option (游戏本体, Mod, 资源包, 光影包…) is a themed expander (the same spring-animated
+    /// header, chevron and rule as the other folding cards) whose header holds the option itself and a count of chosen
+    /// items; its sub-options lie in two columns inside. Groups start folded. Checking goes through the original boxes.
+    /// </summary>
+    private Node ProjectExportOptions(StackPanel source)
+    {
+        var list = new StackPanel();
+        var groups = new Dictionary<UIElement, (Expander Expander, Grid Header, TextBlock Count, UniformGrid Items, FrameworkElement Plain)>(ReferenceEqualityComparer.Instance);
+        var node = new Node(list);
+        node.Pull = () =>
+        {
+            var views = new List<UIElement>();
+            UIElement[] children = source.Children.Cast<UIElement>().ToArray();
+            for (int index = 0; index < children.Length; index++)
+            {
+                if (children[index] is not FrameworkElement head || head.Visibility == Visibility.Collapsed) continue;
+                var subs = new List<FrameworkElement>();
+                while (index + 1 < children.Length && children[index + 1] is FrameworkElement { Margin.Left: > 0 } sub)
+                {
+                    index++;
+                    if (sub.Visibility == Visibility.Collapsed) continue;
+                    // Resource packs, shaders and saves: the controller fills a nested StackPanel with one box per file.
+                    // (A check box is itself a Grid, so only StackPanels are containers.)
+                    if (sub is StackPanel nested) subs.AddRange(nested.Children.OfType<FrameworkElement>().Where(item => item.Visibility != Visibility.Collapsed));
+                    else subs.Add(sub);
+                }
+                if (!groups.TryGetValue(head, out var group))
+                {
+                    var header = new Grid();
+                    header.ColumnDefinitions.Add(new ColumnDefinition());
+                    header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    var count = PlainText(""); count.FontSize = 12; count.VerticalAlignment = VerticalAlignment.Center; count.Margin = new Thickness(12, 0, 0, 0);
+                    count.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+                    Grid.SetColumn(count, 1); header.Children.Add(count);
+                    var items = new UniformGrid { Columns = 2, Margin = new Thickness(30, 0, 0, 4) };
+                    var expander = new Expander { Style = Style("GlassPresentationExpander"), Header = header, Content = items, IsExpanded = false, Margin = new Thickness(0, 2, 0, 2) };
+                    AutomationProperties.SetName(expander, "导出选项分组");
+                    // A group without sub-options is just its own row (no chevron to open).
+                    var plain = new Grid { MinHeight = 36 };
+                    group = (expander, header, count, items, plain);
+                    groups[head] = group;
+                }
+                bool foldable = subs.Count > 0;
+                Panel holder = foldable ? group.Header : (Panel)group.Plain;
+                if (Project(head) is FrameworkElement headView)
+                {
+                    if (headView.Parent is Panel owner && !ReferenceEquals(owner, holder)) owner.Children.Remove(headView);
+                    headView.Margin = new Thickness(0); headView.VerticalAlignment = VerticalAlignment.Center;
+                    if (!holder.Children.Contains(headView)) holder.Children.Insert(0, headView);
+                }
+                var subViews = subs.Select(sub => Project(sub)).OfType<FrameworkElement>().ToArray();
+                foreach (FrameworkElement view in subViews)
+                {
+                    if (view.Parent is Panel owner && !ReferenceEquals(owner, group.Items)) owner.Children.Remove(view);
+                    view.Margin = new Thickness(0, 0, 12, 0);
+                }
+                Children(group.Items, subViews);
+                int chosen = subs.Count(sub => sub is MyCheckBox { Checked: true });
+                group.Count.Text = foldable ? $"已选 {chosen} / {subs.Count}" : "";
+                views.Add(foldable ? group.Expander : group.Plain);
+            }
+            Children(list, views);
+        };
+        return node;
+    }
+
     private Node ProjectKeybindingRow(KeybindingPageRow source)
     {
         var columns = KeybindingColumns();
@@ -282,7 +352,7 @@ public sealed partial class GlassPresentationSession
                 TextBlock status = KeybindingLabel(profile.Participates ? "参与" : "未参与", secondary: !profile.Participates);
                 var badge = new Border
                 {
-                    Child = status, CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 3, 7, 3),
+                    Child = status, CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 1, 7, 1),
                     HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
                     ToolTip = profile.Participates ? "参与同步" : "未参与同步"
                 };
@@ -292,13 +362,14 @@ public sealed partial class GlassPresentationSession
             }
         }
 
-        var row = new Border { Child = columns, MinHeight = 52, Padding = new Thickness(0, 6, 0, 6), BorderThickness = new Thickness(0, 0, 0, 1) };
+        var row = new Border { Child = columns, MinHeight = 40, Padding = new Thickness(0, 3, 0, 3), BorderThickness = new Thickness(0, 0, 0, 1) };
         row.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationSeparator");
         return new Node(row) { Pull = () =>
         {
             if (Project(source.KeyButton) is not Button keyButton) return;
             keyButton.Width = double.NaN;
             keyButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+            keyButton.Height = 30; keyButton.MinHeight = 30; keyButton.FontSize = 13;
             Grid.SetColumn(keyButton, 3);
             if (!columns.Children.Contains(keyButton)) columns.Children.Add(keyButton);
         } };
@@ -310,65 +381,88 @@ public sealed partial class GlassPresentationSession
         => Interactive(element) || depth > 0 && element is Panel or Decorator or ContentControl &&
            LogicalTreeHelper.GetChildren(element).OfType<FrameworkElement>().Any(child => child.Visibility != Visibility.Collapsed && ContainsInteractive(child, depth - 1));
 
-    // Home page content (preset / local / online homepage): online pages arrive after the page is already on screen,
-    // so cards that appear later rise in one after another like the page's own entrance instead of popping in.
-    private Node ProjectHomeContent(StackPanel source)
+    // The homepage loader places the authored WPF tree in this outlet. Its templates,
+    // name scopes and event handlers remain part of the live tree.
+    private Node ProjectHomeContent(PageLaunchRight page)
     {
-        Node node = ProjectStack(source);
-        var stack = (StackPanel)node.View;
-        // A comfortable reading width, centred in the body, with room above the first card.
-        stack.MaxWidth = 860; stack.HorizontalAlignment = HorizontalAlignment.Center; stack.Margin = new Thickness(0, 6, 0, 0);
-        Action pull = node.Pull;
-        Color? lastText = null;
-        var seen = new HashSet<UIElement>(ReferenceEqualityComparer.Instance);
-        bool primed = false;
-        node.Pull = () =>
-        {
-            ApplyHomepagePalette(source, stack, ref lastText);
-            pull();
-            var fresh = stack.Children.OfType<UIElement>().Where(child => seen.Add(child)).ToList();
-            // The first build moves with the page. Only later additions get their own entrance.
-            if (!primed) { primed = true; return; }
-            var visible = fresh.Where(child => child.Visibility == Visibility.Visible).Take(14).ToList();
-            if (visible.Count == 0) return;
-            stack.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
-            {
-                if (!Live(stack)) return;
-                // A homepage is usually one root panel holding the cards: cascade the cards inside it.
-                var cards = visible.Count == 1 && PCLLF.Wpf.Motion.StaggeredEntrance.FindItemsPanel(visible[0]) is Panel items
-                    ? items.Children.OfType<UIElement>().Where(card => card.Visibility == Visibility.Visible).Take(14).ToList()
-                    : visible;
-                PCLLF.Wpf.Motion.StaggeredEntrance.Play(cards);
-            }));
-        };
+        var host = new HomepageViewport();
+        var card = new Style(typeof(GlassSurface));
+        card.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("GlassPresentationFill")));
+        card.Setters.Add(new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("GlassPresentationEdge")));
+        card.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(.7)));
+        card.Setters.Add(new Setter(GlassSurface.BlurRadiusProperty, 24d));
+        host.Resources[typeof(GlassSurface)] = card;
+        host.SetResourceReference(TextElement.ForegroundProperty, "ColorBrush1");
+        TextElement.SetFontFamily(host, (FontFamily)(_root.TryFindResource("GlassPresentationFont") ?? new FontFamily("Microsoft YaHei UI")));
+        ApplyHomepagePalette(host);
+        LegacyThemePalette.Watch(host, () => ApplyHomepagePalette(host));
+
+        var node = new Node(host);
+        node.Cleanup.Add(page.PresentHomepageIn(host));
         return node;
     }
 
-    // Homepages are written against PCL's blue theme brushes (ColorBrush1-8) and parts of them (rich text documents)
-    // are shown as they are. Inside the homepage those keys resolve to the shell's neutral palette instead: text for
-    // headings and links, secondary text for notes, and faint tints of the text colour for code and backgrounds.
-    private void ApplyHomepagePalette(StackPanel source, StackPanel projected, ref Color? lastText)
+    private sealed class HomepageViewport : StackPanel
     {
-        Color text = (_root.TryFindResource("GlassPresentationText") as SolidColorBrush)?.Color ?? Colors.White;
-        if (lastText == text) return;
-        lastText = text;
-        Color secondary = (_root.TryFindResource("GlassPresentationSecondary") as SolidColorBrush)?.Color ?? text;
-        Brush Solid(Color color) { var brush = new SolidColorBrush(color); brush.Freeze(); return brush; }
-        Color Tint(byte alpha) => Color.FromArgb(alpha, text.R, text.G, text.B);
-        Brush[] palette =
+        private readonly Dictionary<DependencyObject, Image[]> _fitted = new();
+
+        protected override void OnVisualChildrenChanged(DependencyObject visualAdded, DependencyObject visualRemoved)
         {
-            Solid(text), Solid(text), Solid(Color.FromArgb(235, text.R, text.G, text.B)), Solid(secondary),
-            Solid(secondary), Solid(Tint(46)), Solid(Tint(26)), Solid(Tint(14))
-        };
-        var font = (FontFamily)(_root.TryFindResource("GlassPresentationFont") ?? new FontFamily("Microsoft YaHei UI"));
-        // Both trees: original homepage parts that are shown as they are now resolve through the projected panel.
-        foreach (FrameworkElement scope in new FrameworkElement[] { source, projected })
+            base.OnVisualChildrenChanged(visualAdded, visualRemoved);
+            if (visualRemoved is not null && _fitted.Remove(visualRemoved, out Image[] previous))
+                foreach (Image image in previous) image.InvalidateProperty(Image.StretchProperty);
+            if (visualAdded is null) return;
+            Image[] fitted = Artwork(visualAdded).Where(HasFlexibleFrame).ToArray();
+            if (fitted.Length == 0) return;
+            _fitted.Add(visualAdded, fitted);
+            foreach (Image image in fitted) image.SetCurrentValue(Image.StretchProperty, Stretch.Uniform);
+        }
+
+        private static IEnumerable<Image> Artwork(DependencyObject root)
         {
-            for (int index = 0; index < palette.Length; index++) scope.Resources["ColorBrush" + (index + 1)] = palette[index];
-            scope.Resources["ColorBrushTextSecondary"] = Solid(secondary);
-            scope.Resources["ColorBrushHalfWhite"] = Solid(Tint(20));
-            scope.Resources["ColorBrushSemiWhite"] = Solid(Tint(30));
-            TextElement.SetFontFamily(scope, font);
+            if (root is Image image) { yield return image; yield break; }
+            foreach (DependencyObject child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                foreach (Image descendant in Artwork(child)) yield return descendant;
+        }
+
+        // An auto-sized border with only an upper bound can shrink to fit the whole image.
+        // Fixed frames and explicit clips continue to use their authored stretch mode.
+        private static bool HasFlexibleFrame(Image image) =>
+            image.Stretch == Stretch.UniformToFill && !DependencyPropertyHelper.GetValueSource(image, Image.StretchProperty).IsExpression &&
+            image.Clip is null && !image.ClipToBounds && double.IsNaN(image.Width) && double.IsNaN(image.Height) &&
+            image.Parent is Border { Clip: null, ClipToBounds: false } frame && double.IsNaN(frame.Width) && double.IsNaN(frame.Height) &&
+            (double.IsFinite(frame.MaxHeight) || double.IsFinite(frame.MaxWidth));
+    }
+
+    private static readonly string[] HomepageNeutralTones = [
+        "1", "2", "3", "4", "5", "6", "7", "8", "Bg0", "Bg1",
+        "Gray1", "Gray2", "Gray3", "Gray4", "Gray5", "Gray6", "Gray7", "Gray8",
+        "White", "HalfWhite", "SemiWhite", "SemiTransparent", "Card", "Background", "BackgroundTransparentSidebar",
+        "Dialog", "Popup", "TextSecondary", "OnAccent", "TitleForeground", "TitleSelected", "Shadow"
+    ];
+    private static readonly byte[] HomepageLightRamp = [36, 67, 101, 108, 178, 222, 236, 248];
+    private static readonly byte[] HomepageDarkRamp = [244, 220, 188, 178, 139, 70, 54, 34];
+
+    // Keep the original light/dark relationships and opacity of the PCL resources.
+    // Fragment-local colors and semantic status colors still resolve normally.
+    private static void ApplyHomepagePalette(FrameworkElement host)
+    {
+        byte[] ramp = LegacyThemePalette.IsDarkTheme ? HomepageDarkRamp : HomepageLightRamp;
+        for (int index = 0; index < HomepageNeutralTones.Length; index++)
+        {
+            string tone = HomepageNeutralTones[index];
+            string brushKey = "ColorBrush" + tone, colorKey = "ColorObject" + tone;
+            Color? source = (Application.Current?.TryFindResource(brushKey) as SolidColorBrush)?.Color ??
+                Application.Current?.TryFindResource(colorKey) as Color?;
+            if (source is not Color color) continue;
+            // The numbered colors form an accent/foreground ramp. Converting the old blue
+            // accent alone can make both ends of a pair nearly the same brightness.
+            byte shade = index < ramp.Length ? ramp[index] : (byte)Math.Round(.2126 * color.R + .7152 * color.G + .0722 * color.B);
+            Color neutral = Color.FromArgb(color.A, shade, shade, shade);
+            if (host.Resources[brushKey] is SolidColorBrush existing && existing.Color == neutral) continue;
+            var brush = new SolidColorBrush(neutral); brush.Freeze();
+            host.Resources[brushKey] = brush;
+            host.Resources[colorKey] = neutral;
         }
     }
 
@@ -417,7 +511,7 @@ public sealed partial class GlassPresentationSession
         return new Node(stack);
     }
 
-    private Node ProjectStack(StackPanel source)
+    private Node ProjectStack(StackPanel source, Func<DependencyObject[]> readChildren = null)
     {
         var stack = new StackPanel { Orientation = source.Orientation };
         var node = new Node(stack);
@@ -439,10 +533,10 @@ public sealed partial class GlassPresentationSession
 
         node.Pull = () =>
         {
-            DependencyObject[] raw = source.Children.OfType<DependencyObject>().ToArray();
+            DependencyObject[] raw = readChildren?.Invoke() ?? source.Children.OfType<DependencyObject>().ToArray();
             // Stream long item lists progressively during live interactive navigation so frame 0 renders the first
             // screenful in < 5ms instead of building 50-300 rows at once. Headless/test sessions stay synchronous.
-            bool canStream = source.Orientation == Orientation.Vertical && raw.Length > 20 &&
+            bool canStream = readChildren is null && source.Orientation == Orientation.Vertical && raw.Length > 20 &&
                 (_pageAppearance is not null || (_root.IsLoaded && ModAnimation.AniControlEnabled == 0)) &&
                 raw[0] is MyLocalModItem or MyListItem or MyResourceItem;
 
@@ -452,18 +546,20 @@ public sealed partial class GlassPresentationSession
                 if (streamOperation?.Status == System.Windows.Threading.DispatcherOperationStatus.Pending)
                     streamOperation.Abort();
                 streamOperation = null;
-                Children(stack, raw.Select(child => Project(child)).Where(child => child != null).ToArray());
+                Children(stack, ProjectWithToolbars(raw));
             }
             else
             {
-                // Keep any rows already realized in _nodes plus at least the first 16 viewport rows, then stream the rest.
+                // Publish a usable first batch before filling the rest in short dispatcher slices.
+                // A cold template load can make a fixed 16-row batch miss several frames.
                 int initialCount = Math.Min(raw.Length, 16);
+                long firstBatchStarted = Stopwatch.GetTimestamp();
                 var immediate = new List<UIElement>(raw.Length);
                 int firstPending = -1;
                 for (int index = 0; index < raw.Length; index++)
                 {
                     DependencyObject item = raw[index];
-                    if (index < initialCount || _nodes.ContainsKey(item))
+                    if (_nodes.ContainsKey(item) || index < initialCount && (index < 4 || Stopwatch.GetElapsedTime(firstBatchStarted).TotalMilliseconds < 4))
                     {
                         if (Project(item) is UIElement projected) immediate.Add(projected);
                     }
@@ -606,6 +702,15 @@ public sealed partial class GlassPresentationSession
             };
         }
         else border = new Border { Padding = source.Padding, CornerRadius = new CornerRadius(14) };
+        if (source.Tag is ModDependencyGraphNodeData dependency)
+        {
+            bool selected = source.BorderThickness.Left > 1;
+            border.CornerRadius = new CornerRadius(9);
+            border.BorderThickness = new Thickness(1);
+            border.SetResourceReference(Border.BackgroundProperty, selected ? "GlassPresentationSelected" : "GlassPresentationField");
+            border.SetResourceReference(Border.BorderBrushProperty, dependency.IsConflict || dependency.NeedsAttention ? "GlassPresentationWarnEdge" :
+                selected ? "GlassPresentationFocusEdge" : "GlassPresentationEdge");
+        }
         if (InPage<MyScreenshotItem>(source))
         {
             border.ClipToBounds = true;
@@ -776,25 +881,6 @@ public sealed partial class GlassPresentationSession
         node.Pull = () => { UIElement child = Project(source.Child); if (!ReferenceEquals(border.Child, child)) border.Child = child; };
         return node;
     }
-    private static bool InHomepage(DependencyObject element)
-    {
-        for (DependencyObject? parent = element; parent is not null; parent = LogicalTreeHelper.GetParent(parent))
-            if (parent is StackPanel { Name: "PanCustom" } && LogicalTreeHelper.GetParent(parent) is StackPanel { Name: "PanMain" }) return true;
-        return false;
-    }
-
-    // Homepage section dividers (a templated label like "历  史  版  本" between two rules) read as the settings page's
-    // group titles: a small semibold caption in the secondary colour above its cards, with room on both sides.
-    private Node ProjectHomeSection(ContentControl source)
-    {
-        var caption = PlainText(string.Empty);
-        caption.FontSize = 13; caption.FontWeight = FontWeights.SemiBold;
-        caption.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
-        caption.Margin = new Thickness(4, 18, 0, 8);
-        var node = new Node(caption);
-        node.Pull = () => caption.Text = System.Text.RegularExpressions.Regex.Replace(source.Content as string ?? string.Empty, @"\s+", string.Empty);
-        return node;
-    }
 
     private Node ProjectContentControl(ContentControl source)
     {
@@ -912,7 +998,7 @@ public sealed partial class GlassPresentationSession
                 placeholder.TransformToAncestor(scroll).TransformBounds(new Rect(placeholder.RenderSize)))) return;
             realized = true;
             virtualized.InitializeElement();
-            placeholder.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(Refresh));
+            QueueRefresh();
         };
         placeholder.LayoutUpdated += enter;
         var node = new Node(placeholder); node.Cleanup.Add(() => placeholder.LayoutUpdated -= enter);
@@ -1213,6 +1299,7 @@ public sealed partial class GlassPresentationSession
     private Node ProjectCard(MyCard source)
     {
         if (IsFloatingCommandBar(source)) return ProjectFloatingCommandBar(source);
+        if (IsActionCard(source)) return ProjectActionCard(source);
         if (source.Name == "CardMinecraft" && SourceAncestor<PageDownloadModify>(source) is { } modify)
             return ProjectMinecraftChange(source, modify);
         var body = new StackPanel();
@@ -1232,8 +1319,12 @@ public sealed partial class GlassPresentationSession
             view = stack;
         }
         var node = new Node(view);
+        Action musicSettings = source.Name == "CardMusic" && SourceAncestor<PageSetupUI>(source) is { } setup
+            ? BuildMusicSettings(setup, body, node) : null;
         GlassResourceInfo detailInfo = null;
-        bool bodyRealized = !source.CanSwap || !InPage<PageOtherAbout>(source);
+        // The header can be shown on its own. Build an initially collapsed body on
+        // its first expansion, and retain any controls the user has already opened.
+        bool bodyRealized = !source.CanSwap;
         // Install components (Forge, Fabric, OptiFine...): the original shows the chosen version, "可以添加" or the reason it
         // cannot be chosen in a small info row plus a clear button. Those move into the header (see InstallStatus).
         Grid installInfo = source.CanSwap ? source.Children.OfType<Grid>().FirstOrDefault(grid => grid.Name.StartsWith("Pan", StringComparison.Ordinal) && grid.Name.EndsWith("Info", StringComparison.Ordinal) && grid.Children.OfType<TextBlock>().Any()) : null;
@@ -1247,6 +1338,7 @@ public sealed partial class GlassPresentationSession
             string caption = new TextRange(source.MainTextBlock.ContentStart, source.MainTextBlock.ContentEnd).Text;
             header.SetCurrentValue(TextBlock.TextProperty, caption);
             header.Visibility = string.IsNullOrWhiteSpace(caption) ? Visibility.Collapsed : Visibility.Visible;
+            if (musicSettings is not null) { musicSettings(); return; }
             if (!bodyRealized && source.IsSwapped) return;
             bodyRealized = true;
             var children = source.Children.Cast<UIElement>().Skip(3).Where(child => !ReferenceEquals(child, installInfo) && !ReferenceEquals(child, installClear) && !ReferenceEquals(child, syncStatus)).OfType<DependencyObject>().ToList();
@@ -1366,6 +1458,7 @@ public sealed partial class GlassPresentationSession
         searchHint.IsHitTestVisible = false;
         searchHint.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
         var searchHost = new Grid { Margin = new Thickness(0, 2, 0, 8), Children = { search, searchHint } };
+        BindTextPlaceholder(search, searchHint);
         body.Children.Add(searchHost);
         var list = new ListBox { Name = "MinecraftVersionOptions", Style = Style("GlassPresentationPickerList"), MaxHeight = 260, BorderThickness = new Thickness(), Background = Brushes.Transparent };
         ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
@@ -1395,7 +1488,6 @@ public sealed partial class GlassPresentationSession
             list.ItemsSource = filtered;
             empty.Text = choices.Length == 0 ? "版本列表暂不可用" : "没有符合条件的版本";
             empty.Visibility = filtered.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            searchHint.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         void Choose(MinecraftVersionChoice choice)
         {
@@ -1532,13 +1624,13 @@ public sealed partial class GlassPresentationSession
         var searchIcon = new Path { Data = Geometry.Parse("M7,2 A5,5 0 1 1 6.99,2 M11,11 L16,16"), Width = 14, Height = 14, Stretch = Stretch.Uniform, StrokeThickness = 1.4, Margin = new Thickness(10, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
         searchIcon.SetResourceReference(Shape.StrokeProperty, "GlassPresentationSecondary"); host.Children.Add(searchIcon);
         var placeholder = PlainText(source.HintText); placeholder.Margin = new Thickness(35, 0, 32, 0); placeholder.VerticalAlignment = VerticalAlignment.Center; placeholder.IsHitTestVisible = false; placeholder.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary"); host.Children.Add(placeholder);
+        BindTextPlaceholder(input, placeholder);
         var clear = new Button { Content = "×", Style = Style("GlassPresentationRowButton"), Width = 30, Height = 30, MinHeight = 30, Padding = new Thickness(), HorizontalAlignment = HorizontalAlignment.Right };
         AutomationProperties.SetName(clear, "清空搜索"); clear.Click += (_, _) => { if (!Live(clear)) return; source.BtnClear.PerformClick(); Refresh(); }; host.Children.Add(clear);
         var node = new Node(host);
         node.Pull = () =>
         {
             input.ToolTip = source.HintText; placeholder.Text = source.HintText;
-            placeholder.Visibility = string.IsNullOrEmpty(source.Text) ? Visibility.Visible : Visibility.Collapsed;
             clear.Visibility = string.IsNullOrEmpty(source.Text) ? Visibility.Collapsed : Visibility.Visible;
         };
         return node;
@@ -1546,25 +1638,138 @@ public sealed partial class GlassPresentationSession
 
     // Callout keeping the original hint's meaning: blue = information, yellow = warning, red = danger.
     // Tinted surface, a coloured bar on the left and a matching icon; text stays at full contrast.
+    // "| 1.0.27 · …" (the classic list's lead-in) reads as stray punctuation here.
+    private static string CleanLead(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+        string text = value.Trim();
+        while (text.StartsWith("|", StringComparison.Ordinal)) text = text.Substring(1).TrimStart();
+        return text.Replace(" | ", " · ");
+    }
+
+    // An untitled card whose content is only buttons (the resource pages' 打开文件夹 / 从文件安装 / 全选 card).
+    private static bool IsActionCard(MyCard source)
+    {
+        if (!string.IsNullOrWhiteSpace(source.Title) || source.CanSwap || !InstanceContext(source)) return false;
+        var content = source.Children.Cast<UIElement>().Skip(3).OfType<Panel>().ToList();
+        if (content.Count == 0 || source.Children.Count - 3 != content.Count) return false;
+        bool any = false;
+        foreach (Panel panel in content)
+            foreach (UIElement child in panel.Children)
+            {
+                if (child is not (MyButtonView or MyIconTextButtonView or MyTextButtonView)) return false;
+                any = true;
+            }
+        return any;
+    }
+
+    private static bool InstanceContext(DependencyObject source)
+    {
+        for (DependencyObject item = source; item != null; item = LogicalTreeHelper.GetParent(item))
+            if (item.GetType().Name is { } name && name.StartsWith("PageInstance", StringComparison.Ordinal) && name != "PageInstanceLeft") return true;
+        return false;
+    }
+
+    private readonly Dictionary<MySearchBox, (GlassSurface Plate, StackPanel Inner)> _toolbars = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Projects a stack's children; a search box followed by an action card (the resource and restore-point pages) become
+    /// one toolbar card: the search field on top, its actions in a row underneath.
+    /// </summary>
+    private UIElement[] ProjectWithToolbars(DependencyObject[] raw)
+    {
+        var views = new List<UIElement>(raw.Length);
+        for (int index = 0; index < raw.Length; index++)
+        {
+            if (Project(raw[index]) is not UIElement view) continue;
+            if (raw[index] is MySearchBox search)
+            {
+                int next = index + 1;
+                var skipped = new List<UIElement>();
+                while (next < raw.Length && raw[next] is UIElement { Visibility: not Visibility.Visible } hidden)
+                {
+                    if (Project(raw[next]) is UIElement hiddenView) skipped.Add(hiddenView);
+                    next++;
+                }
+                if (next < raw.Length && raw[next] is MyCard card && IsActionCard(card) && Project(card) is UIElement actions)
+                {
+                    views.Add(Toolbar(search, view, actions));
+                    views.AddRange(skipped); // still projected (they may show later), after the toolbar
+                    index = next;
+                    continue;
+                }
+            }
+            views.Add(view);
+        }
+        return views.ToArray();
+    }
+
+    private UIElement Toolbar(MySearchBox search, UIElement field, UIElement actions)
+    {
+        if (!_toolbars.TryGetValue(search, out var toolbar))
+        {
+            var inner = new StackPanel();
+            var plate = new GlassSurface { Child = inner, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 10, 10, 2), BorderThickness = new Thickness(.7), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0 };
+            plate.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill");
+            plate.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationEdge");
+            toolbar = (plate, inner);
+            _toolbars[search] = toolbar;
+        }
+        foreach (UIElement part in new[] { field, actions })
+            if (part is FrameworkElement { Parent: Panel owner } && !ReferenceEquals(owner, toolbar.Inner)) owner.Children.Remove(part);
+        Children(toolbar.Inner, new[] { field, actions });
+        if (field is FrameworkElement searchView) searchView.Margin = new Thickness(0);
+        if (actions is GlassSurface actionPlate)
+        {
+            // The toolbar's plate already frosts the wallpaper: the action row sits on it without a plate of its own.
+            actionPlate.Background = Brushes.Transparent; actionPlate.BorderThickness = new Thickness(0); actionPlate.Padding = new Thickness(0);
+            actionPlate.BlurRadius = 0; actionPlate.PaintsWallpaper = false; actionPlate.Margin = new Thickness(0, 10, 0, 0);
+        }
+        toolbar.Plate.Margin = new Thickness(0, 0, 0, 18);
+        return toolbar.Plate;
+    }
+
+    // The action card as a toolbar: its buttons in one wrapping row of compact pills, no plate around them.
+    private Node ProjectActionCard(MyCard source)
+    {
+        var row = new WrapPanel();
+        var plate = new GlassSurface { Child = row, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 10, 2, 2), BorderThickness = new Thickness(.7), BlurRadius = 24, TintOpacity = 1, HighlightOpacity = 0 };
+        plate.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill");
+        plate.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationEdge");
+        var node = new Node(plate);
+        node.Pull = () =>
+        {
+            var buttons = source.Children.Cast<UIElement>().Skip(3).OfType<Panel>()
+                .SelectMany(panel => panel.Children.OfType<DependencyObject>())
+                .Select(child => Project(child)).Where(child => child != null).ToArray();
+            Children(row, buttons);
+            foreach (FrameworkElement button in row.Children.OfType<FrameworkElement>())
+            {
+                button.Margin = new Thickness(0, 0, 8, 8);
+                button.Height = 34; button.MinHeight = 34; button.MinWidth = 0;
+                if (button is Control control) { control.Padding = new Thickness(16, 0, 16, 0); control.FontSize = 13.5; }
+            }
+        };
+        return node;
+    }
+
     private Node ProjectHint(MyHintView source)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var badge = new Grid { Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 12, 0) };
-        var disc = new Ellipse(); var glyph = new Path { Stroke = Brushes.White, StrokeThickness = 1.8, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round };
+        var badge = new Grid { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 10, 0) };
+        var disc = new Ellipse { StrokeThickness = 1.4, Fill = Brushes.Transparent }; var glyph = new Path { Stroke = Brushes.White, StrokeThickness = 1.6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round };
         badge.Children.Add(disc); badge.Children.Add(glyph); grid.Children.Add(badge);
         var text = PlainText(source.LabText.Text); Bind(text, TextBlock.TextProperty, source.LabText, nameof(TextBlock.Text));
-        text.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(text, 1); grid.Children.Add(text);
+        text.VerticalAlignment = VerticalAlignment.Center; text.FontSize = 13; text.TextWrapping = TextWrapping.Wrap; Grid.SetColumn(text, 1); grid.Children.Add(text);
         var close = new Button { Style = Style("GlassPresentationRowButton"), Width = 28, Height = 28, MinHeight = 28, Padding = new Thickness(8), Margin = new Thickness(12, -4, -6, -4), VerticalAlignment = VerticalAlignment.Top,
             Content = new Path { Data = Geometry.Parse("M0,0 L10,10 M10,0 L0,10"), Stretch = Stretch.Uniform, StrokeThickness = 1.4, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round } };
         ((Path)close.Content).SetResourceReference(Shape.StrokeProperty, "GlassPresentationSecondary");
         AutomationProperties.SetName(close, "关闭提示"); close.Click += (_, _) => { if (!Live(close)) return; source.BtnClose.PerformClick(); Refresh(); }; Grid.SetColumn(close, 2); grid.Children.Add(close);
-        var bar = new Border { Width = 3, CornerRadius = new CornerRadius(1.5), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 10) };
-        var body = new Border { Padding = new Thickness(16, 12, 14, 12), Child = grid };
-        var frame = new Grid(); frame.Children.Add(body); frame.Children.Add(bar);
-        var surface = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Child = frame };
+        var body = new Border { Padding = new Thickness(14, 10, 12, 10), Child = grid };
+        var surface = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(.7), Child = body };
         surface.MouseLeftButtonUp += (_, args) => { if (Live(surface) && args.OriginalSource is not Button) { source.PerformClick(); Refresh(); } };
         MyHintView.Themes? applied = null;
         var node = new Node(surface);
@@ -1573,16 +1778,25 @@ public sealed partial class GlassPresentationSession
             close.Visibility = source.CanClose ? Visibility.Visible : Visibility.Collapsed;
             if (applied == source.Theme) return;
             applied = source.Theme;
-            Color tone = source.Theme switch { MyHintView.Themes.Blue => Color.FromRgb(160, 160, 160), MyHintView.Themes.Yellow => Color.FromRgb(255, 176, 32), _ => Color.FromRgb(255, 69, 58) };
-            if (SystemParameters.HighContrast) { surface.SetResourceReference(Border.BackgroundProperty, "GlassPresentationFill"); surface.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationEdge"); }
+            bool info = source.Theme == MyHintView.Themes.Blue;
+            Color tone = source.Theme switch { MyHintView.Themes.Yellow => Color.FromRgb(255, 176, 32), _ => Color.FromRgb(255, 69, 58) };
+            if (SystemParameters.HighContrast || info)
+            {
+                // Information: the field's neutral glass, a hairline edge and the secondary text colour.
+                surface.SetResourceReference(Border.BackgroundProperty, "GlassPresentationField");
+                surface.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationControlStroke");
+                disc.SetResourceReference(Shape.StrokeProperty, "GlassPresentationSecondary");
+                glyph.SetResourceReference(Shape.StrokeProperty, "GlassPresentationSecondary");
+                text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+            }
             else
             {
-                surface.Background = new SolidColorBrush(Color.FromArgb(30, tone.R, tone.G, tone.B));
-                surface.BorderBrush = new SolidColorBrush(Color.FromArgb(70, tone.R, tone.G, tone.B));
+                surface.Background = new SolidColorBrush(Color.FromArgb(26, tone.R, tone.G, tone.B));
+                surface.BorderBrush = new SolidColorBrush(Color.FromArgb(60, tone.R, tone.G, tone.B));
+                disc.Stroke = glyph.Stroke = new SolidColorBrush(tone);
+                text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationText");
             }
-            bar.Background = disc.Fill = new SolidColorBrush(tone);
-            glyph.Stroke = source.Theme == MyHintView.Themes.Yellow ? new SolidColorBrush(Color.FromRgb(40, 30, 0)) : Brushes.White;
-            glyph.Data = Geometry.Parse(source.Theme == MyHintView.Themes.Blue ? "M10,8.6 V14 M10,5.8 V6.1" : "M10,5.6 V11 M10,13.9 V14.2");
+            glyph.Data = Geometry.Parse(source.Theme == MyHintView.Themes.Blue ? "M9,8 V13 M9,5.4 V5.6" : "M9,5 V10 M9,12.6 V12.8");
             AutomationProperties.SetHelpText(surface, source.Theme switch { MyHintView.Themes.Blue => "提示", MyHintView.Themes.Yellow => "注意", _ => "警告" });
         };
         return node;
@@ -1678,7 +1892,7 @@ public sealed partial class GlassPresentationSession
         node.Pull = () =>
         {
             checkbox.IsChecked = source.Checked; title.Text = source.Title; title.TextDecorations = source.LabTitle.TextDecorations;
-            description.Text = string.Join(" · ", new[] { source.SubTitle, source.Description }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            description.Text = string.Join(" · ", new[] { CleanLead(source.SubTitle), CleanLead(source.Description) }.Where(value => !string.IsNullOrWhiteSpace(value)));
             details.ToolTip = source.ToolTip as string ?? description.Text;
             AutomationProperties.SetName(details, source.Title ?? string.Empty); // a mod without a parsed name has a null title
             image.Source = source.ResourceLogo.Visibility == Visibility.Visible ? source.ResourceLogo.Source : ((Image)source.PathLogo).Source;
@@ -1799,6 +2013,10 @@ public sealed partial class GlassPresentationSession
         if (source.Opacity < .9 && source.Opacity > 0) text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
         if (source.Name is "LabValidation" or "LabCloneValidation")
             text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationDanger");
+        if (InPage<ModDependencyGraphView>(source) && source.FontWeight != FontWeights.SemiBold)
+            text.SetResourceReference(TextBlock.ForegroundProperty,
+                source.Tag is ModDependencyGraphNodeData { IsConflict: true } or ModDependencyGraphNodeData { NeedsAttention: true }
+                    ? "GlassPresentationWarnText" : "GlassPresentationSecondary");
         // Message dialog title: a calm semibold heading; red for warnings.
         if (source.Name == "LabTitle" && AncestorMessage(source))
         {
@@ -1830,9 +2048,23 @@ public sealed partial class GlassPresentationSession
     }
     private Node ProjectShape(Shape source)
     {
-        Shape target = source switch { Path path => new Path { Data = path.Data }, Ellipse => new Ellipse(), Rectangle rectangle => new Rectangle { RadiusX = Math.Max(8, rectangle.RadiusX), RadiusY = Math.Max(8, rectangle.RadiusY) }, Line line => new Line { X1 = line.X1, X2 = line.X2, Y1 = line.Y1, Y2 = line.Y2 }, _ => new Path() };
+        Shape target = source switch {
+            Path path => new Path { Data = path.Data }, Polygon polygon => new Polygon { Points = polygon.Points },
+            Ellipse => new Ellipse(), Rectangle rectangle => new Rectangle { RadiusX = Math.Max(8, rectangle.RadiusX), RadiusY = Math.Max(8, rectangle.RadiusY) },
+            Line line => new Line { X1 = line.X1, X2 = line.X2, Y1 = line.Y1, Y2 = line.Y2 }, _ => new Path()
+        };
         target.Stretch = source.Stretch; target.StrokeThickness = source.StrokeThickness;
         target.Fill = source.Fill; target.Stroke = source.Stroke;
+        target.StrokeDashArray = source.StrokeDashArray;
+        if (source.Tag is ModDependencyGraphRelation relation)
+        {
+            string brush = relation switch {
+                ModDependencyGraphRelation.Conflict => "GlassPresentationWarnText",
+                ModDependencyGraphRelation.Candidate => "GlassPresentationSecondary",
+                _ => "GlassPresentationAccent"
+            };
+            target.SetResourceReference(target is Polygon ? Shape.FillProperty : Shape.StrokeProperty, brush);
+        }
         var node = new Node(target);
         node.Pull = () => { if (target is Path path && source is Path original) path.Data = original.Data; };
         return node;

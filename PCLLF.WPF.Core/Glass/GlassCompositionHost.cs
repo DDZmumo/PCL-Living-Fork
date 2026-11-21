@@ -30,11 +30,16 @@ internal sealed class GlassCompositionHost : IDisposable {
     private readonly GlassDesktopComposition _composition;
     private GlassWindowRegion[] _regions = [];
     private Matrix _transform = Matrix.Identity;
-    private bool _hasRegions;
+    private Matrix _appliedTransform;
+    private bool _regionsDirty;
     private bool _disposed;
     private NativeRect _lastClientBounds;
 
     internal nint Handle { get; private set; }
+
+    internal static bool IsResetNotification(int message, nint reason) =>
+        message is 0x007E or 0x031E || // WM_DISPLAYCHANGE, WM_DWMCOMPOSITIONCHANGED.
+        message == 0x0218 && reason == 0x12; // WM_POWERBROADCAST / PBT_APMRESUMEAUTOMATIC.
 
     internal GlassCompositionHost(nint owner) {
         _owner = owner;
@@ -61,11 +66,10 @@ internal sealed class GlassCompositionHost : IDisposable {
     internal bool HasBlurredEffectBrush => _composition.IsBlurredEffectBrush;
 
     internal void SetRegions(IReadOnlyList<GlassWindowRegion> regions, Matrix toDevice) {
-        if (_hasRegions && _transform == toDevice && _regions.SequenceEqual(regions)) return;
+        if (_transform == toDevice && _regions.SequenceEqual(regions)) return;
         _regions = regions.ToArray();
         _transform = toDevice;
-        _hasRegions = true;
-        UpdateRegions();
+        _regionsDirty = true;
     }
 
     internal void SyncBounds(Func<bool> shouldBeVisible, Action<Size>? updateRegions = null) {
@@ -77,7 +81,26 @@ internal sealed class GlassCompositionHost : IDisposable {
         }
         var origin = new NativePoint();
         if (!ClientToScreen(_owner, ref origin) || !GetClientRect(_owner, out var client)) return;
-        var bounds = new NativeRect { Left = origin.X, Top = origin.Y, Right = origin.X + client.Right, Bottom = origin.Y + client.Bottom };
+        if (client.Right <= 0 || client.Bottom <= 0) { ShowWindow(Handle, 0); return; }
+        var clientPixels = new Size(client.Right, client.Bottom);
+        updateRegions?.Invoke(clientPixels);
+        Rect visible = VisiblePixelBounds(_regions, _transform, clientPixels);
+        if (visible.IsEmpty) { ShowWindow(Handle, 0); return; }
+
+        // Keep the native helper outside the transparent expansion reserve. Its composition
+        // visuals are rebased so each panel still samples at the same screen position.
+        var bounds = new NativeRect {
+            Left = origin.X + (int)visible.Left, Top = origin.Y + (int)visible.Top,
+            Right = origin.X + (int)visible.Right, Bottom = origin.Y + (int)visible.Bottom
+        };
+        Matrix positioned = _transform;
+        positioned.OffsetX -= visible.Left;
+        positioned.OffsetY -= visible.Top;
+        if (_regionsDirty || _appliedTransform != positioned) {
+            _composition.SetRegions(_regions, positioned);
+            _appliedTransform = positioned;
+            _regionsDirty = false;
+        }
         var ownerTopmost = (GetExtendedStyle(_owner) & WsExTopmost) != 0;
         var hostTopmost = (GetExtendedStyle(Handle) & WsExTopmost) != 0;
         if (ownerTopmost != hostTopmost)
@@ -87,7 +110,6 @@ internal sealed class GlassCompositionHost : IDisposable {
         int width = bounds.Right - bounds.Left, height = bounds.Bottom - bounds.Top;
         bool sizeChanged = width != _lastClientBounds.Right - _lastClientBounds.Left ||
                            height != _lastClientBounds.Bottom - _lastClientBounds.Top;
-        if (width > 0 && height > 0) updateRegions?.Invoke(new Size(width, height));
         bool wasVisible = IsWindowVisible(Handle);
         if (boundsChanged || GetWindow(_owner, 2) != Handle || !wasVisible) {
             uint flags = NoActivate | NoOwnerZOrder | 0x0040; // SWP_SHOWWINDOW.
@@ -102,18 +124,24 @@ internal sealed class GlassCompositionHost : IDisposable {
             ShowWindow(Handle, 0);
             return;
         }
-        if (!_lastClientBounds.Equals(bounds)) {
-            _lastClientBounds = bounds;
-            if (_regions.Length == 0) UpdateRegions();
-        }
+        _lastClientBounds = bounds;
     }
 
-    private void UpdateRegions() {
-        if (_disposed || Handle == 0) return;
+    internal static Rect VisiblePixelBounds(IReadOnlyList<GlassWindowRegion> regions, Matrix toDevice, Size clientPixels) {
         // Never call SetWindowRgn on a WS_EX_NOREDIRECTIONBITMAP host-backdrop HWND: GDI window regions
-        // force DWM out of host-backdrop sampling and produce solid black rectangles. The composition
-        // SpriteVisual clips own exact antialiased rounded shapes; outside them the HWND is transparent.
-        _composition.SetRegions(_regions, _transform);
+        // can force DWM out of backdrop sampling. Crop the HWND to its visible coverage and let the
+        // composition clips continue to paint the exact rounded shapes.
+        Rect bounds = Rect.Empty;
+        foreach (var region in regions) {
+            if (region.Opacity <= .001) continue;
+            Rect pixels = region.Bounds;
+            pixels.Transform(toDevice);
+            bounds.Union(pixels);
+        }
+        bounds.Intersect(new Rect(clientPixels));
+        if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0) return Rect.Empty;
+        return new Rect(new Point(Math.Floor(bounds.Left), Math.Floor(bounds.Top)),
+            new Point(Math.Ceiling(bounds.Right), Math.Ceiling(bounds.Bottom)));
     }
 
     private static unsafe void EnableHostBackdropAccent(nint hwnd) {

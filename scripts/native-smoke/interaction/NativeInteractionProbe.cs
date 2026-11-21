@@ -158,7 +158,7 @@ internal sealed class Probe
             if (store?.GetValue("__PclLfNativeSmokeOwner") as string != owner) throw new InvalidOperationException("Synthetic profile ownership differs.");
         }
         process.Refresh();
-        if (process.HasExited || Native.Owner(hwnd) != pid || !Native.IsWindowVisible(hwnd) || Native.Title(hwnd) != "LivingPCL" || !Native.Class(hwnd).StartsWith("HwndWrapper", StringComparison.Ordinal)) throw new InvalidOperationException("Actual Main PID/HWND/title/class is no longer owned and visible.");
+        if (process.HasExited || Native.Owner(hwnd) != pid || !Native.IsWindowVisible(hwnd) || Native.Title(hwnd) is not ("LivingPCL" or "PCL Living Fork") || !Native.Class(hwnd).StartsWith("HwndWrapper", StringComparison.Ordinal)) throw new InvalidOperationException("Actual Main PID/HWND/title/class is no longer owned and visible.");
         StringBuilder path = new(32768); uint count = (uint)path.Capacity;
         if (!Native.QueryFullProcessImageName(process.Handle, 0, path, ref count) || !string.Equals(path.ToString(), exe, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Actual process handle image differs from owned EXE.");
         if (hash && !string.Equals(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(exe))), args["sha256"], StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Owned installed EXE SHA differs.");

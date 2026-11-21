@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -29,10 +30,13 @@ namespace PCL;
 internal sealed class GlassShellRuntime : IDisposable {
     private readonly FormMain _owner;
     private readonly GlassLauncherView _view;
+    private readonly Action _requestWorkspaceRefresh;
     private McInstance? _observedInstance;
     private string _instanceName = "选择实例", _instanceDescription = string.Empty;
     private string? _instanceLogo, _gameFolder;
     private McInstance? _loadRequested;
+    private readonly HashSet<McInstance> _loadingInstances = new(ReferenceEqualityComparer.Instance);
+    private McInstance? _pendingInstanceSettings;
     private ImageSource? _instanceIcon;
     private double _nextMetadataRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
     private int _emptyRecentRetries;
@@ -44,12 +48,14 @@ internal sealed class GlassShellRuntime : IDisposable {
     private bool _recentRefreshPending, _disposed;
     private int _recentRevision;
 
-    internal GlassShellRuntime(FormMain owner, GlassLauncherView view) {
+    internal GlassShellRuntime(FormMain owner, GlassLauncherView view, Action requestWorkspaceRefresh) {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(requestWorkspaceRefresh);
         owner.Dispatcher.VerifyAccess();
         _owner = owner;
         _view = view;
+        _requestWorkspaceRefresh = requestWorkspaceRefresh;
         view.StartRequested += OnStartRequested;
         view.CancelRequested += OnCancelRequested;
         view.SelectInstanceRequested += OnSelectInstanceRequested;
@@ -74,6 +80,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         McInstance? instance = LauncherApplicationServices.Instances.ReadSnapshot().Instance;
         bool changed = !ReferenceEquals(instance, _observedInstance);
         if (changed) {
+            if (!ReferenceEquals(_pendingInstanceSettings, instance)) CancelPendingInstanceSettings();
             _observedInstance = instance;
             _instanceLogo = null;
             _instanceIcon = null;
@@ -85,13 +92,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         // Without that, the game folder (and so the recent world) stays unknown until the first launch. Load it once in the background.
         if (instance is { IsLoaded: false } && !ReferenceEquals(_loadRequested, instance)) {
             _loadRequested = instance;
-            McInstance target = instance;
-            _ = Task.Run(() => {
-                try { target.Load(); }
-                catch (Exception error) { Logger.Warn(error, "预加载玻璃界面的实例信息失败"); }
-                if (_owner.Dispatcher.HasShutdownStarted) return;
-                _owner.Dispatcher.BeginInvoke(new Action(() => { if (_disposed) return; _nextMetadataRefresh = 0; Refresh(); }));
-            });
+            BeginInstanceLoad(instance);
         }
         if (now >= _nextMetadataRefresh) {
             _nextMetadataRefresh = now + 1;
@@ -281,7 +282,7 @@ internal sealed class GlassShellRuntime : IDisposable {
                     }
                     _recentImagePath = imagePath;
                     _recentImageStamp = imageStamp;
-                    Refresh();
+                    _requestWorkspaceRefresh();
                 }));
             } catch (InvalidOperationException) when (_owner.Dispatcher.HasShutdownStarted) {
                 // Shutdown can race the dispatch check. No work remains for a closed view.
@@ -313,45 +314,82 @@ internal sealed class GlassShellRuntime : IDisposable {
 
     private void OnStartRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
+        CancelPendingInstanceSettings();
         if (!LauncherApplicationServices.IsLaunchActive() && !GlassSkinSites.RoleSelectionPending &&
             (ModMinecraft.McInstanceSelected is not { } selected || !ModModpackMode.AllowsInstance(selected.PathVersion)) &&
             CanOfferInstall() && ModMinecraft.McInstanceListLoader.State != ModBase.LoadState.Loading &&
             ModMinecraft.McFolderListLoader.State != ModBase.LoadState.Loading)
         {
             _owner.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadInstall);
+            _requestWorkspaceRefresh();
             return;
         }
         LauncherApplicationServices.Launch.Start();
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnCancelRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
         LauncherApplicationServices.Launch.RequestCancellation();
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnSelectInstanceRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
         if (LauncherApplicationServices.IsLaunchActive()) return;
         _owner.PageChange(FormMain.PageType.InstanceSelect);
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnInstanceSettingsRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
         McInstance? instance = LauncherApplicationServices.Instances.ReadSnapshot().Instance;
         if (instance is null || LauncherApplicationServices.IsLaunchActive()) return;
+        OpenInstanceSettings(instance);
+    }
+
+    internal void CancelPendingInstanceSettings() => _pendingInstanceSettings = null;
+
+    private void BeginInstanceLoad(McInstance instance) {
+        if (!_loadingInstances.Add(instance)) return;
+        _ = Task.Run(() => {
+            try { instance.Load(); }
+            catch (Exception error) { Logger.Warn(error, "预加载玻璃界面的实例信息失败"); }
+            if (_owner.Dispatcher.HasShutdownStarted) return;
+            _owner.Dispatcher.BeginInvoke(new Action(() => {
+                _loadingInstances.Remove(instance);
+                if (_disposed) return;
+                _nextMetadataRefresh = 0;
+                if (ReferenceEquals(_pendingInstanceSettings, instance)) {
+                    CancelPendingInstanceSettings();
+                    if (instance.IsLoaded && _owner.GlassPageCode == (int)FormMain.PageType.Launch &&
+                        !_view.IsAccountWorkspaceOpen && !LauncherApplicationServices.IsLaunchActive() &&
+                        ReferenceEquals(LauncherApplicationServices.Instances.ReadSnapshot().Instance, instance)) {
+                        OpenInstanceSettings(instance);
+                    }
+                }
+                _requestWorkspaceRefresh();
+            }));
+        });
+    }
+
+    private void OpenInstanceSettings(McInstance instance) {
         if (ModMinecraft.McInstanceLock.BlocksNavigation(instance)) {
             ModMain.Hint("该版本正在被修改，暂时无法进入版本设置！", ModMain.HintType.Red);
             return;
         }
-        instance.Load();
+        if (!instance.IsLoaded) {
+            _pendingInstanceSettings = instance;
+            BeginInstanceLoad(instance);
+            return;
+        }
+        CancelPendingInstanceSettings();
         PageInstanceLeft.Instance = instance;
         _owner.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceOverall);
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnAccountRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
+        CancelPendingInstanceSettings();
         AccountRequested?.Invoke(this, EventArgs.Empty);
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnRecentWorldRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
@@ -365,15 +403,15 @@ internal sealed class GlassShellRuntime : IDisposable {
         } else {
             QuickPlayWorlds.Start(instance, world.Identifier!);
         }
-        Refresh();
+        _requestWorkspaceRefresh();
     }
-    private void OnBackRequested(object? sender, EventArgs arguments) { VerifyUsable(); if (ShowLegacyHome) ShowLegacyHome = false; else _owner.PageBack(); Refresh(); }
+    private void OnBackRequested(object? sender, EventArgs arguments) { VerifyUsable(); if (ShowLegacyHome) ShowLegacyHome = false; else _owner.PageBack(); _requestWorkspaceRefresh(); }
     private void OnNavigationRequested(int page) {
         ShowLegacyHome = false;
         VerifyUsable();
         if (page is not (0 or 1 or 10 or 3 or 4)) return;
         _owner.PageChange((FormMain.PageType)page);
-        Refresh();
+        _requestWorkspaceRefresh();
     }
     private void OnDependencyCheckChanged(bool value) => SetDependencySetting("LaunchModDependencyCheck", value);
     private void OnAutoFillChanged(bool value) => SetDependencySetting("LaunchModDependencyAutoFill", value);
@@ -382,7 +420,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         // Settings.Set invokes the original LaunchDependencyCheck.SettingsChanged callback exactly once.
         if (Settings.Get<bool>(name) != value) Settings.Set(name, value);
         ModMain.FrmLaunchRight?.RefreshDependencyOptions();
-        Refresh();
+        _requestWorkspaceRefresh();
     }
 
     private void VerifyUsable() {

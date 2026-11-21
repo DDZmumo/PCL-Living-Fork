@@ -9,6 +9,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Runtime.InteropServices;
@@ -66,7 +67,11 @@ internal static class GlassShellChecks
             LeftwardRailExpansion(window, view, icon);
             RailMaterialIsolation(window, view, icon);
             DesktopMaterial(window, view, icon);
+            MusicPlaylistFrost(window, view, icon);
+            AudioVisualization();
+            PopupMaterialAtWindowEdge(window);
             ExtendedWallpaperSample(window);
+            VideoNavigationCadence();
             VideoFrameContinuity(window);
             BrandVector(window, view, icon);
             AvatarPixelGrid(window, view, icon);
@@ -74,6 +79,7 @@ internal static class GlassShellChecks
             CheckboxSnapshots(view, icon);
             Layout(window, view, 810, 470);
             ContextTitlesAndCaption(window, view, icon);
+            TaskSidebarWater(window, view, icon);
             Events(view, icon);
             Expansion(view, icon);
             Portals(window, view, icon);
@@ -131,11 +137,36 @@ internal static class GlassShellChecks
         } finally { viewport.Children.Remove(host); }
     }
 
+    private static void VideoNavigationCadence()
+    {
+        var prepare = typeof(VideoWallpaperPlayback).GetMethod("ShouldPrepareFrame",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .CreateDelegate<Func<bool, long, long?, bool>>();
+        foreach (int fps in new[] { 24, 25, 30, 60, 120 })
+        {
+            long? previous = null;
+            int prepared = 0;
+            for (int frame = 0; frame < fps; frame++)
+            {
+                long timestamp = (long)frame * TimeSpan.TicksPerSecond / fps;
+                Native.Check(prepare(false, timestamp, previous), "Idle video must keep the source cadence.");
+                if (!prepare(true, timestamp, previous)) continue;
+                previous = timestamp;
+                prepared++;
+            }
+            Native.Check(prepared == Math.Min(fps, 30), $"Unexpected frame count during navigation at {fps} fps: {prepared}.");
+        }
+    }
+
     private static void StartupSplash(Window window, GlassLauncherView view, ImageSource icon)
     {
         if (!PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) return;
-        view.SetState(State(icon, reduceMotion: false));
+        double originalAllowance = view.LeftExpansionAllowance;
+        view.SetState(State(icon, reduceMotion: false, useDarkText: false));
         view.SetWallpaper(null!);
+        view.SetDesktopBackdropActive(false);
+        view.SetRailExpanded(false, immediate: true);
+        view.SetLeftExpansionAllowance(0);
         Flush(window);
 
         Type preload = Native.Type("PCL.GlassStartupPreload");
@@ -160,11 +191,27 @@ internal static class GlassShellChecks
         try
         {
             view.BeginSplash();
+            // FormMain updates its monitor work area after the splash view has loaded.
+            view.SetLeftExpansionAllowance(116);
+            Flush(window);
             Native.Check(view.IsSplashing && Part<FrameworkElement>(view, "ApplicationBackdrop").Opacity == 0 &&
                 Part<FrameworkElement>(view, "WorkspaceContentLayer").Opacity == 0,
                 "The workspace covered the startup splash's backdrop.");
             Native.Check(!prompt.Wait(100) && !(bool)Native.Call(preload, "WaitForInterface", null)!,
                 "An automatic prompt passed the startup gate while the loading page was visible.");
+            VisualAssetChecks.Pump(() => view.IsSplashLoading, "startup loader reaches the dark fallback surface", 7000);
+            var loadingFrame = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight),
+                96, 96, PixelFormats.Pbgra32);
+            loadingFrame.Render(view);
+            var outside = new byte[4];
+            loadingFrame.CopyPixels(new Int32Rect(58, (int)view.ActualHeight / 2, 1, 1), outside, 4, 0);
+            Native.Check(outside[3] == 0,
+                $"The startup fallback painted the space to the left of the rail (BGRA {string.Join(",", outside)}).");
+            var body = Part<FrameworkElement>(view, "BodyFrame");
+            Point bodyCenter = body.TranslatePoint(new Point(body.ActualWidth / 2, body.ActualHeight / 2), view);
+            var inside = new byte[4];
+            loadingFrame.CopyPixels(new Int32Rect((int)bodyCenter.X, (int)bodyCenter.Y, 1, 1), inside, 4, 0);
+            Native.Check(inside[3] > 0, "Removing the window fill also removed the splash panel.");
             view.SplashProgress = 1;
             view.CompleteSplash();
             VisualAssetChecks.Pump(() => !view.IsSplashing, "complete startup splash", 12000);
@@ -173,6 +220,8 @@ internal static class GlassShellChecks
             Native.Check(prompt.Wait(2000) && prompt.Result && Part<FrameworkElement>(view, "SplashLayer").Visibility == Visibility.Collapsed &&
                 Part<FrameworkElement>(view, "ApplicationBackdrop").Opacity == 1 && Part<FrameworkElement>(view, "WorkspaceContentLayer").Opacity == 1,
                 "Startup did not restore the workspace before releasing its automatic prompts.");
+            Native.Check(ReferenceEquals(Part<Grid>(view, "ShellRoot").Background, view.FindResource("GlassWindowBrush")),
+                "The first main page did not restore its themed surface fill.");
         }
         finally
         {
@@ -180,6 +229,7 @@ internal static class GlassShellChecks
             ready.TrySetResult(false);
             view.SplashFinished -= shown;
             slot.SetValue(null, previous);
+            view.SetLeftExpansionAllowance(originalAllowance);
         }
     }
 
@@ -350,9 +400,11 @@ internal static class GlassShellChecks
             Contains(frame, body) && Contains(frame, controls) && controls.Top < 1 &&
             Math.Abs(controls.Right - view.ActualWidth) < .2 && !Rect.Intersect(controls, body).IsEmpty &&
             logo.Width == 32 && logo.Top < 64 &&
-            account.Bottom > frame.Bottom - 16 && account.Top > frame.Bottom - 64 &&
+            // The workspace keeps the same 10px inset at the bottom (the bottom-right music dock stands proud of it).
+            Math.Abs((view.ActualHeight - body.Bottom - 10) * dpi.DpiScaleY) <= 1.01 && Math.Abs(rail.Bottom - body.Bottom) < .2 &&
+            account.Bottom > frame.Bottom - 26 && account.Top > frame.Bottom - 74 &&
             view.FindName("WallpaperButton") is null,
-            $"The 12px transparent gap, 10px staggered controls capsule, top app logo or bottom login avatar is misplaced, or a floating wallpaper entry returned (it belongs to settings). frame={frame}; rail={rail}; body={body}; controls={controls}; logo={logo}; account={account}.");
+            $"The 12px transparent gap, 10px staggered controls capsule, 10px bottom inset, top app logo or bottom login avatar is misplaced, or a floating wallpaper entry returned (it belongs to settings). frame={frame}; rail={rail}; body={body}; controls={controls}; logo={logo}; account={account}.");
         double[] avatarInsets = { (account.Left - rail.Left) * dpi.DpiScaleX, (rail.Right - account.Right) * dpi.DpiScaleX, (rail.Bottom - account.Bottom) * dpi.DpiScaleY };
         double[] logoInsets = { (logo.Left - rail.Left) * dpi.DpiScaleX, (rail.Right - logo.Right) * dpi.DpiScaleX, (logo.Top - rail.Top) * dpi.DpiScaleY };
         Native.Check(avatarInsets.Max() - avatarInsets.Min() <= 1.01 && logoInsets.Max() - logoInsets.Min() <= 1.01,
@@ -505,6 +557,38 @@ internal static class GlassShellChecks
                 Native.Check(hit is DependencyObject element && IsWithin(element, button),
                     "An overlay or title intercepts the actual caption target: " + button.Name + " at " + point);
             }
+        }
+    }
+
+    private static void TaskSidebarWater(Window window, GlassLauncherView view, ImageSource image)
+    {
+        view.SetState(State(image, home: false, navigation: 6));
+        var metrics = new Grid();
+        view.SetSidebarCustom(metrics);
+        view.SetSidebar(Array.Empty<GlassSidebarItem>());
+        try
+        {
+            Flush(window);
+            Native.Call(typeof(GlassLauncherView), "SetSidebarProgress", view, .25d);
+            var tide = (Grid)Native.Get(view, "_sidebarTide")!;
+            VisualAssetChecks.Pump(() => tide.IsVisible && tide.ActualHeight > 0 && tide.Opacity > .99, "task sidebar water appears");
+            var surface = Part<GlassSurface>(view, "SecondarySurface");
+            Native.Check(((Grid)surface.Child).Children[0] == tide && !tide.IsHitTestVisible && metrics.IsVisible &&
+                tide.Clip is RectangleGeometry rounded && rounded.RadiusX == surface.CornerRadius.TopLeft,
+                "Task water did not run behind the interactive statistics within the rounded sidebar.");
+            var water = (StreamGeometry)Native.Get(tide, "_waterGeometry")!;
+            double previous = water.Bounds.Top;
+            Native.Call(typeof(GlassLauncherView), "SetSidebarProgress", view, .75d);
+            VisualAssetChecks.Pump(() => water.Bounds.Top < previous - tide.ActualHeight * .4, "task sidebar water rises with total progress");
+            Native.Call(typeof(GlassLauncherView), "SetSidebarProgress", view, [null]);
+            VisualAssetChecks.Pump(() => tide.Visibility == Visibility.Hidden, "task sidebar water fades at completion");
+            Native.Check(!(bool)Native.Get(tide, "_rendering")!, "The completed task's water still renders frames.");
+        }
+        finally
+        {
+            view.SetSidebarCustom(null!);
+            view.SetState(State(image));
+            Flush(window);
         }
     }
 
@@ -755,6 +839,10 @@ internal static class GlassShellChecks
                     bool blurred = (bool)Native.Property(host.GetType(), "HasBlurredEffectBrush").GetValue(host)!;
                     string diag = (string)Native.Property(comp.GetType(), "BlurDiagnostic").GetValue(comp)!;
                     Native.Check(blurred, "Desktop host-backdrop brush did not compile its Direct2D GaussianBlur effect factory: " + diag);
+                    nint hwnd = new WindowInteropHelper(window).Handle;
+                    CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x007E, 32);
+                    CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x0218, 0x12);
+                    Native.Check(liveBackdrop.HasDesktopBackdrop, "The window did not restore its native material after rebuilding the host.");
                     view.SetWallpaper(Image()); Flush(window);
                     liveBackdrop.SetRegions(view.GetDesktopBackdropRegions());
                     ResizeDesktopBackdrop(window, view, liveBackdrop);
@@ -772,6 +860,18 @@ internal static class GlassShellChecks
         }
     }
 
+    private static void CheckBackdropRecovery(nint window, Func<object?> readHost, int message, nint reason)
+    {
+        object previous = readHost() ?? throw new InvalidOperationException("The recovery fixture has no native host.");
+        SendMessage(window, message, reason, 0);
+        SendMessage(window, message, reason, 0);
+        Native.Check(ReferenceEquals(readHost(), previous), "The native hook rebuilt the backdrop synchronously.");
+        VisualAssetChecks.Pump(() => readHost() is { } current && !ReferenceEquals(current, previous),
+            $"native backdrop host is rebuilt after message 0x{message:X4}");
+        Native.Check((nint)Native.Property(previous.GetType(), "Handle").GetValue(previous)! == 0,
+            "The old composition window survived the replacement.");
+    }
+
     private static void ResizeDesktopBackdrop(Window window, GlassLauncherView view, GlassWindowBackdrop backdrop)
     {
         nint main = new System.Windows.Interop.WindowInteropHelper(window).Handle;
@@ -787,20 +887,39 @@ internal static class GlassShellChecks
             return DefSubclassProc(hwnd, message, wParam, lParam);
         };
         double width = window.Width, height = window.Height, viewWidth = view.Width, viewHeight = view.Height;
+        double allowance = view.LeftExpansionAllowance;
         object host = Native.Get(backdrop, "_compositionHost")!;
         DpiScale dpi = VisualTreeHelper.GetDpi(window);
         Native.Check(SetWindowSubclass(material, observe, 1, 0), "Could not observe the owned backdrop HWND.");
         try
         {
+            view.SetLeftExpansionAllowance(GlassLauncherView.RailExpandDelta + GlassLauncherView.RailOvershootHeadroom);
+            Flush(window);
+            backdrop.SetRegions(view.GetDesktopBackdropRegions());
+            void CheckLeftEdge()
+            {
+                double left = view.PointToScreen(view.GetDesktopBackdropRegions()[0].Bounds.TopLeft).X;
+                Native.Check(GetWindowRect(material, out ClientRect frame) && Math.Abs(frame.Left - left) <= 1,
+                    "The native blur companion extends into the rail's transparent expansion space.");
+            }
+            CheckLeftEdge();
+            view.SetRailExpanded(true, true); Flush(window);
+            backdrop.SetRegions(view.GetDesktopBackdropRegions()); CheckLeftEdge();
+            view.SetRailExpanded(false, true); Flush(window);
+            backdrop.SetRegions(view.GetDesktopBackdropRegions()); CheckLeftEdge();
             foreach (int delta in new[] { -100, 0 })
             {
                 resizeFlags.Clear();
                 window.Width = width + delta; window.Height = height + delta;
                 Flush(window);
                 Native.Check(GetClientRect(main, out ClientRect primary), "Could not read the resized client area.");
+                int inset = (int)Math.Floor(view.GetDesktopBackdropRegions()[0].Bounds.Left * dpi.DpiScaleX);
+                // The companion is cropped to the surfaces, which keep a 10px inset above the window's bottom edge.
+                double bottomInset = (view.ActualHeight - view.GetDesktopBackdropRegions().Max(region => region.Bounds.Bottom)) * dpi.DpiScaleY;
                 Native.Check(GetClientRect(material, out ClientRect companion) &&
-                    primary.Right == companion.Right && primary.Bottom == companion.Bottom,
-                    "The frosted companion's native client area no longer matches the launcher after resizing.");
+                    Math.Abs(primary.Right - (inset + companion.Right)) <= 1 && Math.Abs(primary.Bottom - bottomInset - companion.Bottom) <= 1,
+                    "The cropped frosted companion did not follow the resized launcher.");
+                CheckLeftEdge();
                 Native.Check(resizeFlags.Count != 0 && resizeFlags.All(flags => (flags & 0x0008) == 0),
                     "A native backdrop resize suppressed repainting the exposed area.");
                 // The fixed component viewport still represents the old layout here.
@@ -820,9 +939,300 @@ internal static class GlassShellChecks
         finally
         {
             RemoveWindowSubclass(material, observe, 1);
+            view.SetRailExpanded(false, true); view.SetLeftExpansionAllowance(allowance);
             window.Width = width; window.Height = height; view.Width = viewWidth; view.Height = viewHeight;
             Flush(window);
             GC.KeepAlive(observe);
+        }
+    }
+
+    private static void PopupMaterialAtWindowEdge(Window window)
+    {
+        var canvas = (Canvas)window.Content;
+        var wallpaper = new DrawingImage(new GeometryDrawing(Brushes.Teal, null, new RectangleGeometry(new Rect(0, 0, 800, 200))));
+        wallpaper.Freeze();
+        var image = new Image { Source = wallpaper, Stretch = Stretch.UniformToFill };
+        var viewport = new Grid { Width = 260, Height = 180, ClipToBounds = true, Children = { image } };
+        Canvas.SetLeft(viewport, 60); Canvas.SetTop(viewport, 40);
+        canvas.Children.Add(viewport);
+        try {
+            Flush(window);
+            var card = new GlassSurface { Width = 120, Height = 72, CornerRadius = new CornerRadius(10), BlurRadius = 24 };
+            var popup = new Grid { Children = { card } };
+            var context = new Border { Child = popup };
+            GlassMaterial.SetWallpaperSource(context, wallpaper);
+            GlassMaterial.SetWallpaperHost(context, image);
+            GlassPopupBackdrop.SetEnable(popup, true);
+            GlassPopupBackdrop.SetCornerRadius(popup, 10);
+            DpiScale dpi = VisualTreeHelper.GetDpi(window);
+            Point inside = viewport.PointToScreen(new Point(22, 20));
+            using var source = new HwndSource(new HwndSourceParameters("Owned popup material fixture") {
+                WindowStyle = unchecked((int)0x90000000), ExtendedWindowStyle = 0x08000080, UsesPerPixelOpacity = true,
+                PositionX = (int)inside.X, PositionY = (int)inside.Y,
+                Width = (int)Math.Ceiling(120 * dpi.DpiScaleX), Height = (int)Math.Ceiling(72 * dpi.DpiScaleY)
+            });
+            source.RootVisual = context;
+            CheckInside();
+
+            // The source Image is wider than its clip. Crossing that clip must discard its extended texture.
+            Point crosses = viewport.PointToScreen(new Point(218, 30));
+            Move(crosses);
+            VisualAssetChecks.Pump(() => GlassMaterial.GetWallpaperSource(card) is null && GlassMaterial.GetWallpaperHost(card) is null,
+                "popup crossing the wallpaper viewport switches its material");
+            Native.Check(!GlassMaterial.GetIsEnabled(card) || GlassMaterial.GetDesktopBackdropEnabled(card),
+                "A popup reaching beyond the launcher still advertised its wallpaper backdrop.");
+            if (card.IsTransparencyActive) {
+                var leaseProperty = (DependencyProperty)Native.Field(typeof(GlassPopupBackdrop), "LeaseProperty").GetValue(null)!;
+                object lease = popup.GetValue(leaseProperty);
+                CheckBackdropRecovery(source.Handle, () => Native.Get(lease, "_host"), 0x007E, 32);
+                object material = Native.Get(lease, "_host")!;
+                nint handle = (nint)Native.Property(material.GetType(), "Handle").GetValue(material)!;
+                Native.Check(GetWindowRect(handle, out ClientRect frame) && Math.Abs(frame.Left - crosses.X) <= 1 && Math.Abs(frame.Top - crosses.Y) <= 1,
+                    "The native popup material did not follow its actual screen location.");
+            }
+
+            Move(inside);
+            CheckInside();
+
+            void Move(Point point) {
+                Native.Check(SetWindowPos(source.Handle, 0, (int)point.X, (int)point.Y, 0, 0, 0x0015),
+                    "Could not move the owned popup fixture.");
+                VisualAssetChecks.Drain();
+            }
+            void CheckInside() {
+                VisualAssetChecks.Pump(() => GlassMaterial.GetWallpaperHost(card) is Border proxy && !ReferenceEquals(proxy, image),
+                    "popup over the launcher aligns its wallpaper sample");
+                var host = GlassMaterial.GetWallpaperHost(card)!;
+                Point actual = host.PointToScreen(new Point()), expected = image.PointToScreen(new Point());
+                Native.Check(ReferenceEquals(card.WallpaperSource, wallpaper) && !GlassMaterial.GetDesktopBackdropEnabled(card) &&
+                    Math.Abs(actual.X - expected.X) <= 1 && Math.Abs(actual.Y - expected.Y) <= 1 &&
+                    GlassMaterial.GetWallpaperStretch(host) == Stretch.Fill,
+                    "The popup wallpaper was cropped or offset independently of its owning window.");
+            }
+        } finally {
+            canvas.Children.Remove(viewport);
+            Flush(window);
+        }
+    }
+
+    private static void AudioVisualization()
+    {
+        var tap = new PCLLF.Presentation.Shell.MusicSampleTap();
+        float[] input = Enumerable.Repeat(.5f, 32).ToArray(), read = new float[16];
+        void Write() => Native.Call(tap.GetType(), "Write", tap, input, 0, input.Length, 1);
+        Write();
+        Native.Check(!tap.Snapshot(read, 0), "The disabled spectrum tap took audio samples.");
+        tap.CaptureEnabled = true;
+        Write();
+        Native.Check(tap.Snapshot(read, 0) && read.All(value => value == .5f), "The enabled spectrum tap lost the audio samples.");
+        tap.CaptureEnabled = false;
+        tap.CaptureEnabled = true;
+        Native.Check(!tap.Snapshot(read, 0), "Turning visualization back on reused stale samples.");
+
+        const int width = 200, height = 140;
+        Type type = Native.Type("PCL.GlassAudioVisualizer");
+        var spectrum = (FrameworkElement)Activator.CreateInstance(type)!;
+        spectrum.Measure(new Size(width, height)); spectrum.Arrange(new Rect(0, 0, width, height));
+        Native.Set(spectrum, "_levels", Enumerable.Repeat(.7d, 10).ToArray());
+        Native.Set(spectrum, "_presence", 1d);
+        object line = Native.Enum("PCL.GlassAudioVisualizer+SpectrumStyle", "Line");
+        int bars = DrawnColumns();
+        Native.Call(type, "Update", spectrum, true, false, line);
+        int curve = DrawnColumns();
+        Native.Call(type, "Update", spectrum, false, false, line);
+        Native.Check(bars is > 60 and < 140 && curve > 190 && spectrum.Visibility == Visibility.Collapsed,
+            $"The audio visualization did not render distinct bars and line styles ({bars}, {curve}) or collapse on disable.");
+
+        int DrawnColumns()
+        {
+            spectrum.InvalidateVisual();
+            spectrum.Arrange(new Rect(0, 0, width, height));
+            var target = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            target.Render(spectrum);
+            var pixels = new byte[width * height * 4];
+            target.CopyPixels(pixels, width * 4, 0);
+            return Enumerable.Range(0, width).Count(x => Enumerable.Range(0, height).Any(y => pixels[(y * width + x) * 4 + 3] > 8));
+        }
+    }
+
+    private static void MusicPlaylistFrost(Window window, GlassLauncherView view, ImageSource icon)
+    {
+        Type playerType = Native.Type("PCL.GlassMusicPlayer");
+        object player = Activator.CreateInstance(playerType, Native.Flags, null, [view], null)!;
+        var card = (FrameworkElement)Native.Property(playerType, "Card").GetValue(player)!;
+        var bar = (FrameworkElement)Native.Property(playerType, "Bar").GetValue(player)!;
+        var disc = Descendants(bar).OfType<Grid>().Single(element => AutomationProperties.GetName(element) == "选择曲目");
+        var note = disc.Children.OfType<System.Windows.Shapes.Path>().Single(element => element.Stretch == Stretch.Uniform);
+        Native.Check(note.RenderTransform is not RotateTransform, "The player's note still tilts when playback stops mid-rotation.");
+        var dock = view.MusicDock;
+        var dockBrush = (VisualBrush)Native.Get(Native.Get(dock, "_frost")!, "_body")!;
+        var listBrush = (VisualBrush)Native.Get(Native.Get(card, "_frost")!, "_body")!;
+        var ring = (System.Windows.Shapes.Path)Native.Get(player, "_ring")!;
+        object runtime = Native.Field(typeof(PCL.ModMusic), "Native").GetValue(null)!;
+        var progress = Native.Property(runtime.GetType(), "Progress");
+        object? originalProgress = progress.GetValue(runtime);
+        var tracks = PCL.ModMusic.MusicAllList;
+        double left = window.Left, top = window.Top;
+        try {
+            view.SetState(State(icon));
+            view.SetWallpaper(Image());
+            view.SetDesktopBackdropActive(true);
+            view.SetMusicDock(bar);
+            PCL.ModMusic.MusicAllList = ["owned-track.mp3"];
+            progress.SetValue(runtime, .25);
+            Native.Set(player, "_ready", true);
+            Native.Call(playerType, "Refresh", player, true);
+            Flush(window);
+            Native.Call(playerType, "SetCard", player, true, false);
+            var motion = (PCLLF.Wpf.Motion.SpringMotion)Native.Get(player, "_cardMotion")!;
+            VisualAssetChecks.Pump(() => !motion.IsRunning && card.IsVisible && card.Opacity > .99 && card.ActualHeight > 0,
+                "in-window playlist opens and settles");
+            var dockChrome = (GlassSurface)Native.Property(dock.GetType(), "Chrome").GetValue(dock)!;
+            var listChrome = (GlassSurface)Native.Property(card.GetType(), "Chrome").GetValue(card)!;
+            Native.Check(ReferenceEquals(PresentationSource.FromVisual(card), PresentationSource.FromVisual(view)) &&
+                Math.Abs(card.ActualWidth - dock.ActualWidth) < 1 && view.GetSurfaceRegions().Count == 5 &&
+                listChrome.TintOpacity == dockChrome.TintOpacity && listChrome.CornerRadius == dockChrome.CornerRadius,
+                "The playlist is not an aligned surface with the same chrome inside the main window.");
+            if (dockChrome.IsTransparencyActive) CheckPlaylistScene(window, view, card);
+            CheckToastPlacement(window, view, dock, card);
+
+            Point beforeList = card.PointToScreen(new Point()), beforeDock = dock.PointToScreen(new Point());
+            window.Left += 40; window.Top += 26; Flush(window);
+            Vector listMove = card.PointToScreen(new Point()) - beforeList, dockMove = dock.PointToScreen(new Point()) - beforeDock;
+            Native.Check(card.IsVisible && listMove.Length > 5 && (listMove - dockMove).Length <= 1,
+                "Moving the main HWND detached the playlist from its dock.");
+            card.Opacity = .42;
+            Native.Call(typeof(GlassLauncherView), "RefreshMusicDockRegions", view);
+            Native.Check(Math.Abs(view.GetDesktopBackdropRegions()[^1].Opacity - .42) < .001,
+                "The playlist fade did not reach the native backdrop region.");
+            var bodyPresentation = Part<FrameworkElement>(view, "BodyPresentation");
+            if (listChrome.IsTransparencyActive)
+                Native.Check(bodyPresentation.Clip is null && bodyPresentation.OpacityMask is DrawingBrush,
+                    "The sharp page did not fade behind the playlist during its transition.");
+
+            Geometry ringBefore = ring.Data;
+            Native.Call(playerType, "Refresh", player, true);
+            Native.Check(ringBefore is not null && ReferenceEquals(ringBefore, ring.Data), "A stationary ring rebuilt its geometry.");
+            progress.SetValue(runtime, .75);
+            Native.Call(playerType, "Refresh", player, false);
+            Native.Check(ReferenceEquals(ringBefore, ring.Data), "Music details ran during a page transition.");
+            Native.Property(playerType, "OnHome").SetValue(player, false);
+            Native.Call(playerType, "Refresh", player, true);
+            VisualAssetChecks.Pump(() => !dock.IsVisible && !card.IsVisible, "leaving home hides the player and playlist");
+            Native.Check(bodyPresentation.Clip is null && bodyPresentation.OpacityMask is null, "Closing the playlist left a cutout in the page.");
+            Native.Check(ReferenceEquals(ringBefore, ring.Data) && dockBrush.Visual is null && listBrush.Visual is null,
+                "The hidden player still repainted the ring or retained a live backdrop sample.");
+        } finally {
+            window.Left = left; window.Top = top;
+            PCL.ModMusic.MusicAllList = tracks;
+            progress.SetValue(runtime, originalProgress);
+            Native.Call(playerType, "CloseCard", player, true);
+            if (card.Parent is Panel panel) panel.Children.Remove(card);
+            view.SetMusicDockVisible(false);
+            view.SetMusicDock(null!);
+            view.SetDesktopBackdropActive(false);
+            view.SetWallpaper(Image());
+            Flush(window);
+        }
+    }
+
+    private static void CheckToastPlacement(Window window, GlassLauncherView view, FrameworkElement dock, FrameworkElement playlist)
+    {
+        var source = new StackPanel();
+        source.Children.Add(new Border { Tag = new object[] { true }, Child = new TextBlock { Text = "正在加载主页……" } });
+        Type hostType = Native.Type("PCL.GlassToastHost");
+        var toast = (FrameworkElement)Activator.CreateInstance(hostType, Native.Flags, null, [source], null)!;
+        var overlay = new Grid { Width = view.ActualWidth, Height = view.ActualHeight };
+        var viewport = (Canvas)window.Content;
+        overlay.Children.Add(toast); viewport.Children.Add(overlay);
+        try {
+            Native.Call(hostType, "Refresh", toast);
+            Flush(window);
+            Rect dockBounds = OverlayBounds(dock), listBounds = OverlayBounds(playlist);
+            Rect taken = (Rect)Native.Call(typeof(GlassLauncherView), "MusicOverlayBounds", view, overlay)!;
+            Native.Check(taken.Contains(dockBounds) && taken.Contains(listBounds), "The dock and song list must both reserve space for toasts.");
+
+            Place(Rect.Empty);
+            double restingBottom = Bounds(toast, overlay).Bottom;
+            Place(dockBounds);
+            Native.Check(Bounds(toast, overlay).Bottom <= dockBounds.Top - 10, "An open dock is covered by its toast.");
+            Place(taken);
+            Native.Check(Bounds(toast, overlay).Bottom <= listBounds.Top - 10, "The open playlist is covered by its toast.");
+            Place(new Rect(taken.Left, 16, taken.Width, taken.Bottom - 16));
+            Rect beside = Bounds(toast, overlay);
+            Native.Check(beside.Left >= 0 && beside.Right <= taken.Left - 10 && beside.Bottom <= overlay.ActualHeight,
+                "A tall player and playlist pushed the toast out of view rather than beside them.");
+            Place(Rect.Empty);
+            Native.Check(Math.Abs(restingBottom - Bounds(toast, overlay).Bottom) < .5, "Closing the player did not restore the usual toast anchor.");
+        } finally {
+            ((IDisposable)toast).Dispose(); viewport.Children.Remove(overlay);
+        }
+
+        void Place(Rect obstacles) {
+            Native.Call(hostType, "AvoidOverlays", toast, overlay.RenderSize, obstacles);
+            Flush(window);
+        }
+
+        Rect OverlayBounds(FrameworkElement element) => element.TransformToVisual(overlay).TransformBounds(new Rect(element.RenderSize));
+    }
+
+    private static void CheckPlaylistScene(Window window, GlassLauncherView view, FrameworkElement card)
+    {
+        var body = Part<Grid>(view, "BodyContentRoot");
+        var markers = new Canvas { IsHitTestVisible = false };
+        Panel.SetZIndex(markers, 100);
+        Point origin = card.TranslatePoint(new Point(), body);
+        int width = (int)card.ActualWidth - 16;
+        var pattern = new DrawingGroup();
+        for (int x = 0; x < width; x += 4) {
+            Brush color = x % 8 == 0 ? Brushes.Black : x < width / 2 ? Brushes.Red : Brushes.Lime;
+            pattern.Children.Add(new GeometryDrawing(color, null, new RectangleGeometry(new Rect(x, 0, 4, card.ActualHeight))));
+        }
+        var swatch = new Border { Width = width, Height = card.ActualHeight, Background = new DrawingBrush(pattern) };
+        Canvas.SetLeft(swatch, origin.X); Canvas.SetTop(swatch, origin.Y); markers.Children.Add(swatch);
+        var chrome = (GlassSurface)Native.Property(card.GetType(), "Chrome").GetValue(card)!;
+        double contentOpacity = chrome.Child.Opacity;
+        try {
+            chrome.Child.Opacity = 0;
+            body.Children.Add(markers);
+            card.Opacity = 0;
+            Native.Call(typeof(GlassLauncherView), "RefreshMusicDockRegions", view);
+            Flush(window);
+            var sharp = Sample();
+            card.Opacity = 1;
+            Native.Call(typeof(GlassLauncherView), "RefreshMusicDockRegions", view);
+            Flush(window);
+            var frosted = Sample();
+            Native.Check(sharp.Contrast > 140 && frosted.Contrast < sharp.Contrast / 3 &&
+                frosted.Red > 15 && frosted.Green > 15,
+                $"Playlist must blur the actual page: stripe contrast {sharp.Contrast}->{frosted.Contrast}, red/green signals {frosted.Red}/{frosted.Green}.");
+            Console.WriteLine($"Playlist rendered over page content: stripe contrast {sharp.Contrast}->{frosted.Contrast}, red/green signals {frosted.Red}/{frosted.Green}.");
+        } finally {
+            card.Opacity = 1; chrome.Child.Opacity = contentOpacity; body.Children.Remove(markers); Flush(window);
+        }
+
+        (int Contrast, int Red, int Green) Sample() {
+            int w = (int)Math.Ceiling(view.ActualWidth), h = (int)Math.Ceiling(view.ActualHeight);
+            var raster = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+            raster.Render(view);
+            var row = new byte[width * 4];
+            Point at = card.TranslatePoint(new Point(0, card.ActualHeight / 2), view);
+            raster.CopyPixels(new Int32Rect((int)at.X, (int)at.Y, width, 1), row, row.Length, 0);
+            var left = Enumerable.Range(width / 4 - 12, 24).Select(x => (int)row[x * 4 + 2]).ToArray();
+            int red = (int)Enumerable.Range(width / 4 - 12, 24).Average(x => row[x * 4 + 2] - row[x * 4 + 1]);
+            int green = (int)Enumerable.Range(3 * width / 4 - 12, 24).Average(x => row[x * 4 + 1] - row[x * 4 + 2]);
+            if (card.Opacity == 1) {
+                var frame = Part<Border>(view, "BodyFrame");
+                int edge = (int)Math.Round(Bounds(frame, view).Right);
+                var seam = new byte[14 * 4];
+                raster.CopyPixels(new Int32Rect(edge - 7, (int)at.Y, 14, 1), seam, seam.Length, 0);
+                var alpha = Enumerable.Range(0, 14).Select(i => (int)seam[i * 4 + 3]).ToArray();
+                int maxStep = alpha.Zip(alpha.Skip(1), (a, b) => Math.Abs(a - b)).Max();
+                Native.Check(maxStep <= 16 && alpha[0] - alpha[^1] >= 10,
+                    "Sharp body edge through the playlist, alpha samples: " + string.Join(",", alpha));
+                Console.WriteLine("Playlist across the window edge: " + string.Join(",", alpha));
+            }
+            return (left.Max() - left.Min(), red, green);
         }
     }
 
@@ -867,6 +1277,12 @@ internal static class GlassShellChecks
     private delegate nint SubclassProc(nint hwnd, uint message, nint wParam, nint lParam, nuint id, nuint data);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetClientRect(nint hwnd, out ClientRect bounds);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(nint hwnd, out ClientRect bounds);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern nint SendMessage(nint hwnd, int message, nint wParam, nint lParam);
     [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowSubclass(nint hwnd, SubclassProc callback, nuint id, nuint data);
     [DllImport("comctl32.dll")] [return: MarshalAs(UnmanagedType.Bool)]

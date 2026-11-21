@@ -83,10 +83,11 @@ public sealed class GlassSurface : Border {
     public double HighlightOpacity { get => (double)GetValue(HighlightOpacityProperty); set => SetValue(HighlightOpacityProperty, value); }
     public bool IsTransparencyActive => CanUseTransparency;
 
-    internal bool CanUseTransparency => IsMaterialEnabled && !SystemParameters.HighContrast && GlassSystemPreferences.TransparencyEnabled &&
+    internal bool CanUseTransparency => GlassMaterial.AllowsTransparency(this) &&
         (WallpaperSource is not null || GlassMaterial.GetDesktopBackdropEnabled(this));
     private double ImageOpacity => Math.Clamp(WallpaperHost?.Opacity ?? 1, 0, 1);
-    private Stretch ImageStretch => WallpaperHost is Image image ? image.Stretch : GlassMaterial.GetWallpaperStretch(WallpaperHost ?? this);
+    // The Image's arranged bounds already account for its fit and alignment.
+    private Stretch ImageStretch => WallpaperHost is Image ? Stretch.Fill : GlassMaterial.GetWallpaperStretch(WallpaperHost ?? this);
     private double EffectiveBlurRadius {
         get {
             double global = !GlassMaterial.GetIgnoreWallpaperHostEffect(this) &&
@@ -261,7 +262,7 @@ public sealed class GlassSurface : Border {
         foreach (DependencyObject node in relative)
             if (node is UIElement element) _transformWatches.Add(element, new TransformWatch(element, RelativeTransformChanged));
     }
-    private sealed class TransformWatch : IDisposable {
+    internal sealed class TransformWatch : IDisposable {
         private static readonly DependencyPropertyDescriptor? TransformProperty = DependencyPropertyDescriptor.FromProperty(UIElement.RenderTransformProperty, typeof(UIElement));
         private static readonly DependencyPropertyDescriptor? OriginProperty = DependencyPropertyDescriptor.FromProperty(UIElement.RenderTransformOriginProperty, typeof(UIElement));
         private readonly UIElement _element;

@@ -127,7 +127,7 @@ namespace PCL
         private static LegacySkinRequest ReadAccountSkin(string kind)
         {
             var instance = ModMinecraft.McInstanceSelected;
-            if (kind == "Auth" && GlassSkinSites.CurrentForLaunch(instance) is { } character)
+            if (kind == "Auth" && GlassSkinSites.CurrentForLaunch() is { } character)
                 return SkinSiteRequest(character);
             string prefix = kind == "Ms" ? "CacheMsV2" : "Cache" + kind;
             var cache = Settings.AccountSnapshot(prefix);
