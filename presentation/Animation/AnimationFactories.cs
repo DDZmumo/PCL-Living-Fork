@@ -84,7 +84,7 @@ public sealed class AnimationFactories<TData> where TData : struct, IAnimationDa
         data.Duration = time;
         data.Easing = ease ?? host.NewLinearEasing();
         data.Target = new object[] { obj, prop, res };
-        object resource = obj.TryFindResource(res) ?? host.FindResource(res);
+        object? resource = obj.TryFindResource(res) ?? host.FindResource(res);
         data.Value = host.BoxColor(AnimationColors.Subtract(host.ReadColor(resource), host.ReadColor(obj.GetValue(prop))));
         data.After = after;
         data.Elapsed = checked(-delay);
