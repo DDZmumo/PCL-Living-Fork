@@ -1035,7 +1035,7 @@ internal static class GlassShellChecks
         spectrum.Measure(new Size(width, height)); spectrum.Arrange(new Rect(0, 0, width, height));
         Native.Set(spectrum, "_levels", Enumerable.Repeat(.7d, 10).ToArray());
         Native.Set(spectrum, "_presence", 1d);
-        object line = Native.Enum("PCL.GlassAudioVisualizer+SpectrumStyle", "Line");
+        object? line = Native.Enum("PCL.GlassAudioVisualizer+SpectrumStyle", "Line");
         int bars = DrawnColumns();
         Native.Call(type, "Update", spectrum, true, false, line);
         int curve = DrawnColumns();
