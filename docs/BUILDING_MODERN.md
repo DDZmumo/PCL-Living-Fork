@@ -82,11 +82,13 @@ pwsh -NoProfile -File scripts/Build-Release.ps1 -Slim -OfficialRelease -Configur
 
 ## 主分支 CI 门禁
 
-`main` 的代码、项目、构建脚本、工作流或未知路径变更执行完整产品、迁移及 WPF 验证。纯文档变更按选择器的明确白名单识别，跳过产品构建、游戏/窗口运行、迁移测试及 WPF 矩阵，只执行轻量文档校验并返回必需检查状态；不使用 workflow 的 `paths-ignore`，避免 PR 卡在等待检查。
+`main` 的代码、项目、构建脚本、工作流或未知路径变更执行产品合并检查、迁移及 WPF 验证。产品检查编译 Debug 和 Release 主程序。Release 还验证资源、凭据、更新桥、真实启动与正常关闭后重开，在独立 Windows runner 实测旧版升级，并运行启动、账号、工作台、更新、实例和资源的核心回归。纯文档变更按选择器的明确白名单执行轻量校验，并返回必需检查状态。
 
-文档与代码混合修改仍走完整验证。`docs/` 下的脚本和 JSON 数据、产品图片、运行时资源及代理指令文件不属于文档白名单。重命名检查同时考虑旧路径和新路径。手动运行和 `--full` 保持完整检查；事件、比较基线或路径无法可靠取得时回退完整验证。
+文档与代码混合修改仍走合并检查。`docs/` 下的脚本和 JSON 数据、产品图片、运行时资源及代理指令文件不属于文档白名单。重命名检查同时考虑旧路径和新路径。事件、比较基线或路径无法可靠取得时，选择器启用产品、迁移及 WPF 验证。
 
 `Native product gate`、`Migration validation gate`、`Modern WPF gate` 核对真实选择结果：选中的验证必须成功，失败、取消和意外跳过不能通过。CNB 检查只处理离线合成数据，不触发公开发布。
+
+需要全量 Windows 回归时，在 Actions 手动运行 **Build**。手动构建还检查 Debug 打包和 facade、Release 连续界面操作、历史构建工具、可选 LegacyLink 编译及精简打包。针对单项功能，也可以在 Windows 本地运行对应分组。 [Native facade 命令与环境要求](../tests/PCLLF.Native.Facade.Tests/README.md)
 
 本地验证选择器和门禁（Python 需有 PyYAML 6.0.2）：
 
