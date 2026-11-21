@@ -32,8 +32,12 @@ internal static partial class LauncherLifecycleChecks
         Check("activation:46", Request() && string.Join(",", order) == "queue,foreground" && pauses == 0);
         order.Clear(); find = caption => pauses == 2 && caption == "LivingPCL\u3000" ? new IntPtr(17) : IntPtr.Zero;
         Check("activation:49", Request() && pauses == 2);
-        pauses = 0; order.Clear(); int searches = 0; find = _ => { searches++; return IntPtr.Zero; };
-        Check("activation:52", !Request() && searches == 30 && pauses == 9 && order.Count == 0);
+        pauses = 0; order.Clear();
+        string[] captions = ["PCL Living Fork", "LivingPCL\u3000", "Plain Craft Launcher\u3000", "Plain Craft Launcher 2\u3000"];
+        List<string> searched = new();
+        find = caption => { searched.Add(caption); return IntPtr.Zero; };
+        Check("activation:52", !Request() && searched.SequenceEqual(Enumerable.Range(0, 10).SelectMany(_ => captions)) &&
+            pauses == 9 && order.Count == 0, "Modern title and three legacy aliases must be tried in order on each bounded attempt.");
         find = _ => new IntPtr(17); queue = (_, _) => false; Check("activation:55", !Request());
         Console.WriteLine("PASS native lifecycle activation: genuine Main Unicode FindWindowW only on its own GUID hidden HWND; original6402/order/delayed/bounded/failure logic with controlled callbacks, no user window searched or foregrounded.");
     }

@@ -56,7 +56,7 @@ internal static partial class DependencyCases<TContext,TMod,TDependency,TEdge,TI
 
     private static void GlassGraphTheme(MyMsgText modal, Canvas graph) {
         using var presentation = GlassPresentation.Create(modal);
-        var glass = (Canvas)Native.Call(typeof(GlassPresentationSession), "Project", presentation, graph, false)!;
+        var glass = (Canvas)Native.Call(typeof(GlassPresentationSession), "Project", presentation, graph, false, null)!;
         var links = graph.Children.OfType<Shape>().ToArray();
         var projected = glass.Children.OfType<Shape>().ToArray();
         Native.Check(links.Length != 0 && links.Length == projected.Length, "Glass projection dropped dependency connectors.");
