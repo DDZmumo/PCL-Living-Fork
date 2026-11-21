@@ -177,7 +177,7 @@ def main():
         print('PASS workflow status, seven actual gates, always upload and fail-closed-before-old-download order')
         summary={'scope':'Actual workflow producer/consumer blocks and explicitly NON-EXECUTABLE offline fixtures only; no Windows product/bridge acceptance claimed','cases':cases,'counts':{'qualified':sum(c['expected']=='qualified' for c in cases),'rejected':sum(c['expected']!='qualified' for c in cases)}}
         summary['pending']=pending
-        assert summary['counts']=={'qualified':3,'rejected':32-len(pending)},summary
+        assert summary['counts']=={'qualified':2,'rejected':33-len(pending)},summary
         assert w['jobs']['native']['strategy']['fail-fast'] is False
         upgrade=w['jobs']['native-upgrade']['steps']
         assert not w['jobs']['native-upgrade'].get('continue-on-error') and not upgrade[consumerIndex].get('continue-on-error')
