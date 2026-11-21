@@ -79,7 +79,7 @@ def main():
         index={'schemaVersion':1,'kind':'PCLLF.NativeRelease.Artifacts','configuration':'Release','runtimeIdentifier':'win-x64','bridgeOnly':False,'nativePayloadSha256':sha(p/'LivingPCL.exe'),'productVersion':'99.0.0','artifacts':roles}
         write(p/'NativeRelease.Artifacts.json',index)
         coldDir=base/'smoke'/('NativeSmoke-'+'a'*32);coldDir.mkdir(parents=True,exist_ok=True)
-        cold={'Result':'passed','ForcedCleanup':False,'CleanupErrors':[],'MainProof':{'sha256':sha(p/'LivingPCL.exe'),'buildType':0},'Runs':[{'Pass':i,'NormalExit':True,'ExitCode':-1,'ExpectedInformationNoticeVisible':True,'Window':{'Title':'LivingPCL','Class':'HwndWrapper[OFFLINE]','Left':0,'Top':0,'Right':100,'Bottom':100}} for i in [1,2]]}
+        cold={'Result':'passed','ForcedCleanup':False,'CleanupErrors':[],'MainProof':{'sha256':sha(p/'LivingPCL.exe'),'buildType':0},'Runs':[{'Pass':i,'NormalExit':True,'ExitCode':-1,'ExpectedInformationNoticeVisible':True,'Window':{'Title':'PCL Living Fork','Class':'HwndWrapper[OFFLINE]','Left':0,'Top':0,'Right':100,'Bottom':100}} for i in [1,2]]}
         write(coldDir/'evidence.json',cold)
         identityDir=base/'bridge-identity'/('BridgeIdentity-'+'b'*32);identityDir.mkdir(parents=True,exist_ok=True)
         identity={'count':11,'results':[{'name':'genuine-native-main','accepted':True,'nativeInspectorUsed':True,'nativeIdentity':{'AssemblyName':'LivingPCL','Product':'PCL Living Fork'}},{'name':'genuine-managed-original-rule','accepted':True,'nativeInspectorUsed':False}]+[{'name':n,'accepted':False} for n in ['foreign-managed-identity','unbundled-native-apphost','invalid-PE','missing-file-IO','directory-access-error','exclusive-handle-IO','generic-invalid-operation','IO-never-native','permission-never-native']]}
@@ -123,10 +123,10 @@ def main():
           qf=d/'native-upgrade-qualification.json';q=json.loads(qf.read_text());f=d/q[key]['relativePath'];obj=json.loads(f.read_text());mutator(obj);write(f,obj);q[key]['sha256']=sha(f);q[key]['bytes']=f.stat().st_size;write(qf,q)
          return edit
         run('valid-same-run-relocated-package')
-        run('cold-title-plain',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','LivingPCL') for run in c['Runs']]),True,True)
-        run('cold-title-full-width-space',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','LivingPCL\u3000') for run in c['Runs']]),True,True)
+        run('cold-title-legacy',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','LivingPCL') for run in c['Runs']]),False)
+        run('cold-title-full-width-space',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','PCL Living Fork\u3000') for run in c['Runs']]),True,True)
         run('cold-title-foreign',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','ForeignLauncher') for run in c['Runs']]),False)
-        run('cold-title-suffix',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','LivingPCL extra') for run in c['Runs']]),False)
+        run('cold-title-suffix',editReceipt('coldEntry',lambda c:[run['Window'].__setitem__('Title','PCL Living Fork extra') for run in c['Runs']]),False)
         run('qualification-missing',lambda d,e:(d/'native-upgrade-qualification.json').unlink(),False)
         for key,value in [('repository','different/repo'),('sourceSha','d'*40),('sourceRunId','123456780'),('sourceRunAttempt','1'),('configuration','Debug'),('runtimeIdentifier','linux-x64')]:run('wrong-'+key,editQ(lambda q,k=key,v=value:q.__setitem__(k,v)),False)
         run('cold-gate-failed',editQ(lambda q:q['requiredSteps'].__setitem__('cold_entry','failure')),False)
