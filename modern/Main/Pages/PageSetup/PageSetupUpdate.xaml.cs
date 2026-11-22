@@ -22,8 +22,10 @@ public partial class PageSetupUpdate : MyPageRight
     private bool catalogLoaded;
     private List<JObject> catalog = new List<JObject>();
     private string catalogError;
+    internal JObject LatestUpdateRelease { get; private set; }
     internal Func<ModLauncherUpdate.UpdateSource, ModLauncherUpdate.UpdateChannel, List<JObject>> ReadReleases =
         (source, channel) => ModLauncherUpdate.GetPageReleases(source, channel);
+    internal Action<JObject> UpdateRelease = release => ModLauncherUpdate.RequestSelectedUpdate(release, ModLauncherUpdate.PreferredUpdateSource());
     internal Action ShowCurrentUpdateLog = () => ModMain.FrmMain?.ShowUpdateLog();
 
     public PageSetupUpdate()
@@ -129,6 +131,7 @@ public partial class PageSetupUpdate : MyPageRight
     private void ApplyFilters()
     {
         bool loading = Loading.Visibility == Visibility.Visible;
+        LatestUpdateRelease = null;
         PanVersions.Children.Clear();
         PanVersions.Visibility = loading ? Visibility.Collapsed : Visibility.Visible;
         HintStatus.Visibility = loading ? Visibility.Collapsed : Visibility.Visible;
@@ -151,7 +154,7 @@ public partial class PageSetupUpdate : MyPageRight
             MarkCurrentVersion(current);
             visibleRows.Add(current);
         }
-        bool anyNewer = false;
+        var channel = ModLauncherUpdate.PreferredUpdateChannel();
         int total = 1;
         foreach (JObject release in catalog.OrderByDescending(value => value["tag_name"]?.ToString(), Comparer<string>.Create(ModLauncherUpdate.CompareReleaseVersions)))
         {
@@ -160,10 +163,10 @@ public partial class PageSetupUpdate : MyPageRight
             if (!development && comparison == 0) continue;
             total++;
             bool preview = (bool?)release["prerelease"] == true;
-            bool outsideChannel = preview && ModLauncherUpdate.PreferredUpdateChannel() == ModLauncherUpdate.UpdateChannel.Stable;
+            bool outsideChannel = preview && channel == ModLauncherUpdate.UpdateChannel.Stable;
             bool installable = ModLauncherUpdate.CanInstallPageRelease(release);
-            bool newer = installable && ModLauncherUpdate.NewerReleaseForChannel(tag, ModBase.VersionBaseName, ModLauncherUpdate.PreferredUpdateChannel());
-            anyNewer |= newer;
+            bool newer = installable && ModLauncherUpdate.NewerReleaseForChannel(tag, ModBase.VersionBaseName, channel);
+            if (newer) LatestUpdateRelease ??= release;
             if (!MatchesSearch(tag, release["name"]?.ToString() ?? "")) continue;
             var row = new MyListItem { Height = 58, Title = tag,
                 Info = newer ? "可更新 · 点击下载并更新" : outsideChannel ? "当前更新通道未启用 · 可查看更新说明" : comparison < 0 ? "历史版本 · 可查看更新说明" : "已发布 · 可查看更新说明",
@@ -172,7 +175,7 @@ public partial class PageSetupUpdate : MyPageRight
             PrepareVersionRow(row, preview ? 2 : 1);
             row.Click += (_, _) =>
             {
-                if (newer) ModLauncherUpdate.RequestSelectedUpdate((JObject)release.DeepClone(), ModLauncherUpdate.PreferredUpdateSource());
+                if (newer) UpdateRelease(release);
                 else ModMain.MyMsgBoxContent(
                     outsideChannel ? "当前仅接收正式版更新。可在上方更新通道中开启预发布版更新。" : !installable ? "此发布没有可用于自动更新的完整附件。" : "当前没有比此构建更新的版本。",
                     tag + " 更新说明", () => new ReleaseNotesView(release["body"]?.ToString()));
@@ -183,6 +186,7 @@ public partial class PageSetupUpdate : MyPageRight
             PanVersions.Children.Add(row);
         LabResultCount.Text = $"共 {total} 个版本，显示 {PanVersions.Children.Count} 个";
         LabNoResults.Visibility = PanVersions.Children.Count == 0 && catalogLoaded && catalogError is null ? Visibility.Visible : Visibility.Collapsed;
+        bool anyNewer = LatestUpdateRelease is not null;
         HintStatus.Text = catalogError is not null ? "读取版本列表失败：" + catalogError : !catalogLoaded ? "点击“检查更新”获取完整版本列表。" : anyNewer ? "有可用更新，点击版本下载并更新。" : "当前更新通道没有更新的版本。";
         LabBuildStatus.Text = catalogError is not null ? "检查更新未完成" : development ? "本机开发构建" : anyNewer ? "有新版本可用" : !catalogLoaded ? "尚未检查更新" : "已是最新版本";
     }
