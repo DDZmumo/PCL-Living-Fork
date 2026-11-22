@@ -173,6 +173,12 @@ namespace PCL
                 return Native.IsCanceledWithThread(Thread);
             }
 
+            internal Func<bool> CaptureCancellationCheck()
+            {
+                Thread worker = Thread.CurrentThread;
+                return () => IsCanceledWithThread(worker);
+            }
+
             public TIn StartGetInput(TIn Input = default, Func<TIn> InputDelegate = null)
             {
                 return Native.StartGetInput(Input, InputDelegate);

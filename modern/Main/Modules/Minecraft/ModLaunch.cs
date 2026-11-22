@@ -1035,7 +1035,8 @@ namespace PCL
             var task = LoginPort(Data);
             if (Data.Input.SkinSite is { } character) {
                 task.Progress = .1;
-                Data.Output = GlassSkinSites.LoginForLaunch(character, () => task.IsCanceled).GetAwaiter().GetResult();
+                // Authentication resumes on a pool thread; cancellation belongs to this loader run.
+                Data.Output = GlassSkinSites.LoginForLaunch(character, Data.CaptureCancellationCheck()).GetAwaiter().GetResult();
                 task.Progress = .95;
                 return;
             }
