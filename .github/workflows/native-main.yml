@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native_run: ${{ steps.scope.outputs.native_run }}
+      public_slim_run: ${{ steps.scope.outputs.public_slim_run }}
     steps:
       - name: Checkout selection source and diff history
         uses: actions/checkout@v6
@@ -504,8 +505,9 @@ jobs:
 
       - name: Require public slim EXE legacy identity and exact ZIP payload
         id: public_slim
-        if: matrix.configuration == 'Release' && (env.NATIVE_FULL_VALIDATION == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        if: matrix.configuration == 'Release' && (needs.select.outputs.public_slim_run == 'true' || env.NATIVE_FULL_VALIDATION == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         env:
+          VALIDATE_PUBLIC_SLIM: ${{ needs.select.outputs.public_slim_run }}
           PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
         run: |
@@ -514,9 +516,9 @@ jobs:
           $baseline = [IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'modern/Main/Modules/Base/ModBase.cs'))
           $version = [regex]::Match($baseline, 'const string ReleaseBaselineVersion = "([^"]+)"').Groups[1].Value
           $preview = $baseline -cmatch 'const bool ReleaseBaselineIsPrerelease = true;'
-          $official = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
-          if ($official -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
-          if ($official) {
+          $publishPreview = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
+          if ($preview -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
+          if ($publishPreview) {
             $tag = "refs/tags/v$version"
             $matchingRefs = & git for-each-ref --format='%(refname)' $tag
             if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the preview tag.' }
@@ -525,15 +527,14 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the preview tag to a commit.' }
               if ($tagCommit -cne $env:GITHUB_SHA) {
                 Write-Output "Preview v$version is already tagged on $tagCommit."
-                return
+                $publishPreview = $false
               }
             }
-          } elseif ($env:NATIVE_FULL_VALIDATION -ne 'true') {
-            return
           }
-          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease:$official
+          if (-not $publishPreview -and $env:VALIDATE_PUBLIC_SLIM -ne 'true' -and $env:NATIVE_FULL_VALIDATION -ne 'true') { return }
+          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease
           $index = Get-Content -LiteralPath (Join-Path $output 'SlimRelease.Artifacts.json') -Raw | ConvertFrom-Json
-          if ($official -and $index.productVersion -cne $version) { throw 'Official preview identity does not match the source version.' }
+          if ($index.productVersion -cne $version) { throw 'Official package identity does not match the source version.' }
           if ($index.selfContained -isnot [bool] -or $index.selfContained -or $index.legacyBridgeIncluded -isnot [bool] -or -not $index.legacyBridgeIncluded) { throw 'Public slim package lost legacy compatibility or bundled a runtime.' }
           $exe = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-exe').fileName
           $zipPath = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-zip').fileName
@@ -568,7 +569,7 @@ jobs:
           & (Join-Path $validator 'LegacyBridgeValidation.exe') $legacyExe $exe (Join-Path $output 'publish/LivingPCL.exe')
           if ($LASTEXITCODE -ne 0) { throw 'The original legacy validator did not accept the public update bridge.' }
           [ordered]@{ kind = 'PCLLF.PublicSlimCompatibility'; productVersion = $index.productVersion; embeddedPayloadSha256 = $embeddedHash; legacyManagedIdentity = $true; zipPayloadIdentical = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:NATIVE_LOG_DIRECTORY 'public-slim-compatibility.json') -Encoding utf8
-          if ($official) {
+          if ($publishPreview) {
             $public = Join-Path $env:NATIVE_LOG_DIRECTORY 'public-prerelease'
             New-Item -ItemType Directory -Path $public | Out-Null
             Copy-Item -LiteralPath @($exe, $zipPath, (Join-Path $output 'SHA256SUMS.txt')) -Destination $public

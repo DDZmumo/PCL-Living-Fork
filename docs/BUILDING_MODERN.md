@@ -90,6 +90,8 @@ pwsh -NoProfile -File scripts/Build-Release.ps1 -Slim -OfficialRelease -Configur
 
 需要全量 Windows 回归时，在 Actions 手动运行 **Build**。手动构建还检查 Debug 打包和 facade、Release 连续界面操作、历史构建工具、可选 LegacyLink 编译及精简打包。针对单项功能，也可以在 Windows 本地运行对应分组。 [Native facade 命令与环境要求](../tests/PCLLF.Native.Facade.Tests/README.md)
 
+打包脚本、校验器、相关工作流及版本构建配置有变更时，合并检查会验证精简 EXE 和 ZIP。公开预发布附件在 `main` 的发布构建中生成。
+
 本地验证选择器和门禁（Python 需有 PyYAML 6.0.2）：
 
 ```text
