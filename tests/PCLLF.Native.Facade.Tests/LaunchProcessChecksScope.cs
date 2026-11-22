@@ -192,7 +192,8 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
         try
         {
             version.ReleaseTime = new DateTime(2023, 4, 4);
-            prepared.QuickPlayWorld = null;
+            // The legacy launch pipeline uses null to distinguish a server launch from Quick Play.
+            prepared.QuickPlayWorld = null!;
             prepared.ServerIp = "[2001:db8::5]:25570";
             List<string> arguments = (List<string>)Native.Static("PCL.ModLaunch", "McLaunchArgumentsGame")!;
             int offset = arguments.IndexOf("--server");
