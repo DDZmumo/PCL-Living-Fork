@@ -113,7 +113,14 @@ internal static class GlassProjectionRegressionChecks
         ((FrameworkElement)page.FindName("PanAllBack")).Opacity = 1;
         var list = (StackPanel)page.FindName("PanList");
         ((TextBlock)page.FindName("LabEmpty")).Visibility = Visibility.Collapsed;
-        for (int index = 0; index < 45; index++) list.Children.Add(new TextBlock { Text = "Resource " + index, MinHeight = 42 });
+        var prepared = new int[45];
+        for (int index = 0; index < prepared.Length; index++)
+        {
+            int item = index;
+            var row = new MyLocalModItem { Name = "ViewportResource" + item };
+            LazyLoadBehavior.OnFirstEnterScrollViewerViewport(row, () => { prepared[item]++; row.Title = "Resource " + item; });
+            list.Children.Add(row);
+        }
         var source = new Grid { Name = "PanMainRight", Children = { page } };
         using var session = GlassPresentation.Create(source);
         var window = Host(session.View);
@@ -124,6 +131,8 @@ internal static class GlassProjectionRegressionChecks
             var thumb = (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
             var viewport = (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
             window.UpdateLayout(); VisualAssetChecks.Drain();
+            VisualAssetChecks.Pump(() => prepared[0] == 1, "The first resource row did not hydrate without a global refresh.");
+            Native.Check(prepared[^1] == 0, "Preparing the initial viewport eagerly loaded all resource rows.");
             Native.Check(scroll.ScrollableHeight > 0 && thumb.IsVisible && thumb.ActualWidth >= 10 && scroll.OpacityMask is null &&
                 (SystemParameters.HighContrast || viewport.OpacityMask is not null), $"The resource list overflow did not show an unfaded scrollbar: scroll={scroll.ActualHeight:0}/{scroll.ExtentHeight:0} ({scroll.Visibility}/{scroll.IsVisible}), bar={thumb.Visibility}/{thumb.IsVisible}, width={thumb.ActualWidth:0}, viewport mask={viewport.OpacityMask is not null}.");
             thumb.ApplyTemplate();
@@ -135,6 +144,15 @@ internal static class GlassProjectionRegressionChecks
             window.UpdateLayout(); VisualAssetChecks.Drain();
             Native.Check(scroll.VerticalOffset > 0,
                 $"Dragging the resource scrollbar did not move its viewport (bar={thumb.Value:0}/{thumb.Maximum:0}, track={track.ActualHeight:0}, offset={scroll.VerticalOffset:0}).");
+            VisualAssetChecks.Pump(() => {
+                var visibleRows = Visuals(scroll).OfType<Grid>().Where(grid => grid.Name.StartsWith("ViewportResource", StringComparison.Ordinal))
+                    .Where(grid => { double y = grid.TranslatePoint(new Point(), viewport).Y; return y < viewport.ActualHeight && y + grid.ActualHeight > 0; }).ToArray();
+                return visibleRows.Length > 0 && visibleRows.All(row => {
+                    int index = int.Parse(row.Name.Substring("ViewportResource".Length));
+                    return prepared[index] == 1 && Visuals(row).OfType<TextBlock>().Any(text => text.Text == "Resource " + index);
+                });
+            }, "Rows entering the resource viewport remained blank until the page refreshed.");
+            Native.Check(prepared[^1] == 0 && prepared.All(count => count < 2), "Scrolling realized distant resource rows or prepared the same row again.");
         }
         finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
     }
