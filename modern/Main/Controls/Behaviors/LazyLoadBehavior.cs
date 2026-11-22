@@ -23,6 +23,14 @@ namespace PCL
             obj.GetValue(IsInViewportProperty) is Action action &&
             !ReferenceEquals(obj.GetValue(CompletedActionProperty), action);
 
+        internal static void CompleteViewportAction(DependencyObject source)
+        {
+            if (source.GetValue(IsInViewportProperty) is not Action action ||
+                ReferenceEquals(source.GetValue(CompletedActionProperty), action)) return;
+            source.SetValue(CompletedActionProperty, action);
+            action();
+        }
+
         /// <summary>Observes a replacement presentation while keeping lazy work owned by the source.</summary>
         public static IDisposable BindPresentationViewport(FrameworkElement source, FrameworkElement presentation)
             => new PresentationViewport(source, presentation);
@@ -48,9 +56,8 @@ namespace PCL
                 var scroll = FindParentScrollViewer(presentation);
                 if (scroll is null || !new Rect(0, 0, scroll.ViewportWidth, scroll.ViewportHeight).IntersectsWith(
                     presentation.TransformToAncestor(scroll).TransformBounds(new Rect(presentation.RenderSize)))) return;
-                source.SetValue(CompletedActionProperty, action);
                 Dispose();
-                action();
+                CompleteViewportAction(source);
             }
             public void Dispose()
             {

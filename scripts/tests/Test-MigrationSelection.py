@@ -49,10 +49,10 @@ def main() -> int:
                                 capture_output=True, text=True, check=True, timeout=30)
         return json.loads(result.stdout)
 
-    def expect(plan: dict, scope: str, native: bool, label: str, paths: list[str] | None = None, *, docs_only: bool | None = None) -> None:
+    def expect(plan: dict, scope: str, native: bool, label: str, paths: list[str] | None = None, *, docs_only: bool | None = None, public_slim: bool | None = None) -> None:
         nonlocal count
-        require(set(plan) == set(FIELDS) | {"docs_only", "native_run", "reasons", "changed_paths"}, label + ": job/report output keys changed")
-        for name in (*BOOLEAN_FIELDS, "native_run", "docs_only"):
+        require(set(plan) == set(FIELDS) | {"docs_only", "native_run", "public_slim_run", "reasons", "changed_paths"}, label + ": job/report output keys changed")
+        for name in (*BOOLEAN_FIELDS, "native_run", "docs_only", "public_slim_run"):
             require(type(plan[name]) is bool, label + ": non-boolean job flag " + name)
         expected = GOLD["scopes"][scope]
         actual = {name: plan[name] for name in FIELDS}
@@ -60,6 +60,8 @@ def main() -> int:
         require(plan["native_run"] is native, label + ": native dependency lost or added to unrelated checks")
         if docs_only is not None:
             require(plan["docs_only"] is docs_only, label + ": wrong documentation-only decision")
+        if public_slim is not None:
+            require(plan["public_slim_run"] is public_slim, label + ": wrong public slim compatibility decision")
         if paths is not None:
             require(plan["changed_paths"] == paths, label + ": input paths were lost or rewritten")
         count += 1
@@ -83,7 +85,7 @@ def main() -> int:
     expect(cli(mixed), "world-backups", True, "mixed native and legacy consumers", mixed)
     expect(cli(extra=["--full"]), "complete", True, "explicit complete checkpoint", [])
     for path in ("README.md", "docs/BUILDING_MODERN.md", "docs/assets/calendar-dark.svg", "modern/Main/SOURCE_PROVENANCE.md"):
-        expect(cli([path]), "no-checks", False, "documentation whitelist: " + path, [path], docs_only=True)
+        expect(cli([path]), "no-checks", False, "documentation whitelist: " + path, [path], docs_only=True, public_slim=False)
     for path in ("docs/assets/Generate-ReadmeCalendar.py", "docs/migration/data.json", "docs/AGENTS.md", "docs/../PCLCS/input.md", "docs/a\nREADME.md"):
         expect(cli([path]), "complete", True, "code or ambiguous doc lookalike: " + path, [path], docs_only=False)
     expect(cli(["README.md"], extra=["--full"]), "complete", True, "manual full overrides docs whitelist", ["README.md"], docs_only=False)
@@ -213,11 +215,11 @@ def main() -> int:
         git("commit", "--quiet", "-m", "selection fixture native input")
         native_head = git("rev-parse", "HEAD")
 
-        def event(data: dict, event_name: str, *, scope: str, native: bool, label: str, paths: list[str], ref: str | None = None, docs_only: bool | None = None) -> None:
+        def event(data: dict, event_name: str, *, scope: str, native: bool, label: str, paths: list[str], ref: str | None = None, docs_only: bool | None = None, public_slim: bool | None = None) -> None:
             event_file.write_text(json.dumps(data), encoding="utf-8")
             environment = ENV | {"GITHUB_EVENT_NAME": event_name, "GITHUB_REF": ref or "refs/heads/" + BRANCH}
             plan = cli(extra=["--event-file", str(event_file)], cwd=fixture, env=environment)
-            expect(plan, scope, native, label, paths, docs_only=docs_only)
+            expect(plan, scope, native, label, paths, docs_only=docs_only, public_slim=public_slim)
 
         event({"before": initial, "after": native_head}, "push", scope="no-checks", native=True,
               label="actual push git diff selects only native input", paths=[native_path])
@@ -237,13 +239,13 @@ def main() -> int:
               "pull_request", scope="no-checks", native=True, label="actual PR triple-dot excludes unrelated diverged base changes", paths=[native_path])
         event({}, "workflow_dispatch", scope="complete", native=True, label="manual checkpoint retains both complete graphs", paths=[])
         event({"before": initial, "after": native_head}, "push", scope="complete", native=True,
-              label="main push runs the complete product and migration graphs", paths=[], ref="refs/heads/main")
+              label="main push runs the complete product and migration graphs", paths=[native_path], ref="refs/heads/main", public_slim=False)
         event({"before": native_head, "after": native_head}, "push", scope="complete", native=True,
-              label="main empty git diff fails closed to complete product checks", paths=[], ref="refs/heads/main")
+              label="main empty git diff fails closed to complete product checks", paths=[], ref="refs/heads/main", public_slim=True)
         event({"pull_request": {"base": {"ref": "main", "sha": diverged_base}, "head": {"sha": native_head}}},
-              "pull_request", scope="complete", native=True, label="main PR runs complete acceptance instead of affected-only checks", paths=[], ref="refs/pull/7/merge")
+              "pull_request", scope="complete", native=True, label="main PR runs complete acceptance instead of affected-only checks", paths=[native_path], ref="refs/pull/7/merge", public_slim=False)
         event({"merge_group": {"base_ref": "refs/heads/main", "base_sha": initial, "head_sha": native_head}},
-              "merge_group", scope="complete", native=True, label="main merge queue runs the complete combined snapshot", paths=[], ref="refs/heads/gh-readonly-queue/main/pr-7-fixture")
+              "merge_group", scope="complete", native=True, label="main merge queue runs the complete combined snapshot", paths=[native_path], ref="refs/heads/gh-readonly-queue/main/pr-7-fixture", public_slim=False)
         event({}, "workflow_dispatch", scope="complete", native=True, label="manual feature-branch checkpoint cannot be skipped", paths=[], ref="refs/heads/codex/ci-fixture")
         event({"before": initial, "after": native_head}, "unknown_event", scope="complete", native=True,
               label="unknown event cannot request incremental checks", paths=[])
@@ -273,11 +275,19 @@ def main() -> int:
         git("mv", native_path, "docs/renamed.md")
         renamed = git("commit-tree", git("write-tree"), "-p", native_head, "-m", "code renamed into documentation fixture")
         event({"before": native_head, "after": renamed}, "push", scope="complete", native=True,
-              label="main code-to-doc rename cannot bypass product validation", paths=[], ref="refs/heads/main", docs_only=False)
+              label="main code-to-doc rename cannot bypass product validation", paths=["docs/renamed.md", native_path], ref="refs/heads/main", docs_only=False)
         event({"before": native_head, "after": renamed}, "push", scope="no-checks", native=True,
               label="rename diff retains both old code and new doc paths", paths=["docs/renamed.md", native_path], docs_only=False)
         event({"before": native_head, "after": docs_head}, "push", scope="complete", native=True,
               label="docs cannot bypass an unknown branch context", paths=[], ref="refs/heads/unrecognized", docs_only=False)
+        git("read-tree", native_head)
+        packaging = "scripts/native-upgrade/LegacyBridgeValidation.cs"
+        (fixture / packaging).parent.mkdir(parents=True)
+        (fixture / packaging).write_text("// Public package validator fixture.\n", encoding="utf-8")
+        git("add", packaging)
+        package_head = git("commit-tree", git("write-tree"), "-p", native_head, "-m", "public package validator changed")
+        event({"pull_request": {"base": {"ref": "main", "sha": native_head}, "head": {"sha": package_head}}},
+              "pull_request", scope="complete", native=True, label="main PR verifies changed public package code", paths=[packaging], public_slim=True)
         event_file.write_text("{not-json", encoding="utf-8")
         expect(cli(extra=["--event-file", str(event_file)], cwd=fixture, env=ENV | {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/" + BRANCH}),
                "complete", True, "malformed event fails closed", [])
@@ -289,8 +299,9 @@ def main() -> int:
         expect(plan, "no-checks", True, "real newline cannot inject a GitHub job output", [untrusted])
         lines = output.read_text(encoding="utf-8").splitlines()
         values = dict(line.split("=", 1) for line in lines)
-        require(len(lines) == len(FIELDS) + 2 and set(values) == set(FIELDS) | {"docs_only", "native_run"}, "Untrusted path escaped fixed-name GitHub outputs.")
-        require({name: json.loads(value) for name, value in values.items()} == {name: plan[name] for name in (*FIELDS, "native_run", "docs_only")}, "GitHub outputs differ from the actual selected scope.")
+        output_fields = set(FIELDS) | {"docs_only", "native_run", "public_slim_run"}
+        require(len(lines) == len(output_fields) and set(values) == output_fields, "Untrusted path escaped fixed-name GitHub outputs.")
+        require({name: json.loads(value) for name, value in values.items()} == {name: plan[name] for name in output_fields}, "GitHub outputs differ from the actual selected scope.")
         require(json.loads(report.read_text(encoding="utf-8")) == plan, "Saved selection report differs from stdout.")
 
     print("PASS actual migration selection checks: " + str(count) + "; no product build/run", flush=True)

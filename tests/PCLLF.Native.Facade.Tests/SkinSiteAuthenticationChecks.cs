@@ -12,10 +12,37 @@ internal static class SkinSiteAuthenticationChecks {
     internal static void Run(FixtureEnvironment environment) {
         LegacyCredentials();
         GlobalSelection(environment);
+        AsyncLoaderCancellation();
         HttpsTransport();
         DelegatedCredentialConsent();
         BoundedHeadDecode();
         environment.AssertNoForbiddenIo();
+    }
+
+    private static void AsyncLoaderCancellation()
+    {
+        var supplied = new TaskCompletionSource<Func<bool>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var loader = new ModLoader.LoaderTask<int, int>("Fixture external authentication", task =>
+        {
+            supplied.SetResult((Func<bool>)Native.Call(task.GetType(), "CaptureCancellationCheck", task)!);
+            release.Wait(TimeSpan.FromSeconds(6));
+        });
+        Native.Property(loader.GetType(), "InterruptOnCancel").SetValue(loader, false);
+        loader.Start(1);
+        try
+        {
+            VisualAssetChecks.Pump(() => supplied.Task.IsCompleted, "External authentication worker did not start.");
+            Func<bool> canceled = supplied.Task.GetAwaiter().GetResult();
+            Native.Check(!Task.Run(canceled).GetAwaiter().GetResult(), "Resuming auth on a different thread canceled an active loader.");
+            loader.Cancel();
+            Native.Check(Task.Run(canceled).GetAwaiter().GetResult(), "A canceled auth loader still admitted its continuation.");
+        }
+        finally
+        {
+            release.Set();
+            VisualAssetChecks.Pump(() => loader.HasActiveWorkload == false, "Canceled authentication work did not drain.");
+        }
     }
 
     private static void LegacyCredentials() {

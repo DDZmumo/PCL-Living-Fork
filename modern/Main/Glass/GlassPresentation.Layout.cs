@@ -11,7 +11,9 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using PCLCS;
 using PCLLF.Presentation.Controls;
 using PCLLF.Presentation.Foundation;
@@ -515,6 +517,8 @@ public sealed partial class GlassPresentationSession
     {
         var stack = new StackPanel { Orientation = source.Orientation };
         var node = new Node(stack);
+        Action requestViewport = IsInstanceResourceList(source) ? BindResourceViewport(stack, node) : null;
+        DependencyObject[] previousRows = [];
         // MySearchBox derives from MyCard but belongs to the field layout of its enclosing card.
         bool settingsSections = SettingsContext(source) && source.Orientation == Orientation.Vertical &&
             source.Children.Cast<UIElement>().Any(child => child is MyCard and not MySearchBox);
@@ -534,6 +538,8 @@ public sealed partial class GlassPresentationSession
         node.Pull = () =>
         {
             DependencyObject[] raw = readChildren?.Invoke() ?? source.Children.OfType<DependencyObject>().ToArray();
+            bool rowsChanged = requestViewport is not null && !raw.SequenceEqual(previousRows, ReferenceEqualityComparer.Instance);
+            if (rowsChanged) previousRows = raw;
             // Stream long item lists progressively during live interactive navigation so frame 0 renders the first
             // screenful in < 5ms instead of building 50-300 rows at once. Headless/test sessions stay synchronous.
             bool canStream = readChildren is null && source.Orientation == Orientation.Vertical && raw.Length > 20 &&
@@ -597,6 +603,7 @@ public sealed partial class GlassPresentationSession
                                 { position = found + 1; break; }
                             stack.Children.Insert(position, projected);
                         }
+                        requestViewport?.Invoke();
                         if (cursor < raw.Length)
                             streamOperation = stack.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(PumpNextBatch));
                     }
@@ -604,6 +611,7 @@ public sealed partial class GlassPresentationSession
                 }
             }
 
+            if (rowsChanged) requestViewport();
             if (settingsSections)
             {
                 stack.MaxWidth = 800;
@@ -612,6 +620,83 @@ public sealed partial class GlassPresentationSession
             }
         };
         return node;
+    }
+
+    private static bool IsInstanceResourceList(StackPanel source) => source.Name == "PanList" &&
+        (InPage<PageInstanceMod>(source) || InPage<PageInstanceResources>(source));
+
+    private Action BindResourceViewport(StackPanel stack, Node node)
+    {
+        ScrollViewer scroll = null;
+        var timer = new DispatcherTimer(DispatcherPriority.Background, stack.Dispatcher) { Interval = TimeSpan.FromMilliseconds(16) };
+
+        void Schedule()
+        {
+            if (scroll is not null && stack.IsVisible && Live(stack)) timer.Start();
+        }
+        void Scrolled(object sender, ScrollChangedEventArgs args)
+        {
+            if (ReferenceEquals(args.OriginalSource, scroll)) Schedule();
+        }
+        void Detach()
+        {
+            timer.Stop();
+            if (scroll is not null) scroll.ScrollChanged -= Scrolled;
+            scroll = null;
+        }
+        RoutedEventHandler loaded = (_, _) => {
+            Detach();
+            for (DependencyObject parent = stack; parent is not null; parent = VisualTreeHelper.GetParent(parent))
+                if (parent is ScrollViewer viewer) { scroll = viewer; break; }
+            if (scroll is not null) scroll.ScrollChanged += Scrolled;
+            Schedule();
+        };
+        RoutedEventHandler unloaded = (_, _) => Detach();
+        SizeChangedEventHandler sized = (_, _) => Schedule();
+        DependencyPropertyChangedEventHandler visible = (_, _) => { if (stack.IsVisible) Schedule(); else timer.Stop(); };
+        stack.Loaded += loaded; stack.Unloaded += unloaded;
+        stack.SizeChanged += sized; stack.IsVisibleChanged += visible;
+        node.Cleanup.Add(() => {
+            Detach(); stack.Loaded -= loaded; stack.Unloaded -= unloaded;
+            stack.SizeChanged -= sized; stack.IsVisibleChanged -= visible;
+        });
+
+        timer.Tick += (_, _) => {
+            if (scroll is null || !Live(stack) || !stack.IsVisible || scroll.ViewportHeight <= 0) { timer.Stop(); return; }
+            var viewport = scroll.Template?.FindName("PART_ScrollContentPresenter", scroll) as FrameworkElement ?? scroll;
+            double top = -stack.TranslatePoint(new Point(), viewport).Y;
+            double bottom = top + scroll.ViewportHeight;
+            double buffer = Math.Min(208, scroll.ViewportHeight / 2);
+            int prepared = 0;
+            long start = Stopwatch.GetTimestamp();
+
+            // Finish visible work first. During a fast scroll, the next slice uses the new viewport.
+            bool Process(double from, double to, bool entering)
+            {
+                foreach (UIElement child in stack.Children)
+                {
+                    if (child is not FrameworkElement { IsVisible: true, ActualHeight: > 0 } row) continue;
+                    double y = VisualTreeHelper.GetOffset(row).Y;
+                    if (y >= to) break;
+                    if (y + row.ActualHeight <= from || row.GetValue(LifetimeProperty) is not Node item || item.IsDisposed) continue;
+                    if (item.PrepareResourceRow is Action prepare)
+                    {
+                        if (prepared >= 4 || prepared > 0 && Stopwatch.GetElapsedTime(start).TotalMilliseconds >= 3) return true;
+                        item.PrepareResourceRow = null;
+                        prepare();
+                        prepared++;
+                    }
+                    if (entering && item.RevealResourceRow is Action reveal)
+                    {
+                        item.RevealResourceRow = null;
+                        reveal();
+                    }
+                }
+                return false;
+            }
+            if (!Process(top, bottom, true) && !Process(top - buffer, bottom + buffer, false)) timer.Stop();
+        };
+        return Schedule;
     }
     private const double ActionRowHalfGap = 4;
 
@@ -1834,6 +1919,9 @@ public sealed partial class GlassPresentationSession
     }
     private Node ProjectModRow(MyLocalModItem source)
     {
+        bool resourceRow = LogicalTreeHelper.GetParent(source) is StackPanel list && IsInstanceResourceList(list);
+        bool waitingForDetails = resourceRow && LazyLoadBehavior.HasViewportAction(source);
+        string localName = resourceRow ? System.IO.Path.GetFileNameWithoutExtension(source.Entry?.EnabledName ?? source.ResourceEntry?.Name ?? "") : "";
         var row = new Grid { MinHeight = 52 }; row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var checkbox = new CheckBox { Style = Style("GlassPresentationRowSelector"), Width = 28, Margin = new Thickness(0, 0, 4, 0) };
         AutomationProperties.SetName(checkbox, "选择资源"); row.Children.Add(checkbox);
@@ -1843,6 +1931,14 @@ public sealed partial class GlassPresentationSession
         stack.Children.Add(title); stack.Children.Add(description);
         var image = new Image { Width = 32, Height = 32, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
         RoundIcon(image);
+        if (resourceRow)
+        {
+            var icon = new MultiBinding { Converter = LocalResourceIcon.Instance, Mode = BindingMode.OneWay };
+            icon.Bindings.Add(new Binding(nameof(UIElement.Visibility)) { Source = source.ResourceLogo });
+            icon.Bindings.Add(new Binding { Source = source.ResourceLogo, Path = new PropertyPath(Image.SourceProperty) });
+            icon.Bindings.Add(new Binding { Source = source.PathLogo, Path = new PropertyPath(Image.SourceProperty) });
+            image.SetBinding(Image.SourceProperty, icon);
+        }
         var detailsContent = new Grid(); detailsContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); detailsContent.ColumnDefinitions.Add(new ColumnDefinition()); detailsContent.Children.Add(image); detailsContent.Children.Add(stack); Grid.SetColumn(stack, 1);
         var details = new Button { Style = Style("GlassPresentationBandRow"), Content = detailsContent, HorizontalContentAlignment = HorizontalAlignment.Stretch, Height = 52 };
         Grid.SetColumn(details, 1); row.Children.Add(details);
@@ -1889,19 +1985,56 @@ public sealed partial class GlassPresentationSession
             source.PerformFolderOpen(); args.Handled = true; Refresh();
         };
         node.Cleanup.Add(() => ToggleFeedback.SetIsEnabled(checkbox, false));
+        void PullDetails()
+        {
+            title.Text = string.IsNullOrWhiteSpace(source.Title) ? localName : source.Title;
+            title.TextDecorations = source.LabTitle.TextDecorations;
+            description.Text = waitingForDetails && string.IsNullOrWhiteSpace(source.Title) ? "正在加载资源信息…" :
+                string.Join(" · ", new[] { CleanLead(source.SubTitle), CleanLead(source.Description) }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            details.ToolTip = source.ToolTip as string ?? description.Text;
+            AutomationProperties.SetName(details, title.Text);
+            if (!resourceRow) image.Source = source.ResourceLogo.Visibility == Visibility.Visible ? source.ResourceLogo.Source : ((Image)source.PathLogo).Source;
+        }
+        if (waitingForDetails)
+        {
+            node.PrepareResourceRow = () => {
+                LazyLoadBehavior.CompleteViewportAction(source);
+                waitingForDetails = false;
+                PullDetails();
+                if (MotionPreferences.AllowsAnimation) detailsContent.Opacity = .65;
+            };
+            node.RevealResourceRow = () => {
+                double opacity = detailsContent.Opacity;
+                detailsContent.Opacity = 1;
+                if (!MotionPreferences.AllowsAnimation) return;
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                var duration = TimeSpan.FromMilliseconds(150);
+                detailsContent.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(opacity, 1, duration) { EasingFunction = ease, FillBehavior = FillBehavior.Stop });
+                var offset = new TranslateTransform();
+                detailsContent.RenderTransform = offset;
+                offset.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(4, 0, duration) { EasingFunction = ease, FillBehavior = FillBehavior.Stop });
+            };
+        }
         node.Pull = () =>
         {
-            checkbox.IsChecked = source.Checked; title.Text = source.Title; title.TextDecorations = source.LabTitle.TextDecorations;
-            description.Text = string.Join(" · ", new[] { CleanLead(source.SubTitle), CleanLead(source.Description) }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            details.ToolTip = source.ToolTip as string ?? description.Text;
-            AutomationProperties.SetName(details, source.Title ?? string.Empty); // a mod without a parsed name has a null title
-            image.Source = source.ResourceLogo.Visibility == Visibility.Visible ? source.ResourceLogo.Source : ((Image)source.PathLogo).Source;
+            checkbox.IsChecked = source.Checked;
+            PullDetails();
             var buttons = new List<DependencyObject> { source.BtnUpdate, source.BtnFavorite };
             if (source.Buttons != null) buttons.AddRange(source.Buttons);
             if (source.ButtonStack is Panel panel) buttons.AddRange(panel.Children.OfType<DependencyObject>());
             Children(actions, buttons.Distinct<DependencyObject>(ReferenceEqualityComparer.Instance).Select(item => Project(item)).Where(item => item != null).ToArray());
         };
         return node;
+    }
+
+    private sealed class LocalResourceIcon : IMultiValueConverter
+    {
+        internal static readonly LocalResourceIcon Instance = new();
+
+        public object Convert(object[] values, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+            values[0] is Visibility.Visible && values[1] is ImageSource resourceIcon ? resourceIcon : values[2] as ImageSource;
+
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
     }
 
     private Node ProjectScreenshot(MyScreenshotItem source)

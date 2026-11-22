@@ -119,6 +119,7 @@ internal static class LauncherUpdatePageChecks
             Native.Call(typeof(MyIconButton), "OnClick", clear, clear, EventArgs.Empty);
             Native.Check(rows.Children.Count == 6 && reads == 1 && ((MyComboBox)page.FindName("ComboChannel")).SelectedIndex == 0,
                 "Native search clearing/filtering made extra requests or changed the update subscription.");
+            CheckProjectedLatestRelease(page, search, newestTag, stableTag, oldTag);
             Native.Check(!window.IsActive, "Native search clear activated the offscreen test window.");
             Native.Check(((TextBlock)page.FindName("LabCurrentVersion")).Text == ModBase.VersionBaseName, "Update page mislabeled the current build.");
             Native.Check(((TextBlock)page.FindName("LabCurrentVersion")).FontSize >= 24 && page.FindName("LabIconBrand") is null && ((Image)page.FindName("ImgLauncher")).Source is BitmapSource { PixelWidth: >= 256 }, "Launcher branding did not use the existing HD program icon and large version.");
@@ -216,6 +217,41 @@ internal static class LauncherUpdatePageChecks
             window?.Close();
             Native.Field(typeof(ModMain), "FrmSetupUpdate").SetValue(null, previousUpdate);
             Native.Field(typeof(ModMain), "FrmSetupLeft").SetValue(null, previousLeft);
+        }
+    }
+
+    private static void CheckProjectedLatestRelease(PageSetupUpdate page, MySearchBox search, string newestTag, string olderUpdate, string historicalTag)
+    {
+        FieldInfo request = Native.Field(typeof(PageSetupUpdate), "UpdateRelease");
+        object? originalRequest = request.GetValue(page);
+        string originalSearch = search.Text;
+        List<string?> requested = new();
+        request.SetValue(page, (Action<JObject>)(release => requested.Add((string?)release["tag_name"])));
+        try
+        {
+            using var session = GlassPresentation.Create(page);
+            var elements = Descendants(session.View).ToArray();
+            Button install = elements.OfType<Button>().Single(button => Equals(button.Content, "下载并更新"));
+            foreach (string query in new[] { olderUpdate, historicalTag, "no-matching-release" })
+            {
+                search.Text = query;
+                session.Refresh();
+                Native.Check(install.Visibility == Visibility.Visible && Equals(install.ToolTip, $"下载 {newestTag} 并更新启动器") &&
+                    elements.OfType<TextBlock>().Any(text => text.Text == "发现新版本") &&
+                    elements.OfType<TextBlock>().Any(text => text.Text == newestTag + " 更新内容"),
+                    "Filtering history changed the update headline, download action or release notes.");
+                install.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, install));
+            }
+            Native.Check(requested.SequenceEqual(Enumerable.Repeat(newestTag, 3)), "The update action downloaded a filtered history row instead of the newest eligible release.");
+            Console.WriteLine("PASS projected updates retain the newest eligible headline, notes and download target across filtered and empty history.");
+        }
+        finally { search.Text = originalSearch; request.SetValue(page, originalRequest); }
+
+        static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+        {
+            yield return root;
+            foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+                foreach (var descendant in Descendants(child)) yield return descendant;
         }
     }
 

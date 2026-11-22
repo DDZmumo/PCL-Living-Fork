@@ -206,7 +206,7 @@ public sealed partial class GlassPresentationSession : IDisposable
             if (source is FrameworkElement original)
             {
                 ApplyMetadata(original, node.View);
-                if (node.View is FrameworkElement presentation && LazyLoadBehavior.HasViewportAction(original))
+                if (node.View is FrameworkElement presentation && node.PrepareResourceRow is null && LazyLoadBehavior.HasViewportAction(original))
                 {
                     IDisposable viewport = LazyLoadBehavior.BindPresentationViewport(original, presentation);
                     node.Cleanup.Add(viewport.Dispose);
@@ -546,6 +546,7 @@ public sealed partial class GlassPresentationSession : IDisposable
     {
         internal readonly UIElement View;
         internal Action Pull;
+        internal Action PrepareResourceRow, RevealResourceRow;
         internal bool CardContent;
         internal ContextMenu MenuSource;
         internal bool IsDisposed { get; private set; }

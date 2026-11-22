@@ -38,6 +38,29 @@ def main() -> None:
     assert "--list-groups" in facade["run"] and "'registry-data'" in facade["run"] and "$groups = @('map-details'" not in facade["run"], "CI feature coverage must use the real host registry"
     assert any("--groups registry-data" in step.get("run", "") for step in reusable["jobs"]["native"]["steps"]), "Dedicated Registry group disappeared"
     checks += 3
+    native = reusable["jobs"]["native"]
+    assert native["env"]["NATIVE_FULL_VALIDATION"] == "${{ github.event_name == 'workflow_dispatch' }}"
+    steps_by_id = {step["id"]: step for step in native["steps"] if "id" in step}
+    assert "if" not in steps_by_id["main"], "Both configurations must compile Main on merge checks."
+    for step in ("facade", "package"):
+        condition = steps_by_id[step]["if"]
+        assert "matrix.configuration == 'Release' || env.NATIVE_FULL_VALIDATION == 'true'" in condition, step
+    for step in ("cold_entry", "upgrade_qualification"):
+        assert "NATIVE_FULL_VALIDATION" not in steps_by_id[step]["if"], step
+    assert "env.NATIVE_FULL_VALIDATION == 'true'" in steps_by_id["interaction"]["if"]
+    assert "env.NATIVE_FULL_VALIDATION == 'true'" in steps_by_id["legacy_link_compile"]["if"]
+    core_groups = re.search(r"\$coreGroups = @\((.*?)\)", facade["run"], re.S)
+    assert core_groups and set(re.findall(r"'([a-z0-9-]+)'", core_groups[1])) >= {
+        "launcher-lifecycle", "launch-process", "account-ui", "glass-window", "updater", "pack-root-install",
+    }
+    assert "else { $coreGroups }" in facade["run"] and "$groups += $javaGroups" in facade["run"]
+    assert reusable["jobs"]["select"]["outputs"]["public_slim_run"] == "${{ steps.scope.outputs.public_slim_run }}"
+    assert "needs.select.outputs.public_slim_run == 'true'" in steps_by_id["public_slim"]["if"]
+    assert "-OfficialRelease" in steps_by_id["public_slim"]["run"] and "if ($publishPreview)" in steps_by_id["public_slim"]["run"]
+    preview_upload = next(step for step in native["steps"] if step.get("with", {}).get("name") == "public-prerelease-${{ github.run_attempt }}")
+    assert preview_upload["if"] == "steps.public_slim.outputs.ready == 'true'"
+    assert preview_upload["with"]["path"] == "artifacts/native-main/Release/public-prerelease/"
+    checks += 6
     ps5_scripts = {
         path
         for job in reusable["jobs"].values()

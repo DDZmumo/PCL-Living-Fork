@@ -30,7 +30,7 @@ public sealed partial class GlassPresentationSession
     /// a new version brings its notes directly below. Update settings and the version history follow, quieter.
     /// Everything is read from, and every action goes through, the original page and its controls: the check runs when
     /// the page opens (as before), the selectors are the projected originals (channel confirmation included), and
-    /// updating or opening notes clicks the original version row.
+    /// the headline, update notes and install action use the newest eligible release from the original catalog.
     /// </summary>
     private Node ProjectLauncherUpdate(PageSetupUpdate page)
     {
@@ -101,8 +101,8 @@ public sealed partial class GlassPresentationSession
         private State? _state;
         private bool _wasLoading, _primed, _disposed;
         private DateTime? _checkedTime;
-        private MyListItem? _newest;
-        private string _newestSignature = "", _markVersion = "";
+        private JObject? _newest;
+        private string _markVersion = "";
 
         internal LauncherUpdateView(GlassPresentationSession owner, PageSetupUpdate page)
         {
@@ -160,7 +160,12 @@ public sealed partial class GlassPresentationSession
             _install = Pill("下载并更新", primary: true);
             _install.RenderTransform = new TransformGroup { Children = { _installScale, (Transform)_install.RenderTransform } };
             _install.Visibility = Visibility.Collapsed; _install.Margin = new Thickness(0, 0, 12, 0);
-            _install.Click += (_, _) => { if (!owner.Live(_install) || _newest is null) return; _newest.PerformClick(); owner.Refresh(); };
+            _install.Click += (_, _) =>
+            {
+                if (!owner.Live(_install) || _newest is null || !ReferenceEquals(_newest, page.LatestUpdateRelease)) return;
+                page.UpdateRelease(_newest);
+                owner.Refresh();
+            };
             _check = Pill("检查更新", primary: false);
             _check.Click += (_, _) => { if (!owner.Live(_check)) return; page.BtnRefresh.PerformClick(); owner.Refresh(); };
             _actions.Children.Add(_install); _actions.Children.Add(_check);
@@ -286,7 +291,13 @@ public sealed partial class GlassPresentationSession
             bool loading = _page.Loading.Visibility == Visibility.Visible;
             if (_wasLoading && !loading) _checkedTime = DateTime.Now;
             _wasLoading = loading;
-            _newest = _page.PanVersions.Children.OfType<MyListItem>().FirstOrDefault(row => row.Info?.StartsWith("可更新", StringComparison.Ordinal) == true && row.Tag is JObject);
+            JObject? newest = _page.LatestUpdateRelease;
+            string tag = newest?["tag_name"]?.ToString() ?? "";
+            if (!ReferenceEquals(_newest, newest))
+            {
+                _newest = newest;
+                if (newest is not null) ShowRelease(newest, tag);
+            }
             bool failed = !loading && _page.HintStatus.Text.StartsWith("读取版本列表失败", StringComparison.Ordinal);
             State state = loading ? State.Checking : failed ? State.Failed : _newest is not null ? State.Available
                 : version == "dev_edition" ? State.Development : State.Latest;
@@ -299,9 +310,8 @@ public sealed partial class GlassPresentationSession
             _empty.Text = _page.LabNoResults.Text;
             _empty.Visibility = _page.LabNoResults.Visibility;
 
-            if (_newest?.Tag is JObject release) ShowRelease(release, _newest.Title);
             // The halo shows the mark of the version about to arrive, otherwise the installed one.
-            string markFor = state == State.Available && _newest is not null ? _newest.Title : version;
+            string markFor = state == State.Available ? tag : version;
             if (markFor != _markVersion) { _markVersion = markFor; _logo.Content = Mark(markFor, Logo); }
             ApplyState(state, version);
         }
@@ -445,9 +455,6 @@ public sealed partial class GlassPresentationSession
             long size = (release["assets"] as JArray)?.OfType<JObject>()
                 .Where(asset => asset["name"]?.ToString().EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == true)
                 .Select(asset => (long?)asset["size"] ?? 0).DefaultIfEmpty(0).Max() ?? 0;
-            string signature = tag + "#" + body.Length + "#" + size;
-            if (signature == _newestSignature) return;
-            _newestSignature = signature;
             bool preview = (bool?)release["prerelease"] == true;
             string date = release["published_at"]?.ToString() is { Length: >= 10 } published ? " · " + published.Substring(0, 10) : "";
             _newestMeta = "新版本 " + tag + " · " + (preview ? "预发布版" : "正式版") + (size > 0 ? " · " + Size(size) : "") + date;
@@ -458,8 +465,8 @@ public sealed partial class GlassPresentationSession
 
         private void ShowNotes()
         {
-            if (_newest?.Tag is not JObject release) return;
-            ModMain.MyMsgBoxContent("点击“下载并更新”即可下载此版本并更新启动器。", _newest.Title + " 更新说明", () => new ReleaseNotesView(release["body"]?.ToString()));
+            if (_newest is not JObject release || !ReferenceEquals(release, _page.LatestUpdateRelease)) return;
+            ModMain.MyMsgBoxContent("点击“下载并更新”即可下载此版本并更新启动器。", release["tag_name"] + " 更新说明", () => new ReleaseNotesView(release["body"]?.ToString()));
         }
 
         private void FillSettings()

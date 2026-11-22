@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native_run: ${{ steps.scope.outputs.native_run }}
+      public_slim_run: ${{ steps.scope.outputs.public_slim_run }}
     steps:
       - name: Checkout selection source and diff history
         uses: actions/checkout@v6
@@ -78,6 +79,7 @@ jobs:
       DOTNET_NOLOGO: 'true'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       NATIVE_CONFIGURATION: ${{ matrix.configuration }}
+      NATIVE_FULL_VALIDATION: ${{ github.event_name == 'workflow_dispatch' }}
       MSBUILDDISABLENODEREUSE: '1'
       DOTNET_CLI_USE_MSBUILD_SERVER: '0'
 
@@ -91,14 +93,14 @@ jobs:
 
       - name: Verify fixed historical sources without product VB files
         # Full Git history stays explicit; Desktop preflight builds no old Main.
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Release' && env.NATIVE_FULL_VALIDATION == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           & powershell -NoProfile -File scripts/tests/Test-FixedLfSource.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Fixed historical source baseline preflight failed after product VB retirement.' }
 
       - name: Verify compiler discovery across PowerShell editions
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Release' && env.NATIVE_FULL_VALIDATION == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           & pwsh -NoProfile -File scripts/tests/Test-VbCompilerDiscovery.ps1
@@ -109,7 +111,7 @@ jobs:
       - name: Verify original historical credential failure and lock samples
         # Explicit CLR4 credential-only Git fixture, never Main/bridge/apphost.
         # Keep original exit23/invalid-input/source-cleanup/exclusive-lock cases.
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Release' && env.NATIVE_FULL_VALIDATION == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           & powershell -NoProfile -File scripts/native-smoke/Test-HistoricalCredentialFailures.ps1
@@ -121,6 +123,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Install controlled JVMs for startup acceptance
+        if: matrix.configuration == 'Release' || env.NATIVE_FULL_VALIDATION == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -132,6 +135,7 @@ jobs:
           set-default: false
 
       - name: Bind the launch fixture JVM paths
+        if: matrix.configuration == 'Release' || env.NATIVE_FULL_VALIDATION == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($major in @(8, 17, 21)) {
@@ -165,7 +169,7 @@ jobs:
             credentials = 'Optional original LF build inputs; empty public fallback is valid. Exact packaged Main/bundle checked; no external publication.'
             coldEntry = if ($env:NATIVE_CONFIGURATION -eq 'Release') { 'Required: genuine native startup, normal WM_CLOSE and reopen.' } else { 'Not executed: the current bounded smoke accepts LF BuildType 0/50; Debug BuildType 100 remains a separate runtime gap.' }
             mainWarningPolicy = 'Main conversion warnings remain visible; zero errors required. Core/Presentation/tools/facade tests keep warnings-as-errors.'
-            facade = 'Required in both configurations: actual Main acceptance in separately isolated children, including the WPF workspace, native input and real Java handoff. Controlled process/HTTP/store samples are not real authentication or Minecraft. Actual product entry/continuous interaction have independent receipts.'
+            facade = if ($env:NATIVE_FULL_VALIDATION -eq 'true') { 'Full facade regression.' } elseif ($env:NATIVE_CONFIGURATION -eq 'Release') { 'Core launcher, WPF, account, update and game/instance paths.' } else { 'Debug compilation and resources.' }
           } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $logDirectory 'context.json')
 
       - name: Stamp only the original Main CommitHash constant
@@ -223,6 +227,7 @@ jobs:
 
       - name: Build the isolated actual Main facade checks
         id: facade
+        if: matrix.configuration == 'Release' || env.NATIVE_FULL_VALIDATION == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
@@ -232,7 +237,7 @@ jobs:
 
       - name: Package the real native product and its legacy update bridge
         id: package
-        if: ${{ !cancelled() && steps.main.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.main.outcome == 'success' && (matrix.configuration == 'Release' || env.NATIVE_FULL_VALIDATION == 'true') }}
         env:
           PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
@@ -390,7 +395,7 @@ jobs:
         id: interaction
         # Independent fresh profile/fixture after the original cold receipt.
         # Surface real UI failures before the longer isolated facade suite.
-        if: ${{ !cancelled() && matrix.configuration == 'Release' && steps.cold_entry.outcome == 'success' && steps.package_roles.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.configuration == 'Release' && env.NATIVE_FULL_VALIDATION == 'true' && steps.cold_entry.outcome == 'success' && steps.package_roles.outcome == 'success' }}
         run: |
           $ErrorActionPreference = 'Stop'
           & powershell -NoProfile -STA -File scripts/native-smoke/interaction/Test-NativeLauncherInteraction.ps1 -ExecutablePath "$env:NATIVE_EXE" -WorkspaceRoot "$env:GITHUB_WORKSPACE" -EvidenceRoot (Join-Path $env:NATIVE_LOG_DIRECTORY 'interaction') 2>&1 |
@@ -398,7 +403,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Actual Main continuous interaction is failed or pending; original cold qualification retains its independent outcome.' }
 
       - name: Upload small actual Main interaction evidence
-        if: always() && matrix.configuration == 'Release'
+        if: always() && matrix.configuration == 'Release' && env.NATIVE_FULL_VALIDATION == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: native-interaction-evidence-${{ matrix.configuration }}-${{ github.run_attempt }}
@@ -443,16 +448,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The real facade host did not enumerate its registered groups.' }
           $registered = @(($registeredJson -join "`n") | ConvertFrom-Json)
           if ($registered.Count -eq 0 -or $registered -notcontains 'registry-data' -or @($registered | Where-Object { $_ -notmatch '^[a-z0-9-]+$' }).Count -ne 0 -or @($registered | Select-Object -Unique).Count -ne $registered.Count) { throw 'The facade group registry is empty or invalid.' }
-          $workspaceGroups = @('glass-shell', 'glass-window', 'glass-context-navigation', 'glass-presentation', 'glass-projection-regressions', 'glass-reported-regressions', 'glass-modal-lifecycle', 'theme-transition', 'glass-account-ui', 'skin-site-authentication', 'skin-library', 'workbench-commands')
-          $missingWorkspace = @($workspaceGroups | Where-Object { $_ -notin $registered })
-          if ($missingWorkspace.Count -ne 0) { throw ('Missing required WPF coverage: ' + ($missingWorkspace -join ', ')) }
+          $coreGroups = @(
+            'application-services', 'launcher-lifecycle', 'launch-dependencies', 'launch-process',
+            'glass-shell', 'glass-window', 'glass-context-navigation', 'glass-presentation',
+            'glass-projection-regressions', 'glass-reported-regressions', 'glass-modal-lifecycle',
+            'theme-transition', 'workbench-commands', 'account-ui', 'glass-account-ui',
+            'skin-site-authentication', 'skin-library', 'updater', 'launcher-update-page',
+            'pack-root-install', 'mmc-managed-import', 'modpack-update', 'resource-updates'
+          )
+          $missingCore = @($coreGroups | Where-Object { $_ -cnotin $registered })
+          if ($missingCore.Count -ne 0) { throw ('Missing required facade groups: ' + ($missingCore -join ', ')) }
           $javaGroups = @('launch-relaunch', 'mmc-launch-replay', 'mmc-phase2-launch')
           $explicitJson = & $facadeExe --list-explicit-groups
           if ($LASTEXITCODE -ne 0) { throw 'The installed-JVM group registry could not be read.' }
           $explicit = @(($explicitJson -join "`n") | ConvertFrom-Json)
           if (@($javaGroups | Where-Object { $_ -notin $explicit }).Count -ne 0) { throw 'A required startup case is missing.' }
           # Registry data owns its dedicated fresh-profile step above.
-          $groups = @($registered | Where-Object { $_ -ne 'registry-data' }) + $javaGroups
+          $groups = if ($env:NATIVE_FULL_VALIDATION -eq 'true') { @($registered | Where-Object { $_ -ne 'registry-data' }) } else { $coreGroups }
+          $groups += $javaGroups
+          Write-Output ("Running $($groups.Count) isolated facade groups (full=$env:NATIVE_FULL_VALIDATION).")
           foreach ($group in $groups) {
             # Every family owns its real STA child and temporary state. A
             # failed theme family must not hide file/dependency acceptance.
@@ -477,7 +491,7 @@ jobs:
 
       - name: Compile the original optional LegacyLink mode without running services
         id: legacy_link_compile
-        if: ${{ !cancelled() && steps.main.outcome == 'success' }}
+        if: ${{ !cancelled() && env.NATIVE_FULL_VALIDATION == 'true' && steps.main.outcome == 'success' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
@@ -490,8 +504,10 @@ jobs:
           Write-Output 'Compiled EnableLegacyLink=true only; optional network services were not executed. Main warnings remain in legacy-link-build.log.'
 
       - name: Require public slim EXE legacy identity and exact ZIP payload
-        if: matrix.configuration == 'Release'
+        id: public_slim
+        if: matrix.configuration == 'Release' && (needs.select.outputs.public_slim_run == 'true' || env.NATIVE_FULL_VALIDATION == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         env:
+          VALIDATE_PUBLIC_SLIM: ${{ needs.select.outputs.public_slim_run }}
           PCL_MS_CLIENT_ID: ${{ secrets.CLIENT_ID }}
           PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
         run: |
@@ -500,11 +516,25 @@ jobs:
           $baseline = [IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'modern/Main/Modules/Base/ModBase.cs'))
           $version = [regex]::Match($baseline, 'const string ReleaseBaselineVersion = "([^"]+)"').Groups[1].Value
           $preview = $baseline -cmatch 'const bool ReleaseBaselineIsPrerelease = true;'
-          $official = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
-          if ($official -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
-          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease:$official
+          $publishPreview = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
+          if ($preview -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
+          if ($publishPreview) {
+            $tag = "refs/tags/v$version"
+            $matchingRefs = & git for-each-ref --format='%(refname)' $tag
+            if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the preview tag.' }
+            if ($tag -cin $matchingRefs) {
+              $tagCommit = & git rev-parse --verify "${tag}^{commit}"
+              if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the preview tag to a commit.' }
+              if ($tagCommit -cne $env:GITHUB_SHA) {
+                Write-Output "Preview v$version is already tagged on $tagCommit."
+                $publishPreview = $false
+              }
+            }
+          }
+          if (-not $publishPreview -and $env:VALIDATE_PUBLIC_SLIM -ne 'true' -and $env:NATIVE_FULL_VALIDATION -ne 'true') { return }
+          & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease
           $index = Get-Content -LiteralPath (Join-Path $output 'SlimRelease.Artifacts.json') -Raw | ConvertFrom-Json
-          if ($official -and $index.productVersion -cne $version) { throw 'Official preview identity does not match the source version.' }
+          if ($index.productVersion -cne $version) { throw 'Official package identity does not match the source version.' }
           if ($index.selfContained -isnot [bool] -or $index.selfContained -or $index.legacyBridgeIncluded -isnot [bool] -or -not $index.legacyBridgeIncluded) { throw 'Public slim package lost legacy compatibility or bundled a runtime.' }
           $exe = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-exe').fileName
           $zipPath = Join-Path $output ($index.artifacts | Where-Object role -eq 'slim-zip').fileName
@@ -527,15 +557,37 @@ jobs:
             $actual = (Get-FileHash -LiteralPath (Join-Path $output $artifact.fileName) -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($actual -cne $artifact.sha256) { throw 'Public package receipt hash mismatch.' }
           }
+          $legacyArchive = 'tests/fixtures/legacy-upgrade/lf-8ff80de.zip'
+          if ((Get-FileHash -LiteralPath $legacyArchive -Algorithm SHA256).Hash -ine 'c0583c65e294e20c2c781ea7842f817ac8c57c84cb71cbb7d99a171392883bc3') { throw 'Pinned old product archive digest mismatch.' }
+          $legacyProduct = Join-Path $output 'pinned-legacy'
+          Expand-Archive -LiteralPath $legacyArchive -DestinationPath $legacyProduct
+          $legacyExe = Join-Path $legacyProduct 'PCL-Living-Fork-1.3.4.exe'
+          if ((Get-FileHash -LiteralPath $legacyExe -Algorithm SHA256).Hash -ine 'f4c88a842d506c62e812d50493126c5f25a73b0bfa866bb749c0473e2740d151') { throw 'Pinned old product EXE digest mismatch.' }
+          $validator = Join-Path $output 'legacy-validator'
+          & dotnet build scripts/native-upgrade/LegacyBridgeValidation.csproj -c Release --output $validator -warnaserror -v:q
+          if ($LASTEXITCODE -ne 0) { throw 'The original legacy validator did not compile.' }
+          & (Join-Path $validator 'LegacyBridgeValidation.exe') $legacyExe $exe (Join-Path $output 'publish/LivingPCL.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'The original legacy validator did not accept the public update bridge.' }
           [ordered]@{ kind = 'PCLLF.PublicSlimCompatibility'; productVersion = $index.productVersion; embeddedPayloadSha256 = $embeddedHash; legacyManagedIdentity = $true; zipPayloadIdentical = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:NATIVE_LOG_DIRECTORY 'public-slim-compatibility.json') -Encoding utf8
-          if ($official) {
+          if ($publishPreview) {
             $public = Join-Path $env:NATIVE_LOG_DIRECTORY 'public-prerelease'
             New-Item -ItemType Directory -Path $public | Out-Null
             Copy-Item -LiteralPath @($exe, $zipPath, (Join-Path $output 'SHA256SUMS.txt')) -Destination $public
             [ordered]@{ kind = 'PCLLF.PublicPrerelease'; version = $version; sourceSha = $env:GITHUB_SHA; selfContained = $false;
-              runtime = $index.runtime; artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
+              runtime = $index.runtime; nativePayloadSha256 = $embeddedHash; legacyValidatorPassed = $true;
+              artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
               Set-Content -LiteralPath (Join-Path $public 'release-receipt.json') -Encoding utf8
+            'ready=true' >> $env:GITHUB_OUTPUT
           }
+
+      - name: Upload the three public prerelease files and their build receipt
+        if: steps.public_slim.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-prerelease-${{ github.run_attempt }}
+          path: artifacts/native-main/Release/public-prerelease/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload native build packages and bounded runtime evidence
         if: always()
@@ -544,6 +596,7 @@ jobs:
           name: native-main-${{ matrix.configuration }}-${{ github.run_attempt }}
           path: |
             artifacts/native-main/${{ matrix.configuration }}/
+            !artifacts/native-main/${{ matrix.configuration }}/public-prerelease/**
             !artifacts/native-main/${{ matrix.configuration }}/interaction/**/Install with spaces/*.exe
             !artifacts/native-main/${{ matrix.configuration }}/interaction/**/BundleExtract/**
           if-no-files-found: warn
@@ -731,7 +784,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-upgrade-entry
-          path: artifacts/native-upgrade/
+          path: |
+            artifacts/native-upgrade/*.json
+            artifacts/native-upgrade/*.log
+            artifacts/native-upgrade/runtime/**/evidence.json
+            artifacts/native-upgrade/runtime/**/*-diagnostics.json
+            artifacts/native-upgrade/runtime/**/*-last.log
+            artifacts/native-upgrade/runtime/**/PCL/Log*.txt
           if-no-files-found: warn
           retention-days: 7
 
