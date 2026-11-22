@@ -19,7 +19,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 修复资源中心和收藏的中文输入，搜索先展示已返回的结果\r\n- 改善动态壁纸、页面过渡和崩溃提示的流畅度\r\n- 更新背景音乐设置、播放器和音频可视化\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 新增可选陶瓦联机，支持创建房间和通过房间码加入\r\n- 修复部分外置登录启动被取消的问题，改善游戏进程识别\r\n- 优化实例资源列表滚动和页面切换，修正联机按钮字色\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
     // Session scope: at most one automatic version/update note per launcher start.
     private int updateLogPromptIssued;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());

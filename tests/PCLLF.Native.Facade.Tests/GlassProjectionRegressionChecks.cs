@@ -15,6 +15,7 @@ using System.Windows.Media;
 using Newtonsoft.Json.Linq;
 using PCL;
 using PCLCS;
+using PCLLF.Wpf.Glass;
 using ExportController = PCLCS.ModpackExportPageController<PCL.ModMinecraft.McInstance, PCL.ExportOption, PCL.MyCheckBox, PCL.LocalResourceFile, PCL.ResourceProject, PCL.ResourceVersion, PCL.ModLoader.LoaderCombo<string>>;
 using ExportHost = PCLCS.ModpackExportPageHost<PCL.ModMinecraft.McInstance, PCL.ExportOption, PCL.ModLoader.LoaderCombo<string>>;
 
@@ -48,25 +49,77 @@ internal static class GlassProjectionRegressionChecks
     {
         using var scope = new VisualAssetChecks.Scope(environment, "glass-reported-regressions");
         var errors = new List<string>();
-        foreach (Action check in new Action[] { AboutCollapsedProjection, PersonalSyncLayout, InstanceResourceScroll, ModifyMinecraftControl, ProgressDecimals })
+        foreach (Action check in new Action[] { HintWallpaperMaterial, LightSecondaryTextContrast, AboutCollapsedProjection, PersonalSyncLayout, InstanceResourceScroll, ModifyMinecraftControl, ProgressDecimals })
         {
             try { check(); }
             catch (Exception error) { errors.Add(error.Message); }
         }
         environment.AssertNoForbiddenIo();
         Native.Check(errors.Count == 0, string.Join("; ", errors));
-        Console.WriteLine("PASS reported glass regressions: lazy About sections, aligned sync rows, resource scrollbar drag, inline Minecraft version selection and two-digit progress.");
+        Console.WriteLine("PASS reported glass regressions: frosted hints, light-theme secondary text contrast, lazy About sections, aligned sync rows, resource scrollbar drag, inline Minecraft version selection and two-digit progress.");
+    }
+
+    private static void HintWallpaperMaterial()
+    {
+        var source = new StackPanel {
+            Children = {
+                new MyHint { Theme = MyHint.Themes.Blue, Text = "信息" },
+                new MyHint { Theme = MyHint.Themes.Yellow, Text = "注意" },
+                new MyHint { Theme = MyHint.Themes.Red, Text = "警告" }
+            }
+        };
+        using var session = GlassPresentation.Create(source);
+        var surfaces = Tree(session.View).OfType<PCLLF.Wpf.Glass.GlassSurface>().ToArray();
+        Native.Check(surfaces.Length == 3 && surfaces.All(surface => surface.PaintsWallpaper && surface.BlurRadius > 0),
+            "Projected hints must paint frosted wallpaper beneath their text and icons.");
+    }
+
+    private static void LightSecondaryTextContrast()
+    {
+        if (SystemParameters.HighContrast) return;
+        const string status = "正在读取文件清单……", note = "组件、补丁与运行库", heading = "MMC 实例工具";
+        var source = new StackPanel {
+            Children = {
+                new TextBlock { Text = status, Opacity = .65 },
+                new MyHint { Theme = MyHint.Themes.Blue, Text = note }
+            }
+        };
+        source.Resources["ColorBrush1"] = Brushes.Black;
+        using var session = GlassPresentation.Create(source);
+        using var shell = new GlassLauncherView();
+        shell.SetState(new GlassLauncherViewState { IsHome = false, SelectedNavigationId = 7, UseDarkText = true, ReduceMotion = true });
+        shell.SetSidebar([new GlassSidebarItem { Label = heading, IsHeader = true }]);
+        var labels = Tree(session.View).OfType<TextBlock>().Where(text => text.Text == status || text.Text == note).ToList();
+        labels.Add(((Panel)shell.FindName("SidebarPanel")).Children.OfType<TextBlock>().Single(text => text.Text == heading));
+        Native.Check(labels.Count == 3, "Missing export or sidebar text in the contrast fixture.");
+        // Representative tinted card colors sampled from the reported export page.
+        Color[] backgrounds = [Color.FromRgb(152, 148, 180), Color.FromRgb(174, 136, 147)];
+        foreach (TextBlock label in labels)
+            Native.Check(label.Opacity == 1 && label.Foreground is SolidColorBrush { Opacity: 1, Color.A: 255 } brush &&
+                backgrounds.All(background => (Luminance(background) + .05) / (Luminance(brush.Color) + .05) >= 4.5),
+                "Light-theme secondary text is hard to read over the reported card colors: " + label.Text);
+
+        static double Luminance(Color color) => .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
+        static double Linear(byte channel) {
+            double value = channel / 255d;
+            return value <= .04045 ? value / 12.92 : Math.Pow((value + .055) / 1.055, 2.4);
+        }
     }
 
     private static void AboutCollapsedProjection()
     {
         var page = new PageOtherAbout();
+        var create = typeof(GlassPresentation).GetMethod("Create",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
         var elapsed = Stopwatch.StartNew();
-        using var session = GlassPresentation.Create(page);
+        using var session = (GlassPresentationSession)create.Invoke(null, [page, null, true])!;
+        double firstBatchMilliseconds = elapsed.Elapsed.TotalMilliseconds;
+        Native.Check(!Tree(session.View).OfType<Expander>().Any(), "The About page built offscreen section headers in its first batch.");
+        VisualAssetChecks.Pump(() => Tree(session.View).OfType<Expander>().Count() == 4, "About section batches arrive");
         var sections = Tree(session.View).OfType<Expander>().Where(item => !item.IsExpanded).ToArray();
         Native.Check(sections.Length == 4, "The About page lost one of its collapsible sections.");
         int eager = sections.Sum(item => Tree((DependencyObject)item.Content).OfType<FrameworkElement>().Count() - 1);
-        Console.WriteLine($"About initial projection: {elapsed.Elapsed.TotalMilliseconds:0.0} ms, {eager} controls inside folded sections");
+        Console.WriteLine($"About first projection batch: {firstBatchMilliseconds:0.0} ms, {eager} controls inside folded sections");
         Native.Check(eager == 0, $"About built {eager} offscreen controls inside its four folded sections before they could be seen.");
         var offline = (TextBox)page.FindName("LabThirdPartyLicenses");
         Native.Check(offline.Text.Length == 0, "The offline license text was loaded before its section was opened.");

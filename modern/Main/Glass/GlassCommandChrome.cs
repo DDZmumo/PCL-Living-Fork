@@ -42,6 +42,7 @@ internal sealed class GlassCommandButton : Button, IDisposable {
 }
 
 internal static class GlassCommandChrome {
+    internal static Color LightSecondaryTextColor => Color.FromRgb(38, 43, 52);
     internal static readonly ComponentResourceKey ContrastWindowKey = new(typeof(GlassCommandChrome), "NativeContrastWindow");
     internal static readonly ComponentResourceKey ContrastTextKey = new(typeof(GlassCommandChrome), "NativeContrastText");
     internal static readonly ComponentResourceKey ContrastGrayKey = new(typeof(GlassCommandChrome), "NativeContrastGray");

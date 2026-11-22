@@ -74,6 +74,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private Rect _lastWorkArea = Rect.Empty;
     private Size _preferredMinimum;
     private DispatcherOperation? _workAreaCheck;
+    private DispatcherOperation? _pageProjection;
     private bool CanRenderWindow => _owner.IsVisible && _owner.WindowState != WindowState.Minimized;
     internal bool HasLeftExpansionOverhang => View.LeftExpansionAllowance > 0;
     internal GlassLauncherView View { get; } = new();
@@ -202,7 +203,10 @@ internal sealed class GlassShellIntegration : IDisposable {
             _modalEffects = new GlassModalEffects(_root, _contentLayer, View.FindName("BodyFrame") as FrameworkElement ?? _contentLayer,
                 _modalScrim, presentation, View.FindName("ModalVideoFrost") as Border, View.FindName("CrashBodySnapshot") as Image);
             // The music dock lies outside the body, so it follows the dialog veil explicitly.
-            _modalEffects.Companion = progress => { View.SetMusicDockVeil(progress); if (progress > .01) _music?.CloseCard(); };
+            _modalEffects.Companion = (progress, blurRadius) => {
+                View.SetMusicDockVeil(progress, blurRadius);
+                if (progress > .01) _music?.CloseCard();
+            };
             presentation.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(OnModalAction), true);
         } else _contentLayer.Children.Add(presentation);
     }
@@ -281,7 +285,9 @@ internal sealed class GlassShellIntegration : IDisposable {
         }));
     }
     private void OnRefreshTick(object? sender, EventArgs args) => Refresh();
-    internal void Refresh(bool forcePreferences = false) {
+    internal void Refresh(bool forcePreferences = false) => RefreshCore(forcePreferences, projectPage: false);
+
+    private void RefreshCore(bool forcePreferences, bool projectPage) {
         if (_disposed || !_attached || !_owner.IsLoaded || _refreshing || ((!CanRenderWindow || _windowResizing) && !forcePreferences)) return;
         _refreshing = true;
         try {
@@ -317,7 +323,7 @@ internal sealed class GlassShellIntegration : IDisposable {
             else if (_runtime is not null) { _runtime.UseDarkText = !darkTheme; _runtime.Refresh(); }
             RefreshWallpaper(forcePreferences);
             RefreshNavigation();
-            bool pageChanged = RefreshPagePresentation();
+            bool pageChanged = RefreshPagePresentation(projectPage || View.IsSplashing || View.HoldsBackdrop, out bool projectionPending);
             RefreshHeaderVisibility();
             // Re-projecting every page is the heaviest part of a tick; defer it while a transition or smooth scroll plays so frames stay smooth.
             // While a new section is on its way, keep the outgoing page as displayed (the original page empties itself
@@ -328,6 +334,7 @@ internal sealed class GlassShellIntegration : IDisposable {
             if (!pagePending) _pagePendingSince = 0;
             else if (_pagePendingSince == 0) _pagePendingSince = Environment.TickCount64;
             else if (Environment.TickCount64 - _pagePendingSince > 600) pagePending = false;
+            pagePending |= projectionPending;
             long nowMs = Environment.TickCount64;
             bool motionBusy = View.IsTransitioning || PCLLF.Wpf.Motion.SmoothScroll.IsScrolling;
             bool crashReportOpen = GlassModalEffects.IsCrashReport(_lastActiveModal);
@@ -409,13 +416,41 @@ internal sealed class GlassShellIntegration : IDisposable {
         internal bool Released { get; set; }
     }
 
-    private bool RefreshPagePresentation() {
+    private bool RefreshPagePresentation(bool projectPage, out bool projectionPending) {
+        projectionPending = false;
         UIElement? next = DisplayedPage;
-        if (next is null) return false;
-        InstancePageScope? instance = _owner.GlassPageCode == (int)FormMain.PageType.InstanceSetup &&
+        InstancePageScope? instance = next is not null && _owner.GlassPageCode == (int)FormMain.PageType.InstanceSetup &&
             ReferenceEquals(_owner.PageRight, next) && PageInstanceLeft.Instance is { } selected
                 ? new InstancePageScope(selected, selected.PathVersion) : null;
-        if (ReferenceEquals(_projectedPage, next) && (instance is null || SameInstancePageScope(_projectedInstance, instance))) return false;
+        if (next is null || ReferenceEquals(_projectedPage, next) && (instance is null || SameInstancePageScope(_projectedInstance, instance))) {
+            bool preparing = _owner.PageRight is { } target && !ReferenceEquals(_projectedPage, target) &&
+                _pagePresentation?.IsPageAppearanceHeld == true;
+            if (preparing) View.BeginPageExit();
+            else if (next is not null && View.IsAwaitingPageContent && _pagePresentation is { } current) {
+                current.ResumePageAppearance();
+                View.SetPageContent(current.View);
+            }
+            return false;
+        }
+        bool homePage = next is PageLaunchRight;
+        RetiredPage? outgoing = _retiredPresentations.FirstOrDefault(page => (!page.Released || instance is not null) &&
+            ReferenceEquals(page.Source, next) && SameInstancePageScope(page.Instance, instance));
+        // Home and a page still mounted during its exit can start transitioning in the navigation pass.
+        if (!projectPage && !homePage && outgoing is not { Released: false }) {
+            View.BeginPageExit();
+            if (View.IsAwaitingPageContent) _pagePresentation?.HoldPageAppearance();
+            projectionPending = true;
+            // The rail selection and sidebar can render before a cold right page constructs its controls.
+            // Read the target again when admitted so rapid navigation never projects an obsolete destination.
+            if (_pageProjection?.Status != DispatcherOperationStatus.Pending)
+                _pageProjection = _owner.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+                    _pageProjection = null;
+                    RefreshCore(forcePreferences: false, projectPage: true);
+                }));
+            return false;
+        }
+        _pageProjection?.Abort();
+        _pageProjection = null;
         if (instance is not null)
             foreach (RetiredPage stale in _retiredPresentations.Where(page => page.Released && !SameInstancePageScope(page.Instance, instance)).ToArray())
                 DisposeReleasedPage(stale);
@@ -425,11 +460,10 @@ internal sealed class GlassShellIntegration : IDisposable {
         GlassPresentationSession? reusable = null;
         // The home page's projection (its homepage cards) is kept while other pages show and reused on return, so the
         // cards are not rebuilt (and an online homepage not re-laid out) every time Home opens.
-        if (next is PageLaunchRight && _homePresentation is { } home) {
+        if (homePage && _homePresentation is { } home) {
             _homePresentation = null;
             reusable = home;
-        } else if (_retiredPresentations.FirstOrDefault(page => (!page.Released || instance is not null) &&
-            ReferenceEquals(page.Source, next) && SameInstancePageScope(page.Instance, instance)) is { } outgoing) {
+        } else if (outgoing is not null) {
             // Reuse an outgoing view for reversals, or a detached instance tab for a repeat visit.
             _retiredPresentations.Remove(outgoing);
             reusable = outgoing.Session;
@@ -440,7 +474,7 @@ internal sealed class GlassShellIntegration : IDisposable {
             reusable.ResumePageAppearance();
             // The cached home already has its visual tree. Let the regular refresh update its
             // contents after the page motion, instead of walking the whole homepage before the first frame.
-            if (next is not PageLaunchRight) reusable.Refresh();
+            if (!homePage) reusable.Refresh();
         } else _pagePresentation = CreatePresentation(_owner.PanMainRight);
         _projectedPage = next;
         _projectedInstance = instance;
@@ -471,6 +505,7 @@ internal sealed class GlassShellIntegration : IDisposable {
         _runtime?.CancelPendingInstanceSettings();
         GlassVideoWallpaper.SetNavigationActive(true);
         _pagePresentation?.HoldPageAppearance();
+        QueuePageRefresh();
     }
     private void ResumeRightPage() => _pagePresentation?.ResumePageAppearance();
 
@@ -498,7 +533,8 @@ internal sealed class GlassShellIntegration : IDisposable {
         if (taskPage is not null) { _taskSidebar ??= new GlassTaskSidebar(); _taskSidebar.Refresh(taskPage); }
         View.SetSidebarCustom(taskPage is not null ? _taskSidebar : null);
         View.SetSidebarProgress(taskPage?.HasActiveTasks == true ? taskPage.OverallProgress : null);
-        IReadOnlyList<GlassSidebarItem> items = hasContext && left is not null && taskPage is null ? GlassContextNavigation.Build(left) : Array.Empty<GlassSidebarItem>();
+        IReadOnlyList<GlassSidebarItem> items = _owner.PageRight is TerracottaLobbyPage lobby ? lobby.SidebarItems() :
+            hasContext && left is not null && taskPage is null ? GlassContextNavigation.Build(left) : Array.Empty<GlassSidebarItem>();
         string signature = (left?.GetType().FullName ?? "") + ":" + hasContext + ":" + origin + ":" +
             string.Join("|", items.Select(item => item.Label + ":" + item.IsSelected + ":" + item.IsEnabled + ":" + item.IsHeader + ":" + item.Actions.Count));
         if (ReferenceEquals(_sidebarOwner, left) && signature == _navigationSignature) return;
@@ -522,10 +558,8 @@ internal sealed class GlassShellIntegration : IDisposable {
             ("NavSettings", _owner.BtnTitleSelect3.Visibility), ("NavOther", _owner.BtnTitleSelect4.Visibility)
         }) if (View.FindName(pair.Item1) is FrameworkElement button) {
             button.Visibility = pair.Item2;
-            if (button.Parent is Grid grid && grid.RowDefinitions.Count > Grid.GetRow(button))
-                grid.RowDefinitions[Grid.GetRow(button)].Height = new GridLength(pair.Item2 == Visibility.Visible ?
-                    (View.TryFindResource("WorkspaceNavRowHeight") is double height ? height : 52) : 0);
         }
+        View.UpdateNavigationRows();
     }
     private void OnAccountRequested(object? sender, EventArgs args) {
         if (ModMain.FrmLaunchLeft is not PageLaunchLeft source) return;
@@ -931,7 +965,8 @@ internal sealed class GlassShellIntegration : IDisposable {
     private bool _hadOriginalAppToolTip;
     private object? _originalAppToolTip;
     private void OnRightLayoutUpdated(object? sender, EventArgs args) {
-        if (DisplayedPage is { } page && !ReferenceEquals(_projectedPage, page)) QueuePageRefresh();
+        if (_pageProjection?.Status != DispatcherOperationStatus.Pending &&
+            DisplayedPage is { } page && !ReferenceEquals(_projectedPage, page)) QueuePageRefresh();
     }
     private void QueuePageRefresh() {
         if (_pageRefreshQueued || _disposed) return;
@@ -1118,6 +1153,8 @@ internal sealed class GlassShellIntegration : IDisposable {
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
+        _pageProjection?.Abort();
+        _pageProjection = null;
         _visualizer?.Update(false, false, GlassAudioVisualizer.SpectrumStyle.Bars);
         _music?.CloseCard(immediate: true);
         _owner.PreviewMouseDown -= OnMusicOutsideClick;

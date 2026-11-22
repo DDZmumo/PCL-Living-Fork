@@ -61,6 +61,7 @@ public sealed class LegacyWatcherHost<TWatcher, TInstance, TLoader, TState>
     public Func<TLoader, bool> LoaderCanceled = null!;
     public Action<TLoader, double> LoaderProgress = null!;
     public Action<TInstance, Process, bool> ProcessStopped = null!;
+    public Action? VerifiedGameExit;
     public Action<string, string?, bool> MarkHealthy = null!;
     public Func<TInstance, DateTime> ReleaseTime = null!;
     public Func<TInstance, string> InstancePath = null!, IndiePath = null!, InstanceName = null!;

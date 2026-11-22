@@ -1,9 +1,13 @@
 ﻿#requires -Version 5.1
 # Pure read-only log admission policy. This never touches a process/profile/UI.
 function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
- if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
  $nl=[string][char]13+[char]10
- if($NativeVersion -cin @('dev_edition','1.6.0-pre-2')){
+ if($NativeVersion -cin @('dev_edition','1.6.0-pre-3')){
+  $highlights='- 新增可选陶瓦联机，支持创建房间和通过房间码加入'+$nl+'- 修复部分外置登录启动被取消的问题，改善游戏进程识别'+$nl+'- 优化实例资源列表滚动和页面切换，修正联机按钮字色'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
+  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
+ }
+ if($NativeVersion -ceq '1.6.0-pre-2'){
   $highlights='- 修复资源中心和收藏的中文输入，搜索先展示已返回的结果'+$nl+'- 改善动态壁纸、页面过渡和崩溃提示的流畅度'+$nl+'- 更新背景音乐设置、播放器和音频可视化'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
   return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
  }
@@ -26,9 +30,9 @@ function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
 }
 function Get-ReviewedStartupNoticeTitle([string]$NativeVersion,[string]$NativeStyle='plain') {
- if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2')){throw 'PENDING: Native startup notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3')){throw 'PENDING: Native startup notice version has not been reviewed.'}
  if($NativeStyle -ceq 'plain'){return 'PCL Living Fork '+$NativeVersion+' 版本说明'}
- if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
+ if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
  return 'PCL Living Fork '+$NativeVersion+' 更新说明'
 }
 function Get-ReviewedNativeStartupNotice([object]$NativeProof) {

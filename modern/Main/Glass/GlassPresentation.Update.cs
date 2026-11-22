@@ -545,14 +545,19 @@ public sealed partial class GlassPresentationSession
         }
 
         // Rounded pill button that gives a little under the finger (spring).
-        private static Button Pill(string text, bool primary)
+        internal static Button Pill(string text, bool primary, bool readableWhenDisabled = false)
         {
             var surface = new FrameworkElementFactory(typeof(Border), "Surface");
             surface.SetValue(Border.CornerRadiusProperty, new CornerRadius(22));
             surface.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
             surface.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
             surface.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-            var label = new FrameworkElementFactory(typeof(ContentPresenter));
+            var label = new FrameworkElementFactory(typeof(TextBlock), "Label");
+            label.SetValue(TextBlock.TextProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
+            label.SetValue(TextBlock.ForegroundProperty, new TemplateBindingExtension(Control.ForegroundProperty));
+            label.SetValue(TextBlock.FontFamilyProperty, new TemplateBindingExtension(Control.FontFamilyProperty));
+            label.SetValue(TextBlock.FontSizeProperty, new TemplateBindingExtension(Control.FontSizeProperty));
+            label.SetValue(TextBlock.FontWeightProperty, new TemplateBindingExtension(Control.FontWeightProperty));
             label.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             label.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             surface.AppendChild(label);
@@ -560,7 +565,15 @@ public sealed partial class GlassPresentationSession
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
             hover.Setters.Add(new Setter(UIElement.OpacityProperty, .88, "Surface"));
             var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
-            disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .55));
+            if (readableWhenDisabled)
+            {
+                disabled.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("GlassPresentationField"), "Surface"));
+                disabled.Setters.Add(new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("GlassPresentationControlStroke"), "Surface"));
+                disabled.Setters.Add(new Setter(TextBlock.ForegroundProperty,
+                    new DynamicResourceExtension("GlassPresentationSecondary"), "Label"));
+                disabled.Setters.Add(new Setter(FrameworkElement.CursorProperty, Cursors.Arrow));
+            }
+            else disabled.Setters.Add(new Setter(UIElement.OpacityProperty, .55));
             template.Triggers.Add(hover); template.Triggers.Add(disabled);
             var scale = new ScaleTransform(1, 1);
             var button = new Button { Template = template, Content = text, Height = 44, MinWidth = primary ? 196 : 150, Padding = new Thickness(24, 0, 24, 0), FontSize = 15,

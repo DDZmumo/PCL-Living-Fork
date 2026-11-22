@@ -183,6 +183,31 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
         Put(Path.Combine(instance.PathIndie, "launch-owned.cmd"), "@echo off\r\nsetlocal DisableDelayedExpansion\r\nset /p PCLLF_BOOT=\r\necho " + OutputMarker + "\r\n1>&2 echo " + ErrorMarker + "\r\necho Setting user: owned-fixture\r\necho lwjgl version synthetic\r\necho OpenAL initialized\r\necho Created textures owned-atlas\r\nset /p PCLLF_FINISH=\r\n>\"%PCLLF_OPTIONS%\" echo lang:en_us\r\n>>\"%PCLLF_OPTIONS%\" echo key_key.forward:key.keyboard.i\r\n>>\"%PCLLF_OPTIONS%\" echo fixtureUntouched:stable\r\n>\"%PCLLF_QUICKLOG%\" echo [{\"type\":\"singleplayer\",\"id\":\"ControlledWorld\",\"name\":\"Controlled fixture\",\"lastPlayedTime\":\"2026-01-01T00:00:00Z\"}]\r\nexit /b " + exitCode + "\r\n");
     }
 
+    internal void CheckLegacyServerArguments()
+    {
+        McVersion version = instance.Version;
+        DateTime release = version.ReleaseTime;
+        string? world = prepared.QuickPlayWorld, server = prepared.ServerIp;
+        var session = prepared.QuickPlay;
+        try
+        {
+            version.ReleaseTime = new DateTime(2023, 4, 4);
+            prepared.QuickPlayWorld = null;
+            prepared.ServerIp = "[2001:db8::5]:25570";
+            List<string> arguments = (List<string>)Native.Static("PCL.ModLaunch", "McLaunchArgumentsGame")!;
+            int offset = arguments.IndexOf("--server");
+            Native.Check(offset >= 0 && arguments.Skip(offset).Take(4).SequenceEqual(["--server", "2001:db8::5", "--port", "25570"]) &&
+                !arguments.Contains("--quickPlayMultiplayer"), "The legacy launch pipeline did not pass the full IPv6 address and its separate port.");
+        }
+        finally
+        {
+            version.ReleaseTime = release;
+            prepared.QuickPlayWorld = world;
+            prepared.ServerIp = server;
+            prepared.QuickPlay = session;
+        }
+    }
+
     internal void Start()
     {
         List<LegacyLaunchStep> steps = [new LegacyLaunchProcessStep { Name = "启动进程", Work = service.McLaunchRun, ProgressWeight = 2 },

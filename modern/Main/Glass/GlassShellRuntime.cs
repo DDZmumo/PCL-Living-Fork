@@ -409,7 +409,7 @@ internal sealed class GlassShellRuntime : IDisposable {
     private void OnNavigationRequested(int page) {
         ShowLegacyHome = false;
         VerifyUsable();
-        if (page is not (0 or 1 or 10 or 3 or 4)) return;
+        if (page is not (0 or 1 or 10 or 2 or 3 or 4)) return;
         _owner.PageChange((FormMain.PageType)page);
         _requestWorkspaceRefresh();
     }

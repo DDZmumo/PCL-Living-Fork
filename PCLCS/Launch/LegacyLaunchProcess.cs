@@ -72,8 +72,10 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
         CancellationToken token = loader.CreateCancellationToken();
         host.RecoverWorlds(McInstanceSelected.PathIndie, token);
         using var localSkin = host.PrepareLocalSkin?.Invoke(McLoginLoader.Output, McLaunchJavaSelected, start, token);
+        LegacyJavaLaunchIdentity? sessionIdentity = LegacyJavaLaunchIdentity.Prepare(start);
         token.ThrowIfCancellationRequested();
         Process game = host.StartProcess(start); McLaunchLog("已启动游戏进程：" + McLaunchJavaSelected.JavaExePath);
+        sessionIdentity?.Bind(game);
         if (loader.IsCanceled) { McLaunchLog("由于取消启动，已强制结束游戏进程"); game.Kill(); return; }
         try { localSkin?.Attach(game, token); }
         catch {

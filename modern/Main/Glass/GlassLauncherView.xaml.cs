@@ -46,15 +46,15 @@ public partial class GlassLauncherView : UserControl, IDisposable
     // iOS-like sheet spring: a 0.4 s response with damping 0.78 gives the rail weight and a small, soft overshoot.
     private static readonly SpringParameters RailExpandSpring = new(.4, .78);
     // Page changes: a soft, slightly underdamped spring so the incoming page rises and settles rather than snapping.
-    private static readonly SpringParameters PageSpring = new(.46, .86);
+    internal static readonly SpringParameters PageSpring = new(.46, .86);
     // Pages enter from the direction of travel through the navigation order (down the list: from below).
-    private const double PageRise = 22;
-    private const double PageExitTravel = 16;
-    private const double PageExitScale = .94;
+    internal const double PageRise = 22;
+    internal const double PageExitTravel = 16;
+    internal const double PageExitScale = .94;
     private const double PageExitEnd = .68;
     private const double PageEntryDelay = .34;
     private const double PageEntryFadeEnd = .86;
-    private const double TransitionFrameCap = 1 / 40d;
+    internal const double TransitionFrameCap = 1 / 40d;
     // When the section changes, the original pages swap a moment later; titles wait for them so a new title never
     // sits over the previous section's content. The fallback releases them if nothing arrives.
     private bool _titlesPending;
@@ -62,7 +62,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private double _pageDirection = 1;
     private string _sidebarSignature = string.Empty;
     private int _sidebarSelectedIndex = -1;
-    private static readonly int[] NavigationOrder = { 0, 1, 10, 3, 4 };
+    private static readonly int[] NavigationOrder = { 0, 1, 10, 2, 3, 4 };
     private readonly Dictionary<Button, SpringMotion> _navigationHoverMotions = new();
     private readonly SpringMotion _accountMotion;
     private readonly SpringMotion _homeMotion;
@@ -85,6 +85,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private PageSlot _currentPage, _alternatePage;
     private PagePose _entryStart, _exitStart;
     private double _entryDelay, _transitionDirection;
+    private bool _awaitingPageContent;
     private ImageSource _fallbackInstanceIcon;
     private bool _homeTextShadowEnabled;
     private IReadOnlyList<GlassWindowRegion> _lastRegions = Array.Empty<GlassWindowRegion>();
@@ -122,9 +123,12 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public double LeftExpansionAllowance => _leftExpansionAllowance;
     private bool IsCompactViewport => ActualWidth - _leftExpansionAllowance < 960;
     /// <summary>True while a page transition, rail expansion or entrance cascade is playing; owners can defer heavy refreshes.</summary>
-    public bool IsTransitioning => _pageMotion.IsRunning || _homeMotion.IsRunning || _railExpandMotion.IsRunning || (_workspaceMotion?.IsRunning == true) || StaggeredEntrance.IsPlaying;
+    public bool IsTransitioning => _pageMotion.IsRunning || _homeMotion.IsRunning || _railExpandMotion.IsRunning ||
+        _sidebarLeaving || _sidebarFlipMotion?.IsRunning == true || _columnMotion?.IsRunning == true ||
+        _workspaceMotion?.IsRunning == true || StaggeredEntrance.IsPlaying;
     /// <summary>True between a section change and the arrival of that section's page; the current page should stay as displayed.</summary>
     public bool IsAwaitingSection => _titlesPending;
+    internal bool IsAwaitingPageContent => _awaitingPageContent;
     public Geometry SurfaceClip => FrameClip;
     public Brush SurfaceOpacityMask => FrameMask;
 
@@ -163,7 +167,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private void UpdateRailToolTips()
     {
         bool showTips = !_railExpanded;
-        foreach (Button button in new[] { NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther, RailToggleButton, AccountButton })
+        foreach (Button button in new[] { NavLaunch, NavDownload, NavFavorites, NavLink, NavSettings, NavOther, RailToggleButton, AccountButton })
             ToolTipService.SetIsEnabled(button, showTips);
     }
 
@@ -188,6 +192,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public GlassLauncherView()
     {
         InitializeComponent();
+        SecondarySurface.RenderTransform = new TransformGroup { Children = { _secondaryWidthScale, _sidebarFlipOffset, _secondaryShift } };
+        SecondaryContent.RenderTransformOrigin = new Point(.5, .42);
+        SecondaryContent.RenderTransform = _sidebarFlipScale;
+        AccountSideSurface.RenderTransform = new TransformGroup { Children = { _secondaryWidthScale, AccountSideTranslation } };
+        MainColumn.RenderTransform = _mainColumnWidthOffset;
         SidebarScroller.Style = global::PCL.GlassPresentationSession.ShellScrollStyle;
         SidebarScroller.SetResourceReference(Control.ForegroundProperty, "GlassSecondaryTextBrush");
         _surfaceMaskHost = MainSurface;
@@ -231,6 +240,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseDown += OnPreviewMouseDown;
         UpdateRailToolTips();
+        ApplySidebarLayout();
         SetState(_state);
     }
 
@@ -260,25 +270,18 @@ public partial class GlassLauncherView : UserControl, IDisposable
         {
             bool compact = IsCompactViewport;
             double columnWidth = SecondaryWidth(state.IsHome || _workspaceOpen, compact);
-            // Page motion already runs on render transforms. Resizing this column throughout it remeasures both pages.
-            SetSecondaryColumnWidth(columnWidth, animate: false);
+            SetSecondaryColumnWidth(columnWidth, animate: !ShouldSnapMotion);
         }
         _updatingState = true;
         try
         {
             if (homeChanged)
-            {
-                ApplyRail(_railMotion.Value);
-                SideRail.IsHitTestVisible = _hasSidebar && !state.IsHome;
                 _homeMotion.Retarget(state.IsHome ? 1 : 0, ShouldSnapMotion);
-            }
-            // The panel flips the moment navigation changes, in the same frame as the rail selection. A non-home page's
-            // rows arrive a little later; until then the old rows are hidden so the panel never shows stale content.
-            if (navigationChanged)
-            {
+            bool sidebarChanged = navigationChanged || homeChanged;
+            if (sidebarChanged)
+                _pendingSidebarRows = _pendingSidebarCustom = _pendingSidebarProgress = null;
+            if (sidebarChanged || ShouldSnapMotion && (_sidebarLeaving || _sidebarFlipMotion?.IsRunning == true))
                 StartSidebarFlip();
-                if (!state.IsHome) HideSidebarRowsUntilSection();
-            }
             if (titleChanged) _titleMotion.Retarget(state.CanGoBack ? 1 : 0, ShouldSnapMotion);
             ApplyHomeTransition(_homeMotion.Value);
             ApplyTitleTransition(_titleMotion.Value);
@@ -298,12 +301,6 @@ public partial class GlassLauncherView : UserControl, IDisposable
             InstanceDescriptionText.Visibility = state.IsLaunching || string.IsNullOrWhiteSpace(state.InstanceDescription) ? Visibility.Collapsed : Visibility.Visible;
             InstanceSettingsButton.IsEnabled = state.HasInstance && !state.IsLaunching;
             SelectInstanceButton.IsEnabled = !state.IsLaunching;
-            SelectInstanceButton.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
-            InstanceSettingsButton.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
-            // The footer row only carries the home actions; elsewhere the sidebar list reaches down to the panel edge.
-            if (PrimaryActions.Parent is Grid secondaryGrid && secondaryGrid.RowDefinitions.Count > 2)
-                secondaryGrid.RowDefinitions[2].Height = new GridLength(state.IsHome ? 52 : 12);
-            ExpandButtonContainer.Visibility = state.IsHome ? Visibility.Visible : Visibility.Hidden;
             LaunchButton.IsEnabled = state.IsLaunching || state.CanLaunch;
             LaunchButtonText.Text = state.IsLaunching ? "取消启动" : string.IsNullOrWhiteSpace(state.LaunchText) ? "启动游戏" : state.LaunchText;
             LaunchGlyph.Data = state.IsLaunching ? StopGlyph : (Geometry)Resources["IconPlay"];
@@ -351,7 +348,6 @@ public partial class GlassLauncherView : UserControl, IDisposable
             AutomationProperties.SetName(RecentWorldButton, "继续游玩：" + (state.RecentWorldName ?? string.Empty));
             ApplyPalette(state.UseDarkText);
             WorkspaceHint.Text = "页面选项";
-            WorkspaceHint.Visibility = state.IsHome || _hasSidebar ? Visibility.Hidden : Visibility.Visible;
             SetSelectedNavigation(ShouldSnapMotion);
             if (ShouldSnapMotion)
             {
@@ -359,6 +355,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 _railMotion.Snap(_hasSidebar ? 1 : 0);
                 _accountMotion.Snap(_accountOpen ? 1 : 0);
                 _homeMotion.Snap(state.IsHome ? 1 : 0);
+                if (_columnMotion is { IsRunning: true } widthMotion) widthMotion.Snap(_columnTarget);
                 _titleMotion.Snap(state.CanGoBack ? 1 : 0);
                 _optionsMotion.Snap(state.LaunchOptionsAvailable ? 1 : 0);
                 _pageMotion.Snap(1);
@@ -376,8 +373,20 @@ public partial class GlassLauncherView : UserControl, IDisposable
         string title = _state.IsHome ? string.Empty : (string.IsNullOrWhiteSpace(_state.PageTitle) ? NavigationTitle(_state.SelectedNavigationId) : _state.PageTitle);
         if (PageTitleText.Text != title) ChangePageTitle(title);
         UpdateHeaderLayout();
-        SecondaryTitleText.Text = _state.IsHome ? "主页" : NavigationTitle(_state.SelectedNavigationId);
-        SecondaryTitleText.FontSize = _state.IsHome ? 24 : 20;
+    }
+
+    private void ApplySidebarLayout()
+    {
+        bool home = _shownSidebar.Home;
+        SecondaryTitleText.Text = home ? "主页" : NavigationTitle(_shownSidebar.Page);
+        SecondaryTitleText.FontSize = home ? 24 : 20;
+        Visibility homeVisibility = home ? Visibility.Visible : Visibility.Hidden;
+        PrimaryCard.Visibility = SelectInstanceButton.Visibility = InstanceSettingsButton.Visibility = ExpandButtonContainer.Visibility = homeVisibility;
+        PrimaryCard.IsHitTestVisible = home;
+        SecondaryContent.RowDefinitions[2].Height = new GridLength(home ? 52 : 12);
+        ApplyRail(_railMotion.Value);
+        WorkspaceHint.Visibility = home || _hasSidebar ? Visibility.Hidden : Visibility.Visible;
+        SideRail.IsHitTestVisible = _hasSidebar && !home;
     }
 
     // The outgoing title rises and fades out on a ghost copy while the new one rises in from below.
@@ -455,18 +464,34 @@ public partial class GlassLauncherView : UserControl, IDisposable
         });
     }
 
+    internal void BeginPageExit()
+    {
+        if (_awaitingPageContent || ShouldSnapMotion || PageContentHost.Content is null) return;
+        // Keep the current projection mounted so a return can reverse from the pose already on screen.
+        _awaitingPageContent = true;
+        _currentPage.SetInputEnabled(false);
+        _entryStart = _currentPage.Pose;
+        _exitStart = _alternatePage.Pose;
+        _transitionDirection = _pageDirection;
+        _pageMotion.Snap(0);
+        _pageMotion.Retarget(1);
+    }
+
     public void SetPageContent(UIElement content)
     {
-        if (ReferenceEquals(PageContentHost.Content, content)) return;
+        bool restoring = ReferenceEquals(PageContentHost.Content, content);
+        if (restoring && !_awaitingPageContent) return;
+        double remainingDelay = _awaitingPageContent ? Math.Max(0, PageEntryDelay - _pageMotion.Value) : PageEntryDelay;
+        _awaitingPageContent = false;
         ReleaseTitles();
         bool animate = !ShouldSnapMotion && content is not null;
         bool returning = content is not null && ReferenceEquals(_alternatePage.Host.Content, content);
         // If the replacement arrives mid-transition, keep whichever old page the user can still see.
-        if (returning || animate && _currentPage.Host.Content is not null &&
-            (_alternatePage.Host.Content is null || _currentPage.Pose.Opacity >= _alternatePage.Pose.Opacity))
+        if (!restoring && (returning || animate && _currentPage.Host.Content is not null &&
+            (_alternatePage.Host.Content is null || _currentPage.Pose.Opacity >= _alternatePage.Pose.Opacity)))
             (_currentPage, _alternatePage) = (_alternatePage, _currentPage);
 
-        if (!returning)
+        if (!restoring && !returning)
         {
             ReleasePage(_currentPage);
             _currentPage.Host.Content = content;
@@ -482,7 +507,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _entryStart = _currentPage.Pose;
         _exitStart = _alternatePage.Pose;
         _transitionDirection = _pageDirection;
-        _entryDelay = !returning && _exitStart.Opacity > MotionTokens.VisibilityThreshold && _alternatePage.Host.Content is not null ? PageEntryDelay : 0;
+        _entryDelay = !restoring && !returning && _exitStart.Opacity > MotionTokens.VisibilityThreshold && _alternatePage.Host.Content is not null ? remainingDelay : 0;
         if (!animate) { _pageMotion.Snap(1); return; }
         _pageMotion.Snap(0);
         _pageMotion.Retarget(1);
@@ -537,6 +562,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     internal void SetSidebarProgress(double? progress)
     {
+        if (_sidebarLeaving) { _pendingSidebarProgress = () => SetSidebarProgress(progress); return; }
         if (_sidebarTide is null)
         {
             if (!progress.HasValue || SecondarySurface.Child is not Grid card) return;
@@ -557,25 +583,34 @@ public partial class GlassLauncherView : UserControl, IDisposable
     /// </summary>
     public void SetSidebarCustom(UIElement custom)
     {
+        if (_sidebarLeaving) { _pendingSidebarCustom = () => SetSidebarCustom(custom); return; }
         if (ReferenceEquals(_sidebarCustom, custom)) return;
         if (_sidebarCustom is not null) SidebarPanel.Children.Remove(_sidebarCustom);
         _sidebarCustom = custom;
         // Custom content is sized to the visible sidebar, so the sidebar itself must not scroll (it would only nudge it).
         SidebarScroller.VerticalScrollBarVisibility = custom is null ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
-        if (custom is null) return;
         // Custom content may fill the sidebar: it is at least as tall as the visible area.
         if (custom is FrameworkElement fill && fill.ReadLocalValue(MinHeightProperty) == DependencyProperty.UnsetValue)
             fill.SetBinding(MinHeightProperty, new System.Windows.Data.Binding(nameof(ScrollViewer.ViewportHeight)) { Source = SidebarScroller });
-        SidebarPanel.Children.Add(custom);
-        // A page whose sidebar is only custom content has no rows to wait for.
-        RevealSidebarRows();
+        if (custom is not null) SidebarPanel.Children.Add(custom);
+        UpdateSidebarAvailability();
     }
 
     public void SetSidebar(IEnumerable<GlassSidebarItem> items)
     {
         GlassSidebarItem[] list = (items ?? Enumerable.Empty<GlassSidebarItem>()).ToArray();
-        // A new set of rows (another section) enters with a staggered cascade; a selection change within the same
-        // rows only moves the overlay and decides which way the next page enters.
+        if (_sidebarLeaving)
+        {
+            _pendingSidebarRows = () => ApplySidebarRows(list);
+            if (list.Length > 0) ReleaseTitles();
+            return;
+        }
+        ApplySidebarRows(list);
+    }
+
+    private void ApplySidebarRows(GlassSidebarItem[] list)
+    {
+        // Selection within the same rows controls the direction of the right-page transition.
         string signature = string.Join("\u001f", list.Select(item => item.Label));
         int selected = Array.FindIndex(list, item => item.IsSelected);
         bool newSection = signature != _sidebarSignature;
@@ -596,59 +631,96 @@ public partial class GlassLauncherView : UserControl, IDisposable
         if (_sidebarCustom is not null) SidebarPanel.Children.Add(_sidebarCustom);
         UpdateSidebarAvailability();
         ScheduleLayout();
-        // New rows start hidden in the same pass they are added, so they never flash before the cascade.
-        // The flip already started on navigation; the new rows just fade in on the moving panel.
-        if (newSection && list.Length > 0) RevealSidebarRows();
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => UpdateSidebarSelection(ShouldSnapMotion)));
     }
 
     // iOS-style spring for the sidebar flip: response 0.42 s, damping 0.8 (a short, soft settle with a hint of overshoot).
     private static readonly SpringParameters SidebarFlipSpring = new(.42, .8);
     private const double SidebarFlipTravel = 56;
+    private readonly ScaleTransform _sidebarFlipScale = new();
     private readonly TranslateTransform _sidebarFlipOffset = new();
     private SpringMotion? _sidebarFlipMotion;
-    private double _sidebarFlipDirection = 1;
+    private (bool Home, int Page) _shownSidebar = (true, 0);
+    private (bool Home, int Page) RequestedSidebar => (_state.IsHome, _state.IsHome ? 0 : _state.SelectedNavigationId);
+    private bool _sidebarLeaving;
+    private DispatcherOperation _sidebarSwap;
+    private Action _pendingSidebarRows, _pendingSidebarCustom, _pendingSidebarProgress;
+    private double _sidebarFlipOpacity = 1, _secondaryWorkspaceOpacity = 1;
 
     private void StartSidebarFlip()
     {
-        // The whole sidebar panel (surface, title, rows and actions) moves as one card.
-        // Do not attach a BitmapCache to SecondarySurface: WallpaperBlurCache already holds the pre-blurred texture,
-        // whereas BitmapCache would freeze a displaced wallpaper slice onto the card instead of sampling live coordinates.
-        SecondarySurface.RenderTransform = new TransformGroup { Children = { _sidebarFlipOffset, _secondaryShift } }; // flip offset + account-page drift
-        _sidebarFlipMotion ??= new SpringMotion(this, 1, ApplySidebarFlip, SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
-        _sidebarFlipDirection = _pageDirection;
-        if (ShouldSnapMotion) { _sidebarFlipMotion.Snap(1); return; }
-        // Start from the offset position (keeping any in-flight velocity) and spring to rest.
-        _sidebarFlipMotion.Snap(0);
-        _sidebarFlipMotion.Retarget(1);
-    }
-
-    private DispatcherTimer? _sidebarRowsFallback;
-
-    private void HideSidebarRowsUntilSection()
-    {
-        if (ShouldSnapMotion) return;
-        SidebarHost.BeginAnimation(OpacityProperty, null);
-        SidebarHost.Opacity = 0;
-        _sidebarRowsFallback ??= new DispatcherTimer(TimeSpan.FromMilliseconds(700), DispatcherPriority.Normal, (_, _) => RevealSidebarRows(), Dispatcher) { IsEnabled = false };
-        _sidebarRowsFallback.Stop(); _sidebarRowsFallback.Start(); // a section that never changes must not stay hidden
-    }
-
-    private void RevealSidebarRows()
-    {
-        _sidebarRowsFallback?.Stop();
-        if (SidebarHost.Opacity >= 1 && SidebarHost.HasAnimatedProperties == false) return;
-        if (ShouldSnapMotion) { SidebarHost.BeginAnimation(OpacityProperty, null); SidebarHost.Opacity = 1; return; }
-        SidebarHost.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } }, HandoffBehavior.SnapshotAndReplace);
+        bool immediate = ShouldSnapMotion || !IsVisible || !MotionPreferences.AllowsAnimation;
+        if (RequestedSidebar == _shownSidebar)
+        {
+            if (_sidebarLeaving)
+            {
+                _sidebarSwap?.Abort();
+                _sidebarSwap = null;
+                _pendingSidebarRows = _pendingSidebarCustom = _pendingSidebarProgress = null;
+                _sidebarLeaving = false;
+                UpdateSidebarInput();
+                _sidebarFlipMotion?.Retarget(0, immediate);
+            }
+            else if (immediate) _sidebarFlipMotion?.Snap(0);
+            return;
+        }
+        if (immediate)
+        {
+            PresentSidebar();
+            _sidebarFlipMotion?.Snap(0);
+            return;
+        }
+        if (_sidebarLeaving) return; // The pending replacement follows the latest destination.
+        _sidebarLeaving = true;
+        UpdateSidebarInput();
+        _sidebarFlipMotion ??= new SpringMotion(this, 0, ApplySidebarFlip, SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
+        // An interrupted entrance exits back toward its current edge.
+        double direction = Math.Abs(_sidebarFlipMotion.Value) > MotionTokens.VisibilityThreshold ? Math.Sign(_sidebarFlipMotion.Value) : -_pageDirection;
+        _sidebarFlipMotion.Retarget(direction);
     }
 
     private void ApplySidebarFlip(double value)
     {
-        // Position follows the spring including its overshoot; the panel never fully vanishes (it is the same card
-        // flipping to new content), it dips to 40 % and recovers over the first ~60 % of the travel.
-        _sidebarFlipOffset.Y = SidebarFlipTravel * _sidebarFlipDirection * (1 - value);
-        double fade = Math.Clamp(value / .6, 0, 1);
-        SecondarySurface.Opacity = .4 + .6 * (1 - Math.Pow(1 - fade, 2));
+        double progress = Math.Clamp(value / PageExitEnd, -1, 1);
+        double opacity = 1 - SmoothPageFade(Math.Abs(progress));
+        _sidebarFlipOffset.Y = PageRise * progress;
+        _sidebarFlipScale.ScaleX = _sidebarFlipScale.ScaleY = MotionTokens.RevealScale + (1 - MotionTokens.RevealScale) * opacity;
+        _sidebarFlipOpacity = opacity;
+        ApplySecondarySurfaceOpacity();
+        if (_sidebarLeaving && opacity == 0 && _sidebarSwap is null)
+            _sidebarSwap = Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+            {
+                _sidebarSwap = null;
+                if (_disposed || !_sidebarLeaving) return;
+                PresentSidebar();
+                _sidebarFlipMotion!.Snap(PageExitEnd * _pageDirection);
+                _sidebarFlipMotion.Retarget(0, ShouldSnapMotion);
+            }));
+    }
+
+    private void ApplySecondarySurfaceOpacity() => SecondarySurface.Opacity = _sidebarFlipOpacity * _secondaryWorkspaceOpacity;
+
+    private void PresentSidebar()
+    {
+        _sidebarSwap?.Abort();
+        _sidebarSwap = null;
+        var pending = (Rows: _pendingSidebarRows, Custom: _pendingSidebarCustom, Progress: _pendingSidebarProgress);
+        _pendingSidebarRows = _pendingSidebarCustom = _pendingSidebarProgress = null;
+        _sidebarLeaving = false;
+        _shownSidebar = RequestedSidebar;
+        ApplySidebarLayout();
+        pending.Custom?.Invoke();
+        pending.Rows?.Invoke();
+        pending.Progress?.Invoke();
+        UpdateSidebarInput();
+    }
+
+    private void UpdateSidebarInput()
+    {
+        bool enabled = !_workspaceOpen && !_sidebarLeaving;
+        SecondaryContent.IsHitTestVisible = enabled;
+        KeyboardNavigation.SetTabNavigation(SecondaryContent, enabled ? KeyboardNavigationMode.Continue : KeyboardNavigationMode.None);
+        if (!enabled && SecondaryContent.IsKeyboardFocusWithin) Keyboard.ClearFocus();
     }
 
     private const string SelectedRowTag = "SidebarSelectedRow";
@@ -735,10 +807,10 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private void UpdateSidebarAvailability()
     {
         _hasSidebar = SidebarPanel.Children.Count > 0;
-        WorkspaceHint.Visibility = _hasSidebar || _state.IsHome ? Visibility.Hidden : Visibility.Visible;
-        if (_hasSidebar && !_state.IsHome) SideRail.Visibility = Visibility.Visible;
-        SideRail.IsHitTestVisible = _hasSidebar && !_state.IsHome;
-        _railMotion.Retarget(_hasSidebar ? 1 : 0, ShouldSnapMotion);
+        WorkspaceHint.Visibility = _hasSidebar || _shownSidebar.Home ? Visibility.Hidden : Visibility.Visible;
+        if (_hasSidebar && !_shownSidebar.Home) SideRail.Visibility = Visibility.Visible;
+        SideRail.IsHitTestVisible = _hasSidebar && !_shownSidebar.Home;
+        _railMotion.Retarget(_hasSidebar ? 1 : 0, ShouldSnapMotion || _sidebarFlipMotion?.IsRunning == true);
     }
 
     public void SetAccountContent(UIElement content)
@@ -997,6 +1069,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     };
     private double Radius(string resource) => ((CornerRadius)Resources[resource]).TopLeft;
     private bool ShouldSnapMotion => _state.ReduceMotion || !IsLoaded || _keyboardInteraction;
+    internal bool AnimateInnerPageChanges => !ShouldSnapMotion;
 
     private void ApplyPalette(bool darkText)
     {
@@ -1053,7 +1126,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         WallpaperImage.Visibility = wallpaper ? Visibility.Visible : Visibility.Collapsed;
         SetBrush("GlassWindowBrush", desktop ? Colors.Transparent : darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
         SetBrush("GlassTextBrush", darkText ? Color.FromRgb(32, 43, 58) : Color.FromRgb(244, 244, 244));
-        SetBrush("GlassSecondaryTextBrush", darkText ? Color.FromRgb(101, 114, 132) : Color.FromRgb(184, 184, 184));
+        SetBrush("GlassSecondaryTextBrush", darkText ? global::PCL.GlassCommandChrome.LightSecondaryTextColor : Color.FromRgb(184, 184, 184));
         Color mainBase = darkText ? Color.FromRgb(241, 243, 246) : Color.FromRgb(24, 24, 24);
         SetBrush("GlassMainBrush", wallpaper ? Colors.Transparent : mainBase);
         // Keep an opaque dark/theme base behind the wallpaper so lowering wallpaper opacity fades to it rather than the desktop.
@@ -1081,7 +1154,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         SetBrush("GlassAccentBrush", darkText ? Color.FromRgb(43, 43, 43) : Color.FromRgb(230, 230, 230));
         SetBrush("GlassAccentTextBrush", darkText ? Colors.White : Color.FromRgb(26, 26, 26));
         SetBrush("HomeTextBrush", darkText ? Color.FromRgb(32, 43, 58) : Color.FromRgb(248, 250, 253));
-        SetBrush("HomeSecondaryTextBrush", darkText ? Color.FromRgb(83, 101, 122) : Color.FromRgb(221, 221, 221));
+        SetBrush("HomeSecondaryTextBrush", darkText ? global::PCL.GlassCommandChrome.LightSecondaryTextColor : Color.FromRgb(221, 221, 221));
         SetMaterialFallback(darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
         SetHomeTextShadow(false);
         WorkspaceSurface.Background = Brushes.Transparent;
@@ -1187,7 +1260,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         RailTranslation.X = 0;
         RailTranslation.Y = -MotionTokens.RailTravel * (1 - p);
         SideRail.Opacity = p;
-        SideRail.Visibility = _state.IsHome || p < MotionTokens.VisibilityThreshold && !_hasSidebar ? Visibility.Hidden : Visibility.Visible;
+        SideRail.Visibility = _shownSidebar.Home || p < MotionTokens.VisibilityThreshold && !_hasSidebar ? Visibility.Hidden : Visibility.Visible;
     }
 
     private void ApplyRailExpansion(double value)
@@ -1198,7 +1271,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         RailToggleRotation.Angle = 180 * value;
         // Labels: expanding, they follow the growing width one after another from top to bottom (each slides in and
         // settles); collapsing, they all leave quickly in the first part of the travel so the rail shrinks clean.
-        TextBlock[] labels = { RailBrandText, NavLaunchText, NavDownloadText, NavFavoritesText, NavSettingsText, NavOtherText, RailToggleText, AccountNameText };
+        TextBlock[] labels = { RailBrandText, NavLaunchText, NavDownloadText, NavFavoritesText, NavLinkText, NavSettingsText, NavOtherText, RailToggleText, AccountNameText };
         if (Resources["RailLabelTranslation"] is TranslateTransform shared) shared.X = 0;
         for (int index = 0; index < labels.Length; index++)
         {
@@ -1230,22 +1303,20 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private void ApplyHomeTransition(double value)
     {
         _homeProgress = Math.Clamp(value, 0, 1);
-        // The sidebar panel already flips vertically, so home content only cross-fades (no sideways slide of its own).
-        // Leaving home it clears in the first half, before the new section fades in; entering it arrives early.
+        // The right-hand home content fades independently of the sidebar's section transition.
         double homeOpacity = _state.IsHome ? Math.Clamp(_homeProgress / .6, 0, 1) : Math.Clamp((_homeProgress - .5) / .5, 0, 1);
         HomePanel.Opacity = homeOpacity;
         HomeTranslation.X = 0;
         HomePanel.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
         HomePanel.IsHitTestVisible = _state.IsHome;
-        PrimaryCard.Opacity = homeOpacity;
         ApplyExpansion(_expansionMotion?.Value ?? 0);
-        PrimaryCard.Visibility = _state.IsHome || _homeProgress > MotionTokens.VisibilityThreshold ? Visibility.Visible : Visibility.Hidden;
-        PrimaryCard.IsHitTestVisible = _state.IsHome;
     }
 
     private void ApplyPageTransition(double value)
     {
-        if (_currentPage.Host.Content is not null)
+        double exit = Math.Clamp(value / PageExitEnd, 0, 1);
+        if (_awaitingPageContent) _currentPage.Apply(PageExitPose(_entryStart, exit));
+        else if (_currentPage.Host.Content is not null)
         {
             double travel = Math.Clamp((value - _entryDelay) / (1 - _entryDelay), 0, 1.10);
             double fade = Math.Clamp((value - _entryDelay) / (PageEntryFadeEnd - _entryDelay), 0, 1);
@@ -1255,13 +1326,16 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 _entryStart.Offset * (1 - travel)));
         }
         if (_alternatePage.Host.Content is null) return;
-        double exit = Math.Clamp(value / PageExitEnd, 0, 1);
-        double recede = 1 - (1 - exit) * (1 - exit);
-        _alternatePage.Apply(new PagePose(
-            _exitStart.Opacity * (1 - SmoothPageFade(exit)),
-            _exitStart.Scale + (PageExitScale - _exitStart.Scale) * recede,
-            _exitStart.Offset + (-PageExitTravel * _transitionDirection - _exitStart.Offset) * recede));
+        _alternatePage.Apply(PageExitPose(_exitStart, exit));
         if (exit >= 1) ReleasePage(_alternatePage);
+    }
+
+    private PagePose PageExitPose(PagePose start, double exit)
+    {
+        double recede = 1 - (1 - exit) * (1 - exit);
+        return new PagePose(start.Opacity * (1 - SmoothPageFade(exit)),
+            start.Scale + (PageExitScale - start.Scale) * recede,
+            start.Offset + (-PageExitTravel * _transitionDirection - start.Offset) * recede);
     }
 
     private static double SmoothPageFade(double value) => value * value * (3 - 2 * value);
@@ -1327,9 +1401,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     private void SetSelectedNavigation(bool immediate)
     {
-        int index = _state.SelectedNavigationId switch { 1 => 1, 10 => 2, 3 => 3, 4 => 4, _ => 0 };
-        Button[] buttons = [NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther];
-        TextBlock[] labels = [NavLaunchText, NavDownloadText, NavFavoritesText, NavSettingsText, NavOtherText];
+        int index = Math.Max(0, Array.IndexOf(NavigationOrder, _state.SelectedNavigationId));
+        Button[] buttons = [NavLaunch, NavDownload, NavFavorites, NavLink, NavSettings, NavOther];
+        TextBlock[] labels = [NavLaunchText, NavDownloadText, NavFavoritesText, NavLinkText, NavSettingsText, NavOtherText];
         Button selected = buttons[index];
         // The account page owns the selection while it is open: the highlight slides down onto the avatar.
         if (_workspaceOpen && AccountButton.ActualHeight > 0 && NavigationButtons.ActualHeight > 0)
@@ -1867,7 +1941,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private double _splashTideStart, _splashTideShown;
 
     // The rail's own items, top to bottom: page icons, the selection box, the collapse toggle and the account.
-    private FrameworkElement[] RailItems => new FrameworkElement[] { NavLaunch, NavDownload, NavFavorites, NavSettings, NavOther, NavSelection, RailToggleButton, AccountSurface };
+    private FrameworkElement[] RailItems => new FrameworkElement[] { NavLaunch, NavDownload, NavFavorites, NavLink, NavSettings, NavOther, NavSelection, RailToggleButton, AccountSurface };
 
     // One after another from the top, each settles from slightly in front of the rail (larger, transparent) to its
     // place on an iOS-like spring; elements that already carry their own transform only fade.
@@ -1941,32 +2015,41 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     private static double SecondaryWidth(bool wide, bool compact) => wide ? (compact ? 284 : 304) : (compact ? 230 : 254);
 
+    private readonly ScaleTransform _secondaryWidthScale = new();
+    private readonly TranslateTransform _mainColumnWidthOffset = new();
     private SpringMotion _columnMotion;
     private double _columnTarget = double.NaN;
 
-    /// <summary>
-    /// Sidebar column width (wider on the launch page). Entering or leaving home glides on the same spring family as the
-    /// sidebar flip instead of snapping the content area sideways; resizes and layout passes only retarget it.
-    /// </summary>
     private void SetSecondaryColumnWidth(double width, bool animate)
     {
-        if (!double.IsNaN(_columnTarget) && Math.Abs(_columnTarget - width) < .01 &&
-            (animate || _columnMotion?.IsRunning != true)) return;
+        if (Math.Abs(_columnTarget - width) < .01) return;
+        double current = _columnMotion?.Value ?? SecondaryColumn.Width.Value;
         _columnTarget = width;
+        // Lay the columns out once. Render transforms keep the sidebar edge and right page aligned as it moves.
+        SecondaryColumn.Width = new GridLength(width);
         if (!animate)
         {
             if (_columnMotion is not null) _columnMotion.Snap(width);
-            else SecondaryColumn.Width = new GridLength(width);
+            else ApplySecondaryColumnWidth(width);
             return;
         }
-        double current = SecondaryColumn.Width.IsAbsolute ? SecondaryColumn.Width.Value : width;
-        _columnMotion ??= new SpringMotion(this, current, value => SecondaryColumn.Width = new GridLength(Math.Max(0, value)), SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
+        _columnMotion ??= new SpringMotion(this, current, ApplySecondaryColumnWidth, SidebarFlipSpring) { MaxFrameSeconds = TransitionFrameCap };
         _columnMotion.Retarget(width);
+        ApplySecondaryColumnWidth(_columnMotion.Value);
+    }
+
+    private void ApplySecondaryColumnWidth(double width)
+    {
+        double offset = width - _columnTarget;
+        double surfaceWidth = _columnTarget - SecondarySurface.Margin.Left - SecondarySurface.Margin.Right;
+        _secondaryWidthScale.ScaleX = 1 + offset / Math.Max(1, surfaceWidth);
+        _mainColumnWidthOffset.X = AccountSceneTranslation.X = offset;
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         bool compact = IsCompactViewport;
+        UpdateNavigationRows();
         MainContentGrid.Margin = new Thickness(compact ? 16 : 24, 0, compact ? 16 : 24, 24);
         UpdateHeaderLayout();
         double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
@@ -1980,6 +2063,17 @@ public partial class GlassLauncherView : UserControl, IDisposable
             _navigationMotion.Snap(AccountButton.TranslatePoint(new Point(0, 0), NavigationButtons).Y);
         SyncSurfaceRegions();
         ScheduleLayout();
+    }
+
+    internal void UpdateNavigationRows()
+    {
+        double height = ActualHeight > 0 && ActualHeight < 515 ? 44 : (double)Resources["WorkspaceNavRowHeight"];
+        foreach (Button button in NavigationButtons.Children.OfType<Button>())
+        {
+            var row = NavigationButtons.RowDefinitions[Grid.GetRow(button)];
+            var size = new GridLength(button.Visibility == Visibility.Visible ? height : 0);
+            if (row.Height != size) row.Height = size;
+        }
     }
 
     private void UpdateHeaderLayout()
@@ -2276,11 +2370,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
     }
 
     /// <summary>Veils the dock with a dialog's blur (0 = clear, 1 = fully under the veil).</summary>
-    public void SetMusicDockVeil(double progress)
+    internal void SetMusicDockVeil(double progress, double blurRadius)
     {
         double p = Math.Clamp(progress, 0, 1);
-        _musicDockVeil.Radius = 6 * p;
-        MusicDockSurface.Chrome.Effect = p > .001 ? _musicDockVeil : null;
+        _musicDockVeil.Radius = blurRadius;
+        MusicDockSurface.Chrome.Effect = blurRadius > .001 ? _musicDockVeil : null;
         _musicDockVeilOpacity = 1 - .35 * p;
         MusicDockSurface.Host.Opacity = _musicDockContentOpacity * _musicDockVeilOpacity;
         MusicDockSurface.IsHitTestVisible = p < .5;
@@ -2385,7 +2479,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         AccountSideSurface.IsHitTestVisible = AccountSceneHost.IsHitTestVisible = open;
         // The page underneath is not just hidden but inert: no clicks, focus or keyboard activation reach it.
         MainColumn.IsHitTestVisible = !open; MainColumn.IsEnabled = !open;
-        if (SecondarySurface.Child is UIElement secondary) { secondary.IsHitTestVisible = !open; secondary.IsEnabled = !open; }
+        SecondaryContent.IsEnabled = !open;
+        UpdateSidebarInput();
         SetSelectedNavigation(ShouldSnapMotion || immediate);
         SetSecondaryColumnWidth(SecondaryWidth(_state.IsHome || open, IsCompactViewport), animate: !(ShouldSnapMotion || immediate));
     }
@@ -2405,10 +2500,9 @@ public partial class GlassLauncherView : UserControl, IDisposable
         AccountSceneScale.ScaleX = AccountSceneScale.ScaleY = .97 + .03 * Math.Min(travel, 1);
         double leave = 1 - outgoing * outgoing * (3 - 2 * outgoing);
         MainColumn.Opacity = leave;
-        if (SecondarySurface.RenderTransform is not TransformGroup)
-            SecondarySurface.RenderTransform = new TransformGroup { Children = { _sidebarFlipOffset, _secondaryShift } };
         // The whole previous sidebar card leaves (and returns) with the page, so nothing stays layered underneath.
-        SecondarySurface.Opacity = leave;
+        _secondaryWorkspaceOpacity = leave;
+        ApplySecondarySurfaceOpacity();
         SecondarySurface.Visibility = leave <= MotionTokens.VisibilityThreshold ? Visibility.Hidden : Visibility.Visible;
         _secondaryShift.Y = 24 * outgoing;
         if (!_workspaceOpen && value <= MotionTokens.VisibilityThreshold)
@@ -2488,7 +2582,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         if (_disposed) return;
         _disposed = true;
         _titleFallback?.Stop();
-        _sidebarRowsFallback?.Stop();
+        _sidebarSwap?.Abort();
+        _pendingSidebarRows = _pendingSidebarCustom = _pendingSidebarProgress = null;
         WindowControlsBodyBrush.Visual = null;
         _expansionMotion.Dispose();
         _railMotion.Dispose();

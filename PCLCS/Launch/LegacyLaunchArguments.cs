@@ -433,7 +433,7 @@ public List<string> McLaunchArgumentsGame()
 
         // 自动进入服务器
         string Server = CurrentLaunchOptions.QuickPlayWorld is not null ? "" : string.IsNullOrEmpty(CurrentLaunchOptions.ServerIp) ? Setting<string>("VersionServerEnter", McInstanceSelected) : CurrentLaunchOptions.ServerIp;
-        if (Server.Any())
+        if (!string.IsNullOrEmpty(Server))
         {
             if (McInstanceSelected.ReleaseTime > new DateTime(2023, 4, 4))
             {
@@ -441,28 +441,16 @@ public List<string> McLaunchArgumentsGame()
                 Args.Add($"--quickPlayMultiplayer");
                 Args.Add(Server);
             }
-            else
+            else if (LegacyServerAddress.TryParse(Server, out string hostName, out int port))
             {
-                // 老版本
-                if (Server.Contains(":"))
-                {
-                    // 包含端口号
-                    Args.Add("--server");
-                    Args.Add(Server.Split(":")[0]);
-                    Args.Add("--port");
-                    Args.Add(Server.Split(":")[1]);
-                }
-                else
-                {
-                    // 不包含端口号
-                    Args.Add("--server");
-                    Args.Add(Server);
-                    Args.Add("--port");
-                    Args.Add("25565");
-                }
+                Args.Add("--server");
+                Args.Add(hostName);
+                Args.Add("--port");
+                Args.Add(port.ToString(CultureInfo.InvariantCulture));
                 if (McInstanceSelected.Version.HasOptiFine)
                     Hint("OptiFine 与自动进入服务器可能不兼容，有概率导致材质丢失甚至游戏崩溃！", LegacyLaunchHint.Red);
             }
+            else Hint("自动进入服务器的地址无效，已跳过自动进服。", LegacyLaunchHint.Red);
         }
 
         CurrentLaunchOptions.QuickPlay = host.PrepareQuickPlay(McInstanceSelected, CurrentLaunchOptions.QuickPlayWorld, Args, CurrentLaunchOptions.SaveBatch is not null);

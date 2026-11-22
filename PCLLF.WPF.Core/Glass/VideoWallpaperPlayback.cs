@@ -84,8 +84,19 @@ public sealed class VideoWallpaperPlayback : IDisposable {
             long? firstTimestamp = null;
             long? lastPreparedOffset = null;
             long loopOffset = 0, previousOffset = 0, frameDuration = TimeSpan.TicksPerSecond / 60;
+            Func<long, bool> shouldCopy = timestamp => {
+                bool first = firstTimestamp is null;
+                long startTimestamp = firstTimestamp ??= timestamp;
+                long offset = loopOffset + Math.Max(0, timestamp - startTimestamp);
+                if (!first && offset > previousOffset) frameDuration = offset - previousOffset;
+                previousOffset = offset;
+                // Keep the media clock moving on dropped frames without copying their pixels.
+                if (!ShouldPrepareFrame(_navigationActive, offset, lastPreparedOffset)) return false;
+                lastPreparedOffset = offset;
+                return true;
+            };
             while (WaitForDecodeSlot()) {
-                if (!reader.Read(out var decoded)) {
+                if (!reader.Read(shouldCopy, out var decoded)) {
                     if (firstTimestamp is null) throw new InvalidDataException("视频没有可播放的画面。");
                     reader.Rewind();
                     loopOffset = previousOffset + frameDuration;
@@ -96,15 +107,6 @@ public sealed class VideoWallpaperPlayback : IDisposable {
                 byte[]? blurPixels = null;
                 bool transferred = false;
                 try {
-                    bool first = firstTimestamp is null;
-                    long startTimestamp = firstTimestamp ??= color.Timestamp;
-                    long offset = loopOffset + Math.Max(0, color.Timestamp - startTimestamp);
-                    if (!first && offset > previousOffset) frameDuration = offset - previousOffset;
-                    previousOffset = offset;
-                    // While pages cross-fade, avoid blurring and uploading every frame of a high-rate video.
-                    // Scheduling still uses the original media timeline, and both textures always advance together.
-                    if (!ShouldPrepareFrame(_navigationActive, offset, lastPreparedOffset)) continue;
-                    lastPreparedOffset = offset;
                     double scale = Math.Min(1, Math.Min(320d / color.Width, 240d / color.Height));
                     int width = Math.Max(1, (int)Math.Round(color.Width * scale));
                     int height = Math.Max(1, (int)Math.Round(color.Height * scale));
@@ -112,7 +114,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
                     MakeFrost(color, blurPixels, width, height);
                     lock (_gate) {
                         if (_disposed || _decodeFailed) return;
-                        _buffer.Enqueue(new(offset, new FramePair(color, blurPixels, width, height)));
+                        _buffer.Enqueue(new(previousOffset, new FramePair(color, blurPixels, width, height)));
                         transferred = true;
                         Monitor.PulseAll(_gate);
                     }

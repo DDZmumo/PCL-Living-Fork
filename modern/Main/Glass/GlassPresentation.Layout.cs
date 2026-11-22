@@ -32,6 +32,7 @@ public sealed partial class GlassPresentationSession
             PageResource resourcePage => ProjectResourcePage(resourcePage),
             PageSetupUpdate updatePage => ProjectLauncherUpdate(updatePage),
             PageSpeedRight taskPage => ProjectTaskManager(taskPage),
+            TerracottaLobbyPage lobbyPage => ProjectTerracottaLobby(lobbyPage),
             MySearchBox search => ProjectSearch(search),
             FrameworkElement virtualElement when virtualElement is IControlVirtualElement virtualized => ProjectVirtual(virtualElement, virtualized),
             MyButtonView button => ActionButton(button, nameof(button.Text), button.PerformClick),
@@ -540,11 +541,13 @@ public sealed partial class GlassPresentationSession
             DependencyObject[] raw = readChildren?.Invoke() ?? source.Children.OfType<DependencyObject>().ToArray();
             bool rowsChanged = requestViewport is not null && !raw.SequenceEqual(previousRows, ReferenceEqualityComparer.Instance);
             if (rowsChanged) previousRows = raw;
-            // Stream long item lists progressively during live interactive navigation so frame 0 renders the first
-            // screenful in < 5ms instead of building 50-300 rows at once. Headless/test sessions stay synchronous.
-            bool canStream = readChildren is null && source.Orientation == Orientation.Vertical && raw.Length > 20 &&
+            bool streamSections = _pageAppearance is not null && source.Name == "PanMain" && raw.Length > 1 &&
+                (settingsSections || InPage<PageOtherAbout>(source)) && !raw.Any(item => item is MySearchBox);
+            // Stream long lists and top-level settings cards so their first content can render while the rest is built.
+            bool streamRows = raw.Length > 20 &&
                 (_pageAppearance is not null || (_root.IsLoaded && ModAnimation.AniControlEnabled == 0)) &&
                 raw[0] is MyLocalModItem or MyListItem or MyResourceItem;
+            bool canStream = readChildren is null && source.Orientation == Orientation.Vertical && (streamSections || streamRows);
 
             if (!canStream)
             {
@@ -558,14 +561,16 @@ public sealed partial class GlassPresentationSession
             {
                 // Publish a usable first batch before filling the rest in short dispatcher slices.
                 // A cold template load can make a fixed 16-row batch miss several frames.
-                int initialCount = Math.Min(raw.Length, 16);
+                int initialCount = Math.Min(raw.Length, streamSections ? 2 : 16);
+                int firstScreenMinimum = streamSections ? 1 : 4;
                 long firstBatchStarted = Stopwatch.GetTimestamp();
                 var immediate = new List<UIElement>(raw.Length);
                 int firstPending = -1;
                 for (int index = 0; index < raw.Length; index++)
                 {
                     DependencyObject item = raw[index];
-                    if (_nodes.ContainsKey(item) || index < initialCount && (index < 4 || Stopwatch.GetElapsedTime(firstBatchStarted).TotalMilliseconds < 4))
+                    if (_nodes.ContainsKey(item) || index < initialCount &&
+                        (index < firstScreenMinimum || Stopwatch.GetElapsedTime(firstBatchStarted).TotalMilliseconds < 4))
                     {
                         if (Project(item) is UIElement projected) immediate.Add(projected);
                     }
@@ -1854,7 +1859,7 @@ public sealed partial class GlassPresentationSession
         ((Path)close.Content).SetResourceReference(Shape.StrokeProperty, "GlassPresentationSecondary");
         AutomationProperties.SetName(close, "关闭提示"); close.Click += (_, _) => { if (!Live(close)) return; source.BtnClose.PerformClick(); Refresh(); }; Grid.SetColumn(close, 2); grid.Children.Add(close);
         var body = new Border { Padding = new Thickness(14, 10, 12, 10), Child = grid };
-        var surface = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(.7), Child = body };
+        var surface = new GlassSurface { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(.7), BlurRadius = 24, Child = body };
         surface.MouseLeftButtonUp += (_, args) => { if (Live(surface) && args.OriginalSource is not Button) { source.PerformClick(); Refresh(); } };
         MyHintView.Themes? applied = null;
         var node = new Node(surface);

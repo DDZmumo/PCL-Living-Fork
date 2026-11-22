@@ -82,6 +82,8 @@ internal static class GlassModalLifecycleChecks {
             long buildsBeforeOpen = (long)Native.Property(cacheType, "BuildCount").GetValue(null)!;
             Type type = Native.Type("PCL.GlassModalEffects");
             effects = Activator.CreateInstance(type, Native.Flags, null, [root, background, background, scrim, dialog, videoOverlay, crashSnapshot], null)!;
+            double companionBlur = double.NaN;
+            Native.Property(type, "Companion").SetValue(effects, (Action<double, double>)((_, radius) => companionBlur = radius));
             object message = new(); Native.Call(type, "SetMessage", effects, message);
             Native.Check(scrim.Visibility == Visibility.Visible && scrim.IsHitTestVisible && !background.IsHitTestVisible && !background.IsEnabled && dialog.IsHitTestVisible &&
                 System.Windows.Input.KeyboardNavigation.GetTabNavigation(dialog) == System.Windows.Input.KeyboardNavigationMode.Cycle &&
@@ -91,7 +93,8 @@ internal static class GlassModalLifecycleChecks {
             long buildsAfterOpen = (long)Native.Property(cacheType, "BuildCount").GetValue(null)!;
             Native.Check(buildsAfterOpen - buildsBeforeOpen <= 1, $"Modal open spring triggered {buildsAfterOpen - buildsBeforeOpen} wallpaper blur rebuilds instead of <= 1.");
             var first = GlassMaterial.GetWallpaperSource(dialog) as BitmapSource;
-            Native.Check(first is { IsFrozen: true } && dialog.Effect is null && background.Effect is BlurEffect,
+            Native.Check(first is { IsFrozen: true } && dialog.Effect is null && background.Effect is BlurEffect bodyBlur &&
+                companionBlur == bodyBlur.Radius && companionBlur > 0,
                 "Modal source did not use a frozen app-only snapshot with sharp foreground.");
             DpiScale initialDpi = VisualTreeHelper.GetDpi(background);
             var sample = new byte[4];
@@ -152,6 +155,7 @@ internal static class GlassModalLifecycleChecks {
             Native.Call(type, "SetMessage", effects, report);
             VisualAssetChecks.Pump(() => (double)Native.Property(type, "Progress").GetValue(effects)! > .999, "live video modal opens");
             Native.Check(background.Effect is null && background.CacheMode is null && background.Opacity == 1 && crashSnapshot.Source is null &&
+                companionBlur == 0 &&
                 ReferenceEquals(GlassMaterial.GetWallpaperHost(dialog), videoWallpaper) &&
                 ReferenceEquals(GlassMaterial.GetWallpaperSource(dialog), liveFrame) && ReferenceEquals(videoBrush.ImageSource, liveFrame),
                 "Video modal did not reuse the same live frost for the dialog and its backdrop.");

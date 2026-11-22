@@ -23,8 +23,10 @@ internal sealed class LegacyJavaProcessGroup : IDisposable {
             if (entry.HasExited || !IsJava(entry.ProcessName)) return null;
             // This job is for observation. Keep the ordinary JVM's process limit and
             // lifetime policy so leaving the launcher never terminates the game.
-            handle = MmcSessionProcessTree.CreateConfiguredJobHandle(limitActiveProcesses: false);
+            LegacyJavaLaunchIdentity? identity = LegacyJavaLaunchIdentity.ForProcess(entry);
+            handle = MmcSessionProcessTree.CreateConfiguredJobHandle(identity?.JobName, limitActiveProcesses: false, requireNew: true);
             if (!MmcSessionProcessTree.TryAssignProcessToJob(handle, entry, out _)) return null;
+            if (identity is not null) identity.JobAssigned = true;
             var group = new LegacyJavaProcessGroup(handle);
             handle = null;
             return group;
@@ -86,8 +88,11 @@ internal sealed class LegacyJavaProcessGroup : IDisposable {
         catch (ObjectDisposedException) { pids = []; return false; }
     }
 
-    private static bool IsJava(string name) => string.Equals(name, "java", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(name, "javaw", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsJava(string name) =>
+        string.Equals(name, "java", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "javaw", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "java.exe", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "javaw.exe", StringComparison.OrdinalIgnoreCase);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

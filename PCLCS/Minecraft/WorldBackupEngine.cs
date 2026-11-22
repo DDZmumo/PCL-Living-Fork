@@ -149,7 +149,7 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
                 try {
                     JObject entry = ReadJson(fileName);
                     if (string.Equals(Full(entry["gameFolder"]!.ToString()), target, StringComparison.OrdinalIgnoreCase) &&
-                        LocalGameDataStore.ProcessMatches(entry["pid"]!.ToObject<int>(), entry["started"]!.ToObject<long>())) return true;
+                        LegacyJavaLaunchIdentity.ReadJournal(entry, exitedProcess) != GameSessionProcessState.Exited) return true;
                 } catch (Exception ex) {
                     host.Warn(ex, "无法确认存档所属游戏的运行状态");
                     return true;
@@ -380,14 +380,17 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
     public void Track(TInstance? instance, Process? game) {
         if (instance is null || game is null) return;
         string name = game.Id.ToString() + "-" + game.StartTime.ToUniversalTime().Ticks.ToString() + ".json";
-        WriteJson(host.ProfileAddress("world-backup-sessions/" + name), new JObject(new JProperty("gameFolder", Full(host.GameFolder(instance))),
-            new JProperty("versionPath", host.VersionPath(instance)), new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks)));
+        var journal = new JObject(new JProperty("gameFolder", Full(host.GameFolder(instance))),
+            new JProperty("versionPath", host.VersionPath(instance)), new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks));
+        LegacyJavaLaunchIdentity.WriteJournal(journal, game);
+        WriteJson(host.ProfileAddress("world-backup-sessions/" + name), journal);
     }
 
     public void OnProcessStopped(TInstance? instance, Process? game, bool normalExit) {
         if (instance is null || game is null || Alive(game)) return;
         try {
-            if (normalExit && game.ExitCode == 0 && host.AutoEnabled(instance)) {
+            if (normalExit && (LegacyJavaLaunchIdentity.ForProcess(game)?.WatcherCompleted == true || game.ExitCode == 0) &&
+                host.AutoEnabled(instance)) {
                 string folder = host.ProfileAddress("world-backup-sessions"), gameFolder = host.GameFolder(instance);
                 NoLinks(folder);
                 // PID reuse cannot select an arbitrary old session's game folder.
@@ -405,7 +408,7 @@ public sealed partial class WorldBackupEngine<TInstance> where TInstance : class
                 if (Directory.Exists(folder)) {
                     foreach (string fileName in Directory.GetFiles(folder, game.Id.ToString() + "-*.json")) {
                         JObject entry = ReadJson(fileName);
-                        if (!LocalGameDataStore.ProcessMatches(entry["pid"]!.ToObject<int>(), entry["started"]!.ToObject<long>())) File.Delete(fileName);
+                        if (LegacyJavaLaunchIdentity.ReadJournal(entry, game) == GameSessionProcessState.Exited) File.Delete(fileName);
                     }
                 }
             } catch (Exception ex) { host.Warn(ex, "清理已退出的游戏备份会话失败"); }

@@ -96,6 +96,7 @@ public sealed partial class GlassPresentationSession : IDisposable
         }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
+    internal bool IsPageAppearanceHeld => _pageAppearance?.IsHeld == true;
     internal void HoldPageAppearance() { if (_pageAppearance is not null) _pageAppearance.IsHeld = true; }
 
     internal void ResumePageAppearance()
@@ -443,7 +444,7 @@ public sealed partial class GlassPresentationSession : IDisposable
         // Over a frosted wallpaper the card still needs enough body for text to read comfortably.
         fill.A = Alpha(170);
         SetBrush("GlassPresentationText", dark ? Color.FromRgb(244, 244, 244) : Color.FromRgb(36, 36, 36));
-        SetBrush("GlassPresentationSecondary", dark ? Color.FromRgb(184, 184, 184) : Color.FromRgb(105, 105, 105));
+        SetBrush("GlassPresentationSecondary", dark ? Color.FromRgb(184, 184, 184) : GlassCommandChrome.LightSecondaryTextColor);
         SetBrush("GlassPresentationFill", fill);
         // Message dialogs: a denser frosted sheet with a lit top edge. Warnings use the same sheet tinted red.
         SetBrush("GlassPresentationDialogFill", dark ? Color.FromArgb(206, 34, 34, 37) : Color.FromArgb(214, 250, 250, 251));

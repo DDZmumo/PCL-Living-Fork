@@ -461,7 +461,30 @@ public static class MmcCommandOperations {
     internal enum TokenScanResult { ProvenAbsent, MatchAlive, Unobservable }
     private enum CandidateTokenState { IrrelevantOrGone, CleanNoMatch, Matched, Unobservable }
 
-    private static bool TrySnapshotLiveProcesses(out List<(int Pid, long StartTicks, uint SessionId)> entries) {
+    internal static TokenScanResult ProbeLiveJavaProcessesForToken(string variableName, string token, long startedTicks, int windowsSession) {
+        if (!OperatingSystem.IsWindows()) return TokenScanResult.Unobservable;
+        long began = Stopwatch.GetTimestamp();
+        int probes = 0;
+        // If a relay exits while we inspect it, its successor may already be
+        // running but missing from this snapshot. Recheck once, then defer.
+        for (int pass = 0; pass < 2; pass++) {
+            if (!TrySnapshotLiveProcesses(out var snapshot, windowsSession)) return TokenScanResult.Unobservable;
+            bool refresh = false, uncertain = false;
+            foreach (var entry in snapshot) {
+                if (entry.StartTicks < startedTicks) continue;
+                if (++probes > 64 || Stopwatch.GetElapsedTime(began) > TimeSpan.FromMilliseconds(25)) return TokenScanResult.Unobservable;
+                switch (InspectCandidateEnvironmentToken(entry.Pid, windowsSession, startedTicks, variableName, token, requireExitProof: true)) {
+                    case CandidateTokenState.Matched: return TokenScanResult.MatchAlive;
+                    case CandidateTokenState.IrrelevantOrGone: refresh = true; break;
+                    case CandidateTokenState.Unobservable: uncertain = true; break;
+                }
+            }
+            if (!refresh) return uncertain ? TokenScanResult.Unobservable : TokenScanResult.ProvenAbsent;
+        }
+        return TokenScanResult.Unobservable;
+    }
+
+    private static bool TrySnapshotLiveProcesses(out List<(int Pid, long StartTicks, uint SessionId)> entries, int? javaWindowsSession = null) {
         entries = [];
         int bufSize = 1024 * 1024;
         nint buffer = Marshal.AllocHGlobal(bufSize);
@@ -478,8 +501,10 @@ public static class MmcCommandOperations {
             while (true) {
                 var info = Marshal.PtrToStructure<SYSTEM_PROCESS_INFORMATION>(buffer + offset);
                 int pid = unchecked((int)info.UniqueProcessId.ToInt64());
-                long startTicks = info.CreateTime > 0 ? DateTime.FromFileTimeUtc(info.CreateTime).Ticks : long.MaxValue;
-                entries.Add((pid, startTicks, info.SessionId));
+                if (javaWindowsSession is not int session || (pid > 4 && info.SessionId == (uint)session && CouldBeJava(info.ImageName))) {
+                    long startTicks = info.CreateTime > 0 ? DateTime.FromFileTimeUtc(info.CreateTime).Ticks : long.MaxValue;
+                    entries.Add((pid, startTicks, info.SessionId));
+                }
                 if (info.NextEntryOffset == 0) break;
                 offset += checked((int)info.NextEntryOffset);
             }
@@ -488,6 +513,10 @@ public static class MmcCommandOperations {
             Marshal.FreeHGlobal(buffer);
         }
     }
+
+    private static bool CouldBeJava(UNICODE_STRING image) =>
+        image.Buffer == 0 || image.Length == 0 ||
+        LegacyJavaProcessGroup.IsJava(Marshal.PtrToStringUni(image.Buffer, image.Length / sizeof(char)));
 
     private static ProcessGoneState CheckRecordedProcessAlive(int pid, long expectedStartTicks, MmcExecutableIdentity? expectedIdentity) {
         if (pid <= 0 || expectedStartTicks <= 0) return ProcessGoneState.Unobservable;
@@ -520,7 +549,8 @@ public static class MmcCommandOperations {
         int currentSessionId,
         long startFloorTicks,
         string variableName,
-        string expectedToken) {
+        string expectedToken,
+        bool requireExitProof = false) {
         using SafeProcessHandle queryHandle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
         if (queryHandle.IsInvalid) {
             int err = Marshal.GetLastWin32Error();
@@ -528,7 +558,7 @@ public static class MmcCommandOperations {
             return err == 87 ? CandidateTokenState.IrrelevantOrGone : CandidateTokenState.Unobservable;
         }
 
-        if (!IsStillRunning(queryHandle)) return CandidateTokenState.IrrelevantOrGone;
+        if (ObserveCandidateExit(queryHandle, requireExitProof) is { } exit) return exit;
         if (!TryGetProcessStartTicks(queryHandle, out long startTicks)) return CandidateTokenState.Unobservable;
         if (startTicks < startFloorTicks) return CandidateTokenState.IrrelevantOrGone;
         if (!ProcessIdToSessionId(pid, out uint sessionId) || sessionId != (uint)currentSessionId)
@@ -536,13 +566,13 @@ public static class MmcCommandOperations {
 
         using SafeProcessHandle vmHandle = OpenProcess(ProcessQueryLimitedInformation | ProcessVmRead, false, pid);
         if (vmHandle.IsInvalid) {
-            return !IsStillRunning(queryHandle) ? CandidateTokenState.IrrelevantOrGone : CandidateTokenState.Unobservable;
+            return ObserveCandidateExit(queryHandle, requireExitProof) ?? CandidateTokenState.Unobservable;
         }
 
         bool? matched = TryReadPebEnvironmentMatch(vmHandle, variableName, expectedToken);
         if (matched == true) return CandidateTokenState.Matched;
         if (matched == false) return CandidateTokenState.CleanNoMatch;
-        return !IsStillRunning(queryHandle) ? CandidateTokenState.IrrelevantOrGone : CandidateTokenState.Unobservable;
+        return ObserveCandidateExit(queryHandle, requireExitProof) ?? CandidateTokenState.Unobservable;
     }
 
     private static bool? TryReadPebEnvironmentMatch(SafeProcessHandle vmHandle, string variableName, string expectedToken) {
@@ -573,8 +603,11 @@ public static class MmcCommandOperations {
         return false;
     }
 
-    private static bool IsStillRunning(SafeProcessHandle handle) =>
-        GetExitCodeProcess(handle, out uint exitCode) && exitCode == StillActive;
+    private static CandidateTokenState? ObserveCandidateExit(SafeProcessHandle handle, bool requireExitProof) {
+        if (!GetExitCodeProcess(handle, out uint exitCode))
+            return requireExitProof ? CandidateTokenState.Unobservable : CandidateTokenState.IrrelevantOrGone;
+        return exitCode == StillActive ? null : CandidateTokenState.IrrelevantOrGone;
+    }
 
     private static bool TryGetProcessStartTicks(SafeProcessHandle handle, out long utcTicks) {
         utcTicks = 0;

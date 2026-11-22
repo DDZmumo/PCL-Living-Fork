@@ -167,10 +167,12 @@ public sealed class PersonalOptionsFlow {
     public void Track(PersonalOptionsSessionData? session, Process game) {
         if (session is null) return;
         lock (_gate) {
-            _data.WriteJson("options-sessions/" + session.Id + ".json", new JObject(
+            var journal = new JObject(
                 new JProperty("versionPath", session.VersionPath), new JProperty("gameFolder", session.GameFolder),
                 new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks),
-                new JProperty("baseline", session.Baseline), new JProperty("keys", new JArray(session.Keys))));
+                new JProperty("baseline", session.Baseline), new JProperty("keys", new JArray(session.Keys)));
+            LegacyJavaLaunchIdentity.WriteJournal(journal, game);
+            _data.WriteJson("options-sessions/" + session.Id + ".json", journal);
             session.Tracked = true;
         }
     }
@@ -237,7 +239,7 @@ public sealed class PersonalOptionsFlow {
             foreach (string fileName in Directory.EnumerateFiles(folder, "*.json")) {
                 try {
                     JObject json = _data.ReadJson("options-sessions/" + Path.GetFileName(fileName));
-                    if (LocalGameDataStore.ProcessMatches(json["pid"]!.ToObject<int>(), json["started"]!.ToObject<long>())) continue;
+                    if (LegacyJavaLaunchIdentity.ReadJournal(json) != GameSessionProcessState.Exited) continue;
                     PersonalOptionsSessionData session = _sessionFactory();
                     session.Id = Path.GetFileNameWithoutExtension(fileName);
                     session.VersionPath = json["versionPath"]!.ToString();
@@ -259,7 +261,8 @@ public sealed class PersonalOptionsFlow {
         lock (_gate) {
             foreach (string fileName in Directory.EnumerateFiles(folder, "*.json")) {
                 JObject json = _data.ReadJson("options-sessions/" + Path.GetFileName(fileName));
-                if (_samePath(json["gameFolder"]!.ToString(), gameFolder) && LocalGameDataStore.ProcessMatches(json["pid"]!.ToObject<int>(), json["started"]!.ToObject<long>())) return true;
+                if (_samePath(json["gameFolder"]!.ToString(), gameFolder) &&
+                    LegacyJavaLaunchIdentity.ReadJournal(json) != GameSessionProcessState.Exited) return true;
             }
         }
         return false;

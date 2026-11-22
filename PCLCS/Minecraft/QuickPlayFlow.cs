@@ -79,9 +79,11 @@ public sealed class QuickPlayFlow {
     public void Track(QuickPlaySessionData? session, Process game) {
         if (session is null) return;
         lock (_gate) {
-            _data.WriteJson("quickplay-sessions/" + session.Id + ".json", new JObject(
+            var journal = new JObject(
                 new JProperty("versionPath", session.VersionPath), new JProperty("gameFolder", session.GameFolder), new JProperty("logFile", session.LogFile),
-                new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks)));
+                new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks));
+            LegacyJavaLaunchIdentity.WriteJournal(journal, game);
+            _data.WriteJson("quickplay-sessions/" + session.Id + ".json", journal);
         }
     }
 
@@ -113,10 +115,9 @@ public sealed class QuickPlayFlow {
                     session.VersionPath = json["versionPath"]!.ToString();
                     session.GameFolder = json["gameFolder"]!.ToString();
                     session.LogFile = json["logFile"]!.ToString();
-                    if (LocalGameDataStore.ProcessMatches(json["pid"]!.ToObject<int>(), json["started"]!.ToObject<long>())) {
-                        _history.ReadSessionLog(session);
-                    } else {
-                        Finish(session);
+                    switch (LegacyJavaLaunchIdentity.ReadJournal(json)) {
+                        case GameSessionProcessState.Active: _history.ReadSessionLog(session); break;
+                        case GameSessionProcessState.Exited: Finish(session); break;
                     }
                 } catch (Exception error) {
                     _warn(error, "恢复最近存档记录失败");
@@ -156,7 +157,7 @@ public sealed class QuickPlayFlow {
             foreach (string fileName in Directory.EnumerateFiles(folder, "*.json")) {
                 try {
                     JObject json = _data.ReadJson("quickplay-sessions/" + Path.GetFileName(fileName));
-                    if (LocalGameDataStore.ProcessMatches(json["pid"]!.ToObject<int>(), json["started"]!.ToObject<long>())) return true;
+                    if (LegacyJavaLaunchIdentity.ReadJournal(json) != GameSessionProcessState.Exited) return true;
                 } catch (Exception error) {
                     _warn(error, "读取游戏运行状态失败");
                 }

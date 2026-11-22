@@ -31,6 +31,7 @@ internal static class LaunchProcessChecks
         using LaunchProcessChecksScope scope = new(environment, "forced-stop-no-final-log", 0);
         try
         {
+            scope.CheckLegacyServerArguments();
             scope.Prepare(); scope.Start();
             scope.Wait(() => ModLaunch.McLaunchWatcher is not null, "forced-stop watcher construction");
             scope.Child.StandardInput.WriteLine("begin"); scope.Child.StandardInput.Flush();
