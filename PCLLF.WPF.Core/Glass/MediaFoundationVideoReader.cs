@@ -28,7 +28,7 @@ internal sealed unsafe class MediaFoundationVideoReader : IDisposable {
     private int _width, _height, _pitch;
     private bool _comStarted, _mediaStarted;
 
-    internal readonly record struct Frame(byte[] Pixels, int Width, int Height, long Timestamp);
+    internal readonly record struct Frame(byte[] Pixels, int Width, int Height);
 
     internal MediaFoundationVideoReader(string path) {
         try {
@@ -93,8 +93,8 @@ internal sealed unsafe class MediaFoundationVideoReader : IDisposable {
             throw new NotSupportedException("系统解码器未提供适合壁纸的画面尺寸。");
     }
 
-    /// <summary>Transfers an array-pool buffer to the caller on each decoded frame. A null frame can be a stream tick.</summary>
-    internal bool Read(out Frame? frame) {
+    /// <summary>Transfers a buffer for an accepted frame. A null frame is a skipped sample or stream tick.</summary>
+    internal bool Read(Func<long, bool> shouldCopy, out Frame? frame) {
         frame = null;
         uint flags = 0;
         long timestamp = 0;
@@ -105,13 +105,14 @@ internal sealed unsafe class MediaFoundationVideoReader : IDisposable {
             if ((flags & Error) != 0) throw new IOException("读取视频帧失败。");
             if ((flags & CurrentTypeChanged) != 0) { ReadOutputType(); ValidateSize(); }
             if (sample == 0) return (flags & EndOfStream) == 0;
+            if (!shouldCopy(timestamp)) return true;
             int stride = _width * 4;
             byte[] pixels = ArrayPool<byte>.Shared.Rent(stride * _height);
             nint buffer = 0;
             try {
                 Check(((delegate* unmanaged[Stdcall]<nint, nint*, int>)Method(sample, 41))(sample, &buffer)); // ConvertToContiguousBuffer
                 CopyBuffer(buffer, pixels, stride);
-                frame = new(pixels, _width, _height, timestamp);
+                frame = new(pixels, _width, _height);
                 return true;
             } catch { ArrayPool<byte>.Shared.Return(pixels); throw; }
             finally { Release(buffer); }

@@ -68,10 +68,16 @@ internal static class LaunchRelaunchChecks {
         int publishWindowAfterScan = 0;
         long windowPublishedAt = 0;
         bool normal = false, active = false;
+        const string customTitle = "自定义 Minecraft";
+        bool dynamicTitle = !direct && startSuccessor && gameExit == 0;
+        string currentWindowTitle = "Owned Minecraft";
+        ConcurrentQueue<string> writtenTitles = new();
         int stoppedAnchor = 0;
         var owner = new Watched();
         List<Watched> watchers = [];
         using var finished = new ManualResetEventSlim();
+        using var exitVerified = new ManualResetEventSlim();
+        int pipesCanDrain = 1;
         var host = new LegacyWatcherHost<Watched, string, Process, State> {
             Loading = State.Loading, Running = State.Running, Crashed = State.Crashed, Ended = State.Ended, Canceled = State.Canceled,
             ReadWatchers = () => watchers, WriteWatchers = values => watchers = values, WriteHasRunningMinecraft = value => Volatile.Write(ref active, value),
@@ -82,6 +88,7 @@ internal static class LaunchRelaunchChecks {
             EndProgram = () => { }, RestoreLauncher = () => { }, MusicStop = () => false, MusicStart = () => false,
             LauncherVisibility = () => 1, WindowType = () => 1, LoaderInput = process => process,
             LoaderCanceled = _ => false, LoaderProgress = (_, _) => { }, ReleaseTime = _ => new DateTime(2014, 1, 1),
+            VerifiedGameExit = () => exitVerified.Set(),
             ProcessStopped = (_, anchor, exitedNormally) => {
                 stoppedAnchor = anchor.Id;
                 normal = exitedNormally;
@@ -107,8 +114,13 @@ internal static class LaunchRelaunchChecks {
             },
             GetClassName = (window, buffer, _) => Fill(buffer, window.ToInt64() == 2 ? "SunAwtFrame" : "GLFW30"),
             GetWindowText = (window, buffer, _) => Fill(buffer, window.ToInt64() switch {
-                1 => "Unrelated Minecraft", 2 => "Java relay console", 4 => "FML Loading", 5 => "Hidden Minecraft", _ => "Owned Minecraft"
+                1 => "Unrelated Minecraft", 2 => "Java relay console", 4 => "FML Loading", 5 => "Hidden Minecraft", _ => Volatile.Read(ref currentWindowTitle)
             }),
+            SetWindowText = (window, title) => {
+                Native.Check(window == new IntPtr(3), "The watcher tried to rename a non-game window.");
+                Volatile.Write(ref currentWindowTitle, title);
+                writtenTitles.Enqueue(title);
+            },
             GetWindowProcessId = window => window.ToInt64() switch {
                 1 => unrelated.Id, 2 => Volatile.Read(ref relayPid), _ => Volatile.Read(ref titlePid)
             },
@@ -118,12 +130,24 @@ internal static class LaunchRelaunchChecks {
         owner.Watcher = new(owner, host, group);
 
         try {
-            owner.Watcher.Initialize(entry, root, "", OnMonitoringFinished: () => finished.Set());
+            owner.Watcher.Initialize(entry, root, dynamicTitle ? customTitle + " {date} {time}" : direct ? customTitle : "",
+                OnMonitoringFinished: () => finished.Set(), ArePipesDrained: () => Volatile.Read(ref pipesCanDrain) != 0);
             if (direct) {
                 WaitFor(() => TryReadPid(root, "game.pid", out _), "The silent entry JVM did not start.");
                 ConfirmWindow(entry.Id);
                 Native.Check(owner.CoreLatestLog.IsEmpty, "A stdout line completed the direct-window fixture instead of the window probe.");
+                WaitFor(() => writtenTitles.TryPeek(out _), "The configured static title was not written.");
+                Thread.Sleep(250);
+                Native.Check(writtenTitles.ToArray().SequenceEqual([customTitle]), "The current static title was written repeatedly.");
+                Volatile.Write(ref currentWindowTitle, "Minecraft changed its caption");
+                WaitFor(() => writtenTitles.Count >= 2, "The configured title was not restored after the game changed it.");
+                Thread.Sleep(250);
+                Native.Check(writtenTitles.ToArray().SequenceEqual([customTitle, customTitle]), "The game title override did not settle after a real caption change.");
+                Volatile.Write(ref pipesCanDrain, 0);
                 Signal(root, "quit");
+                Native.Check(exitVerified.Wait(3000) && !owner.Watcher.IsGameActive && stopped == 0 && Volatile.Read(ref active),
+                    "Lobby activity did not end while the exited game's log cleanup was still pending.");
+                Volatile.Write(ref pipesCanDrain, 1);
                 WaitFor(() => finished.IsSet, "The direct game process did not exit.");
                 Native.Check(stopped == 1 && normal && crashes == 0 && owner.CoreState == State.Ended,
                     "Faster readiness changed direct-launch exit handling.");
@@ -161,12 +185,19 @@ internal static class LaunchRelaunchChecks {
             WaitFor(() => TryReadPid(root, "game.pid", out _), "The successor game JVM did not start.");
             TryReadPid(root, "game.pid", out int game);
             ConfirmWindow(game);
+            if (dynamicTitle) {
+                WaitFor(() => writtenTitles.Count >= 2, "The clock in the custom game title did not refresh.");
+                string[] titles = writtenTitles.ToArray();
+                Native.Check(titles[0] != titles[1] && titles.All(title => title.StartsWith(customTitle, StringComparison.Ordinal) && !title.Contains('{')),
+                    "The dynamic title was rewritten without a visible change or left placeholders unexpanded.");
+            }
             Native.Check(stopped == 0 && crashes == 0, "Callbacks finished while the successor game was still active.");
             Signal(root, "quit");
             WaitFor(() => finished.IsSet, "The successor's exit did not settle the launch session.");
             Native.Check(stoppedAnchor == entry.Id && stopped == 1 && normal == (gameExit == 0) && crashes == (gameExit == 0 ? 0 : 1) &&
                 owner.CoreState == (gameExit == 0 ? State.Ended : State.Crashed), "The successor's exit was not attributed to the original session.");
         } finally {
+            Volatile.Write(ref pipesCanDrain, 1);
             Signal(root, "start");
             Signal(root, "quit");
             Signal(root, "stop-relay");

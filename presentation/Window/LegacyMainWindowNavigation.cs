@@ -16,7 +16,9 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
     public void PageChange(TStack stack, int subType = 0) {
         if (!host.LegacyLink) {
-            if (stack.PageCode == (int)LegacyMainPage.Link) { Hint("旧联机模块暂未参与编译。"); return; }
+            if (stack.PageCode == (int)LegacyMainPage.Link && view.UsesGlassShell?.Invoke() != true) {
+                Hint("请切换到新界面使用陶瓦联机。"); return;
+            }
             if (stack.PageCode == (int)LegacyMainPage.Setup && subType == 1) subType = 0;
         }
         if (host.PackBlocksPage(stack.PageCode)) { Hint("整合包模式已隐藏此功能，可在 设置 → 启动器 中关闭整合包模式。"); return; }
@@ -46,6 +48,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public void PageBack() { if (PageStack.Any()) PageChangeActual(PageStack[0]); else PageChange(Stack((int)LegacyMainPage.Launch)); }
     public void PageChangeActual(TStack stack, int subType = -1) {
         if (host.PackBlocksPage(stack.PageCode)) return;
+        if (stack.PageCode == (int)LegacyMainPage.Link && !host.LegacyLink && view.UsesGlassShell?.Invoke() != true) return;
         if (stack.PageCode == (int)LegacyMainPage.Setup && subType >= 0) subType = host.NormalizeSetupPage(subType);
         LegacyMainLeftPage? instanceLeft = null;
         if (stack.PageCode == (int)LegacyMainPage.InstanceSetup) {
@@ -88,7 +91,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
                     MyPageRightView target = instanceLeft!.PageGet(subType); instanceLeft.SyncSelection(subType); PageChangeAnim(instanceLeft.Element, target); break;
                 }
                 case LegacyMainPage.Link:
-                    if (host.LegacyLink) { host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode)); } else return;
+                    host.EnsureRightPage(stack.PageCode);
+                    PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode));
                     break;
                 case LegacyMainPage.InstanceSelect: case LegacyMainPage.TaskManager: host.EnsureLeftPage(stack.PageCode); host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.LeftPage(stack.PageCode).Element, host.RightPage(stack.PageCode)); break;
                 case LegacyMainPage.ResourceDetail: host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode)); break;

@@ -298,3 +298,10 @@ modern/Java/ModKeybindPatch/src/Agent.java
 modern/Java/ModKeybindPatch/src/SaveTransformer.java
 modern/Java/ModKeybindPatch/src/KeybindWriter.java
 modern/Java/ModKeybindPatch/tests/KeybindWriterTest.java
+PCLCS/Launch/LegacyServerAddress.cs
+PCLCS/Minecraft/LegacyJavaLaunchIdentity.cs
+modern/Main/Application/TerracottaComponent.cs
+modern/Main/Application/TerracottaConnection.cs
+modern/Main/Glass/GlassPresentation.Lobby.cs
+modern/Main/Glass/TerracottaLobbyPage.cs
+tests/PCLLF.Native.Facade.Tests/TerracottaLobbyChecks.cs

@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Newtonsoft.Json.Linq;
 
@@ -36,6 +37,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     public readonly Dictionary<string, TOnline> Online = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IResourcePageRow<TEntry, TOnline>> Rows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IResourcePageThumbnail<TEntry>> ScreenshotRows = new(StringComparer.OrdinalIgnoreCase);
+    private List<IResourcePageThumbnail<TEntry>> VisibleScreenshots = new();
     private bool NeedsSchematicLoader => Kind == 4 && Owner is not null && Host.NeedsSchematicLoader(Owner);
 
     public sealed class Request {
@@ -186,31 +188,28 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
             View.PanList.Visibility = (Kind == 1 || Kind == 0) ? Visibility.Collapsed : Visibility.Visible;
             View.PanWorlds.Visibility = Kind == 0 ? Visibility.Visible : Visibility.Collapsed;
             View.PanScreenshots.Visibility = Kind == 1 ? Visibility.Visible : Visibility.Collapsed;
-            if (Kind == 1) { RenderScreenshots(visible); SelectResource(Selection().FirstOrDefault()); return; }
             if (Kind == 0) { RenderWorldGroups(visible, query); SelectResource(Selection().FirstOrDefault()); return; }
-            foreach (string key in Rows.Keys.Where(value => !Entries.Any(item => string.Equals(item.FullPath, value, StringComparison.OrdinalIgnoreCase))).ToList()) Rows.Remove(key);
-            List<IResourcePageRow<TEntry, TOnline>> desired = new();
+            var existingPaths = Entries.Select(item => item.FullPath!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (Kind == 1) { RenderScreenshots(visible, existingPaths); SelectResource(Selection().FirstOrDefault()); return; }
+            foreach (string key in Rows.Keys.Where(key => !existingPaths.Contains(key)).ToArray()) Rows.Remove(key);
+            var desired = new List<UIElement>(visible.Count);
             foreach (TEntry entry in visible) {
                 Online.TryGetValue(entry.FullPath!, out TOnline? info);
                 if (!Rows.TryGetValue(entry.FullPath!, out var row)) { row = CreateResourceRow(); Rows.Add(entry.FullPath!, row); }
-                row.Bind(entry, info); row.Checked = SelectedPaths.Contains(entry.FullPath!); desired.Add(row);
+                row.Bind(entry, info); row.Checked = SelectedPaths.Contains(entry.FullPath!); desired.Add(row.Element);
             }
-            foreach (UIElement element in View.PanList.Children.Cast<UIElement>().Where(element => !desired.Any(row => ReferenceEquals(row.Element, element))).ToList()) View.PanList.Children.Remove(element);
-            for (int index = 0; index < desired.Count; index++) {
-                var element = desired[index].Element;
-                if (View.PanList.Children.IndexOf(element) == index) continue;
-                View.PanList.Children.Remove(element); View.PanList.Children.Insert(index, element);
-            }
+            ReconcileChildren(View.PanList.Children, desired);
             TEntry? selected = Selected;
             TEntry? next = selected is null ? null : visible.FirstOrDefault(item => SelectedPaths.Contains(item.FullPath!) && SamePath(item.FullPath, selected.FullPath));
             SelectResource(next ?? visible.FirstOrDefault(item => SelectedPaths.Contains(item.FullPath!)));
         } finally { Rendering = false; }
     }
-    private void RenderScreenshots(List<TEntry> visible) {
-        foreach (string key in ScreenshotRows.Keys.Where(value => !Entries.Any(item => string.Equals(item.FullPath, value, StringComparison.OrdinalIgnoreCase))).ToList()) {
+    private void RenderScreenshots(List<TEntry> visible, HashSet<string> existingPaths) {
+        foreach (string key in ScreenshotRows.Keys.Where(key => !existingPaths.Contains(key)).ToArray()) {
             ScreenshotRows[key].ReleaseThumbnail(); ScreenshotRows.Remove(key);
         }
-        List<IResourcePageThumbnail<TEntry>> desired = new();
+        var desired = new List<IResourcePageThumbnail<TEntry>>(visible.Count);
+        var desiredElements = new List<UIElement>(visible.Count);
         foreach (TEntry entry in visible) {
             if (!ScreenshotRows.TryGetValue(entry.FullPath!, out var tile)) {
                 tile = View.CreateThumbnail(ScreenshotSelectionChanged, (selected, count) => ScreenshotClick(selected, count));
@@ -218,22 +217,31 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
                 ScreenshotRows.Add(entry.FullPath!, tile);
             }
             tile.Bind(entry); tile.Checked = SelectedPaths.Contains(entry.FullPath!); desired.Add(tile);
+            desiredElements.Add(tile.Element);
         }
-        foreach (UIElement element in View.PanScreenshots.Children.Cast<UIElement>().Where(element => !desired.Any(tile => ReferenceEquals(tile.Element, element))).ToList()) {
-            var old = ScreenshotRows.Values.FirstOrDefault(tile => ReferenceEquals(tile.Element, element));
-            old?.ReleaseThumbnail(); View.PanScreenshots.Children.Remove(element);
-        }
-        for (int index = 0; index < desired.Count; index++) {
-            var element = desired[index].Element;
-            if (View.PanScreenshots.Children.IndexOf(element) == index) continue;
-            View.PanScreenshots.Children.Remove(element); View.PanScreenshots.Children.Insert(index, element);
-        }
+        var visibleTiles = new HashSet<IResourcePageThumbnail<TEntry>>(desired, ReferenceEqualityComparer.Instance);
+        foreach (var tile in VisibleScreenshots)
+            if (existingPaths.Contains(tile.Entry.FullPath!) && !visibleTiles.Contains(tile)) tile.ReleaseThumbnail();
+        VisibleScreenshots = desired;
+        ReconcileChildren(View.PanScreenshots.Children, desiredElements);
         RefreshScreenshotViewport();
+    }
+    private static void ReconcileChildren(UIElementCollection children, List<UIElement> desired) {
+        if (children.Count == desired.Count && children.Cast<UIElement>().SequenceEqual(desired, ReferenceEqualityComparer.Instance)) return;
+        var wanted = new HashSet<UIElement>(desired, ReferenceEqualityComparer.Instance);
+        for (int index = children.Count - 1; index >= 0; index--)
+            if (!wanted.Contains(children[index])) children.RemoveAt(index);
+        for (int index = 0; index < desired.Count; index++) {
+            UIElement child = desired[index];
+            if (index < children.Count && ReferenceEquals(children[index], child)) continue;
+            int oldIndex = children.IndexOf(child);
+            if (oldIndex >= 0) children.RemoveAt(oldIndex);
+            children.Insert(index, child);
+        }
     }
     public void RefreshScreenshotViewport() {
         if (Kind != 1) return;
-        var tilesByElement = ScreenshotRows.Values.ToDictionary(tile => tile.Element);
-        foreach (UIElement element in View.PanScreenshots.Children) tilesByElement[(FrameworkElement)element].UpdateViewport(View.Viewport);
+        foreach (var tile in VisibleScreenshots) tile.UpdateViewport(View.Viewport);
     }
     private void ScreenshotSelectionChanged(IResourcePageThumbnail<TEntry> tile) {
         if (Rendering || Busy) return;
@@ -278,9 +286,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         if (Busy) return;
         SelectedPaths.Clear(); ClearBackupSelection(); Rendering = true;
         foreach (var row in VisibleResourceRows()) { row.Checked = value; if (value) SelectedPaths.Add(row.Entry.FullPath!); }
-        var tilesByElement = ScreenshotRows.Values.ToDictionary(tile => tile.Element);
-        foreach (UIElement element in View.PanScreenshots.Children) {
-            var tile = tilesByElement[(FrameworkElement)element];
+        foreach (var tile in VisibleScreenshots) {
             tile.Checked = value; if (value) SelectedPaths.Add(tile.Entry.FullPath!);
         }
         Rendering = false; SelectResource(Selection().FirstOrDefault());

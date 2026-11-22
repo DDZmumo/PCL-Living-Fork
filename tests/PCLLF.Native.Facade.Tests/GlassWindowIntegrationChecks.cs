@@ -5,10 +5,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System.Collections;
 using System.ComponentModel;
+using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -56,6 +58,7 @@ internal static class GlassWindowIntegrationChecks {
         int previewPage = 0;
         bool previewDependencies = true, previewAutoFill = true;
         bool previewMotion = interactive;
+        bool previewDarkText = true;
         try {
             var left = new MyPageLeft();
             var contextRows = new StackPanel(); left.Children.Add(contextRows);
@@ -71,7 +74,8 @@ internal static class GlassWindowIntegrationChecks {
                 host.StartTick = () => tick; host.WriteStartTick = value => tick = value;
                 host.CreateLaunchLeft = () => { }; host.CreateLaunchRight = () => { };
                 host.LeftPage = _ => new LegacyMainLeftPage { Element = left };
-                host.RightPage = _ => right;
+                var productRightPage = host.RightPage;
+                host.RightPage = page => page == (int)FormMain.PageType.Link ? productRightPage(page) : right;
                 host.ReadInteger = key => key == "SystemLastVersionReg" ? ModBase.VersionCode : Settings.Get<int>(key);
                 host.HasSaved = _ => true; host.ThemeRefresh = _ => { };
                 host.IsAdmin = () => false; host.IsDebug = () => false;
@@ -124,13 +128,18 @@ internal static class GlassWindowIntegrationChecks {
                 AccountName = "界面预览", HasInstance = true, InstanceName = "Minecraft 1.21.4",
                 InstanceDescription = "预览数据 · 未连接游戏", CanLaunch = false, LaunchText = "预览模式",
                 LaunchStatus = "此预览不会启动游戏", DependencyCheckEnabled = previewDependencies, AutoFillEnabled = previewAutoFill,
-                RecentWorldAvailable = false, UseDarkText = true, ReduceMotion = !previewMotion
+                RecentWorldAvailable = false, UseDarkText = previewDarkText, ReduceMotion = !previewMotion
             });
             Native.Property(typeof(FormMain), "GlassPreviewState").SetValue(window, state);
             var integration = Native.Get(window, "glassShell") ?? throw new InvalidOperationException("Actual FormMain did not attach GlassShellIntegration.");
             var view = (GlassLauncherView)Native.Property(typeof(FormMain), "GlassView").GetValue(window)!;
             IsolatePreviewActions(integration, view);
-            view.NavigationRequested += page => { previewPage = page; window.PageCurrent = (FormMain.PageType)page; Refresh(window); };
+            view.NavigationRequested += page => {
+                previewPage = page;
+                if (page == (int)FormMain.PageType.Link) window.PageChange(FormMain.PageType.Link);
+                else window.PageCurrent = (FormMain.PageType)page;
+                Refresh(window);
+            };
             view.DependencyCheckChanged += value => { previewDependencies = value; Refresh(window); };
             view.AutoFillChanged += value => { previewAutoFill = value; Refresh(window); };
             view.CloseRequested += (_, _) => window.Close();
@@ -165,31 +174,58 @@ internal static class GlassWindowIntegrationChecks {
                 var departing = (ContentControl)departingHost.Content;
                 TextBlock departingText = Descendants<TextBlock>(departing).Single(text => text.Name == "WorkspaceFixtureContent");
                 var replacement = new MyPageRight { Child = new TextBlock { Text = "右侧页面切换测试" } };
-                previewPage = 1;
-                window.PageCurrent = FormMain.PageType.Download;
-                window.PageRight = replacement;
-                right.PageOnExit();
-                right.PageOnForceExit();
+                void RequestReplacement()
+                {
+                    previewPage = 1;
+                    window.PageCurrent = FormMain.PageType.Download;
+                    window.PageRight = replacement;
+                    right.PageOnExit();
+                    right.PageOnForceExit();
+                    legacyRight.Child = null;
+                    Refresh(window);
+                }
+                void ReturnHome()
+                {
+                    previewPage = 0;
+                    window.PageCurrent = FormMain.PageType.Launch;
+                    window.PageRight = right;
+                    legacyRight.Child = right;
+                    right.PageOnEnter();
+                    Refresh(window);
+                }
+                RequestReplacement();
                 Native.Check(right.Child.Visibility == Visibility.Collapsed && departingText.Visibility == Visibility.Visible,
                     "The original page's exit hid the content inside the departing WPF projection.");
-                legacyRight.Child = null;
-                Refresh(window);
                 Native.Check(ReferenceEquals(departingHost.Content, departing) && departingHost.Opacity > .99,
                     "The shell replaced the outgoing projection during the legacy page's empty interval.");
+                VisualAssetChecks.Pump(() => departingHost.Opacity is > .2 and < .9,
+                    "the right page starts exiting before its replacement is available", timeout: 1500);
+                Native.Check(!departingHost.IsHitTestVisible && departingHost.RenderTransform is TransformGroup exit &&
+                    exit.Children.OfType<ScaleTransform>().Single().ScaleX < .999 &&
+                    Math.Abs(exit.Children.OfType<TranslateTransform>().Single().Y) > 1,
+                    "The pending right-page exit lost depth, travel or input isolation.");
+                double departingOpacity = departingHost.Opacity;
+                ReturnHome();
+                Native.Check(ReferenceEquals(departingHost.Content, departing) && departingHost.IsHitTestVisible &&
+                    departingHost.Opacity == departingOpacity, "Canceling a pending replacement did not reverse the same page from its current pose.");
+                VisualAssetChecks.Pump(() => departingHost.Opacity > .999 && !view.IsTransitioning, "the restored page returns to rest");
+
+                RequestReplacement();
                 legacyRight.Child = replacement;
                 Refresh(window);
-                Native.Check(!ReferenceEquals(view.PageContentHost.Content, departing) && ReferenceEquals(departingHost.Content, departing) &&
+                Native.Check(ReferenceEquals(view.PageContentHost.Content, departing),
+                    "Cold page projection ran in the navigation feedback pass.");
+                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, departing), "queued right page projection");
+                Native.Check(ReferenceEquals(departingHost.Content, departing) &&
                     departing.Content is not null && !departingHost.IsHitTestVisible,
                     "The shell disposed the outgoing right-page projection before its animation.");
                 var interrupted = (ContentControl)view.PageContentHost.Content;
-                window.PageRight = right;
-                legacyRight.Child = right;
-                right.PageOnEnter();
-                Refresh(window);
-                bool returnedToMountedPage = ReferenceEquals(view.PageContentHost.Content, departing) && departingHost.IsHitTestVisible;
+                ReturnHome();
+                Native.Check(ReferenceEquals(view.PageContentHost.Content, departing) && departingHost.IsHitTestVisible,
+                    "Returning Home must start the right-page transition in the same pass as the sidebar.");
                 VisualAssetChecks.Pump(() => interrupted.Content is null && !view.IsTransitioning,
                     "rapid A to B to A settles and the interrupted page is disposed");
-                Native.Check(returnedToMountedPage && departing.Content is not null,
+                Native.Check(departing.Content is not null,
                     "Returning to an outgoing page constructed another projection or disposed the restored one.");
                 previewMotion = false;
                 previewPage = 0;
@@ -197,6 +233,26 @@ internal static class GlassWindowIntegrationChecks {
                 Refresh(window); VisualAssetChecks.Drain();
             }
             if (!interactive) CheckInstanceProjectionCache(window, view, scope.Root);
+            if (!interactive) {
+                var launchPage = view.PageContentHost.Content;
+                Part<Button>(view, "NavLink").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, launchPage), "the Terracotta lobby is mounted");
+                var lobby = (FrameworkElement)view.PageContentHost.Content;
+                window.UpdateLayout();
+                VisualAssetChecks.Drain();
+                Native.Check(window.PageCurrent == FormMain.PageType.Link &&
+                    AutomationProperties.GetName(Part<Button>(view, "NavLink")) == "联机", "The 联机 rail entry did not select the lobby.");
+                Native.Check(Descendants<TextBlock>(lobby).Any(label => label.Text.Contains("© Burning_TNT", StringComparison.Ordinal)),
+                    "The projected lobby lost the upstream attribution.");
+                Native.Check(Descendants<GlassSurface>(lobby).Any(card => card.BlurRadius > 0), "The lobby did not use themed glass cards.");
+                CheckTerracottaStages(window, view, lobby,
+                    animate => { previewMotion = animate; Refresh(window); },
+                    darkText => { previewDarkText = darkText; Refresh(window); });
+                previewPage = 0;
+                window.PageChange(FormMain.PageType.Launch);
+                Refresh(window);
+                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, lobby), "the lobby returns to Home");
+            }
             var root = (Grid)window.Content;
             foreach (string part in new[] { "PanHint", "PanMsg" })
                 Native.Check(!ReferenceEquals(VisualTreeHelper.GetParent(Part<FrameworkElement>(window, part)), root) &&
@@ -313,6 +369,106 @@ internal static class GlassWindowIntegrationChecks {
         Console.WriteLine("PASS workspace FormMain: independent presentation over hidden state sources; original commands and resize handlers, launcher wallpaper/opaque background, zero desktop composition windows, minimize/restore and cleanup; startup/account/game/profile access guarded.");
     }
 
+    private static void CheckTerracottaStages(FormMain window, GlassLauncherView view, FrameworkElement lobby,
+        Action<bool> setMotion, Action<bool> setDarkText)
+    {
+        var sidebar = Part<StackPanel>(view, "SidebarPanel");
+        Button SidebarAction(string text) => Descendants<Button>(sidebar).Single(button => AutomationProperties.GetName(button) == text);
+        bool ShowsAction(string text) => Descendants<Button>(lobby).Any(button => button.IsVisible &&
+            (Equals(button.Content, text) || Descendants<TextBlock>(button).Any(label => label.Text == text)));
+        bool ShowsCodeInput() => Descendants<TextBox>(lobby).Any(box => box.IsVisible && box.IsEnabled);
+
+        Native.Check(ShowsAction("下载并启用") || ShowsAction("启用陶瓦联机"),
+            "The lobby did not offer an explicit optional component action.");
+        Native.Check(!SidebarAction("创建房间").IsEnabled && !SidebarAction("加入房间").IsEnabled && !ShowsCodeInput(),
+            "The component stage exposed a lobby flow before Terracotta was enabled.");
+        foreach (string action in new[] { "创建房间", "加入房间" })
+            Native.Check(Descendants<System.Windows.Shapes.Path>(SidebarAction(action))
+                .Any(icon => icon.Data is not null && icon.Width == 16), "A 联机 sidebar action lost its icon.");
+
+        var source = window.PageRight;
+        ((System.Windows.Threading.DispatcherTimer)Native.Get(source, "_poll")!).Stop();
+        using var http = new HttpClient();
+        using var connection = (IDisposable)Native.Type("PCL.TerracottaConnection")
+            .GetConstructor(Native.Flags, null, [typeof(HttpClient)], null)!.Invoke([http]);
+        var state = Native.Type("PCL.TerracottaRoom").GetConstructors(Native.Flags)
+            .Single(ctor => ctor.GetParameters().Length == 6);
+        void SetState(string name, long index, string? code = null, string? address = null)
+        {
+            Native.Call(source.GetType(), "SetRoom", source, state.Invoke([name, index, code, address, null, null]));
+            Refresh(window);
+            window.UpdateLayout();
+            VisualAssetChecks.Drain();
+        }
+        Native.Set(source, "_connection", connection);
+        try
+        {
+            SetState("waiting", 1);
+            Native.Check(SidebarAction("创建房间").IsEnabled && SidebarAction("加入房间").IsEnabled &&
+                ShowsAction("创建房间") && !ShowsCodeInput(), "The ready lobby did not show only the create flow.");
+            if (!SystemParameters.HighContrast)
+            {
+                static double Luminance(Color color) => .2126 * color.ScR + .7152 * color.ScG + .0722 * color.ScB;
+                foreach (bool darkText in new[] { false, true })
+                {
+                    setDarkText(darkText);
+                    window.UpdateLayout();
+                    VisualAssetChecks.Drain();
+                    var create = Descendants<Button>(lobby).Single(button => button.IsVisible && Equals(button.Content, "创建房间"));
+                    var createSurface = (Border)create.Template.FindName("Surface", create);
+                    VisualAssetChecks.Pump(() => createSurface.Background is SolidColorBrush brush &&
+                        brush.Color == ((SolidColorBrush)view.FindResource("GlassAccentBrush")).Color && (brush.Color.R < 128) == darkText,
+                        "the create-room button uses the new theme's accent color");
+                    var caption = Descendants<TextBlock>(create).Single(label => label.IsVisible && label.Text == "创建房间");
+                    Color fill = ((SolidColorBrush)createSurface.Background).Color;
+                    Color ink = ((SolidColorBrush)caption.Foreground).Color;
+                    double faceLuminance = Luminance(fill), textLuminance = Luminance(ink);
+                    double contrast = (Math.Max(faceLuminance, textLuminance) + .05) / (Math.Min(faceLuminance, textLuminance) + .05);
+                    Native.Check(create.IsEnabled && ink == ((SolidColorBrush)create.Foreground).Color && contrast >= 4.5,
+                        $"Create room caption ({ink}) has {contrast:F2}:1 contrast against {fill}; the button specifies {create.Foreground}.");
+                }
+            }
+            if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
+            {
+                setMotion(true);
+                var stack = Descendants<ScrollViewer>(lobby).Select(scroll => scroll.Content).OfType<StackPanel>()
+                    .First(content => content.RenderTransform is TransformGroup);
+                SidebarAction("加入房间").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                VisualAssetChecks.Pump(() => stack.Opacity is > .1 and < .9 && !ShowsCodeInput(), "the create page fades out");
+                SidebarAction("创建房间").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Native.Check(stack.Opacity is > 0 and < .999, "Returning to the visible flow snapped its animation.");
+                VisualAssetChecks.Pump(() => stack.Opacity > .999 && ShowsAction("创建房间"), "the interrupted flow returns");
+                SidebarAction("加入房间").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                VisualAssetChecks.Pump(() => ShowsCodeInput() && stack.Opacity is > .05 and < .99, "the join page animates in");
+                VisualAssetChecks.Pump(() => stack.Opacity > .999, "the join page settles");
+                setMotion(false);
+            }
+            SidebarAction("加入房间").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            VisualAssetChecks.Drain();
+            Native.Check(ShowsCodeInput() && ShowsAction("粘贴") && !ShowsAction("创建房间"),
+                "The join flow did not replace the create flow.");
+            var join = Descendants<Button>(lobby).Single(button => button.IsVisible && Equals(button.Content, "加入房间"));
+            join.ApplyTemplate();
+            var surface = (Border)join.Template.FindName("Surface", join);
+            var label = Descendants<TextBlock>(join).Single(caption => caption.IsVisible && caption.Text == "加入房间");
+            Native.Check(!join.IsEnabled && join.Opacity > .999 &&
+                ReferenceEquals(surface.Background, join.FindResource("GlassPresentationField")) &&
+                ReferenceEquals(label.Foreground, join.FindResource("GlassPresentationSecondary")),
+                "The empty join form dimmed its disabled caption or lost the neutral disabled palette.");
+
+            const string code = "U/YNZE-U61D-2206-HXRG";
+            SetState("host-ok", 2, code);
+            Native.Check(!ShowsCodeInput() && ShowsAction("退出房间") && ShowsAction("复制") &&
+                Descendants<TextBlock>(lobby).Any(label => label.IsVisible && label.Text == code),
+                "Created rooms did not use the shared lobby with an adjacent copy action.");
+            SetState("guest-ok", 3, address: "127.0.0.1:25565");
+            Native.Check(ShowsAction("退出房间") && Descendants<TextBlock>(lobby).Any(label =>
+                label.IsVisible && label.Text == "127.0.0.1:25565"), "Joined rooms did not reuse the shared lobby for the direct address.");
+        }
+        finally { Native.Set(source, "_connection", null); }
+    }
+
     private static void CheckInstanceProjectionCache(FormMain window, GlassLauncherView view, string root)
     {
         var legacy = Part<Border>(window, "PanMainRight");
@@ -325,9 +481,11 @@ internal static class GlassWindowIntegrationChecks {
             window.PageCurrent = FormMain.PageType.InstanceSetup;
             var pages = Enumerable.Range(0, 5).Select(index => new MyPageRight { Child = new TextBlock { Text = "实例页 " + index } }).ToArray();
             ContentControl Mount(MyPageRight page) {
+                object displayed = view.PageContentHost.Content;
                 window.PageRight = page;
                 legacy.Child = page;
                 Refresh(window);
+                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, displayed), "queued instance page projection");
                 return (ContentControl)view.PageContentHost.Content;
             }
             var first = Mount(pages[0]);

@@ -12,6 +12,8 @@ using Newtonsoft.Json.Linq;
 
 namespace PCLCS;
 
+internal enum GameSessionProcessState { Exited, Active, Unknown }
+
 /// <summary>
 /// 本机个人游戏资料的持久化规则。调用者保留共享锁，并提供现有的资料根目录与路径检查。
 /// </summary>
@@ -78,15 +80,19 @@ public sealed class LocalGameDataStore {
         }
     }
 
-    public static bool ProcessMatches(int id, long startedUtc) {
+    public static bool ProcessMatches(int id, long startedUtc) => CheckProcess(id, startedUtc) != GameSessionProcessState.Exited;
+
+    internal static GameSessionProcessState CheckProcess(int id, long startedUtc) {
         try {
             using Process value = Process.GetProcessById(id);
-            return !value.HasExited && value.StartTime.ToUniversalTime().Ticks == startedUtc;
+            return !value.HasExited && value.StartTime.ToUniversalTime().Ticks == startedUtc
+                ? GameSessionProcessState.Active
+                : GameSessionProcessState.Exited;
         } catch (ArgumentException) {
-            return false;
+            return GameSessionProcessState.Exited;
         } catch {
             // 无法确定进程状态时保留会话，不尝试导入其正在写入的设置。
-            return true;
+            return GameSessionProcessState.Unknown;
         }
     }
 }

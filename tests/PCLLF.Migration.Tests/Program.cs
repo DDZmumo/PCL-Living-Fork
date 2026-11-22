@@ -51,7 +51,7 @@ internal static class Program {
             ("settings", () => LegacySettingsTests.Cases().Concat(SettingsMicrosoftIsolationTests.Cases()).Concat(UpdateLogPromptTests.Cases())),
             ("mod-favorites", ResourceFavoriteTests.Cases),
             ("validation-loaders", LegacyValidationLoaderTests.Cases),
-            ("legacy-java", LegacyJavaTests.Cases),
+            ("legacy-java", () => LegacyJavaTests.Cases().Concat(LegacyGameSessionTests.Cases())),
             ("foundation", () => LegacyFoundationTests.Cases().Concat(CoreBoundaryTests.Cases()).Concat(ApplicationServiceTests.Cases())),
             ("mmc-profile", () => MmcProfileTests.Cases()
                 .Concat(MmcResolutionTests.Cases()).Concat(MmcCompilationTests.Cases())

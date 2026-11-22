@@ -305,7 +305,7 @@
                                 </Grid>
                             </Button>
                         </Border>
-                        <Grid x:Name="NavigationButtons" Grid.Row="1" Height="260" VerticalAlignment="Top" Margin="8,12,8,0">
+                        <Grid x:Name="NavigationButtons" Grid.Row="1" VerticalAlignment="Top" Margin="8,12,8,0">
                             <Grid.RenderTransform>
                                 <TranslateTransform x:Name="NavigationButtonsTranslation" />
                             </Grid.RenderTransform>
@@ -315,9 +315,10 @@
                                 <RowDefinition Height="52" />
                                 <RowDefinition Height="52" />
                                 <RowDefinition Height="52" />
+                                <RowDefinition Height="52" />
                             </Grid.RowDefinitions>
                             <!-- Same-tone selection overlay; it slides between items on a spring. -->
-                            <Border x:Name="NavSelection" Grid.RowSpan="5" Height="42" HorizontalAlignment="Stretch" VerticalAlignment="Top" CornerRadius="8" Background="{DynamicResource GlassSelectedBrush}" IsHitTestVisible="False">
+                            <Border x:Name="NavSelection" Grid.RowSpan="6" Height="42" HorizontalAlignment="Stretch" VerticalAlignment="Top" CornerRadius="8" Background="{DynamicResource GlassSelectedBrush}" IsHitTestVisible="False">
                                 <Border.RenderTransform>
                                     <TranslateTransform x:Name="NavigationTranslation" />
                                 </Border.RenderTransform>
@@ -352,7 +353,17 @@
                                     <TextBlock x:Name="NavFavoritesText" Text="收藏" FontSize="13.5" VerticalAlignment="Center" Margin="49,0,10,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" TextTrimming="CharacterEllipsis" Opacity="0" Visibility="Collapsed" RenderTransform="{StaticResource RailLabelTranslation}" />
                                 </Grid>
                             </Button>
-                            <Button x:Name="NavSettings" Grid.Row="3" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="3" Click="NavigationButton_Click" ToolTip="设置" AutomationProperties.Name="设置">
+                            <Button x:Name="NavLink" Grid.Row="3" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="2" Click="NavigationButton_Click" ToolTip="联机" AutomationProperties.Name="联机">
+                                <Grid>
+                                    <Viewbox Width="22" Height="22" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Style="{StaticResource GlassRailPath}" Data="M10,13 L14,9 M8,16 L7,17 C5.5,18.5 3,18.5 1.5,17 C0,15.5 0,13 1.5,11.5 L6.5,6.5 C8,5 10.5,5 12,6.5 M12,15.5 C13.5,17 16,17 17.5,15.5 L22.5,10.5 C24,9 24,6.5 22.5,5 C21,3.5 18.5,3.5 17,5 L16,6" />
+                                        </Canvas>
+                                    </Viewbox>
+                                    <TextBlock x:Name="NavLinkText" Text="联机" FontSize="13.5" VerticalAlignment="Center" Margin="49,0,10,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" TextTrimming="CharacterEllipsis" Opacity="0" Visibility="Collapsed" RenderTransform="{StaticResource RailLabelTranslation}" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="NavSettings" Grid.Row="4" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="3" Click="NavigationButton_Click" ToolTip="设置" AutomationProperties.Name="设置">
                                 <Grid>
                                     <Viewbox Width="22" Height="22" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0">
                                         <Canvas Width="24" Height="24">
@@ -362,7 +373,7 @@
                                     <TextBlock x:Name="NavSettingsText" Text="设置" FontSize="13.5" VerticalAlignment="Center" Margin="49,0,10,0" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" TextTrimming="CharacterEllipsis" Opacity="0" Visibility="Collapsed" RenderTransform="{StaticResource RailLabelTranslation}" />
                                 </Grid>
                             </Button>
-                            <Button x:Name="NavOther" Grid.Row="4" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="4" Click="NavigationButton_Click" ToolTip="更多" AutomationProperties.Name="更多">
+                            <Button x:Name="NavOther" Grid.Row="5" Style="{StaticResource GlassNavButton}" Height="42" Padding="0" HorizontalContentAlignment="Stretch" Tag="4" Click="NavigationButton_Click" ToolTip="更多" AutomationProperties.Name="更多">
                                 <Grid>
                                     <Viewbox Width="22" Height="22" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0">
                                         <Canvas Width="24" Height="24">
@@ -429,7 +440,7 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <glass:GlassSurface x:Name="SecondarySurface" Grid.Column="0" Margin="24,24,0,24" CornerRadius="12" Background="{DynamicResource GlassCardBrush}" BorderBrush="{DynamicResource GlassOutlineBrush}" BorderThickness="1" BlurRadius="36" TintOpacity="0.72" HighlightOpacity="0">
-                                <Grid Margin="12,0">
+                                <Grid x:Name="SecondaryContent" Margin="12,0">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="70" />
                                         <RowDefinition Height="*" />

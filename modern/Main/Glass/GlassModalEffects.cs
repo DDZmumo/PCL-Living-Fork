@@ -52,7 +52,7 @@ internal sealed class GlassModalEffects : IDisposable {
     private DispatcherOperation? _snapshotRefresh;
     internal double Progress => _motion.Value;
     /// <summary>Called with the veil's progress (0–1) on every step, for surfaces outside the body that go under it too.</summary>
-    internal Action<double>? Companion { get; set; }
+    internal Action<double, double>? Companion { get; set; }
     internal bool HasActiveMessage => _message is not null;
 
     internal GlassModalEffects(FrameworkElement owner, FrameworkElement background, Border scrim, FrameworkElement dialog)
@@ -115,7 +115,11 @@ internal sealed class GlassModalEffects : IDisposable {
             if (wallpaper is not null) wallpaper.SizeChanged += OnVideoSizeChanged;
         }
         _videoFrost = frost;
-        if (_backdropActive) UpdateBackdrop();
+        if (_backdropActive)
+        {
+            UpdateBackdrop();
+            UpdateCompanion(Math.Clamp(_motion.Value, 0, 1));
+        }
     }
 
     private void UpdateBackdrop() {
@@ -287,7 +291,7 @@ internal sealed class GlassModalEffects : IDisposable {
     private void Apply(double value) {
         double p = Math.Clamp(value, 0, 1);
         _blur.Radius = BlurPeak * p;
-        Companion?.Invoke(p);
+        UpdateCompanion(p);
         // The raw (overshooting) value drives the pop so the dialog settles with a slight bounce.
         double v = Math.Max(0, value);
         if (p >= .999 && Math.Abs(value - 1) < .002) {
@@ -307,6 +311,8 @@ internal sealed class GlassModalEffects : IDisposable {
         if (p <= .001 && _message is null && _backdropActive) ClearBackdrop();
         else UpdateVideoOverlay(p);
     }
+
+    private void UpdateCompanion(double progress) => Companion?.Invoke(progress, _videoWallpaper is null ? _blur.Radius : 0);
 
     public void Dispose() {
         if (_disposed) return; _disposed = true;

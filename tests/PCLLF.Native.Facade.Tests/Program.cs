@@ -12,6 +12,7 @@ internal static class Program
         ["glass-context-navigation"] = GlassContextNavigationChecks.Run,
         ["glass-shell"] = GlassShellChecks.Run,
         ["glass-window"] = GlassWindowIntegrationChecks.Run,
+        ["terracotta-lobby"] = TerracottaLobbyChecks.Run,
         ["glass-portals"] = GlassPortalChecks.Run,
         ["glass-presentation"] = GlassPresentationChecks.Run,
         ["glass-projection-regressions"] = GlassProjectionRegressionChecks.Run,
@@ -173,6 +174,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        bool exitWithNativeDownloadManagers = false;
+        int exitCode = 1;
         try
         {
             if (MmcGtnhAcceptance.TryRun(args, out int gtnhExit)) return gtnhExit;
@@ -200,6 +203,8 @@ internal static class Program
             ValidateRoot(root);
             Native.Check(Native.Full(AppContext.BaseDirectory) == Native.Full(Path.Combine(root, "output")), "The child is not running from the complete GUID output directory.");
             using FixtureEnvironment environment = new(root);
+            exitWithNativeDownloadManagers = selected.Contains("terracotta-lobby", StringComparer.Ordinal) &&
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCLLF_TERRACOTTA_TEST_COMPONENTS"));
             if (args.Contains("--dependency-index-child", StringComparer.Ordinal))
                 return NativeDependencyChecks.IndexChild(environment, args);
             foreach (string group in selected)
@@ -212,12 +217,17 @@ internal static class Program
             environment.AssertNoForbiddenIo();
             Native.Check(Application.Current.Windows.Count == 0, "A selected facade group left a real window open.");
             Console.WriteLine("PASS " + selected.Length + " selected groups; genuine Main data/adapters. Selected UI/task families drain real Dispatcher callbacks after LF Startup hooks are detached. EntryAssembly remains the test host; actual product cold entry is checked separately.");
-            return 0;
+            return exitCode = 0;
         }
         catch (Exception error)
         {
             Console.Error.WriteLine("FAIL native facade: " + error);
             return 1;
+        }
+        finally
+        {
+            // The native download manager intentionally owns foreground threads for the life of the launcher.
+            if (exitWithNativeDownloadManagers) Environment.Exit(exitCode);
         }
     }
 

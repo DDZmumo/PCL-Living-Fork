@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -141,22 +142,8 @@ internal static class GlassMotionChecks
         view.SetAccountOpen(false);
         Until(() => popup.Visibility == Visibility.Collapsed, "Popover final closed endpoint");
 
-        var navigation = Motion(view, "_navigationMotion");
-        if (animates)
-        {
-            AtInFlightRendering(() => view.SetState(State(icon, false, navigation: 3)),
-                () => navigation.Value > 0 && navigation.Value < navigation.Target && navigation.Velocity > 0,
-                () =>
-                {
-                    MotionSample before = Sample(navigation);
-                    view.SetState(State(icon, false, navigation: 0));
-                    MotionSample after = Sample(navigation);
-                    CriticalContinuity(before, after, MotionTokens.Reveal, "Navigation");
-                    Check(after.Target < before.Target && after.IsRunning, "Navigation reversal lost its destination or stopped early.");
-                }, "Navigation first in-flight rendering");
-        }
-        else view.SetState(State(icon, false, navigation: 0));
-        Until(() => !navigation.IsRunning, "Navigation final endpoint");
+        if (animates) CheckSidebarSectionTransition(view, icon);
+        view.SetState(State(icon, true));
         NavigationHover(view, icon, animates);
 
         view.SetState(State(icon, true, home: false));
@@ -168,8 +155,10 @@ internal static class GlassMotionChecks
             view.SetSidebar(new[] { new GlassSidebarItem { Label = "设置", IsSelected = true } });
             Check(Part<FrameworkElement>(view, "SideRail").IsVisible, "The departing fixture has no context rows to hide.");
             view.SetState(State(icon, false, home: true));
-            Check(!Part<FrameworkElement>(view, "SideRail").IsVisible,
-                "The new Home panel can overlap the previous section's sidebar while the right page swaps.");
+            Check(Part<FrameworkElement>(view, "SideRail").IsVisible &&
+                !Part<FrameworkElement>(view, "SecondaryContent").IsHitTestVisible &&
+                !Part<FrameworkElement>(view, "PrimaryCard").IsVisible,
+                "Returning Home must keep the departing sidebar visible and inert while its old content exits.");
             Check(Part<FrameworkElement>(view, "PageScene").Opacity > .99,
                 "Returning home hid the departing right page before its replacement was ready.");
             view.SetSidebar(Array.Empty<GlassSidebarItem>());
@@ -237,7 +226,59 @@ internal static class GlassMotionChecks
         view.SetPageContent(null!);
         plus.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         view.SetState(State(icon, true));
-        Console.WriteLine("PASS glass motion: reversible native popover/nav velocity, live outgoing page with depth, interrupted page transitions, native toggle travel/reversal, immediate input ownership and reduced-motion endpoints; animations=" + animates + ".");
+        Console.WriteLine("PASS glass motion: reversible popover/nav velocity, sidebar and page exits/entrances, native toggle travel/reversal, input ownership and reduced-motion endpoints; animations=" + animates + ".");
+    }
+
+    private static void CheckSidebarSectionTransition(GlassLauncherView view, ImageSource icon)
+    {
+        var surface = Part<FrameworkElement>(view, "SecondarySurface");
+        var content = Part<FrameworkElement>(view, "SecondaryContent");
+        var title = Part<TextBlock>(view, "SecondaryTitleText");
+        var rows = Part<StackPanel>(view, "SidebarPanel");
+        GlassSidebarItem[] resources = [new() { Label = "原版游戏", IsSelected = true }];
+        GlassSidebarItem[] favorites = [new() { Label = "全部收藏", IsSelected = true }];
+        string RowName() => AutomationProperties.GetName(rows.Children.OfType<Grid>().Single().Children.OfType<Button>().Single());
+        view.SetState(State(icon, true, home: false, navigation: 1));
+        view.SetSidebar(resources);
+        double width = ((ColumnDefinition)view.FindName("SecondaryColumn")).Width.Value;
+        var navigation = Motion(view, "_navigationMotion");
+        SpringMotion? sidebar = null;
+
+        void OpenFavorites()
+        {
+            view.SetState(State(icon, false, home: false, navigation: 10));
+            view.SetSidebar(favorites);
+            Check(title.Text == "资源中心" && RowName() == "原版游戏" && !content.IsHitTestVisible,
+                "Navigation replaced the outgoing sidebar before its exit or left its commands active.");
+            sidebar = Motion(view, "_sidebarFlipMotion");
+        }
+
+        AtInFlightRendering(OpenFavorites,
+            () => sidebar is { IsRunning: true, Value: < -.05 and > -.55 } && navigation.IsRunning && navigation.Velocity > 0,
+            () =>
+            {
+                MotionSample before = Sample(navigation);
+                double offset = surface.RenderTransform.Value.OffsetY;
+                Check(title.Text == "资源中心" && surface.Opacity < .99 && offset < -1,
+                    "The outgoing sidebar did not move and fade with its original content.");
+                view.SetState(State(icon, false, home: false, navigation: 1));
+                view.SetSidebar(resources);
+                MotionSample after = Sample(navigation);
+                CriticalContinuity(before, after, MotionTokens.Reveal, "Navigation");
+                Check(sidebar!.IsRunning && sidebar.Target == 0 && title.Text == "资源中心" &&
+                    Math.Abs(surface.RenderTransform.Value.OffsetY - offset) < 8 && content.IsHitTestVisible,
+                    "A quick return restarted the sidebar pose or delivered the canceled section.");
+            }, "a visible sidebar exit reverses");
+        Until(() => !sidebar!.IsRunning && !navigation.IsRunning, "the reversed sidebar settles");
+
+        OpenFavorites();
+        Until(() => title.Text == "收藏", "the incoming sidebar replaces the departed section");
+        Check(RowName() == "全部收藏" && surface.Opacity < .99 && surface.RenderTransform.Value.OffsetY > 0 &&
+            surface.RenderTransform.Value.M11 == 1 &&
+            content.IsHitTestVisible && ((ColumnDefinition)view.FindName("SecondaryColumn")).Width.Value == width,
+            "The incoming equal-width sidebar did not enter above the correct commands and layout.");
+        Until(() => !sidebar!.IsRunning && surface.Opacity == 1, "the incoming sidebar settles");
+        view.SetSidebar(Array.Empty<GlassSidebarItem>());
     }
 
     private static ScaleTransform PageScale(ContentControl host) => (ScaleTransform)((TransformGroup)host.RenderTransform).Children[0];
@@ -253,6 +294,8 @@ internal static class GlassMotionChecks
         bool animatedCard = false;
         EventHandler changed = (_, _) => animatedCard = true;
         var secondary = (ColumnDefinition)view.FindName("SecondaryColumn");
+        var surface = Part<FrameworkElement>(view, "SecondarySurface");
+        double homeWidth = secondary.Width.Value;
         var width = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(ColumnDefinition.WidthProperty, typeof(ColumnDefinition));
         int widthChanges = 0;
         EventHandler resized = (_, _) => widthChanges++;
@@ -260,10 +303,34 @@ internal static class GlassMotionChecks
         width.AddValueChanged(secondary, resized);
         try {
             view.SetState(State(icon, false, home: false, navigation: 3));
+            if (MotionPreferences.AllowsAnimation)
+                Check(Native.Get(view, "_columnMotion") is SpringMotion { IsRunning: true } sidebar &&
+                    sidebar.Target == secondary.Width.Value && Math.Abs(sidebar.Value - homeWidth) < .1 &&
+                    surface.RenderTransform.Value.M11 > 1,
+                    "Home navigation snapped the sidebar instead of animating its width from the previous size.");
             view.SetPageContent(page);
             Until(() => view.PageContentHost.Opacity > .999 && !Motion(view, "_pageMotion").IsRunning, "the routed page entrance");
             Check(!animatedCard, "Entering a right page from Home also played an independent card entrance.");
             Check(widthChanges <= 1, $"Home navigation remeasured page columns across {widthChanges} width changes.");
+
+            var columnMotion = Motion(view, "_columnMotion");
+            Until(() => !columnMotion.IsRunning, "the sidebar width settles after leaving Home");
+            double narrowWidth = secondary.Width.Value;
+            view.SetState(State(icon, false, home: false, navigation: 10));
+            Check(!columnMotion.IsRunning && secondary.Width.Value == narrowWidth && surface.RenderTransform.Value.M11 == 1,
+                "Switching between equal-width sidebars introduced a horizontal stretch.");
+
+            AtInFlightRendering(() => view.SetState(State(icon, false)),
+                () => columnMotion.IsRunning && columnMotion.Value > narrowWidth + 2 && columnMotion.Value < homeWidth - 2,
+                () =>
+                {
+                    double inFlightWidth = columnMotion.Value;
+                    view.SetState(State(icon, false, home: false, navigation: 10));
+                    Check(columnMotion.IsRunning && columnMotion.Target == narrowWidth &&
+                        Math.Abs(columnMotion.Value - inFlightWidth) < 10,
+                        "Rapid navigation restarted the sidebar width from a different layout size.");
+                }, "the expanding sidebar reverses");
+            Until(() => !columnMotion.IsRunning && surface.RenderTransform.Value.M11 == 1, "the reversed sidebar width settles");
         } finally {
             opacity.RemoveValueChanged(card, changed);
             width.RemoveValueChanged(secondary, resized);

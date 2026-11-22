@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using MeloongCore;
@@ -13,6 +14,8 @@ namespace PCL
     {
         public static List<Watcher> McWatcherList = new List<Watcher>();
         public static bool HasRunningMinecraft = false;
+        internal static event Action GameActivityChanged;
+        internal static bool IsGameActive => System.Threading.Volatile.Read(ref McWatcherList).Any(watcher => watcher.IsGameActive);
         private readonly static LegacyWatcherHost<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, Watcher.MinecraftState> Host = CreateWatcherHost();
         private static LegacyWatcherHost<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, Watcher.MinecraftState> CreateWatcherHost()
         {
@@ -25,7 +28,11 @@ namespace PCL
                 Canceled = Watcher.MinecraftState.Canceled,
                 ReadWatchers = new Func<List<Watcher>>(() => McWatcherList),
                 WriteWatchers = new Action<List<Watcher>>(Value => McWatcherList = Value),
-                WriteHasRunningMinecraft = new Action<bool>(Value => HasRunningMinecraft = Value),
+                WriteHasRunningMinecraft = value => {
+                    HasRunningMinecraft = value;
+                    GameActivityChanged?.Invoke();
+                },
+                VerifiedGameExit = () => GameActivityChanged?.Invoke(),
                 LaunchLog = new Action<string, LogLevel>((Text, Level) => PCL.ModLaunch.McLaunchLog(Text, Level)),
                 RunInUi = new Action<Action>(Work => PCL.ModBase.RunInUi(Work)),
                 RunInNewThread = new Action<Action, string>((Work, Name) => PCL.ModBase.RunInNewThread(Work, Name)),
@@ -56,7 +63,7 @@ namespace PCL
                 EnumWindows = NativeEnumWindows,
                 GetClassName = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetClassName(Handle, Buffer, Count)),
                 GetWindowText = new Func<IntPtr, StringBuilder, int, int>((Handle, Buffer, Count) => GetWindowText(Handle, Buffer, Count)),
-                SetWindowText = new Action<IntPtr, string>((Handle, Text) => ModWatcher.SetWindowText(Handle.ToInt32(), ref Text)),
+                SetWindowText = new Action<IntPtr, string>((Handle, Text) => SetWindowText(Handle, Text)),
                 ShowWindow = new Action<IntPtr, uint>((Handle, Command) => ShowWindow(Handle, Command)),
                 IsWindowVisible = new Func<IntPtr, bool>(Handle => IsWindowVisible(Handle)),
                 GetWindowProcessId = NativeWindowProcessId
@@ -86,12 +93,11 @@ namespace PCL
         private static extern bool EnumWindows(EnumWindowsSub hWnd, IntPtr lParam);
         [DllImport("user32", EntryPoint = "GetClassNameA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
         private static extern int GetClassName(IntPtr hWnd, StringBuilder str, int maxCount);
-        [DllImport("user32", EntryPoint = "GetWindowTextA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
+        [DllImport("user32", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
         private static extern int GetWindowText(IntPtr hWnd, StringBuilder str, int maxCount);
-#pragma warning disable CS0618 // Exact LF VBByRefStr ABI; .NET10 retains its Windows FEATURE_COMINTEROP marshaller.
-        [DllImport("user32", EntryPoint = "SetWindowTextA", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
-        private static extern bool SetWindowText(int hWnd, [MarshalAs(UnmanagedType.VBByRefStr)] ref string str);
-#pragma warning restore CS0618
+        [DllImport("user32", EntryPoint = "SetWindowTextW", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowText(IntPtr hWnd, string str);
         [DllImport("user32", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
         private static extern bool ShowWindow(IntPtr hWnd, uint cmdWindow);
         [DllImport("user32", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = false)]
@@ -106,6 +112,7 @@ namespace PCL
             public List<string> WaitingLog = new List<string>(1000);
             public ConcurrentQueue<string> LatestLog = new ConcurrentQueue<string>();
             private readonly LegacyWatcher<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, MinecraftState> Native;
+            internal bool IsGameActive => Native.IsGameActive;
             public Watcher(PCL.ModLoader.LoaderTask<Process, int> Loader, PCL.ModMinecraft.McInstance Instance, string WindowTitle, Action<Process> BeforeMonitoring = null, Action OnStopped = null, string EnvironmentPoint = null, Func<string, string> LogRedactor = null, int? WindowTypeOverride = null, Action OnMonitoringFinished = null, bool RequireVerifiedExit = false, Action<Action<string>, Action<string>> AttachPipeOutput = null, Func<bool> ArePipesDrained = null, Action CustomTerminate = null, Func<bool> HasGroupExited = null)
             {
                 Native = new LegacyWatcher<Watcher, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderTask<Process, int>, MinecraftState>(this, Host, Group);

@@ -113,6 +113,7 @@ namespace PCL
         /// </summary>
             public global::System.Collections.Generic.List<global::System.String> ExtraGameArgs = new global::System.Collections.Generic.List<global::System.String>();
             public global::System.String QuickPlayWorld = (global::System.String)null;
+            internal bool KeepLauncherVisible;
             internal global::PCL.PersonalOptionsSession PersonalOptions;
             internal global::PCL.QuickPlaySession QuickPlay;
             internal global::System.String EnvironmentPoint;
@@ -479,7 +480,12 @@ namespace PCL
                 StoreProcess = new Action<global::System.Diagnostics.Process>(Value => global::PCL.ModLaunch.McLaunchProcess = Value),
                 StoreWatcher = new Action<global::PCL.ModWatcher.Watcher>(Value => global::PCL.ModLaunch.McLaunchWatcher = Value),
                 ReadString = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.String>((Key, Instance) => global::PCL.Settings.Get<string>(Key, Instance: Instance)),
-                ReadInteger = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Int32>((Key, Instance) => (Key == "LoginType") ? (((global::System.Int32)global::PCL.Settings.Get<McLoginType>(Key))) : (global::PCL.Settings.Get<int>(Key, Instance: Instance))),
+                ReadInteger = (key, instance) => key switch
+                {
+                    "LoginType" => (int)Settings.Get<McLoginType>(key),
+                    "LaunchArgumentVisible" when CurrentLaunchOptions?.KeepLauncherVisible == true => 5,
+                    _ => Settings.Get<int>(key, Instance: instance)
+                },
                 ReadBoolean = new Func<global::System.String, global::PCL.ModMinecraft.McInstance, global::System.Boolean>((Key, Instance) => global::PCL.Settings.Get<bool>(Key, Instance: Instance)),
                 WriteSetting = new Action<global::System.String, global::System.Object>((Key, Value) => global::PCL.Settings.Set(Key, Value)),
                 ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((File, Key, DefaultValue) => global::PCL.ModBase.ReadIni(File, Key, DefaultValue)),

@@ -406,7 +406,11 @@ namespace PCL
 
         private static LegacyMainTerminationHost CreateTerminationHost() => new LegacyMainTerminationHost
         {
-            MarkEnding = () => ModBase.IsProgramEnding = true,
+            MarkEnding = () => {
+                ModBase.IsProgramEnding = true;
+                if (ModMain.FrmMain is { } main && main.Dispatcher.CheckAccess())
+                    main.glassTerracottaPage?.OnLauncherExit();
+            },
             DisableAnimations = () => ModAnimation.AniControlEnabled = checked(ModAnimation.AniControlEnabled + 1),
             Feedback = () => ModMain.FeedbackInfo(), OpenLog = () => ModBase.StartProcess(Paths.Base + "PCL\\Log1.txt"),
             SaveAll = () => { try { InstanceConfigProviders.SaveAll(); } finally { ConfigUtils.SaveAll(); } }, FlushLog = () => Logger.Instance.Flush(), Kill = () => Process.GetCurrentProcess().Kill(),
@@ -473,8 +477,14 @@ namespace PCL
                     break;
             }
         }
-        private static void EnsureRightPage(int Page)
+        private TerracottaLobbyPage glassTerracottaPage;
+        private void EnsureRightPage(int Page)
         {
+            if ((PageType)Page == PageType.Link && GlassShellActive)
+            {
+                glassTerracottaPage ??= new TerracottaLobbyPage(this);
+                return;
+            }
             switch ((PageType)Page)
             {
                 case PageType.InstanceSelect: if (ModMain.FrmSelectRight == null) ModMain.FrmSelectRight = new PageSelectRight(); break;
@@ -522,8 +532,10 @@ namespace PCL
                 default: throw new InvalidOperationException("未知主窗左页：" + Page);
             }
         }
-        private static MyPageRightView RightPageElement(int Page)
+        private MyPageRightView RightPageElement(int Page)
         {
+            if ((PageType)Page == PageType.Link && GlassShellActive)
+                return glassTerracottaPage ??= new TerracottaLobbyPage(this);
             switch ((PageType)Page)
             {
                 case PageType.Launch: return ModMain.FrmLaunchRight;

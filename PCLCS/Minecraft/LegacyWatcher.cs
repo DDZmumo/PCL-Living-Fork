@@ -53,7 +53,9 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     private readonly LegacyWatcherHost<TWatcher, TInstance, TLoader, TState> host;
     private readonly LegacyWatcherGroup<TWatcher, TInstance, TLoader, TState> group;
     private string? windowTitle = "";
-    private int pid, stopCallbackCompleted, logProgress;
+    private bool dynamicWindowTitle;
+    private StringBuilder? windowTitleBuffer;
+    private int pid, gameExitVerified, stopCallbackCompleted, logProgress;
     private Action? afterStopped;
     private Func<string, string>? logRedactor;
     private int? windowTypeOverride;
@@ -72,6 +74,7 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     private const int FastWindowProbeMs = 48;
     private const int BackoffWindowProbeMs = 96;
     private const int FastWindowProbeDurationMs = 12000;
+    private const int SettledWatchIntervalMs = 192;
     private IntPtr windowHandle;
     private readonly object waitingLogLock = new();
     private readonly object stateGate = new();
@@ -80,17 +83,26 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     public LegacyWatcher(TWatcher owner, LegacyWatcherHost<TWatcher, TInstance, TLoader, TState> host,
         LegacyWatcherGroup<TWatcher, TInstance, TLoader, TState> group) { this.owner = owner; this.host = host; this.group = group; state = host.Loading; }
     private bool Is(TState value, TState expected) => group.Is(value, expected);
+    public bool IsGameActive => Volatile.Read(ref gameExitVerified) == 0 && group.ProcessAlive(owner);
     private bool LegacyRelaunchPending() =>
         legacyJavaGroup is not null && ReferenceEquals(entryProcess, owner.CoreGameProcess) &&
         entryProcess.HasExited && entryProcess.ExitCode == 0 && (!entryReachedGame || restartRequested) &&
         legacyJavaGroup.HasActiveJava();
 
-    private bool AllProcessesAndPipesFinished() {
+    private bool GameProcessesExited() {
         if (!entryProcess.HasExited || !owner.CoreGameProcess.HasExited ||
-            !(hasGroupExited?.Invoke() ?? true) || !(arePipesDrained?.Invoke() ?? true)) return false;
+            !(hasGroupExited?.Invoke() ?? true)) return false;
         return Volatile.Read(ref deferredCancellation) != 0
             ? legacyJavaGroup?.HasActiveJava() != true
             : !LegacyRelaunchPending();
+    }
+
+    private bool AllProcessesAndPipesFinished() => GameProcessesExited() && (arePipesDrained?.Invoke() ?? true);
+
+    private void ReportVerifiedGameExit() {
+        if (Interlocked.Exchange(ref gameExitVerified, 1) != 0) return;
+        try { host.VerifiedGameExit?.Invoke(); }
+        catch (Exception error) { Logger.Warn(error, "通知游戏退出状态失败"); }
     }
 
     public TState State {
@@ -131,6 +143,8 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
         hasGroupExited = HasGroupExited;
         requireVerifiedExit = RequireVerifiedExit;
         owner.CoreLoader = Loader; owner.CoreInstance = Instance; windowTitle = WindowTitle;
+        dynamicWindowTitle = WindowTitle?.Contains("{date}", StringComparison.Ordinal) == true ||
+            WindowTitle?.Contains("{time}", StringComparison.Ordinal) == true;
         entryProcess = owner.CoreGameProcess = host.LoaderInput(Loader);
         pid = entryProcess.Id;
         if (!RequireVerifiedExit) legacyJavaGroup = LegacyJavaProcessGroup.TryAttach(entryProcess);
@@ -171,14 +185,8 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
                         Thread.Sleep(startup.ElapsedMilliseconds < FastWindowProbeDurationMs ? FastWindowProbeMs : BackoffWindowProbeMs);
                         continue;
                     }
-                    for (int i = 1; i <= 3; i++) {
-                        if (isWindowFinished && isWindowAppeared && !string.IsNullOrEmpty(windowTitle) && Is(State, host.Running) &&
-                            !owner.CoreGameProcess.HasExited && host.GetWindowProcessId(windowHandle) == owner.CoreGameProcess.Id) {
-                            string title = windowTitle!.Replace("{date}", DateTime.Now.ToString("yyyy'/'M'/'d")).Replace("{time}", DateTime.Now.ToString("HH':'mm':'ss"));
-                            host.SetWindowText(windowHandle, new string(title.ToCharArray()));
-                        }
-                        Thread.Sleep(64);
-                    }
+                    UpdateWindowTitle();
+                    Thread.Sleep(SettledWatchIntervalMs);
                 }
                 group.StateChanged();
                 WatcherLog("Minecraft 日志监控已退出");
@@ -195,6 +203,24 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
             }
         }, "Minecraft Watcher PID " + pid);
     }
+
+    private void UpdateWindowTitle() {
+        if (!isWindowFinished || !isWindowAppeared || string.IsNullOrEmpty(windowTitle) || !Is(State, host.Running)) return;
+        Process process = owner.CoreGameProcess;
+        if (process.HasExited || host.GetWindowProcessId(windowHandle) != process.Id) return;
+
+        string title = windowTitle;
+        if (dynamicWindowTitle) {
+            DateTime now = DateTime.Now;
+            title = title.Replace("{date}", now.ToString("yyyy'/'M'/'d")).Replace("{time}", now.ToString("HH':'mm':'ss"));
+        }
+        StringBuilder currentTitle = windowTitleBuffer ??= new StringBuilder(512);
+        currentTitle.Clear();
+        currentTitle.EnsureCapacity(title.Length + 2);
+        host.GetWindowText(windowHandle, currentTitle, currentTitle.Capacity);
+        if (!currentTitle.Equals(title.AsSpan())) host.SetWindowText(windowHandle, title);
+    }
+
     private void LogReceived(object sender, DataReceivedEventArgs e) => LogLine(e.Data);
     private void LogLine(string? text) {
         if (text is null) return;
@@ -205,12 +231,14 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
     private bool CompleteStopCallbacks() {
         if (!AllProcessesAndPipesFinished()) return false;
         if (Interlocked.Exchange(ref stopCallbackCompleted, 1) != 0) return false;
+        ReportVerifiedGameExit();
         // Freeze the outcome before backup callbacks or concurrent kill UI, and finish
         // callbacks before changing the terminal state can close the launcher.
         bool normal = IsNormalExit();
         WatcherLog("Minecraft 已退出，返回值：" + owner.CoreGameProcess.ExitCode);
         // Backup and settings sessions were recorded against the original launch.
         // Use the successor's exit result, but close the original session record.
+        if (LegacyJavaLaunchIdentity.ForProcess(entryProcess) is { } identity) identity.WatcherCompleted = true;
         try { host.ProcessStopped(owner.CoreInstance, entryProcess, normal); }
         catch (Exception error) { Logger.Warn(error, "游戏退出后的存档自动备份失败"); }
         try { host.MarkHealthy(host.InstancePath(owner.CoreInstance), environmentPoint, normal); }
@@ -225,7 +253,6 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
                 Volatile.Write(ref deferredCancellation, 1);
             if (legacyJavaGroup is not null && Volatile.Read(ref deferredCancellation) != 0 && legacyJavaGroup.HasActiveJava())
                 legacyJavaGroup.TerminateJava();
-            bool readyToSettle = AllProcessesAndPipesFinished();
             List<string>? copied = null;
             lock (waitingLogLock) {
                 if (owner.CoreWaitingLog.Count != 0) {
@@ -241,7 +268,10 @@ public sealed class LegacyWatcher<TWatcher, TInstance, TLoader, TState>
                 }
                 finally { copied.Clear(); }
             }
-            if (readyToSettle && CompleteStopCallbacks()) {
+            // Publish process exit after consuming relaunch messages. Finalization still waits for the log pipes.
+            bool processesExited = GameProcessesExited();
+            if (processesExited) ReportVerifiedGameExit();
+            if (processesExited && CompleteStopCallbacks()) {
                 try {
                     if (Volatile.Read(ref deferredCancellation) != 0) State = host.Canceled;
                     else if (Is(State, host.Loading)) { WatcherLog("Minecraft 尚未加载完成，可能已崩溃", LogLevel.Error); Crashed(); }
