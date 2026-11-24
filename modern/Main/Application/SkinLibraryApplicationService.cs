@@ -18,14 +18,15 @@ public sealed record MicrosoftCape(string Id, string Name, bool Active, Uri? Tex
 
 /// <summary>File, preview and account operations for the WPF skin library.</summary>
 public sealed class SkinLibraryApplicationService {
-    private static readonly Lazy<SkinLibraryStore> Library = new(() =>
-        new(Path.Combine(Paths.AppDataThenName, "SkinLibrary"), png => Decode(png)));
+    private readonly Lazy<SkinLibraryStore> library;
     private static readonly HttpClient Microsoft = new(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) {
         BaseAddress = new("https://api.minecraftservices.com/minecraft/profile/"), Timeout = TimeSpan.FromSeconds(20), MaxResponseContentBufferSize = 256 * 1024
     };
     private readonly SemaphoreSlim microsoftOperations = new(1, 1);
-    internal static SkinLibraryStore Store => Library.Value;
-    internal SkinLibraryApplicationService() { }
+    internal SkinLibraryStore Store => library.Value;
+    internal SkinLibraryApplicationService(SkinLibraryStore? store = null) {
+        library = new(() => store ?? new(Path.Combine(Paths.AppDataThenName, "SkinLibrary"), png => Decode(png)));
+    }
 
     public string DirectoryFor(SkinTextureKind kind) => Store.DirectoryFor(kind);
     public IReadOnlyList<SkinLibraryEntry> List(SkinTextureKind kind = SkinTextureKind.Skin) => Store.List(kind);
@@ -49,25 +50,66 @@ public sealed class SkinLibraryApplicationService {
 
     internal static SkinLibraryPreview Preview(SkinLibraryTexture texture, SkinTextureKind kind) {
         var bitmap = Decode(texture.Png);
-        BitmapSource? avatar = kind == SkinTextureKind.Skin ? GlassSkinHead.Render(
-            new CroppedBitmap(bitmap, new Int32Rect(8, 8, 8, 8)), new CroppedBitmap(bitmap, new Int32Rect(40, 8, 8, 8))) : null;
+        BitmapSource? avatar = kind == SkinTextureKind.Skin ? RenderAvatar(bitmap) : null;
         return new(bitmap, avatar, texture.Model);
     }
 
-    public SkinLibraryAccount ReadAccount() {
+    private static BitmapSource? RenderAvatar(BitmapSource bitmap) => GlassSkinHead.Render(
+        new CroppedBitmap(bitmap, new Int32Rect(8, 8, 8, 8)), new CroppedBitmap(bitmap, new Int32Rect(40, 8, 8, 8)));
+
+    internal async Task<BitmapSource?> ReadOfflineAvatarAsync(string player) {
+        var avatar = await Task.Run(() => {
+            try {
+                return Store.GetOfflineAppearance(player).SkinId is { } id ? LoadPreview(id).Avatar : null;
+            } catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) {
+                return null;
+            }
+        });
+        if (avatar is not null) return avatar;
+        try {
+            var path = new Uri(LaunchPageRuntime.Skins.OfflineDefaultSkin(player));
+            using var stream = System.Windows.Application.GetResourceStream(path)?.Stream;
+            return stream is null ? null : RenderAvatar(BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad));
+        } catch (Exception error) when (error is IOException or NotSupportedException or ArgumentException or InvalidOperationException) {
+            return null;
+        }
+    }
+
+    public SkinLibraryAccount ReadAccount() => ReadAccount(null);
+
+    internal SkinLibraryAccount ReadAccount(string? offlinePlayer) {
         VerifyAccess();
-        var selected = ReadTarget();
+        var active = ReadTarget();
+        var selected = offlinePlayer is not null && ReadOfflinePlayers().Contains(offlinePlayer, StringComparer.Ordinal)
+            ? OfflineTarget(offlinePlayer) : active;
         if (selected is null) return new(null, null, false, new(), null);
+        OfflineSkinAppearance appearance = selected.Provider == AccountProvider.Offline ? Store.GetOfflineAppearance(selected.Name) : new();
+        if (selected != active)
+            return new(selected, null, Store.FindOfflineSkinFile(selected.Name) is not null, appearance, null);
         string kind = LoaderKind(selected.Provider);
         var request = LaunchPageRuntime.Skins.Input(kind);
         return new(selected, LaunchPageRuntime.Avatar(kind, request), LaunchPageRuntime.Skin(kind)?.TextureFileFor(request) is not null,
-            selected.Provider == AccountProvider.Offline ? Store.GetOfflineAppearance(selected.Name) : new(), WardrobeFor(selected));
+            appearance, WardrobeFor(selected));
+    }
+
+    internal static string[] ReadOfflinePlayers() {
+        VerifyAccess();
+        if (Settings.Get<ModLaunch.McLoginType>("LoginType") != ModLaunch.McLoginType.Legacy) return [];
+        return (Settings.Get<string>("LoginLegacyName") ?? "")
+            .Split('¨', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Prepend(LaunchPageRuntime.Skins.OfflineAccountName())
+            .Where(player => player.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     public SkinLibraryEntry ImportCurrent(SkinLibraryTarget target, string name, SkinModel? model = null) {
         RequireTarget(target);
-        if (target.Provider == AccountProvider.Offline && Store.ReadOfflineTextures(target.Name)?.Skin is { } local)
-            return Store.ImportTexture(name, local.Png, model: model ?? local.Model);
+        if (target.Provider == AccountProvider.Offline) {
+            if (Store.ReadOfflineTextures(target.Name)?.Skin is { } local)
+                return Store.ImportTexture(name, local.Png, model: model ?? local.Model);
+            if (ReadTarget() != target) throw new InvalidOperationException("这个离线角色还没有设置自定义皮肤。");
+        }
         string kind = LoaderKind(target.Provider);
         string path = LaunchPageRuntime.Skin(kind)?.TextureFileFor(LaunchPageRuntime.Skins.Input(kind))
             ?? throw new InvalidOperationException("当前角色的原始皮肤还没有加载完成。");
@@ -113,7 +155,7 @@ public sealed class SkinLibraryApplicationService {
         RequireTarget(target);
         if (target.Provider != AccountProvider.Offline) throw new InvalidOperationException("此操作仅适用于离线角色。");
         Store.SetOfflineTexture(target.Name, kind, id);
-        if (kind == SkinTextureKind.Skin) RefreshOfflineAvatar();
+        if (kind == SkinTextureKind.Skin && ReadTarget() == target) RefreshOfflineAvatar();
     }
 
     public Task<IReadOnlyList<MicrosoftCape>> GetMicrosoftCapesAsync(SkinLibraryTarget target, CancellationToken cancellationToken = default) =>
@@ -142,7 +184,7 @@ public sealed class SkinLibraryApplicationService {
         var account = LauncherApplicationServices.Accounts.ReadSnapshot();
         if (account.Provider == AccountProvider.Offline) {
             string player = LaunchPageRuntime.Skins.OfflineAccountName();
-            return player.Length > 0 ? new(account.Provider, player, "", "") : null;
+            return player.Length > 0 ? OfflineTarget(player) : null;
         }
         if (!account.Authenticated || account.Provider == AccountProvider.Auth && GlassSkinSites.RoleSelectionPending) return null;
         var request = LaunchPageRuntime.Skins.Input(LoaderKind(account.Provider));
@@ -151,9 +193,12 @@ public sealed class SkinLibraryApplicationService {
     }
 
     private static void VerifyAccess() => System.Windows.Application.Current?.Dispatcher.VerifyAccess();
+    private static SkinLibraryTarget OfflineTarget(string player) => new(AccountProvider.Offline, player, "", "");
+
     private static void RequireTarget(SkinLibraryTarget target) {
         VerifyAccess();
         ArgumentNullException.ThrowIfNull(target);
+        if (target == OfflineTarget(target.Name) && ReadOfflinePlayers().Contains(target.Name, StringComparer.Ordinal)) return;
         if (ReadTarget() != target) throw new InvalidOperationException("游戏账号或角色已切换，请重新选择。");
     }
 
@@ -164,7 +209,7 @@ public sealed class SkinLibraryApplicationService {
 
     internal static string? FindOfflineSkinFile(string name) {
         if (name.Length == 0) return null;
-        try { return Store.FindOfflineSkinFile(name); }
+        try { return LauncherApplicationServices.SkinLibrary.Store.FindOfflineSkinFile(name); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
     }
 

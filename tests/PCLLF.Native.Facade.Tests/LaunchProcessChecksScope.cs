@@ -305,8 +305,11 @@ internal sealed partial class LaunchProcessChecksScope : IDisposable
         Native.Check(!HasSessionFiles() && !File.Exists(prepared.QuickPlay.LogFile), "Actual exit callbacks left tracked journals or Quick Play log behind.");
         JObject personal = (JObject)Native.Static("PCL.LocalGameData", "ReadJson", "personal-options.json")!;
         JObject recent = (JObject)Native.Static("PCL.LocalGameData", "ReadJson", "recent-worlds.json")!;
-        Native.Check(personal["values"]?["key_key.forward"]?.ToString() == "key.keyboard.i" &&
-            File.ReadAllText(options).Contains("fixtureUntouched:stable", StringComparison.Ordinal), "Actual Finish did not capture the controlled process's edited keybinding or preserve unrelated data.");
+        string local = File.ReadAllText(options);
+        Native.Check(personal["values"]?["key_key.forward"]?.ToString() == "key.keyboard.k" &&
+            Settings.Get<int>("VersionPersonalOptionsSync", Instance: instance) == 1 &&
+            local.Contains("key_key.forward:key.keyboard.i", StringComparison.Ordinal) && local.Contains("fixtureUntouched:stable", StringComparison.Ordinal),
+            "Actual Finish did not keep the edited keybinding local when detaching the instance.");
         Native.Check(((JArray)recent["worlds"]!).OfType<JObject>().Any(world => world["identifier"]?.ToString() == "ControlledWorld" &&
             world["name"]?.ToString() == "Controlled fixture" && world["versionPath"]?.ToString() == instance.PathVersion), "Actual Quick Play Finish did not import the owned process's world record.");
         var points = (List<JObject>)Native.Static("PCL.EnvironmentHistory", "Points", instance.PathVersion)!;

@@ -158,8 +158,10 @@ public static class LegacySettingsDefinitions {
         Add("ToolDownloadCert", false, LegacySettingSource.Registry);
         Add("ToolDownloadMod", 2, LegacySettingSource.Registry);
         Add("ToolDownloadModDependencies", true);
+        Add("ToolDownloadResourcePageSize", 15);
         Add("ToolModLocalNameStyle", 0, LegacySettingSource.Registry);
         Add("ToolLauncherUpdateIgnoredTag", "", LegacySettingSource.Registry);
+        Add("ToolLauncherUpdateAutoCheck", true);
         Add("ToolLauncherUpdateSource", 0);
         Add("ToolLauncherUpdateChannel", 0);
         Add("UiLauncherColorMode", 1);

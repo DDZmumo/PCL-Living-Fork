@@ -173,7 +173,7 @@ public sealed class MmcInstancePaths {
         catch (DirectoryNotFoundException) { return null; }
     }
 
-    private static void ValidateSegments(ReadOnlySpan<char> remaining) {
+    internal static void ValidateSegments(ReadOnlySpan<char> remaining) {
         while (true) {
             int separator = remaining.IndexOfAny('/', '\\');
             if (separator < 0) {

@@ -212,6 +212,39 @@ internal static class GlassShellChecks
             var inside = new byte[4];
             loadingFrame.CopyPixels(new Int32Rect((int)bodyCenter.X, (int)bodyCenter.Y, 1, 1), inside, 4, 0);
             Native.Check(inside[3] > 0, "Removing the window fill also removed the splash panel.");
+            var splash = Part<GlassSurface>(view, "SplashGlass");
+            var railSurface = Part<GlassSurface>(view, "NavigationSurface");
+            var title = Part<TextBlock>(view, "SplashTitle");
+            Color SplashColor() => ((SolidColorBrush)splash.Background).Color;
+            void SetTheme(bool light) => view.SetState(State(icon, reduceMotion: false, useDarkText: light));
+            void CheckTheme(bool light)
+            {
+                Color expected = SystemParameters.HighContrast ? SystemColors.WindowColor
+                    : light ? Color.FromArgb(0xC8, 0xF4, 0xF5, 0xF8) : Color.FromArgb(0xB8, 0x14, 0x14, 0x16);
+                VisualAssetChecks.Pump(() => SplashColor() == expected && !splash.Background.HasAnimatedProperties,
+                    "settle the loading theme");
+                Native.Check(view.IsSplashLoading && ((SolidColorBrush)railSurface.Background).Color == expected,
+                    "The loading panel and rail settled on different palettes.");
+            }
+            bool paletteCanAnimate = (bool)Native.Property(Native.Type("PCL.ThemeTransition"), "CanBlendPalette").GetValue(null)!;
+            Color originalColor = SplashColor();
+            SetTheme(true);
+            if (paletteCanAnimate)
+            {
+                var brush = (SolidColorBrush)splash.Background;
+                Native.Check(brush.HasAnimatedProperties && title.Foreground.HasAnimatedProperties &&
+                    SplashColor() == originalColor && ReferenceEquals(railSurface.Background, brush),
+                    "The visible loading panel, title and rail did not begin a coordinated theme fade.");
+                VisualAssetChecks.Pump(() => SplashColor().R is > 20 and < 244, "intermediate loading theme color");
+                Color displayed = SplashColor();
+                SetTheme(false);
+                Native.Check(ReferenceEquals(splash.Background, brush) && SplashColor() == displayed,
+                    "Reversing the loading theme fade jumped away from the displayed color.");
+            }
+            else { CheckTheme(true); SetTheme(false); }
+            CheckTheme(false);
+            SetTheme(true);
+            CheckTheme(true);
             view.SplashProgress = 1;
             view.CompleteSplash();
             VisualAssetChecks.Pump(() => !view.IsSplashing, "complete startup splash", 12000);
@@ -222,6 +255,8 @@ internal static class GlassShellChecks
                 "Startup did not restore the workspace before releasing its automatic prompts.");
             Native.Check(ReferenceEquals(Part<Grid>(view, "ShellRoot").Background, view.FindResource("GlassWindowBrush")),
                 "The first main page did not restore its themed surface fill.");
+            Native.Check(ReferenceEquals(Part<GlassSurface>(view, "NavigationSurface").Background, view.FindResource("GlassChromeBrush")),
+                "The finished splash did not restore the normal rail palette.");
         }
         finally
         {
@@ -842,10 +877,18 @@ internal static class GlassShellChecks
                     nint hwnd = new WindowInteropHelper(window).Handle;
                     CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x007E, 32);
                     CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x0218, 0x12);
+                    CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x0218, 0x0A);
+                    nint displayStatus = Marshal.AllocHGlobal(24);
+                    try {
+                        Marshal.StructureToPtr(new Guid("2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5"), displayStatus, false);
+                        Marshal.WriteInt32(displayStatus, 16, 4);
+                        Marshal.WriteInt32(displayStatus, 20, 1);
+                        CheckBackdropRecovery(hwnd, () => Native.Get(liveBackdrop, "_compositionHost"), 0x0218, 0x8013, displayStatus);
+                    } finally { Marshal.FreeHGlobal(displayStatus); }
                     Native.Check(liveBackdrop.HasDesktopBackdrop, "The window did not restore its native material after rebuilding the host.");
                     view.SetWallpaper(Image()); Flush(window);
                     liveBackdrop.SetRegions(view.GetDesktopBackdropRegions());
-                    ResizeDesktopBackdrop(window, view, liveBackdrop);
+                    ResizeDesktopBackdrop(window, view, liveBackdrop, icon);
                 } finally {
                     view.SetWallpaper(null!); Flush(window);
                     GlassMaterial.SetDesktopBackdropEnabled(window, false);
@@ -853,18 +896,29 @@ internal static class GlassShellChecks
             }
             view.SetDesktopBackdropActive(false); Flush(window);
             Native.Check(Sample(empty)[3] == 255, "Losing the native backdrop left an unsupported transparent main surface.");
+            if (GlassMaterial.AllowsTransparency(view)) {
+                GlassMaterial.SetAlphaFallback(view, true);
+                foreach (double level in new[] { 0d, .5, 1d }) {
+                    GlassMaterial.SetOpacityMultiplier(view, level);
+                    view.SetDesktopBackdropActive(false); Flush(window);
+                    int alpha = Sample(empty)[3];
+                    Native.Check(Math.Abs(alpha - level * 255) <= 2,
+                        $"Default background without native blur at {level:P0}: rendered alpha {alpha}.");
+                }
+            }
         }
         finally {
+            view.ClearValue(GlassMaterial.AlphaFallbackProperty);
             view.SetDesktopBackdropActive(false); GlassMaterial.SetOpacityMultiplier(view, density);
             view.SetState(State(icon)); view.SetWallpaper(Image()); Flush(window);
         }
     }
 
-    private static void CheckBackdropRecovery(nint window, Func<object?> readHost, int message, nint reason)
+    private static void CheckBackdropRecovery(nint window, Func<object?> readHost, int message, nint reason, nint data = 0)
     {
         object previous = readHost() ?? throw new InvalidOperationException("The recovery fixture has no native host.");
-        SendMessage(window, message, reason, 0);
-        SendMessage(window, message, reason, 0);
+        SendMessage(window, message, reason, data);
+        SendMessage(window, message, reason, data);
         Native.Check(ReferenceEquals(readHost(), previous), "The native hook rebuilt the backdrop synchronously.");
         VisualAssetChecks.Pump(() => readHost() is { } current && !ReferenceEquals(current, previous),
             $"native backdrop host is rebuilt after message 0x{message:X4}");
@@ -872,7 +926,7 @@ internal static class GlassShellChecks
             "The old composition window survived the replacement.");
     }
 
-    private static void ResizeDesktopBackdrop(Window window, GlassLauncherView view, GlassWindowBackdrop backdrop)
+    private static void ResizeDesktopBackdrop(Window window, GlassLauncherView view, GlassWindowBackdrop backdrop, ImageSource icon)
     {
         nint main = new System.Windows.Interop.WindowInteropHelper(window).Handle;
         nint material = backdrop.NativeBackdropHandle;
@@ -903,10 +957,40 @@ internal static class GlassShellChecks
                     "The native blur companion extends into the rail's transparent expansion space.");
             }
             CheckLeftEdge();
-            view.SetRailExpanded(true, true); Flush(window);
-            backdrop.SetRegions(view.GetDesktopBackdropRegions()); CheckLeftEdge();
-            view.SetRailExpanded(false, true); Flush(window);
-            backdrop.SetRegions(view.GetDesktopBackdropRegions()); CheckLeftEdge();
+            view.SetState(State(icon, reduceMotion: false, useDarkText: false));
+            void CheckRailMotion(bool expanded, double[] steps)
+            {
+                view.SetRailExpanded(expanded);
+                if (view.IsRailAnimating)
+                {
+                    backdrop.SetRegions(view.GetDesktopBackdropRegions(), reserveLeftInset: true);
+                    double clientLeft = view.PointToScreen(new Point()).X;
+                    Native.Check(GetWindowRect(material, out ClientRect animationBounds) && Math.Abs(animationBounds.Left - clientLeft) <= 1,
+                        "The native backdrop did not reserve the left inset before the first animated frame.");
+                    Rect initialRail = view.GetDesktopBackdropRegions()[0].Bounds;
+                    var applyExpansion = Native.Method(typeof(GlassLauncherView), "ApplyRailExpansion");
+                    foreach (double progress in steps)
+                    {
+                        applyExpansion.Invoke(view, [progress]);
+                        window.UpdateLayout();
+                        var regions = view.GetDesktopBackdropRegions();
+                        backdrop.SetRegions(regions, reserveLeftInset: true);
+                        Rect rail = regions[0].Bounds;
+                        Rect nativeRail = ((GlassWindowRegion[])Native.Get(host, "_regions")!)[0].Bounds;
+                        Native.Check(Math.Abs(rail.Width - initialRail.Width) > 1 && Math.Abs(nativeRail.Left - rail.Left) < .1 &&
+                            Math.Abs(nativeRail.Width - rail.Width) < .1,
+                            $"The native blur clip did not follow rail motion at {progress}: arranged={rail}, native={nativeRail}.");
+                        Native.Check(GetWindowRect(material, out ClientRect frame) && frame.Left == animationBounds.Left && frame.Right == animationBounds.Right,
+                            "The native backdrop changed window bounds during rail motion.");
+                    }
+                }
+                view.SetRailExpanded(expanded, immediate: true);
+                Flush(window);
+                backdrop.SetRegions(view.GetDesktopBackdropRegions());
+                CheckLeftEdge();
+            }
+            CheckRailMotion(true, [.25, .70, 1.05]);
+            CheckRailMotion(false, [.75, .40, .10]);
             foreach (int delta in new[] { -100, 0 })
             {
                 resizeFlags.Clear();

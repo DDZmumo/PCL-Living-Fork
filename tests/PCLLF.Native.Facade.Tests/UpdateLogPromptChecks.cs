@@ -107,6 +107,7 @@ internal static class UpdateLogPromptChecks
                 MyMsgText modal = new(new ModMain.MyMsgBoxConverter { Title = "版本说明", Button1 = "确定", Button2 = "查看发布页", ContentFactory = () => body });
                 CheckLayout(modal, body, (MyCheckBox)Native.Get(body, "Suppress")!);
             }
+            CheckStartupPromptOrder(queue);
             environment.AssertNoForbiddenIo();
             Console.WriteLine("PASS native update notes: genuine Main modal factory/Markdown/MyCheckBox with fixed footer, legacy false ignored, failed-save bytes/cache/UI rollback, current-build dismissal, manual restore, automatic resume and independent updater preference; GUID fixture only, no HTTP/browser/startup.");
         }
@@ -143,6 +144,50 @@ internal static class UpdateLogPromptChecks
             Native.Check((bool)Native.Static("PCL.ModLauncherUpdate", "TryShowCurrentReleaseNotes", automatic, summary, transport)!, "The native notice route declined a supported build.");
             if (callbackFailure is not null) throw callbackFailure;
             Native.Check(observed && queue.IsEmpty, "The actual modal was not fully observed/consumed.");
+        }
+    }
+
+    private static void CheckStartupPromptOrder(ConcurrentQueue<ModMain.MyMsgBoxConverter> queue)
+    {
+        const string autoCheckKey = "ToolLauncherUpdateAutoCheck";
+        bool saved = Settings.Get<bool>(autoCheckKey);
+        Type preload = Native.Type("PCL.GlassStartupPreload");
+        var interfaceSlot = Native.Field(preload, "_interfaceShown");
+        var releaseSlot = Native.Field(preload, "_release");
+        var sourceSlot = Native.Field(preload, "_releaseSource");
+        var running = Native.Field(typeof(ModLauncherUpdate), "CheckRunning");
+        var interfaceReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var noticeClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        object? oldInterface = interfaceSlot.GetValue(null), oldRelease = releaseSlot.GetValue(null), oldSource = sourceSlot.GetValue(null);
+        int major = Version.Parse(ModBase.ReleaseBaselineVersion.Split('-')[0]).Major + 1;
+        try
+        {
+            Native.Cache(autoCheckKey, true);
+            interfaceSlot.SetValue(null, interfaceReady);
+            sourceSlot.SetValue(null, Native.Static("PCL.ModLauncherUpdate", "PreferredUpdateSource"));
+            releaseSlot.SetValue(null, Task.FromResult(new JObject { ["tag_name"] = $"v{major}.0.0" }));
+            Native.Static("PCL.ModLauncherUpdate", "CheckForUpdates", true, noticeClosed.Task);
+            VisualAssetChecks.Pump(() => releaseSlot.GetValue(null) is null, "read the release checked during the splash");
+            Native.Check(queue.IsEmpty, "The automatic update prompt appeared during the splash.");
+            interfaceReady.SetResult(true);
+            VisualAssetChecks.Observe(120);
+            Native.Check(queue.IsEmpty && (int)running.GetValue(null)! == 1, "An available update appeared before the announcement closed.");
+            noticeClosed.SetResult(true);
+            VisualAssetChecks.Pump(() => !queue.IsEmpty, "show the available update after the announcement closes");
+            Native.Check(queue.TryPeek(out var prompt) && prompt.Title == "发现 PCL Living Fork 新版本", "The automatic updater lost its confirmation prompt.");
+        }
+        finally
+        {
+            interfaceReady.TrySetResult(false);
+            noticeClosed.TrySetResult(true);
+            VisualAssetChecks.Pump(() => {
+                while (queue.TryDequeue(out var prompt)) { prompt.Result = 0; prompt.WaitFrame.Continue = false; }
+                return (int)running.GetValue(null)! == 0;
+            }, "close the fixture update confirmation");
+            interfaceSlot.SetValue(null, oldInterface);
+            releaseSlot.SetValue(null, oldRelease);
+            sourceSlot.SetValue(null, oldSource);
+            Native.Cache(autoCheckKey, saved);
         }
     }
 

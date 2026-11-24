@@ -165,7 +165,7 @@ namespace PCL
             global::PCL.ModBase.RunInUi(() =>
         {
             global::PCL.PageInstanceLeft.Instance = Instance;
-            global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup, global::PCL.FormMain.PageSubType.InstanceSetup);
+            global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup, global::PCL.FormMain.PageSubType.InstanceJava);
         });
         }
         private static void DisableJavaSettings()

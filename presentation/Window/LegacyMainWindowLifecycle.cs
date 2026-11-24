@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -19,13 +20,18 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 新增可选陶瓦联机，支持创建房间和通过房间码加入\r\n- 修复部分外置登录启动被取消的问题，改善游戏进程识别\r\n- 优化实例资源列表滚动和页面切换，修正联机按钮字色\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
-    // Session scope: at most one automatic version/update note per launcher start.
-    private int updateLogPromptIssued;
+    private const string ForkReleaseHighlights = "- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java\r\n- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例\r\n- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
+    // The updater shares the completion of the session's one automatic release notice.
+    private TaskCompletionSource<bool>? automaticUpdateLog;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());
-    public void ShowAutomaticUpdateLog() {
-        if (!ShouldAutoShowUpdateLog() || Interlocked.CompareExchange(ref updateLogPromptIssued, 1, 0) != 0) return;
-        ShowReleaseLog(true);
+    public Task ShowAutomaticUpdateLog() {
+        if (Volatile.Read(ref automaticUpdateLog) is { } pending) return pending.Task;
+        if (!ShouldAutoShowUpdateLog()) return Task.CompletedTask;
+        var closed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (Interlocked.CompareExchange(ref automaticUpdateLog, closed, null) is { } previous) return previous.Task;
+        try { ShowReleaseLog(true, closed); }
+        catch (Exception error) { closed.TrySetResult(true); Logger.Warn(error, "无法打开启动更新公告"); }
+        return closed.Task;
     }
     public void ConstructBeforeXaml() {
         host.WriteStartTick(host.Clock()); host.AssignGlobalWindow(); host.CreateLaunchLeft(); host.CreateLaunchRight();
@@ -99,16 +105,18 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         Logger.Info($"第三阶段加载用时：{checked(host.Clock() - host.StartTick())} ms");
     }
     public void CheckStartupUpdates() {
-        if (host.VersionBranchMain() == "OpenSource") ShowAutomaticUpdateLog();
-        host.CheckUpdates();
+        Task noticeClosed = host.VersionBranchMain() == "OpenSource" ? ShowAutomaticUpdateLog() : Task.CompletedTask;
+        host.CheckUpdates(noticeClosed);
     }
     public void ShowUpdateLog() => ShowReleaseLog(false);
-    private void ShowReleaseLog(bool automatic) => RunThread(() => {
-        if (host.ShowReleaseNotes(automatic, ForkReleaseHighlights)) return;
-        string content = $"{host.LauncherName()} {host.VersionBaseName()}\r\n\r\n" + ForkReleaseHighlights;
-        switch (Message(content, host.LauncherName() + " 更新说明", "确定", "查看更新日志")) {
-            case 2: host.OpenWebsite(host.ReleasesUrl()); break;
-        }
+    private void ShowReleaseLog(bool automatic, TaskCompletionSource<bool>? closed = null) => RunThread(() => {
+        try {
+            if (host.ShowReleaseNotes(automatic, ForkReleaseHighlights)) return;
+            string content = $"{host.LauncherName()} {host.VersionBaseName()}\r\n\r\n" + ForkReleaseHighlights;
+            switch (Message(content, host.LauncherName() + " 更新说明", "确定", "查看更新日志")) {
+                case 2: host.OpenWebsite(host.ReleasesUrl()); break;
+            }
+        } finally { closed?.TrySetResult(true); }
     }, "Fork UpdateLog Output");
     public void Upgrade(int lastVersion) => UpgradeCore(lastVersion, showUpdateLog: true);
     private void UpgradeCore(int lastVersion, bool showUpdateLog) {

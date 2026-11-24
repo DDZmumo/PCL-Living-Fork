@@ -18,7 +18,8 @@ namespace PCL
 
     internal static class PersonalGameSettings
     {
-        private readonly static PersonalOptionsFlow Flow = new PersonalOptionsFlow(LocalGameData.Service, LocalGameData.Gate, () => ModWatcher.HasRunningMinecraft, VersionPath => Adapt(new ModMinecraft.McInstance(VersionPath)), Selected, ModBase.IniClearCache, (First, Second) => PathUtils.IsSame(First, Second), (ErrorValue, Message) => Logger.Warn(ErrorValue, Message), () => new PersonalOptionsSession(), () => Settings.Get<bool>("LaunchPersonalOptionsCapture"), existingOnly: true);
+        private readonly static PersonalOptionsFlow Flow = new PersonalOptionsFlow(LocalGameData.Service, LocalGameData.Gate, () => ModWatcher.HasRunningMinecraft, VersionPath => Adapt(new ModMinecraft.McInstance(VersionPath)), Selected, ModBase.IniClearCache, (First, Second) => PathUtils.IsSame(First, Second), (ErrorValue, Message) => Logger.Warn(ErrorValue, Message), () => new PersonalOptionsSession(), existingOnly: true,
+            keepIndependent: instance => Settings.Set("VersionPersonalOptionsSync", 1, Instance: ((PersonalOptionsInstance)instance).Owner));
         internal static readonly PersonalOptionsManagement Management = new(LocalGameData.Service, LocalGameData.Gate, Selected, () => ModWatcher.HasRunningMinecraft, ModBase.IniClearCache);
         internal static event Action Changed;
         private static string excludedRaw;
@@ -41,6 +42,17 @@ namespace PCL
         internal static int ApplyNow(ModMinecraft.McInstance instance, PersonalOptionsPreview preview) {
             if (ModMinecraft.McInstanceLock.IsLocked(instance)) throw new System.IO.IOException("请等待版本文件任务结束，再应用个人设置。");
             return Management.Apply(Adapt(instance), preview);
+        }
+        internal static void ResumeSync(ModMinecraft.McInstance instance, PersonalOptionsPreview preview, bool writeBack) {
+            if (instance is null || ModMinecraft.McInstanceLock.IsLocked(instance) || ModWatcher.HasRunningMinecraft)
+                throw new System.IO.IOException("请先关闭游戏并等待实例文件任务完成。");
+            lock (LocalGameData.Gate) {
+                if (Settings.Get<int>("VersionPersonalOptionsSync", Instance: instance) != 1)
+                    throw new System.IO.IOException("此版本的同步策略已变化，请刷新后重试。");
+                Management.Transfer(Adapt(instance), preview, writeBack);
+                Settings.Set("VersionPersonalOptionsSync", 0, Instance: instance);
+            }
+            Changed?.Invoke();
         }
         internal static void EditInstance(ModMinecraft.McInstance instance, IEnumerable<PersonalOptionEdit> edits) {
             if (instance is null) throw new System.IO.IOException("请先打开版本设置。");
@@ -128,7 +140,8 @@ namespace PCL
         }
         internal static PersonalOptionsSession Prepare(ModMinecraft.McInstance Instance)
         {
-            return (PersonalOptionsSession)Flow.Prepare(Adapt(Instance));
+            return (PersonalOptionsSession)Flow.Prepare(Adapt(Instance), () =>
+                Instance.JsonVersion?["world_version"] is { Type: JTokenType.Integer } version ? (int?)version : null);
         }
         internal static void Track(PersonalOptionsSession Session, Process Game)
         {
@@ -178,7 +191,7 @@ namespace PCL
         }
         private sealed class PersonalOptionsInstance : IPersonalOptionsInstance
         {
-            private readonly ModMinecraft.McInstance Owner;
+            internal readonly ModMinecraft.McInstance Owner;
             internal PersonalOptionsInstance(ModMinecraft.McInstance Instance)
             {
                 Owner = Instance;

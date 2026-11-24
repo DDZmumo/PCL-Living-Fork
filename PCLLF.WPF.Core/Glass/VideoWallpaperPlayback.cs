@@ -42,6 +42,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
 
     public ImageSource Source { get; }
     public ImageSource FrostedSource { get; }
+    public event EventHandler? FirstFramePresented;
 
     public VideoWallpaperPlayback(string path, Dispatcher dispatcher, bool paused, Action<VideoWallpaperPlayback, Exception> failed) {
         _dispatcher = dispatcher;
@@ -79,7 +80,9 @@ public sealed class VideoWallpaperPlayback : IDisposable {
 
     private void Decode(string path) {
         try {
-            if (!WaitForDecodeSlot()) return;
+            // A hidden startup window can prepare one frame without playing the video.
+            bool firstFramePending = true;
+            if (!WaitForDecodeSlot(firstFramePending)) return;
             using var reader = new MediaFoundationVideoReader(path);
             long? firstTimestamp = null;
             long? lastPreparedOffset = null;
@@ -95,7 +98,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
                 lastPreparedOffset = offset;
                 return true;
             };
-            while (WaitForDecodeSlot()) {
+            while (WaitForDecodeSlot(firstFramePending)) {
                 if (!reader.Read(shouldCopy, out var decoded)) {
                     if (firstTimestamp is null) throw new InvalidDataException("视频没有可播放的画面。");
                     reader.Rewind();
@@ -115,6 +118,7 @@ public sealed class VideoWallpaperPlayback : IDisposable {
                     lock (_gate) {
                         if (_disposed || _decodeFailed) return;
                         _buffer.Enqueue(new(previousOffset, new FramePair(color, blurPixels, width, height)));
+                        firstFramePending = false;
                         transferred = true;
                         Monitor.PulseAll(_gate);
                     }
@@ -131,16 +135,16 @@ public sealed class VideoWallpaperPlayback : IDisposable {
         }
     }
 
-    private bool WaitForDecodeSlot() {
+    private bool WaitForDecodeSlot(bool firstFramePending) {
         lock (_gate) {
-            while (!_disposed && !_decodeFailed && (_paused || _buffer.Count >= BufferedFrameLimit)) Monitor.Wait(_gate);
+            while (!_disposed && !_decodeFailed && ((_paused && !firstFramePending) || _buffer.Count >= BufferedFrameLimit))
+                Monitor.Wait(_gate);
             return !_disposed && !_decodeFailed;
         }
     }
 
-    private bool TakeBufferedFrame(bool first, out ScheduledFrame frame) {
+    private bool TakeBufferedFrame(int required, out ScheduledFrame frame) {
         lock (_gate) {
-            int required = first ? BufferedFrameLimit : 1;
             while (!_disposed && !_decodeFailed && (_paused || _buffer.Count < required)) Monitor.Wait(_gate);
             if (_disposed || _decodeFailed) { frame = default; return false; }
             frame = _buffer.Dequeue();
@@ -151,13 +155,19 @@ public sealed class VideoWallpaperPlayback : IDisposable {
 
     private void ScheduleFrames() {
         try {
+            // Show the first paired frame as soon as it is decoded, then fill the steady playback buffer.
+            if (!TakeBufferedFrame(1, out var first)) return;
+            bool firstTransferred = false;
+            try { firstTransferred = Enqueue(first.Pair, firstFrame: true); }
+            finally { if (!firstTransferred) first.Pair.Release(); }
+
             using var timer = new PlaybackTimer(_wake);
             long? start = null;
             int consecutiveLateFrames = 0;
-            while (TakeBufferedFrame(start is null, out var video)) {
+            while (TakeBufferedFrame(start is null ? BufferedFrameLimit : 1, out var video)) {
                 bool transferred = false;
                 try {
-                    start ??= PlaybackTicks();
+                    start ??= PlaybackTicks() - video.Offset;
                     long due = start.Value + video.Offset;
                     if (!WaitUntil(due, timer)) return;
                     // Skip occasional late frames. If decoding cannot catch the old clock, resync
@@ -215,11 +225,12 @@ public sealed class VideoWallpaperPlayback : IDisposable {
         }
     }
 
-    private bool Enqueue(FramePair pair) {
+    private bool Enqueue(FramePair pair, bool firstFrame = false) {
         lock (_gate) {
             if (_disposed || _paused || _decodeFailed || _dispatcher.HasShutdownStarted) return false;
             if (!_queued) {
-                if (_dispatcher.BeginInvoke(DispatcherPriority.Render, _present).Status == DispatcherOperationStatus.Aborted) return false;
+                DispatcherPriority priority = firstFrame ? DispatcherPriority.Normal : DispatcherPriority.Render;
+                if (_dispatcher.BeginInvoke(priority, _present).Status == DispatcherOperationStatus.Aborted) return false;
                 _queued = true;
             }
             ReleasePending();
@@ -234,36 +245,44 @@ public sealed class VideoWallpaperPlayback : IDisposable {
         if (pair is null) return;
         try {
             var color = pair.Color;
-            WriteableBitmap picture = BitmapFor(_pictureBitmap, color.Width, color.Height, PixelFormats.Bgr32);
-            WriteableBitmap frost = BitmapFor(_frostBitmap, pair.Width, pair.Height, PixelFormats.Pbgra32);
+            if (!HasSize(_pictureBitmap, color.Width, color.Height) || !HasSize(_frostBitmap, pair.Width, pair.Height)) {
+                // The initial textures have no readers. Fill them before publishing either plane.
+                var initialPicture = new WriteableBitmap(color.Width, color.Height, 96, 96, PixelFormats.Bgr32, null);
+                var initialFrost = new WriteableBitmap(pair.Width, pair.Height, 96, 96, PixelFormats.Pbgra32, null);
+                WritePair(pair, initialPicture, initialFrost);
+                bool first = _pictureBitmap is null;
+                _pictureBitmap = initialPicture;
+                _frostBitmap = initialFrost;
+                _picture.Rect = _frost.Rect = new Rect(0, 0, color.Width, color.Height);
+                _picture.ImageSource = initialPicture;
+                _frost.ImageSource = initialFrost;
+                if (first) {
+                    Logger.Info($"视频壁纸同步播放已就绪（{color.Width}×{color.Height}）");
+                    FirstFramePresented?.Invoke(this, EventArgs.Empty);
+                }
+                return;
+            }
+            WriteableBitmap picture = _pictureBitmap!;
+            WriteableBitmap frost = _frostBitmap!;
             // If WPF is still using either buffer, keep both textures on the previous video frame.
             if (!picture.TryLock(NonBlockingLock)) return;
             try {
                 if (!frost.TryLock(NonBlockingLock)) return;
-                try {
-                    picture.WritePixels(new Int32Rect(0, 0, color.Width, color.Height), color.Pixels, color.Width * 4, 0);
-                    frost.WritePixels(new Int32Rect(0, 0, pair.Width, pair.Height), pair.Frost, pair.Width * 4, 0);
-                } finally { frost.Unlock(); }
+                try { WritePair(pair, picture, frost); }
+                finally { frost.Unlock(); }
             } finally { picture.Unlock(); }
-            if (!ReferenceEquals(_pictureBitmap, picture)) {
-                if (_pictureBitmap is null) Logger.Info($"视频壁纸同步播放已就绪（{color.Width}×{color.Height}）");
-                _pictureBitmap = picture;
-                _picture.Rect = new Rect(0, 0, color.Width, color.Height);
-                _picture.ImageSource = picture;
-                // Both drawings use the same intrinsic aspect ratio, including at fractional DPI.
-                _frost.Rect = _picture.Rect;
-            }
-            if (!ReferenceEquals(_frostBitmap, frost)) {
-                _frostBitmap = frost;
-                _frost.ImageSource = frost;
-            }
         } catch (Exception error) when (error is InvalidOperationException or ArgumentException or COMException) { Fail(error); }
         finally { pair.Release(); }
     }
 
-    private static WriteableBitmap BitmapFor(WriteableBitmap? existing, int width, int height, PixelFormat format) =>
-        existing is not null && existing.PixelWidth == width && existing.PixelHeight == height
-        ? existing : new WriteableBitmap(width, height, 96, 96, format, null);
+    private static bool HasSize(WriteableBitmap? bitmap, int width, int height) =>
+        bitmap is not null && bitmap.PixelWidth == width && bitmap.PixelHeight == height;
+
+    private static void WritePair(FramePair pair, WriteableBitmap picture, WriteableBitmap frost) {
+        var color = pair.Color;
+        picture.WritePixels(new Int32Rect(0, 0, color.Width, color.Height), color.Pixels, color.Width * 4, 0);
+        frost.WritePixels(new Int32Rect(0, 0, pair.Width, pair.Height), pair.Frost, pair.Width * 4, 0);
+    }
 
     private void Fail(Exception error) {
         lock (_gate) {

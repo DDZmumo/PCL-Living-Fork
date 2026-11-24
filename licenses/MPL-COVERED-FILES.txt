@@ -209,6 +209,7 @@ PCLCS/Application/SkinLibraryStore.cs
 PCLCS/Application/TaskApplicationService.cs
 modern/Main/Application/LauncherApplicationServices.cs
 modern/Main/Application/LauncherEntryPoint.cs
+modern/Main/Application/JavaRuntimeDownloads.cs
 modern/Main/Application/LocalSkinLaunchSupport.cs
 modern/Main/Application/SkinLibraryApplicationService.cs
 tests/PCLLF.Migration.Tests/ApplicationServiceTests.cs
@@ -217,12 +218,14 @@ tests/PCLLF.Native.Facade.Tests/SkinLibraryChecks.cs
 PCLLF.WPF.Core/Glass/BlockCurveLoader.cs
 PCLLF.WPF.Core/Glass/GlassCompositionHost.cs
 PCLLF.WPF.Core/Glass/VideoWallpaperSampler.cs
+PCLLF.WPF.Core/Glass/LiveVideoFrost.cs
 PCLLF.WPF.Core/Glass/MediaFoundationVideoReader.cs
 PCLLF.WPF.Core/Glass/VideoWallpaperPlayback.cs
 PCLLF.WPF.Core/Glass/GlassDesktopComposition.cs
 PCLLF.WPF.Core/Glass/GlassMaterial.cs
 PCLLF.WPF.Core/Glass/GlassSurface.cs
 PCLLF.WPF.Core/Glass/ScrollEdgeFade.cs
+PCLLF.WPF.Core/Glass/TrackDragSlider.cs
 PCLLF.WPF.Core/Glass/GlassWindowBackdrop.cs
 PCLLF.WPF.Core/Glass/GlassWindowRegionClip.cs
 PCLLF.WPF.Core/Motion/MotionAssemblyInfo.cs
@@ -302,6 +305,8 @@ PCLCS/Launch/LegacyServerAddress.cs
 PCLCS/Minecraft/LegacyJavaLaunchIdentity.cs
 modern/Main/Application/TerracottaComponent.cs
 modern/Main/Application/TerracottaConnection.cs
+modern/Main/Application/TerracottaUpdates.cs
 modern/Main/Glass/GlassPresentation.Lobby.cs
+modern/Main/Glass/GlassPresentation.LobbyUpdates.cs
 modern/Main/Glass/TerracottaLobbyPage.cs
 tests/PCLLF.Native.Facade.Tests/TerracottaLobbyChecks.cs

@@ -562,6 +562,9 @@ namespace PCL
                 FilterUserName = global::PCL.ModMinecraft.FilterUserName,
                 Libraries = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Collections.Generic.IEnumerable<global::PCLCS.LegacyMinecraftLibrary>>((Instance, MainJar) => global::PCL.ModMinecraft.McLibListGet(Instance, MainJar)),
                 JsonRuleCheck = global::PCL.ModMinecraft.McJsonRuleCheck,
+                LibrariesForX86 = ModMinecraft.McLibListGetForX86,
+                JsonRuleCheckForX86 = ModMinecraft.McJsonRuleCheckForX86,
+                PrepareX86Libraries = PrepareX86Libraries,
                 AssetsIndexName = global::PCL.ModMinecraft.McAssetsGetIndexName,
                 CreateLauncherProfiles = global::PCL.ModMinecraft.McFolderLauncherProfilesJsonCreate,
                 SelectJava = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean, global::System.Threading.CancellationToken, global::MeloongCore.ProgressProvider, global::PCLCS.Java>((Instance, Fix, Token, Progress) => global::PCL.ModJava.SelectOrDownloadJava(Instance, Fix, Token, Progress)),
@@ -671,6 +674,19 @@ namespace PCL
             global::PCL.ModLaunch.FillPort(Port, Raw);
             return Port;
         }
+        private static void PrepareX86Libraries(ModMinecraft.McInstance instance, System.Threading.CancellationToken token)
+        {
+            var checkedByClientFix = ModMinecraft.McLibListGet(instance, false).Select(library => library.LocalPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var extra = ModMinecraft.McLibListGetForX86(instance, false)
+                .Where(library => !checkedByClientFix.Contains(library.LocalPath)).ToList();
+            if (extra.Count == 0) return;
+            token.ThrowIfCancellationRequested();
+            var download = new ModNet.LoaderDownload("补全 32 位 Java 支持库", ModMinecraft.McLibNetFilesFromTokens(extra));
+            try { download.WaitForExit(c: token); }
+            finally { download.Cancel(); }
+        }
+
         private static global::PCLCS.LegacyLaunchStep ClientFixStep(global::PCL.ModMinecraft.McInstance Instance)
         {
             return new global::PCLCS.LegacyLaunchExistingStep() { Name = "补全文件", Task = OperationPort(new global::PCL.ModLoader.LoaderCombo<global::System.String>("补全文件", (global::System.Collections.Generic.IEnumerable<global::PCL.ModLoader.LoaderBase>)global::PCL.ModDownload.DlClientFix(Instance, false, true))), PreserveMetadata = false };

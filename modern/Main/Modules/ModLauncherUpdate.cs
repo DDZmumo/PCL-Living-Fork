@@ -11,6 +11,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using MeloongCore;
@@ -38,6 +39,8 @@ namespace PCL
 
         internal enum UpdateSource { Cnb = 0, GitHub = 1 }
         internal enum UpdateChannel { Stable = 0, StableAndPrerelease = 1 }
+
+        internal static bool AutomaticCheckEnabled => Settings.Get<bool>("ToolLauncherUpdateAutoCheck");
 
         internal static UpdateChannel PreferredUpdateChannel()
             => Settings.Get<int>("ToolLauncherUpdateChannel") == 1 ? UpdateChannel.StableAndPrerelease : UpdateChannel.Stable;
@@ -391,8 +394,9 @@ namespace PCL
             Transport.Download(Asset["browser_download_url"].ToString(), Staged, new FileChecker { Hash = Hash, ActualSize = (long)Asset["size"] });
             ValidateExecutable(Staged, Hash);
         }
-        internal static void CheckForUpdates(bool Startup)
+        internal static void CheckForUpdates(bool Startup, Task StartupNoticeClosed = null)
         {
+            if (Startup && !AutomaticCheckEnabled) return;
             if (Interlocked.CompareExchange(ref CheckRunning, 1, 0) != 0)
             {
                 if (!Startup) ModMain.Hint("正在检查更新，请稍候……");
@@ -404,8 +408,10 @@ namespace PCL
             {
                 try
                 {
+                    if (Startup && !AutomaticCheckEnabled) return;
                     // The startup check reuses the release the splash already fetched.
                     JObject Info = (Startup ? GlassStartupPreload.TakeRelease(Source) : null) ?? FindLatestReleaseForSource(ModBase.VersionBaseName, Source);
+                    if (Startup && !AutomaticCheckEnabled) return;
                     string Tag = Info["tag_name"]?.ToString();
                     if (!NewerReleaseForChannel(Tag, ModBase.VersionBaseName, PreferredUpdateChannel()))
                     {
@@ -416,7 +422,12 @@ namespace PCL
                     string IgnoredTag = Settings.Get<string>("ToolLauncherUpdateIgnoredTag");
                     if (Startup && !ShouldPromptForUpdate(Tag, ModBase.VersionBaseName, IgnoredTag)) { RememberDeferredUpdate(Info, Source); return; }
                     ClearDeferredUpdate();
-                    if (Startup && !GlassStartupPreload.WaitForInterface()) return;
+                    if (Startup)
+                    {
+                        if (!GlassStartupPreload.WaitForInterface() || !AutomaticCheckEnabled) return;
+                        StartupNoticeClosed?.GetAwaiter().GetResult();
+                        if (!AutomaticCheckEnabled) return;
+                    }
                     UpdatePromptView View = Startup ? GlassStartupPreload.TakeUpdateView(Tag, Source) : null; UpdateSource DownloadSource = Source;
                     int Choice = ModMain.MyMsgBoxConfirmContent("请选择本次更新的下载源。", "发现 PCL Living Fork 新版本", "下载并更新", () => { View ??= new UpdatePromptView(Tag, Source); return View; }, "暂不更新", IsWarn: false);
                     if (Choice == 1)

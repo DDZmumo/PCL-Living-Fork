@@ -214,9 +214,16 @@ namespace PCL
             if (dispatcher is null) return;
             void Open()
             {
-                if (ModMain.FrmMain is null) return;
-                if (ModMain.FrmMain.PageRight is PageSetupUpdate update) update.RefreshReleases();
-                else ModMain.FrmMain.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUpdate);
+                var main = ModMain.FrmMain;
+                if (main is null) return;
+                if (main.PageRight is PageSetupUpdate update)
+                {
+                    update.RefreshReleases();
+                    return;
+                }
+                main.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUpdate);
+                if (!ModLauncherUpdate.AutomaticCheckEnabled && main.PageRight is PageSetupUpdate opened)
+                    opened.RefreshReleases();
             }
             if (dispatcher.CheckAccess()) Open(); else dispatcher.InvokeAsync(Open);
         }

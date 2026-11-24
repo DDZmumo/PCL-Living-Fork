@@ -39,14 +39,12 @@ public partial class PageSetupPersonal : MyPageRight {
             if (!ReferenceEquals(LabInstance.Tag, instance)) { RefreshPage(); return; }
             Settings.Set("VersionPersonalOptionsSync", ComboPolicy.SelectedIndex, Instance: instance); RefreshPage();
         };
-        ComboCapture.SelectionChanged += (_, _) => {
-            if (refreshing || IsInstanceContext || ComboCapture.SelectedIndex < 0) return;
-            StageSetting("LaunchPersonalOptionsCapture", ComboCapture.SelectedIndex == 0); RefreshPage();
-        };
         TextSearch.TextChanged += (_, _) => { if (!refreshing) RefreshPage(); };
         BtnImport.Click += (_, _) => Execute(ImportSelection);
         BtnSaveGlobal.Click += (_, _) => Execute(SaveGlobalSettings);
         BtnApply.Click += (_, _) => Execute(SaveInstanceSettings);
+        BtnWriteBack.Click += (_, _) => Execute(() => ResumeSync(true));
+        BtnSyncFromGlobal.Click += (_, _) => Execute(() => ResumeSync(false));
         BtnRefresh.Click += (_, _) => DiscardDraft();
         Loaded += (_, _) => {
             if (IsInstanceContext) ModMain.FrmInstanceLeft?.SyncSelection(FormMain.PageSubType.InstancePersonal);
@@ -85,8 +83,6 @@ public partial class PageSetupPersonal : MyPageRight {
             LabImportedInstanceCaption.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             LabImportedInstance.Visibility = LabImportedInstanceCaption.Visibility;
             LabPolicyCaption.Visibility = detail; ComboPolicy.Visibility = detail;
-            LabCaptureCaption.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
-            ComboCapture.Visibility = LabCaptureCaption.Visibility;
             BtnApply.Visibility = detail; BtnRefresh.Visibility = Visibility.Visible;
             BtnSaveGlobal.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             CardSearch.Visibility = Visibility.Visible; PanGroups.Visibility = Visibility.Visible; LabEditScope.Visibility = Visibility.Visible;
@@ -97,11 +93,10 @@ public partial class PageSetupPersonal : MyPageRight {
             LabInstance.Tag = instance;
             LabInstance.ToolTip = instance?.PathVersion;
             CheckEnabled.Checked = PageSetting<bool>("LaunchPersonalOptionsSync");
-            ComboCapture.SelectedIndex = PageSetting<bool>("LaunchPersonalOptionsCapture") ? 0 : 1;
             ComboPolicy.IsEnabled = instance is not null && !ModMinecraft.McInstanceLock.IsLocked(instance);
             ComboPolicy.SelectedIndex = Target is null ? -1 : Settings.Get<int>("VersionPersonalOptionsSync", Instance: Target);
             LabEditScope.Text = !IsInstanceContext ? "右侧编辑共用方案，保存后供参与同步的版本在启动时使用。"
-                : ComboPolicy.SelectedIndex == 1 ? "修改左侧后保存。右侧全局方案供对照。" : "跟随全局时只读。选择不同步后可编辑本版本。";
+                : ComboPolicy.SelectedIndex == 1 ? "本实例保留独立设置。回写或同步后将重新跟随全局。" : "游戏中修改已同步项目后，本实例会自动切换为独立设置。";
             CurrentPreview = Target is null ? null : PersonalGameSettings.Preview(Target);
             JObject profile = PersonalGameSettings.Management.Profile();
             globalValues = (JObject)(profile["values"] as JObject)?.DeepClone() ?? new JObject();
@@ -125,7 +120,7 @@ public partial class PageSetupPersonal : MyPageRight {
                 : saved == 0 ? "所选项目没有已保存的值，请从来源版本重新导入。"
                 : applicable == 0 ? "此版本未提供所选的基础项目，暂不应用。"
                 : conflicts > 0 ? $"有 {conflicts} 项同步冲突，相关项目暂不自动应用。请在下方选择保留哪一份。"
-                : ModWatcher.HasRunningMinecraft ? "游戏正在运行。关闭游戏后，可查看回写结果或立即应用。"
+                : ModWatcher.HasRunningMinecraft ? "游戏正在运行，退出后可查看此实例的同步状态。"
                 : CurrentPreview.Changed.Count == 0 ? "此版本的所选设置已与个人方案一致。"
                 : $"下次启动将应用 {CurrentPreview.Changed.Count} 项全局设置。";
             HintStatus.Text = state;
@@ -142,6 +137,8 @@ public partial class PageSetupPersonal : MyPageRight {
             LabUpdated.Text = hasUpdateTime ? $"更新于 {updatedTime.ToLocalTime():yyyy-MM-dd HH:mm}" : string.Empty;
             LabUpdated.Visibility = hasUpdateTime ? Visibility.Visible : Visibility.Collapsed;
             bool idle = !ModWatcher.HasRunningMinecraft && (instance is null || !ModMinecraft.McInstanceLock.IsLocked(instance));
+            BtnWriteBack.Visibility = BtnSyncFromGlobal.Visibility = IsInstanceContext && ComboPolicy.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+            BtnWriteBack.IsEnabled = BtnSyncFromGlobal.IsEnabled = idle && !HasDraft && CurrentPreview?.HasFile == true && applicable > 0;
             BtnImport.IsEnabled = idle && CurrentPreview?.HasFile == true && CurrentPreview.Current.Properties().Any(value => PersonalOptionsCatalog.Contains(value.Name));
             BtnSaveGlobal.IsEnabled = !IsInstanceContext && HasDraft && !ModWatcher.HasRunningMinecraft;
             BtnApply.IsEnabled = CanEditLocal && stagedValues.Count > 0;
@@ -150,6 +147,7 @@ public partial class PageSetupPersonal : MyPageRight {
             if (IsInstanceContext) { BuildGroups(excluded); CardConflicts.Visibility = Visibility.Collapsed; }
             else { BuildGlobalPreview(globalValues, excluded); BuildConflicts(profile["conflicts"] as JObject); }
         } catch (Exception error) {
+            BtnWriteBack.IsEnabled = BtnSyncFromGlobal.IsEnabled = false;
             CurrentPreview = null; BtnImport.IsEnabled = false; BtnApply.IsEnabled = false; BtnSaveGlobal.IsEnabled = false;
             PanGroups.IsEnabled = false;
             LabSummary.Text = string.Empty;
@@ -290,6 +288,18 @@ public partial class PageSetupPersonal : MyPageRight {
         Settings.Set("LaunchPersonalOptionsSync", true);
         stagedValues.Clear(); stagedSettings.Clear(); stagedConflictChoices.Clear();
         RefreshPage(); Notify("个人方案已导入，同步已开启。");
+    }
+    internal void ResumeSync(bool writeBack) {
+        FlushPendingEdits(false);
+        var instance = Target;
+        var preview = CurrentPreview;
+        if (!IsInstanceContext || instance is null || preview is null || HasDraft || ComboPolicy.SelectedIndex != 1)
+            throw new InvalidOperationException("请先保存或放弃未保存的修改，再同步。");
+        string title = writeBack ? "回写到全局" : "从全局同步";
+        if (!ReferenceEquals(LabInstance.Tag, instance)) throw new InvalidOperationException("实例已切换，请重新操作。");
+        PersonalGameSettings.ResumeSync(instance, preview, writeBack);
+        RefreshPage();
+        Notify(title + "已完成，本实例已恢复跟随全局设置。");
     }
     private void Execute(Action action) {
         try { action(); }

@@ -32,7 +32,7 @@ public void McLaunchNatives(LegacyLaunchTask<int, int> Loader)
         // 解压文件
         McLaunchLog("正在解压 Natives 文件");
         var ExistFiles = new List<string>();
-        foreach (LegacyMinecraftLibrary Native in host.Libraries(McInstanceSelected, true))
+        foreach (LegacyMinecraftLibrary Native in SelectedJavaLibraries(true))
         {
             if (!Native.IsNatives)
                 continue;
@@ -108,15 +108,18 @@ public void McLaunchNatives(LegacyLaunchTask<int, int> Loader)
 
 public string GetNativesFolder(TInstance Instance = null)
     {
+        bool x86 = McLaunchJavaSelected?.Is32Bit == true && (Instance is null || ReferenceEquals(Instance, McInstanceSelected));
         if (Instance is null)
             Instance = McInstanceSelected;
-        string Result = PathUtils.AddSlashSuffix(PathUtils.ToShortPath(Instance.PathVersion)) + Instance.Name + @"-natives\";
+        string suffix = x86 ? "-natives-x86" : "-natives";
+        string Result = PathUtils.AddSlashSuffix(PathUtils.ToShortPath(Instance.PathVersion)) + Instance.Name + suffix + @"\";
         if (!(host.IsGbkEncoding() || Result.IsAsciiOnly()))
         {
-            Result = Paths.AppData + @".minecraft\bin\natives\";
+            string fallback = x86 ? @"natives-x86\" : @"natives\";
+            Result = Paths.AppData + @".minecraft\bin\" + fallback;
             if (!Result.IsAsciiOnly())
             {
-                Result = host.OsDrive() + @"ProgramData\PCL\natives\";
+                Result = host.OsDrive() + @"ProgramData\PCL\" + fallback;
             }
         }
         DirectoryUtils.Create(Result); // 提前创建，这样 DirectoryUtils.Shorten 才有结果（否则在长路径下首次启动 Forge 会崩溃）
@@ -207,47 +210,11 @@ public void McLaunchPrerun()
 
         // 更新 options.txt
         string SetupFileAddress = McInstanceSelected.PathIndie + "options.txt";
-        if (!FileUtils.Exists(SetupFileAddress))
-        {
-            // Yosbr Mod 兼容（#2385）：https://www.curseforge.com/minecraft/mc-mods/yosbr
-            string YosbrFileAddress = McInstanceSelected.PathIndie + @"config\yosbr\options.txt";
-            if (FileUtils.Exists(YosbrFileAddress))
-            {
-                McLaunchLog("将修改 Yosbr Mod 中的 options.txt");
-                SetupFileAddress = YosbrFileAddress;
-                host.WriteIni(SetupFileAddress, "lang", "none"); // 忽略默认语言
-            }
-        }
         try
         {
-            // 语言
-            // 1.0-     ：没有语言选项
-            // 1.1 ~ 5  ：zh_CN 时正常，zh_cn 时崩溃（最后两位字母必须大写，否则将会 NPE 崩溃）
-            // 1.6 ~ 10 ：zh_CN 时正常，zh_cn 时自动切换为英文
-            // 1.11 ~ 12：zh_cn 时正常，zh_CN 时虽然显示了中文但语言设置会错误地显示选择英文
-            // 1.13+    ：zh_cn 时正常，zh_CN 时自动切换为英文
-            string CurrentLang = host.ReadIni(SetupFileAddress, "lang", "none");
-            string RequiredLang = CurrentLang == "none" || !DirectoryUtils.Exists(McInstanceSelected.PathIndie + "saves") ? Setting<bool>("ToolHelpChinese") ? "zh_cn" : "en_us" : CurrentLang.Lower(); // #3844，整合包可能已经自带了 options.txt
-            if (!McInstanceSelected.Version.Valid || McInstanceSelected.Version.Vanilla.Major <= 10)
-            {
-                // 将最后两位改为大写，前面的部分保留
-                RequiredLang = RequiredLang.Substring(0, RequiredLang.Length - 2) + RequiredLang.Substring(RequiredLang.Length - 2).Upper();
-            }
-            if ((CurrentLang ?? "") == (RequiredLang ?? ""))
-            {
-                McLaunchLog($"需要的语言为 {RequiredLang}，当前语言为 {CurrentLang}，无需修改");
-            }
-            else
-            {
-                host.WriteIni(SetupFileAddress, "lang", "-"); // 触发缓存更改，避免删除后重新下载残留缓存
-                host.WriteIni(SetupFileAddress, "lang", RequiredLang);
-                McLaunchLog($"已将语言从 {CurrentLang} 修改为 {RequiredLang}");
-            }
-            // '如果是初次设置，一并修改 forceUnicodeFont
-            // If Settings.Get(Of Boolean)("ToolHelpChinese") AndAlso (CurrentLang = "none" OrElse Not DirectoryUtils.Exists(McInstanceSelected.PathIndie & "saves")) Then
-            // WriteIni(SetupFileAddress, "forceUnicodeFont", "true")
-            // McLaunchLog("已开启 forceUnicodeFont")
-            // End If
+            SetupFileAddress = PersonalOptionsFiles.ApplyDefaultLanguage(McInstanceSelected.PathIndie, Setting<bool>("ToolHelpChinese"),
+                McInstanceSelected.Version, host.ClearIniCache,
+                () => (int?)McInstanceSelected.JsonVersion?["world_version"]);
             // 窗口
             switch (Setting<int>("LaunchArgumentWindowType"))
             {

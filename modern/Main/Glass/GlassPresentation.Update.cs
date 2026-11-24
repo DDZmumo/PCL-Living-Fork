@@ -29,7 +29,7 @@ public sealed partial class GlassPresentationSession
     /// (正在检查更新 / 已是最新版本 / 发现新版本) over the launcher mark in a halo, with the main action right under it;
     /// a new version brings its notes directly below. Update settings and the version history follow, quieter.
     /// Everything is read from, and every action goes through, the original page and its controls: the check runs when
-    /// the page opens (as before), the selectors are the projected originals (channel confirmation included), and
+    /// the page opens if automatic checks are enabled, the selectors are the projected originals, and
     /// the headline, update notes and install action use the newest eligible release from the original catalog.
     /// </summary>
     private Node ProjectLauncherUpdate(PageSetupUpdate page)
@@ -97,7 +97,7 @@ public sealed partial class GlassPresentationSession
         private TimeSpan? _lastFrame;
         private bool _hooked, _settling;
 
-        private enum State { Checking, Latest, Available, Failed, Development }
+        private enum State { Unchecked, Checking, Latest, Available, Failed, Development }
         private State? _state;
         private bool _wasLoading, _primed, _disposed;
         private DateTime? _checkedTime;
@@ -300,6 +300,7 @@ public sealed partial class GlassPresentationSession
             }
             bool failed = !loading && _page.HintStatus.Text.StartsWith("读取版本列表失败", StringComparison.Ordinal);
             State state = loading ? State.Checking : failed ? State.Failed : _newest is not null ? State.Available
+                : !_page.HasCheckedForUpdates ? State.Unchecked
                 : version == "dev_edition" ? State.Development : State.Latest;
 
             _check.IsEnabled = _page.BtnRefresh.IsEnabled;
@@ -321,6 +322,7 @@ public sealed partial class GlassPresentationSession
             _subtitle.Text = version;
             _detail.Text = state switch
             {
+                State.Unchecked => "点击“检查更新”获取可用版本和版本历史",
                 State.Checking => "正在连接更新源",
                 State.Available => _newestMeta,
                 State.Failed => _page.HintStatus.Text,
@@ -335,6 +337,7 @@ public sealed partial class GlassPresentationSession
 
             string headline = state switch
             {
+                State.Unchecked => "尚未检查更新",
                 State.Checking => "正在检查更新",
                 State.Available => "发现新版本",
                 State.Failed => "检查更新未完成",
@@ -472,7 +475,11 @@ public sealed partial class GlassPresentationSession
         private void FillSettings()
         {
             UIElement? source = _owner.Project(_page.ComboSource), channel = _owner.Project(_page.ComboChannel);
+            UIElement? autoCheck = _owner.Project(_page.CheckAutoUpdate);
             if (_settings.Children.Count > 0) return;
+            if (autoCheck is CheckBox toggle) toggle.Style = _owner.Style("GlassPresentationSwitch");
+            _settings.Children.Add(SettingRow("自动检查更新", "启动或打开此页时检查可用版本", autoCheck));
+            _settings.Children.Add(Divider());
             _settings.Children.Add(SettingRow("更新源", "选择从哪里下载启动器更新", source));
             _settings.Children.Add(Divider());
             _settings.Children.Add(SettingRow("更新通道", "预发布版可能包含尚未完成验证的改动", channel));
@@ -605,7 +612,7 @@ public sealed partial class GlassPresentationSession
         private static string Size(long bytes) => bytes >= 1 << 20 ? $"{bytes / 1048576d:0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
 
         // A plain-text preview of the Markdown notes: headings and list marks removed, the first lines kept.
-        private static string Preview(string markdown)
+        internal static string Preview(string markdown)
         {
             var lines = new List<string>();
             foreach (string raw in markdown.Replace("\r", "").Split('\n'))

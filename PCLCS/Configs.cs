@@ -7,6 +7,7 @@ public static class Configs {
 
     /// <summary> 当前 Java 相关配置的版本。0 代表尚未从老的 Settings 系统中迁移。</summary>
     public static readonly ConfigEntry<int> JavaConfigVersion = new("JavaConfigVersion", 0);
+    // Shared lock for publishing Java lists and their exclusions. Process probes run outside it.
     public static readonly ConfigEntry<ConcurrentList<Java>> JavaList = new("JavaList", []);
     public static readonly ConfigEntry<List<string>> JavaRemovedList = new("JavaRemovedList", []);
     public static readonly DynamicConfigEntry<bool> JavaMigrated = new("InstanceMigratedJava", false);

@@ -23,6 +23,7 @@ public partial class PageSetupUpdate : MyPageRight
     private List<JObject> catalog = new List<JObject>();
     private string catalogError;
     internal JObject LatestUpdateRelease { get; private set; }
+    internal bool HasCheckedForUpdates => catalogLoaded;
     internal Func<ModLauncherUpdate.UpdateSource, ModLauncherUpdate.UpdateChannel, List<JObject>> ReadReleases =
         (source, channel) => ModLauncherUpdate.GetPageReleases(source, channel);
     internal Action<JObject> UpdateRelease = release => ModLauncherUpdate.RequestSelectedUpdate(release, ModLauncherUpdate.PreferredUpdateSource());
@@ -44,7 +45,8 @@ public partial class PageSetupUpdate : MyPageRight
         {
             if (refreshing || ComboSource.SelectedIndex < 0) return;
             Settings.Set("ToolLauncherUpdateSource", ComboSource.SelectedIndex);
-            RefreshReleases();
+            if (ModLauncherUpdate.AutomaticCheckEnabled) RefreshReleases();
+            else ResetReleaseCatalog();
         };
         ComboChannel.SelectionChanged += (_, _) =>
         {
@@ -61,9 +63,13 @@ public partial class PageSetupUpdate : MyPageRight
         Loaded += (_, _) =>
         {
             ModMain.FrmSetupLeft?.ItemUpdate.SetChecked(true, false, false);
-            RefreshSelection(); RefreshReleases();
+            RefreshSelection();
+            if (ModLauncherUpdate.AutomaticCheckEnabled) RefreshReleases();
         };
-        Unloaded += (_, _) => Interlocked.Increment(ref revision);
+        Unloaded += (_, _) =>
+        {
+            if (Loading.Visibility == Visibility.Visible) ResetReleaseCatalog();
+        };
         ApplyFilters();
     }
 
@@ -75,6 +81,7 @@ public partial class PageSetupUpdate : MyPageRight
             LabCurrentVersion.Text = ModBase.VersionBaseName;
             ComboSource.SelectedIndex = (int)ModLauncherUpdate.PreferredUpdateSource();
             ComboChannel.SelectedIndex = (int)ModLauncherUpdate.PreferredUpdateChannel();
+            CheckAutoUpdate.Checked = ModLauncherUpdate.AutomaticCheckEnabled;
         }
         finally { refreshing = false; }
     }
@@ -119,6 +126,17 @@ public partial class PageSetupUpdate : MyPageRight
                 RenderReleases(releases ?? new List<JObject>(), error);
             });
         });
+    }
+
+    private void ResetReleaseCatalog()
+    {
+        Interlocked.Increment(ref revision);
+        BtnRefresh.IsEnabled = true;
+        Loading.Visibility = Visibility.Collapsed;
+        catalogLoaded = false;
+        catalog.Clear();
+        catalogError = null;
+        ApplyFilters();
     }
 
     internal void RenderReleases(List<JObject> releases, string error)
@@ -188,7 +206,7 @@ public partial class PageSetupUpdate : MyPageRight
         LabNoResults.Visibility = PanVersions.Children.Count == 0 && catalogLoaded && catalogError is null ? Visibility.Visible : Visibility.Collapsed;
         bool anyNewer = LatestUpdateRelease is not null;
         HintStatus.Text = catalogError is not null ? "读取版本列表失败：" + catalogError : !catalogLoaded ? "点击“检查更新”获取完整版本列表。" : anyNewer ? "有可用更新，点击版本下载并更新。" : "当前更新通道没有更新的版本。";
-        LabBuildStatus.Text = catalogError is not null ? "检查更新未完成" : development ? "本机开发构建" : anyNewer ? "有新版本可用" : !catalogLoaded ? "尚未检查更新" : "已是最新版本";
+        LabBuildStatus.Text = catalogError is not null ? "检查更新未完成" : !catalogLoaded ? "尚未检查更新" : development ? "本机开发构建" : anyNewer ? "有新版本可用" : "已是最新版本";
     }
 
     private bool MatchesSearch(string tag, string name)

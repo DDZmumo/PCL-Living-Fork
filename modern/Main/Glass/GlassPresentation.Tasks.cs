@@ -105,22 +105,27 @@ public sealed partial class GlassPresentationSession
         {
             _owner = owner; _loader = loader;
             _title = owner.PlainText(loader.Name); _title.FontSize = 15; _title.FontWeight = FontWeights.SemiBold; _title.TextTrimming = TextTrimming.CharacterEllipsis; _title.VerticalAlignment = VerticalAlignment.Center;
-            _state = owner.PlainText(string.Empty); _state.FontSize = 12; _state.Margin = new Thickness(10, 0, 0, 0); _state.VerticalAlignment = VerticalAlignment.Center;
+            _title.TextWrapping = TextWrapping.NoWrap;
+            _title.ToolTip = loader.Name;
+            _state = owner.PlainText(string.Empty); _state.FontSize = 12; _state.Margin = new Thickness(10, 0, 0, 0); _state.VerticalAlignment = VerticalAlignment.Center; _state.TextWrapping = TextWrapping.NoWrap;
             _state.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
             _percent = owner.PlainText(string.Empty); _percent.FontSize = 13; _percent.FontWeight = FontWeights.SemiBold; _percent.VerticalAlignment = VerticalAlignment.Center; _percent.Margin = new Thickness(12, 0, 8, 0);
             _cancel = new Button { Content = "取消", Style = owner.Style("GlassPresentationButton"), Height = 28, MinHeight = 28, Padding = new Thickness(12, 0, 12, 0), FontSize = 12.5 };
             AutomationProperties.SetName(_cancel, "取消任务：" + loader.Name);
             _cancel.Click += (_, _) => { if (!owner.Live(_cancel)) return; Cancel(); owner.Refresh(); };
 
+            var heading = new DockPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            DockPanel.SetDock(_state, Dock.Right);
+            heading.Children.Add(_state);
+            heading.Children.Add(_title);
+
             var header = new Grid();
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition());
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.Children.Add(_title);
-            Grid.SetColumn(_state, 1); header.Children.Add(_state);
-            Grid.SetColumn(_percent, 2); header.Children.Add(_percent);
-            Grid.SetColumn(_cancel, 3); header.Children.Add(_cancel);
+            header.Children.Add(heading);
+            Grid.SetColumn(_percent, 1); header.Children.Add(_percent);
+            Grid.SetColumn(_cancel, 2); header.Children.Add(_cancel);
 
             _progress = new SlimBar { Margin = new Thickness(0, 12, 0, 0) };
 
@@ -138,6 +143,7 @@ public sealed partial class GlassPresentationSession
         internal void Update()
         {
             _title.Text = _loader.Name ?? string.Empty;
+            _title.ToolTip = _title.Text;
             AutomationProperties.SetName(View, _title.Text);
             ModBase.LoadState state = _loader.State;
             double progress = Math.Clamp(_loader.Progress, 0, 1);

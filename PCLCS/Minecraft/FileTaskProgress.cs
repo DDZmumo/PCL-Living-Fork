@@ -12,23 +12,37 @@ namespace PCLCS;
 // Plain Craft Launcher 2/Modules/Base/FileTaskProgress.vb; same real byte I/O policy.
 public static class FileTaskProgress {
     private const int BufferSize = 128 * 1024;
-    private static long totalRead, totalWritten;
+    private static long totalRead, totalWritten, totalDownloaded;
+    private static int activeDownloads;
     public static long ReadBytes => Interlocked.Read(ref totalRead);
     public static long WrittenBytes => Interlocked.Read(ref totalWritten);
+    public static long DownloadedBytes => Interlocked.Read(ref totalDownloaded);
+    public static int ActiveDownloads => Volatile.Read(ref activeDownloads);
     public static void RecordRead(int bytes) { if (bytes > 0) Interlocked.Add(ref totalRead, bytes); }
     public static void RecordWrite(int bytes) { if (bytes > 0) Interlocked.Add(ref totalWritten, bytes); }
+    internal static void RecordDownload(int bytes) { if (bytes > 0) Interlocked.Add(ref totalDownloaded, bytes); }
+    internal static void BeginDownload() => Interlocked.Increment(ref activeDownloads);
+    internal static void EndDownload() => Interlocked.Decrement(ref activeDownloads);
     public sealed class IoRateSampler {
-        private long stamp = System.Diagnostics.Stopwatch.GetTimestamp(), read = ReadBytes, written = WrittenBytes;
+        private long stamp = System.Diagnostics.Stopwatch.GetTimestamp(), read = ReadBytes, written = WrittenBytes, downloaded = DownloadedBytes;
         public double ReadPerSecond { get; private set; }
         public double WritePerSecond { get; private set; }
-        public void Reset() { stamp = System.Diagnostics.Stopwatch.GetTimestamp(); read = ReadBytes; written = WrittenBytes; ReadPerSecond = WritePerSecond = 0; }
+        public double DownloadPerSecond { get; private set; }
+        public void Reset() {
+            stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            read = ReadBytes;
+            written = WrittenBytes;
+            downloaded = DownloadedBytes;
+            ReadPerSecond = WritePerSecond = DownloadPerSecond = 0;
+        }
         public void Sample() {
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             double seconds = (now - stamp) / (double)System.Diagnostics.Stopwatch.Frequency;
             if (seconds < 0.25) return;
-            long nextRead = ReadBytes, nextWritten = WrittenBytes;
+            long nextRead = ReadBytes, nextWritten = WrittenBytes, nextDownloaded = DownloadedBytes;
             ReadPerSecond = Math.Max(0, nextRead - read) / seconds; WritePerSecond = Math.Max(0, nextWritten - written) / seconds;
-            stamp = now; read = nextRead; written = nextWritten;
+            DownloadPerSecond = Math.Max(0, nextDownloaded - downloaded) / seconds;
+            stamp = now; read = nextRead; written = nextWritten; downloaded = nextDownloaded;
         }
     }
     public static Action<double>? Slice(Action<double>? report, double start, double finish) {

@@ -31,7 +31,8 @@ internal static class LocalFeatureOptionsChecks
         Put(targetFile, merged.Replace("mouseSensitivity:0.8", "mouseSensitivity:0.6").Replace("renderDistance:32", "renderDistance:20"));
         Options("Finish", session);
         JObject profile = (JObject)Data("ReadJson", "personal-options.json")!;
-        L(53, (string?)profile["values"]!["mouseSensitivity"] == "0.6" && profile["values"]!["renderDistance"] is null);
+        L(53, (string?)profile["values"]!["mouseSensitivity"] == "0.8" && profile["values"]!["renderDistance"] is null &&
+            Settings.Get<int>("VersionPersonalOptionsSync", Instance: target) == 1);
         Cache(target, "VersionPersonalOptionsSync", 1); L(55, Options("Prepare", target) is null); Cache(target, "VersionPersonalOptionsSync", 0);
         Put(Path.Combine(legacy.PathVersion, "options.txt"), "key_key.forward:17\nmouseSensitivity:0.1\n"); Options("Prepare", legacy);
         L(59, File.ReadAllText(Path.Combine(legacy.PathVersion, "options.txt")).Contains("key_key.forward:19", StringComparison.Ordinal));
@@ -53,8 +54,24 @@ internal static class LocalFeatureOptionsChecks
         L(88, (bool)Native.Get(tracked, "Tracked")!); L(89, Options("Prepare", target) is null);
         string journalName = "options-sessions/" + (string)Native.Get(tracked, "Id")! + ".json";
         JObject journal = (JObject)Data("ReadJson", journalName)!; journal["pid"] = 2147483646; journal["started"] = 1L; Data("WriteJson", journalName, journal);
-        Put(targetFile, File.ReadAllText(targetFile).Replace("mouseSensitivity:0.6", "mouseSensitivity:0.7")); Options("RecoverExitedSessions");
-        profile = (JObject)Data("ReadJson", "personal-options.json")!; L(96, (string?)profile["values"]!["mouseSensitivity"] == "0.7");
+        Put(targetFile, File.ReadAllText(targetFile).Replace("mouseSensitivity:0.8", "mouseSensitivity:0.7")); Options("RecoverExitedSessions");
+        profile = (JObject)Data("ReadJson", "personal-options.json")!; L(96, (string?)profile["values"]!["mouseSensitivity"] == "0.8" &&
+            Settings.Get<int>("VersionPersonalOptionsSync", Instance: target) == 1);
+        Options("ResumeSync", target, Options("Preview", target), true);
+        Native.Check((string?)((JObject)Data("ReadJson", "personal-options.json")!)["values"]!["mouseSensitivity"] == "0.7" &&
+            Settings.Get<int>("VersionPersonalOptionsSync", Instance: target) == 0, "Write-back did not publish the instance value and resume following.");
+        Cache(target, "VersionPersonalOptionsSync", 1);
+        Put(targetFile, File.ReadAllText(targetFile).Replace("mouseSensitivity:0.7", "mouseSensitivity:0.4"));
+        Options("ResumeSync", target, Options("Preview", target), false);
+        Native.Check(File.ReadAllText(targetFile).Contains("mouseSensitivity:0.7") && Settings.Get<int>("VersionPersonalOptionsSync", Instance: target) == 0,
+            "Pulling from the global profile did not restore the shared value and resume following.");
+        var failedRead = Options("Prepare", target)!;
+        using (var self = Process.GetCurrentProcess()) Options("Track", failedRead, self);
+        Put(Path.Combine(target.PathIndie, "logs", "latest.log"), "[12:34:56] [Render thread/ERROR]: Failed to load options\n");
+        Put(targetFile, File.ReadAllText(targetFile).Replace("mouseSensitivity:0.7", "mouseSensitivity:0.5"));
+        Options("Finish", failedRead);
+        Native.Check(Settings.Get<int>("VersionPersonalOptionsSync", Instance: target) == 0 &&
+            (string?)((JObject)Data("ReadJson", "personal-options.json")!)["values"]!["mouseSensitivity"] == "0.7", "A game options load failure was treated as a player edit.");
         L(98, Rejected(() => Data("AtomicWrite", targetFile, Encoding.UTF8.GetBytes("unexpected-new-data"), "incorrect-old-hash", true)) is IOException);
         foreach (var (version, expected) in new[] { ("1.19.4", false), ("1.20.1", true), ("26.2", true) }) L(99, (bool)Quick("Supported", Instance(scope, "version-" + version, version))! == expected);
         string world = Path.Combine(target.PathVersion, "saves", "World with spaces"); Put(Path.Combine(world, "level.dat"), "synthetic-world"); Put(Path.Combine(world, "region", "keep.txt"), "world-data-preserve");

@@ -9,11 +9,36 @@ using Newtonsoft.Json.Linq;
 
 namespace PCLCS;
 
+internal static class LegacyWindowsNatives {
+    private const string WindowsLwjgl = ":natives-windows";
+
+    // LWJGL 3's plain Windows classifier is x64. LWJGL 2 used a separate
+    // "natives" mapping for the archive that shipped both sets of DLLs.
+    internal static bool IsX64Lwjgl(string coordinate) =>
+        coordinate.StartsWith("org.lwjgl:", StringComparison.Ordinal) && coordinate.EndsWith(WindowsLwjgl, StringComparison.Ordinal);
+
+    internal static bool IsWrongArchitecture(string coordinate) =>
+        IsX64Lwjgl(coordinate) || coordinate.EndsWith(":natives-windows-arm64", StringComparison.Ordinal) ||
+        coordinate.EndsWith(":natives-windows-x64", StringComparison.Ordinal) ||
+        coordinate.EndsWith(":natives-windows-64", StringComparison.Ordinal);
+
+    internal static bool SupportsX86(JObject? manifest) {
+        var coordinates = (manifest?["libraries"] as JArray)?.OfType<JObject>()
+            .Select(library => (string?)library["name"]).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        return coordinates is null || coordinates.Where(IsX64Lwjgl)
+            .All(name => coordinates.Contains(name + "-x86") || coordinates.Contains(name + "-32"));
+    }
+}
+
 public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary, TNetFile, TState, TCard, TFolderKind>
     where TInstance : LegacyMcInstance<TInstance, TState, TCard>
     where TFolder : LegacyMinecraftFolder<TFolderKind>, new() where TLibrary : LegacyMinecraftLibrary, new()
     where TNetFile : class where TState : struct, Enum where TCard : struct, Enum where TFolderKind : struct, Enum {
-    public bool McJsonRuleCheck(JToken? ruleToken) {
+    public bool McJsonRuleCheck(JToken? ruleToken) => CheckJsonRules(ruleToken, x86: false);
+
+    public bool McJsonRuleCheckForX86(JToken? ruleToken) => CheckJsonRules(ruleToken, x86: true);
+
+    private bool CheckJsonRules(JToken? ruleToken, bool x86) {
         if (ruleToken == null) return true;
         bool required = false;
         foreach (JToken rule in ruleToken) {
@@ -28,8 +53,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
                 }
                 if (rule["os"]!["arch"] != null) {
                     JToken arch = rule["os"]!["arch"]!;
-                    // Keep the original JToken.Contains call; do not silently replace it with a new platform policy.
-                    isRightRule = isRightRule && arch.ToString() != "x86" && !System.Linq.Enumerable.Contains<JToken>(arch, "arm");
+                    isRightRule = isRightRule && (x86 ? WindowsJavaDiscovery.Architecture(arch.ToString()) == "x86" :
+                        arch.ToString() != "x86" && !System.Linq.Enumerable.Contains<JToken>(arch, "arm"));
                 }
             }
             if (rule["features"] != null) {
@@ -43,9 +68,9 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         return required;
     }
 
-    public List<TLibrary> McLibListGet(TInstance instance, bool includeMainJar) {
+    public List<TLibrary> McLibListGet(TInstance instance, bool includeMainJar, bool x86 = false) {
         Logger.Info($"获取支持库列表：{instance.Name}");
-        List<TLibrary> result = McLibListGetWithJson(instance.JsonObject);
+        List<TLibrary> result = McLibListGetWithJson(instance.JsonObject, x86: x86);
         if (includeMainJar) {
             TInstance realInstance;
             string? requiredJar = instance.JsonObject["jar"]?.ToString();
@@ -75,14 +100,15 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         return result;
     }
 
-    public List<TLibrary> McLibListGetWithJson(JObject jsonObject, bool keepSameNameDifferentVersionResult = false, string? customMcFolder = null) {
+    public List<TLibrary> McLibListGetWithJson(JObject jsonObject, bool keepSameNameDifferentVersionResult = false, string? customMcFolder = null, bool x86 = false) {
         customMcFolder ??= McFolderSelected;
         List<TLibrary> basicArray = [];
-        foreach (JObject library in ((JArray)jsonObject["libraries"]!).Children()) {
-            for (int i = library.Properties().Count() - 1; i >= 0; i--) {
-                if (library.Properties().ElementAt(i).Value.Type == JTokenType.Null) library.Remove(library.Properties().ElementAt(i).Name);
-            }
-            if (!McJsonRuleCheck(library["rules"])) continue;
+        foreach (JObject entry in ((JArray)jsonObject["libraries"]!).Children()) {
+            // Normal repair and the x86-only repair can read the same profile in parallel.
+            JObject library = entry.Properties().Any(property => property.Value.Type == JTokenType.Null)
+                ? new JObject(entry.Properties().Where(property => property.Value.Type != JTokenType.Null)) : entry;
+            if (!CheckJsonRules(library["rules"], x86) ||
+                x86 && LegacyWindowsNatives.IsWrongArchitecture((string?)library["name"] ?? "")) continue;
             string? rootUrl = (string?)library["url"];
             if (rootUrl != null) rootUrl += McLibGet((string)library["name"]!, false, true, customMcFolder).Replace("\\", "/");
             if (library["natives"] == null) {
@@ -105,22 +131,28 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
                     basicArray.Add(new TLibrary { OriginalName = (string?)library["name"], Url = rootUrl, LocalPath = localPath, Size = 0, IsNatives = false, SHA1 = null });
                 }
             } else if (library["natives"]!["windows"] != null) {
-                string nativeName = (string)library["natives"]!["windows"]!;
-                string FallbackNativePath() => McLibGet((string)library["name"]!, customMcFolder: customMcFolder)
-                    .Replace(".jar", "-" + nativeName + ".jar").Replace("${arch}", Environment.Is64BitOperatingSystem ? "64" : "32");
+                string nativeName = ((string)library["natives"]!["windows"]!)
+                    .Replace("${arch}", x86 || !Environment.Is64BitOperatingSystem ? "32" : "64", StringComparison.Ordinal);
+                JToken? classifiers = library["downloads"]?["classifiers"];
+                if (x86 && nativeName == "natives-windows") {
+                    if (classifiers?["natives-windows-x86"] != null) nativeName = "natives-windows-x86";
+                    else if (classifiers?["natives-windows-32"] != null) nativeName = "natives-windows-32";
+                }
+                string suffix = "-" + nativeName + ".jar";
+                string FallbackNativePath() => McLibGet((string)library["name"]!, customMcFolder: customMcFolder)[..^4] + suffix;
+                string? nativeUrl = x86 && rootUrl is not null ? rootUrl[..^4] + suffix : rootUrl;
                 try {
-                    if (library["downloads"] != null && library["downloads"]!["classifiers"] != null && library["downloads"]!["classifiers"]![nativeName] != null) {
-                        JToken native = library["downloads"]!["classifiers"]![nativeName]!;
+                    if (classifiers?[nativeName] is JToken native) {
                         basicArray.Add(new TLibrary {
                             OriginalName = (string?)library["name"],
-                            Url = (string?)(native["url"] ?? rootUrl),
+                            Url = (string?)(native["url"] ?? nativeUrl),
                             LocalPath = native["path"] == null ? FallbackNativePath() : $"{customMcFolder}libraries\\{native["path"]!.ToString().Replace("/", "\\")}",
                             Size = Conversions.ToLong(Conversion.Val(native["size"]!.ToString())), IsNatives = true, SHA1 = native["sha1"]!.ToString()
                         });
-                    } else basicArray.Add(new TLibrary { OriginalName = (string?)library["name"], Url = rootUrl, Size = 0, IsNatives = true, SHA1 = null, LocalPath = FallbackNativePath() });
+                    } else basicArray.Add(new TLibrary { OriginalName = (string?)library["name"], Url = nativeUrl, Size = 0, IsNatives = true, SHA1 = null, LocalPath = FallbackNativePath() });
                 } catch (Exception ex) {
                     Logger.Warn(ex, $"处理实际支持库列表失败（有 Natives，{library["name"] ?? "Nothing"}）");
-                    basicArray.Add(new TLibrary { OriginalName = (string?)library["name"], Url = rootUrl, Size = 0, IsNatives = true, SHA1 = null, LocalPath = FallbackNativePath() });
+                    basicArray.Add(new TLibrary { OriginalName = (string?)library["name"], Url = nativeUrl, Size = 0, IsNatives = true, SHA1 = null, LocalPath = FallbackNativePath() });
                 }
             }
         }

@@ -43,6 +43,11 @@ namespace PCL
         public global::PCL.ResourceSearcher.SearchResult Storage;
         public const global::System.Int32 PAGE_SIZE = 40;
         public global::System.Int32 Page;
+        private const string ResultPageSizeSetting = "ToolDownloadResourcePageSize";
+        private static readonly int[] ResultPageSizes = [15, 30, 40, 60, 80];
+        private int resultPageSize = 15;
+        private bool syncingResultPageSize;
+        private ResourceSearcher.SearchRequest lastCompletedSearch;
         internal ModMinecraft.McInstance DownloadTargetInstance { get => Service.DownloadTargetInstance; set => Service.DownloadTargetInstance = value; }
         private global::PCLCS.ResourceSearchPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ResourceProject, global::PCL.ResourceSearcher.SearchResult, global::PCL.ResourceSearcher.SearchRequest> Controller;
         private global::PCLCS.ResourceSearchPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ResourceProject, global::PCL.ResourceSearcher.SearchResult, global::PCL.ResourceSearcher.SearchRequest> Service
@@ -62,6 +67,63 @@ namespace PCL
             this.Storage = new global::PCL.ResourceSearcher.SearchResult();
             this.Page = 0;
             this.InitializeComponent();
+            foreach (int size in ResultPageSizes)
+                ComboResultPageSize.Items.Add(new MyComboBoxItem { Content = $"{size} 条/页", Tag = size });
+            SyncResultPageSize();
+            ComboResultPageSize.SelectionChanged += (_, _) => {
+                if (syncingResultPageSize || FavoriteStore is not null || ComboResultPageSize.SelectedItem is not MyComboBoxItem { Tag: int size } ||
+                    size == resultPageSize) return;
+                resultPageSize = size;
+                Settings.Set(ResultPageSizeSetting, size);
+                RestartForPageSize();
+            };
+        }
+
+        private bool SyncResultPageSize()
+        {
+            int saved = Settings.Get<int>(ResultPageSizeSetting);
+            int index = Array.IndexOf(ResultPageSizes, saved);
+            if (index < 0) index = 0;
+            int size = ResultPageSizes[index];
+            bool changed = resultPageSize != size;
+            resultPageSize = size;
+            syncingResultPageSize = true;
+            try { ComboResultPageSize.SelectedIndex = index; }
+            finally { syncingResultPageSize = false; }
+            return changed;
+        }
+
+        private void RestartForPageSize()
+        {
+            Service.ResetPage();
+            StartResultPage();
+        }
+
+        private void StartResultPage()
+        {
+            if (Loader.Input is not { } previous) return;
+            if (Loader.State == ModBase.LoadState.Finished && ReferenceEquals(previous.Storage, Storage))
+                lastCompletedSearch = previous;
+
+            // Each worker owns its cursors. Reusing an interrupted worker's storage can skip rows.
+            var completed = lastCompletedSearch is { } finished && finished.SameQuery(previous) ? finished.Storage : null;
+            Storage = completed is null ? new ResourceSearcher.SearchResult() : new ResourceSearcher.SearchResult {
+                Results = completed.Results.ToList(), ErrorMessage = completed.ErrorMessage,
+                CurseForgeOffset = completed.CurseForgeOffset, CurseForgeTotal = completed.CurseForgeTotal,
+                ModrinthOffset = completed.ModrinthOffset, ModrinthTotal = completed.ModrinthTotal,
+                ModrinthDirectOffset = completed.ModrinthDirectOffset, ModrinthDirectTotal = completed.ModrinthDirectTotal
+            };
+            int start = checked(Page * resultPageSize);
+            var cached = Storage.Results.Skip(start).Take(resultPageSize).ToArray();
+            var request = new ResourceSearcher.SearchRequest(previous.Type, Storage, checked(start + resultPageSize)) {
+                PresentationPageSize = resultPageSize,
+                SearchText = previous.SearchText, GameVersion = previous.GameVersion, Tag = previous.Tag,
+                ModLoaders = previous.ModLoaders, Sources = previous.Sources
+            };
+            Service.ShowPendingPage(cached.Length >= resultPageSize);
+            Loader.Start(request, IsForceRestart: true);
+            if (cached.Length > 0) QueueSearchPreview(request, cached);
+            NotifyResultsChanged();
         }
 
         private global::PCLCS.ResourceSearchPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.ResourceProject, global::PCL.ResourceSearcher.SearchResult, global::PCL.ResourceSearcher.SearchRequest> CreateHost()
@@ -76,24 +138,28 @@ namespace PCL
                 Storage = new Func<global::PCL.ResourceSearcher.SearchResult>(() => this.Storage),
                 SetStorage = new Action<global::PCL.ResourceSearcher.SearchResult>(Value => this.Storage = Value),
                 Page = new Func<global::System.Int32>(() => this.Page),
+                ItemsPerPage = () => resultPageSize,
                 SetPage = new Action<global::System.Int32>(Value => this.Page = Value),
                 Request = new Func<global::PCLCS.ResourceTypes, global::PCL.ResourceSearcher.SearchResult, global::System.Int32, global::PCL.ResourceSearcher.SearchRequest>((Type, Store, Count) => new global::PCL.ResourceSearcher.SearchRequest(Type, Store, Count)),
                 Input = new Func<global::PCL.ResourceSearcher.SearchRequest>(() => this.Loader.Input),
                 ShouldStart = new Func<global::PCL.ResourceSearcher.SearchRequest, global::System.Boolean>(Input => this.Loader.ShouldStart(ref Input)),
-                Start = new Action(() => this.Loader.Start()),
+                Start = () => {
+                    Loader.Start();
+                    if (Loader.State == ModBase.LoadState.Loading) Service.ShowPendingPage();
+                    NotifyResultsChanged();
+                },
+                StartPage = StartResultPage,
                 ResetFinishedTime = new Action(() => this.Loader.LastFinishedTime = 0L),
                 InitializeLoader = new Action(() => ((global::PCL.MyPageRight)this.Parent).PageLoaderInit(this.Load, this.PanLoad, this.PanContent, this.PanAlways, this.Loader, (_) => this.Load_OnFinish(), this.LoaderInput, ProjectContent: true)),
                 Restart = new Action(() => ((global::PCL.MyPageRight)this.Parent).PageLoaderRestart()),
-                BackToTop = new Action(() => global::PCL.ModMain.FrmMain.BackToTop()),
+                BackToTop = new Action(() => global::PCL.ModMain.FrmMain?.BackToTop()),
                 InstallPack = new Action(() => global::PCL.ModModpack.ModpackInstall()),
                 LoaderName = new Action<global::System.String>(Value => this.Loader.Name = Value),
                 Failed = new Func<global::System.Boolean>(() => (this.Loader.State == global::PCL.ModBase.LoadState.Failed)),
                 Error = new Func<global::System.Exception>(() => this.Loader.Error),
                 AllDrops = new Func<global::System.Collections.Generic.List<global::System.Int32>>(() => global::PCL.ModDownload.AllDrops),
                 Item = new Func<global::System.Object, global::System.Object, global::System.Boolean, global::System.Windows.Controls.ComboBoxItem>((Content, Tag, Selected) => new global::PCL.MyComboBoxItem() { Content = Content, Tag = Tag, IsSelected = Selected }),
-                ProjectItem = new Func<global::PCL.ResourceProject, global::System.Boolean, global::System.Boolean, global::System.Windows.FrameworkElement>((Project, ShowVersion, ShowLoader) => Project.ToResourceItem(ShowVersion, ShowLoader)),
-                RunInThread = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInThread(Work)),
-                RunInUi = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work))
+                ProjectItem = new Func<global::PCL.ResourceProject, global::System.Boolean, global::System.Boolean, global::System.Windows.FrameworkElement>((Project, ShowVersion, ShowLoader) => Project.ToResourceItem(ShowVersion, ShowLoader))
             };
         }
 
@@ -174,7 +240,10 @@ namespace PCL
         private void PageResource_Loaded(global::System.Object sender, global::System.EventArgs e)
         {
             if (FavoriteStore is not null) { FavoritesChanged(); return; }
+            if (SyncResultPageSize() && TargetInstance is null) RestartForPageSize();
             this.Service.Loaded();
+            if (Loader.State == ModBase.LoadState.Loading)
+                Service.ShowPendingPage(SearchPreview?.Children.Count >= resultPageSize);
         }
 
         private global::PCL.ResourceSearcher.SearchRequest LoaderInput()
@@ -186,6 +255,10 @@ namespace PCL
         private void Load_OnFinish()
         {
             if (FavoriteStore is not null) { FavoritesChanged(); return; }
+            // PageLoaderInit calls this from PreviewFinish, before the loader transitions to Finished.
+            if (Loader.State is not (ModBase.LoadState.Loading or ModBase.LoadState.Finished) ||
+                Loader.Input is not { } input || !ReferenceEquals(input.Storage, Storage)) return;
+            lastCompletedSearch = input;
             this.Service.LoadOnFinish();
             NotifyResultsChanged();
         }
@@ -211,19 +284,24 @@ namespace PCL
             ResultsRevision++;
             ResultsChanged?.Invoke();
         }
-        private bool MatchesSearch(ResourceSearcher.SearchRequest input) => Page == 0 &&
+        private bool MatchesSearch(ResourceSearcher.SearchRequest input) =>
+            Page == (input.PresentationPageSize > 0 ? (input.TargetResultCount - 1) / input.PresentationPageSize : 0) &&
             ReferenceEquals(input, Loader.Input) && ReferenceEquals(input.Storage, Storage);
+        internal bool IsOnlineSearch => FavoriteStore is null;
+        internal bool IsPreviewPageFull => SearchPreview?.Children.Count >= resultPageSize;
+        private bool CanNavigateOnlinePage => Loader.State != ModBase.LoadState.Loading || IsPreviewPageFull;
         private void QueueSearchPreview(ResourceSearcher.SearchRequest input, IReadOnlyList<ResourceProject> projects)
         {
             _ = Dispatcher.InvokeAsync(() => {
-                if (Loader.State != ModBase.LoadState.Loading || !MatchesSearch(input)) return;
+                if (Loader.State != ModBase.LoadState.Loading || ReferenceEquals(lastCompletedSearch, input) || !MatchesSearch(input)) return;
                 var rows = new StackPanel();
                 bool showVersion = input.GameVersion is null;
                 bool showLoader = input.ModLoaders == ModLoaders.None && input.Type is ResourceTypes.Mod or ResourceTypes.ModPack;
-                foreach (ResourceProject project in projects)
+                foreach (ResourceProject project in projects.Take(resultPageSize))
                     rows.Children.Add(project.ToResourceItem(showVersion, showLoader, input.Type));
                 previewInput = input;
                 previewRows = rows;
+                Service.ShowPendingPage(rows.Children.Count >= resultPageSize);
                 NotifyResultsChanged();
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -237,18 +315,21 @@ namespace PCL
         private void BtnPageFirst_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
         {
             if (FavoriteStore is not null) { ChangeFavoritePage(0); return; }
+            if (!CanNavigateOnlinePage) return;
             this.Service.FirstPage();
         }
 
         private void BtnPageLeft_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
         {
             if (FavoriteStore is not null) { ChangeFavoritePage(Page - 1); return; }
+            if (!CanNavigateOnlinePage) return;
             this.Service.PreviousPage();
         }
 
         private void BtnPageRight_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
         {
             if (FavoriteStore is not null) { ChangeFavoritePage(Page + 1); return; }
+            if (!CanNavigateOnlinePage) return;
             this.Service.NextPage();
         }
 

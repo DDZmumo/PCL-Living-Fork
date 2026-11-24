@@ -32,6 +32,7 @@ internal sealed record StartupNoticeMetadata(string Title, string Style, string 
         Expect("1.6.0-pre-1", 50, true, true, true, "markdown-suppress", "local");
         Expect("1.6.0-pre-2", 50, true, true, true, "markdown-suppress", "local");
         Expect("1.6.0-pre-3", 50, true, true, true, "markdown-suppress", "local");
+        Expect("1.6.0-pre-4", 50, true, true, true, "markdown-suppress", "local");
         Expect("1.4.0-pre-4", 50, true, true, true, "markdown-suppress", "local");
         Expect("1.4.0", 0, false, true, true, "markdown-suppress", "local");
         Expect("dev_edition", 100, false, true, true, "markdown-suppress", "local");

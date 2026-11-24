@@ -245,6 +245,11 @@ public static class MmcLaunch {
             await authentication.PrepareAsync(prepared, java.Java, authProgress, token).ConfigureAwait(false);
             tailProgress?.Set(0.7);
             WorldBackups.RecoverBeforeLaunch(prepared.Paths.GameRoot, token);
+            try {
+                PersonalOptionsFiles.ApplyDefaultLanguage(prepared.Paths.GameRoot, Settings.Get<bool>("ToolHelpChinese"),
+                    instance.Version, ModBase.IniClearCache,
+                    () => (int?)instance.JsonVersion?["world_version"]);
+            } catch (Exception error) { Logger.Warn(error, "MMC 游戏语言设置未完成"); }
             try { options.PersonalOptions = PersonalGameSettings.Prepare(instance); }
             catch (Exception error) { Logger.Warn(error, "MMC 个人游戏设置同步未完成，保留现有配置"); }
             options.QuickPlay = QuickPlayWorlds.Prepare(instance, options.QuickPlayWorld, options.ExtraGameArgs, false);

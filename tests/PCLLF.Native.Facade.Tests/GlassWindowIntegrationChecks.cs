@@ -89,7 +89,7 @@ internal static class GlassWindowIntegrationChecks {
                 host.StartMainTimer = () => Unexpected("StartMainTimer");
                 host.JavaInitialize = () => Unexpected("JavaInitialize");
                 host.StartClientList = () => Unexpected("StartClientList");
-                host.CheckUpdates = () => Unexpected("CheckUpdates");
+                host.CheckUpdates = _ => Unexpected("CheckUpdates");
                 host.ClearTaskTemp = () => Unexpected("ClearTaskTemp");
                 host.Ui = work => work(); host.UiWait = work => work(); host.UiPosted = (work, _) => work();
                 host.CreateResizer = target => new WindowResizer(target,
@@ -232,7 +232,10 @@ internal static class GlassWindowIntegrationChecks {
                 window.PageCurrent = FormMain.PageType.Launch;
                 Refresh(window); VisualAssetChecks.Drain();
             }
-            if (!interactive) CheckInstanceProjectionCache(window, view, scope.Root);
+            if (!interactive) {
+                CheckStartupWithRestoredInstance(window, view, animate => { previewMotion = animate; Refresh(window); });
+                CheckInstanceProjectionCache(window, view, scope.Root);
+            }
             if (!interactive) {
                 var launchPage = view.PageContentHost.Content;
                 Part<Button>(view, "NavLink").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -293,6 +296,8 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "Wallpaper mode created a native desktop-blur companion.");
             CheckWallpaperToolTip(window, view, source);
+            if (!interactive && Environment.GetEnvironmentVariable("PCLLF_VIDEO_WALLPAPER_SAMPLE") is { Length: > 0 } video)
+                CheckSelectedVideoWallpaper(window, view, video);
             if (!interactive) CheckCrashDialog(window, integration);
             var boundedBrush = (ImageBrush)Native.Call(Native.Type("PCL.SetupPageRuntime"), "LoadBoundedBackgroundBrush", null, wallpaper)!;
             Native.Check(!boundedBrush.IsFrozen && boundedBrush.ImageSource is { IsFrozen: true },
@@ -469,6 +474,49 @@ internal static class GlassWindowIntegrationChecks {
         finally { Native.Set(source, "_connection", null); }
     }
 
+    private static void CheckStartupWithRestoredInstance(FormMain window, GlassLauncherView view, Action<bool> animate)
+    {
+        if (!PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) return;
+        var previousPage = ModMain.FrmLaunchLeft;
+        var launchPage = new PageLaunchLeft();
+        var launchController = Native.Get(launchPage, "Native")!;
+        var selectionComplete = Native.Field(launchController.GetType(), "loadFinished");
+        var list = ModMinecraft.McInstanceListLoader;
+        var previousListState = list.State;
+        Type preload = Native.Type("PCL.GlassStartupPreload");
+        var clock = (System.Diagnostics.Stopwatch)Native.Field(preload, "Clock").GetValue(null)!;
+        var releaseSlot = Native.Field(preload, "_release");
+        object? previousRelease = releaseSlot.GetValue(null);
+        try {
+            ModMain.FrmLaunchLeft = launchPage;
+            list.State = ModBase.LoadState.Waiting;
+            animate(true);
+            view.BeginSplash();
+            Refresh(window);
+            Native.Check(view.IsSplashing && view.SplashProgress < 1, "The splash finished before the initial selection was ready.");
+
+            clock.Restart(); // Optional preloads have only just begun.
+            var fetched = new TaskCompletionSource<Newtonsoft.Json.Linq.JObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+            releaseSlot.SetValue(null, fetched.Task);
+            selectionComplete.SetValue(launchController, true);
+            Refresh(window);
+            Native.Check(view.SplashProgress == 1 && list.State == ModBase.LoadState.Waiting,
+                "A restored instance still held the splash for an unused list scan or other preloads.");
+            Native.Check(view.SplashStageText == "正在检查启动器更新", "The splash did not reflect the pending startup update check.");
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            VisualAssetChecks.Pump(() => !view.IsSplashing, "show the workspace without waiting for the splash timeout", 9000);
+            Console.WriteLine($"Restored-instance splash completed in {elapsed.Elapsed.TotalSeconds:0.00}s in the WPF fixture.");
+        }
+        finally {
+            clock.Reset();
+            releaseSlot.SetValue(null, previousRelease);
+            if (view.IsSplashing) Native.Call(typeof(GlassLauncherView), "FinishSplash", view);
+            ModMain.FrmLaunchLeft = previousPage;
+            list.State = previousListState;
+            animate(false);
+        }
+    }
+
     private static void CheckInstanceProjectionCache(FormMain window, GlassLauncherView view, string root)
     {
         var legacy = Part<Border>(window, "PanMainRight");
@@ -480,8 +528,9 @@ internal static class GlassWindowIntegrationChecks {
             PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-one"));
             window.PageCurrent = FormMain.PageType.InstanceSetup;
             var pages = Enumerable.Range(0, 5).Select(index => new MyPageRight { Child = new TextBlock { Text = "实例页 " + index } }).ToArray();
-            ContentControl Mount(MyPageRight page) {
+            ContentControl Mount(MyPageRight page, FormMain.PageType route = FormMain.PageType.InstanceSetup) {
                 object displayed = view.PageContentHost.Content;
+                window.PageCurrent = route;
                 window.PageRight = page;
                 legacy.Child = page;
                 Refresh(window);
@@ -497,6 +546,55 @@ internal static class GlassWindowIntegrationChecks {
             var old = (ContentControl)view.PageContentHost.Content;
             PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-two"));
             Native.Check(!ReferenceEquals(Mount(pages[4]), old), "A different instance reused the old instance's page projection.");
+
+            var resources = new PageInstanceResources();
+            resources.Loaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), resources,
+                Native.Method(typeof(PageInstanceResources), "__LfHandle_6"));
+            resources.Unloaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), resources,
+                Native.Method(typeof(PageInstanceResources), "__LfHandle_7"));
+            Part<Grid>(resources, "PanAllBack").Visibility = Visibility.Visible;
+            Part<FrameworkElement>(resources, "PanLoad").Visibility = Visibility.Collapsed;
+            var rows = new StackPanel();
+            for (int index = 0; index < 80; index++) rows.Children.Add(new TextBlock { Text = "实例资源 " + index, FontSize = 18 });
+            Part<ScrollViewer>(resources, "PanBack").Content = rows;
+            var backSource = Part<MyExtraButton>(window, "BtnExtraBack");
+            object integration = Native.Get(window, "glassShell")!;
+            object adapter = ((System.Collections.IEnumerable)Native.Get(integration, "_extraButtons")!).Cast<object>()
+                .Single(value => ReferenceEquals(Native.Get(value, "_source"), backSource));
+            var back = (Button)Native.Property(adapter.GetType(), "View").GetValue(adapter)!;
+            ScrollViewer Viewport(ContentControl page) {
+                window.UpdateLayout();
+                return Descendants<ScrollViewer>(page).First();
+            }
+            void CheckBackToTop(ScrollViewer viewport, int offset) {
+                viewport.ScrollToVerticalOffset(offset);
+                VisualAssetChecks.Pump(() => viewport.VerticalOffset >= offset - 1 && backSource.Show && back.IsVisible,
+                    "show the back-to-top button for the active page");
+                back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, back));
+                VisualAssetChecks.Pump(() => viewport.VerticalOffset < 1 && !backSource.Show,
+                    "click back to top and hide the button once the page reaches the top");
+            }
+            var resourceView = Mount(resources);
+            var scroll = Viewport(resourceView);
+            CheckBackToTop(scroll, 260);
+            scroll.ScrollToVerticalOffset(260);
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 259, "scroll away from the top");
+            Mount(new MyPageRight { Child = new TextBlock { Text = "资源详情" } }, FormMain.PageType.ResourceDetail);
+            scroll = Viewport(Mount(resources));
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 259 && backSource.Show, "Returning from details lost the resource offset or the back-to-top action.");
+            Mount(pages[0]);
+            scroll = Viewport(Mount(resources));
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset < 1 && !backSource.Show, "Returning from another instance tab restored a stale resource offset.");
+
+            var settings = new PageSetupLaunch();
+            var java = (PageSetupJava)Native.Property(typeof(PageSetupLaunch), "JavaPage").GetValue(settings)!;
+            var javaDownload = (PageSetupJavaDownload)Native.Property(typeof(PageSetupLaunch), "JavaDownloadPage").GetValue(settings)!;
+            foreach (var (page, route) in new (MyPageRight, FormMain.PageType)[] { (java, FormMain.PageType.Setup), (javaDownload, FormMain.PageType.HelpDetail) }) {
+                var javaScroll = Viewport(Mount(page, route));
+                javaScroll.Height = 135;
+                window.UpdateLayout();
+                CheckBackToTop(javaScroll, 32);
+            }
         } finally {
             PageInstanceLeft.Instance = previousInstance;
             window.PageCurrent = previous;
@@ -593,7 +691,10 @@ internal static class GlassWindowIntegrationChecks {
                 VisualAssetChecks.Pump(() => PCLLF.Presentation.Foundation.LegacyThemePalette.IsDarkTheme == (mode == 1),
                     "Visible WPF palette did not reach the requested theme.");
                 Refresh(window);
-                var tooltip = new ToolTip { Content = "资源中心提示", PlacementTarget = owner };
+                const string description = "注意：Mojang 于 Minecraft 26.1 移除了该设置，因此该设置在新版本中无效。\n\n" +
+                    "该信息会显示在游戏主界面的左下角，与 F3 调试页面的左上角。\n若留空，则跟随全局设置的值。";
+                var tooltip = new ToolTip { Content = description, PlacementTarget = owner };
+                if (mode == 0) tooltip.MaxWidth = 230;
                 try {
                     tooltip.IsOpen = true;
                     VisualAssetChecks.Pump(() => tooltip.IsLoaded && VisualTreeHelper.GetChildrenCount(tooltip) > 0,
@@ -601,6 +702,14 @@ internal static class GlassWindowIntegrationChecks {
                     VisualAssetChecks.Drain();
                     var pane = (Panel)VisualTreeHelper.GetChild(tooltip, 0);
                     var frost = pane.Children.OfType<GlassSurface>().Single();
+                    var text = (TextBlock)VisualTreeHelper.GetChild(frost.Child, 0);
+                    var unwrapped = new TextBlock { Text = description, Style = null, FontFamily = text.FontFamily, FontSize = text.FontSize };
+                    unwrapped.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    Native.Check(text.Text == description && text.TextWrapping == TextWrapping.Wrap &&
+                        text.TextTrimming == TextTrimming.None && ReferenceEquals(text.Foreground, tooltip.Foreground),
+                        "The workbench tooltip truncated its plain text or lost the tooltip foreground.");
+                    Native.Check(text.ActualHeight > unwrapped.DesiredSize.Height && tooltip.ActualWidth <= tooltip.MaxWidth,
+                        "The workbench tooltip did not grow vertically to fit long paragraphs within its width.");
                     FrameworkElement? host = GlassMaterial.GetWallpaperHost(frost);
                     Rect ScreenBounds(FrameworkElement element) => new(element.PointToScreen(new Point()),
                         element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight)));
@@ -614,8 +723,8 @@ internal static class GlassWindowIntegrationChecks {
                           (GlassMaterial.GetDesktopBackdropEnabled(frost) || !GlassMaterial.GetIsEnabled(frost)),
                         "The tooltip's material did not match its position relative to the wallpaper.");
                     if (!SystemParameters.HighContrast) {
-                        var text = ((SolidColorBrush)tooltip.Foreground).Color;
-                        Native.Check((text.R + text.G + text.B > 450) == (mode == 1), "Tooltip text did not follow the current appearance.");
+                        var foreground = ((SolidColorBrush)tooltip.Foreground).Color;
+                        Native.Check((foreground.R + foreground.G + foreground.B > 450) == (mode == 1), "Tooltip text did not follow the current appearance.");
                     }
                 }
                 finally { tooltip.IsOpen = false; VisualAssetChecks.Drain(); }
@@ -624,6 +733,135 @@ internal static class GlassWindowIntegrationChecks {
         finally {
             Native.Cache("UiLauncherColorMode", previousMode);
             Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
+            Refresh(window);
+        }
+    }
+
+    internal static void CheckScrollingToolTip() {
+        // Drive WPF's hover service directly so the fixture does not move the user's cursor.
+        object popupService = Native.Property(typeof(FrameworkElement), "PopupControlService").GetValue(null)!;
+        Type popupServiceType = popupService.GetType();
+        object mouse = Enum.Parse(typeof(ToolTipService).GetNestedType("TriggerAction", BindingFlags.NonPublic)!, "Mouse");
+        var owner = new Button { Content = "跟随全局设置", VerticalAlignment = VerticalAlignment.Top, Height = 32 };
+        var nextOwner = new Button { Content = "尽量使用官方源", Height = 32 };
+        var rows = new StackPanel();
+        rows.Children.Add(owner);
+        rows.Children.Add(nextOwner);
+        var scrollContent = new Border { Width = 600, Height = 600, Child = rows };
+        var scroll = new ScrollViewer { Content = scrollContent, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var window = new Window {
+            Content = scroll, Width = 320, Height = 200, Left = -30000, Top = -30000,
+            ShowActivated = false, ShowInTaskbar = false
+        };
+        var tooltip = new ToolTip {
+            Content = "跟随全局设置",
+            Style = (Style)Native.Static("PCL.GlassCommandChrome", "ToolTipStyle", false)!
+        };
+        owner.ToolTip = tooltip;
+        var nextTooltip = new ToolTip { Content = "尽量使用官方源", Style = tooltip.Style };
+        nextOwner.ToolTip = nextTooltip;
+        ToolTipService.SetInitialShowDelay(owner, 0);
+        ToolTipService.SetInitialShowDelay(nextOwner, 0);
+        MeloongCore.Wpf.ModernTooltipService.SetUseModernTooltip(scroll, false);
+        Native.Static("PCL.GlassCommandChrome", "SetToolTipScrollTracking", scroll, true);
+        void Hover(Button target) => Native.Call(popupServiceType, "BeginShowToolTip", popupService, target, mouse);
+        int opened = 0;
+        tooltip.Opened += (_, _) => opened++;
+        int nextOpened = 0;
+        nextTooltip.Opened += (_, _) => nextOpened++;
+        try {
+            window.Show();
+            VisualAssetChecks.Pump(() => scroll.ScrollableHeight > 8 && scroll.ScrollableWidth > 8,
+                "The tooltip test did not have a scrollable viewport.");
+            scroll.ScrollToVerticalOffset(4);
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 4, "The tooltip test did not start scrolling.");
+            Hover(owner);
+            VisualAssetChecks.Observe(45);
+            Native.Check(!tooltip.IsOpen && opened == 0, "WPF created a tooltip during scrolling with no previous popup.");
+
+            VisualAssetChecks.Observe(180);
+            Hover(owner);
+            VisualAssetChecks.Pump(() => opened == 1, "The tooltip did not open over scrollable content.");
+            scrollContent.Height += 100;
+            VisualAssetChecks.Drain();
+            Native.Check(tooltip.IsOpen, "An extent change closed a tooltip without scrolling.");
+            scroll.ScrollToVerticalOffset(8);
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 8, "The tooltip test did not scroll vertically.");
+            Native.Check(!tooltip.IsOpen, "The workbench tooltip stayed open as the page scrolled vertically.");
+
+            for (int offset = 16; offset <= 40; offset += 8) {
+                scroll.ScrollToVerticalOffset(offset);
+                VisualAssetChecks.Pump(() => scroll.VerticalOffset >= offset, "The tooltip test did not continue scrolling.");
+                Hover(nextOwner);
+                VisualAssetChecks.Observe(45);
+                Native.Check(!nextTooltip.IsOpen && nextOpened == 0, "WPF created a new tooltip while the viewport was still scrolling.");
+            }
+            VisualAssetChecks.Observe(180);
+            Hover(nextOwner);
+            VisualAssetChecks.Pump(() => nextOpened == 1, "WPF did not reopen the suppressed tooltip after scrolling.", timeout: 1000);
+            scroll.ScrollToHorizontalOffset(8);
+            VisualAssetChecks.Pump(() => scroll.HorizontalOffset >= 8, "The tooltip test did not scroll horizontally.");
+            Native.Check(!nextTooltip.IsOpen, "The workbench tooltip stayed open as the page scrolled horizontally.");
+        }
+        finally {
+            Native.Static("PCL.GlassCommandChrome", "SetToolTipScrollTracking", scroll, false);
+            Native.Call(popupServiceType, "DismissToolTips", popupService);
+            window.Close();
+            VisualAssetChecks.Drain();
+        }
+    }
+
+    private static void CheckSelectedVideoWallpaper(FormMain window, GlassLauncherView view, string path)
+    {
+        string previous = Settings.Get<string>("UiGlassWallpaperPath");
+        var image = Part<Image>(view, "WallpaperImage");
+        try
+        {
+            Native.Cache("UiGlassWallpaperPath", path);
+            Refresh(window);
+            var service = Native.Type("PCL.GlassVideoWallpaper");
+            var decoder = (VideoWallpaperPlayback)Native.Field(service, "_synchronized").GetValue(null)!;
+            // Delay only the first paired frame; the shell remains visible and its startup timeout still runs.
+            decoder.SetPaused(true);
+            VisualAssetChecks.Pump(() => image.Source is DrawingImage { Drawing: VideoDrawing { Player.HasVideo: true } },
+                "show the temporary wallpaper while the paired decoder is delayed", 10000);
+            var native = (VideoDrawing)((DrawingImage)image.Source).Drawing;
+            VisualAssetChecks.Pump(() => native.Player.Position > TimeSpan.FromMilliseconds(80), "temporary video advances");
+            var material = (DrawingImage)GlassMaterial.GetWallpaperSource(view)!;
+            var brush = (VisualBrush)((GeometryDrawing)material.Drawing).Brush;
+            var plane = (DrawingVisual)VisualTreeHelper.GetChild(brush.Visual, 0);
+            var tiles = (ImageBrush)((GeometryDrawing)plane.Drawing.Children[0]).Brush;
+            Native.Check(ReferenceEquals(tiles.ImageSource, image.Source) && plane.Effect is System.Windows.Media.Effects.BlurEffect,
+                "Temporary glass and wallpaper did not share the live video drawing.");
+            decoder.SetPaused(false);
+            VisualAssetChecks.Pump(() => ReferenceEquals(image.Source, decoder.Source) &&
+                ReferenceEquals(GlassMaterial.GetWallpaperSource(view), decoder.FrostedSource) &&
+                Native.Field(service, "_player").GetValue(null) is null,
+                "the paired decoder did not reclaim both layers after a slow start", 10000);
+            bool sharp = false, frost = false;
+            int paired = 0, mismatched = 0;
+            EventHandler onSharp = (_, _) => sharp = true;
+            EventHandler onFrost = (_, _) => frost = true;
+            EventHandler rendering = (_, _) => {
+                if (sharp && frost) paired++;
+                if (sharp != frost) mismatched++;
+                sharp = frost = false;
+            };
+            decoder.Source.Changed += onSharp;
+            decoder.FrostedSource.Changed += onFrost;
+            CompositionTarget.Rendering += rendering;
+            try { VisualAssetChecks.Observe(2000); }
+            finally {
+                CompositionTarget.Rendering -= rendering;
+                decoder.Source.Changed -= onSharp;
+                decoder.FrostedSource.Changed -= onFrost;
+            }
+            Native.Check(paired >= 5 && mismatched == 0, $"Wallpaper and glass updated out of step: {paired} paired, {mismatched} unmatched.");
+            Console.WriteLine($"PASS slow video startup handed back to paired playback: {paired} paired render ticks in 2s, {mismatched} unmatched.");
+        }
+        finally
+        {
+            Native.Cache("UiGlassWallpaperPath", previous);
             Refresh(window);
         }
     }

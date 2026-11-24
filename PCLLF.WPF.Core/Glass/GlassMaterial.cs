@@ -30,13 +30,20 @@ public static class GlassMaterial {
     public static readonly DependencyProperty OpacityMultiplierProperty = DependencyProperty.RegisterAttached(
         "OpacityMultiplier", typeof(double), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(1d, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged),
-        value => value is double number && double.IsFinite(number) && number >= 0.4 && number <= 1);
+        value => value is double number && double.IsFinite(number) && number >= 0 && number <= 1);
     public static readonly DependencyProperty FallbackColorProperty = DependencyProperty.RegisterAttached(
         "FallbackColor", typeof(Color), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(Color.FromRgb(242, 245, 248), FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
     public static readonly DependencyProperty FallbackBrushProperty = DependencyProperty.RegisterAttached(
         "FallbackBrush", typeof(SolidColorBrush), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
+    // Ordinary layered-window alpha is available even without a native blur backend.
+    public static readonly DependencyProperty AlphaFallbackProperty = DependencyProperty.RegisterAttached(
+        "AlphaFallback", typeof(bool), typeof(GlassMaterial),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));
+    public static bool GetAlphaFallback(DependencyObject element) => (bool)element.GetValue(AlphaFallbackProperty);
+    public static void SetAlphaFallback(DependencyObject element, bool value) => element.SetValue(AlphaFallbackProperty, value);
+
     public static readonly DependencyProperty DesktopBackdropEnabledProperty = DependencyProperty.RegisterAttached(
         "DesktopBackdropEnabled", typeof(bool), typeof(GlassMaterial),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.Inherits, OnContextChanged));

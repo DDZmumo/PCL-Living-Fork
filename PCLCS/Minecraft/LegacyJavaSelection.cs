@@ -17,18 +17,21 @@ public sealed partial class LegacyJavaService<TInstance> where TInstance : class
         try {
             if (target.Is<TInstance>()) MigrateInstanceJavaSettings(target.As<TInstance>(), c, p?.SplitTo(0.2));
             TInstance? instance = target.Is<TInstance>() ? target.As<TInstance>() : null;
+            bool? x86Supported = null;
+            bool SupportsArchitecture(Java java) => !java.Is32Bit || instance is null ||
+                (x86Supported ??= LegacyWindowsNatives.SupportsX86(host.JsonObject(instance)));
             switch (instance == null ? 0 : host.ReadInteger("VersionArgumentJavaV2", instance)) {
                 case 2:
                     Logger.Info($"版本设置要求使用版本文件夹中的 Java：{host.VersionPath(instance!)}");
                     Java? javaFound = JavaUtils.SearchFoldersAsync(true, [host.VersionPath(instance!)], c, p?.SplitTo(1))
-                        .Run().FirstOrDefault();
+                        .Run().Where(SupportsArchitecture).OrderBy(java => java.Is32Bit).FirstOrDefault();
                     if (javaFound != null) {
                         Logger.Info($"已发现版本文件夹中的 Java：{javaFound}");
                         return javaFound;
                     }
                     if (tryFixOrHint) {
                         host.SwitchToInstanceSetup(instance!);
-                        host.Message("该版本的版本设置选择了 “使用版本文件夹中的 Java”，但版本文件夹里没能找到 Java。\r\n请先修改启动选项中的 Java 设置，或在版本文件夹中放一个 Java，然后再试。",
+                        host.Message("该版本的版本设置选择了 “使用版本文件夹中的 Java”，但版本文件夹里没能找到 Java。\r\n请先修改实例管理中 Java 页的选择，或在版本文件夹中放一个 Java，然后再试。",
                             "未找到 Java", true, true);
                     }
                     return null;
@@ -67,6 +70,15 @@ public sealed partial class LegacyJavaService<TInstance> where TInstance : class
                         p?.Finish();
                         return null;
                     }
+                    if (!SupportsArchitecture(chosenJava)) {
+                        if (tryFixOrHint) {
+                            host.SwitchToInstanceSetup(instance!);
+                            host.Message("此实例的支持库需要 64 位 Java。请在实例的 Java 设置中选择 64 位版本。",
+                                "需要 64 位 Java", true, true);
+                        }
+                        p?.Skip();
+                        return null;
+                    }
                     p?.Finish();
                     return chosenJava;
 
@@ -76,19 +88,34 @@ public sealed partial class LegacyJavaService<TInstance> where TInstance : class
                     string? recommendedComponent = target.Is<TInstance>() ? GetJavaRequirement(instance!).RecommendedComponent : null;
                     Logger.Info($"自动选择以下范围的 Java：{range} {recommendedComponent}");
                     if (range.IsEmpty()) throw new Exception("Java 版本需求存在冲突，导致没有任何可能适配的 Java，请查看 PCL 的日志了解详细信息！");
+                    int gcOverride = instance is null ? 0 : host.ReadInteger("VersionAdvanceGC", instance);
+                    bool preferHotSpot = instance is not null &&
+                        (gcOverride > 0 ? gcOverride != 4 : host.ReadInteger("LaunchAdvanceGC", instance) != 3);
                     Java? SelectJavaFromJavaList() {
                         // Preserve the original un-tokened worker wait. Each candidate check receives the caller's token.
                         host.RefreshWorker().WaitIfRunning();
+                        Java? openJ9Fallback = null, x86Fallback = null, x86OpenJ9Fallback = null;
                         foreach (Java candidate in Configs.JavaList.Get()!) {
                             if (!candidate.CheckAsync(c).Run()) {
                                 Logger.Warn($"Java 检查失败，将尝试列表中的下一个 Java：{candidate}");
                                 continue;
                             }
-                            if (candidate.Version == null || !range.Contains(candidate.Version)) continue;
+                            if (candidate.Version == null || !range.Contains(candidate.Version) || !SupportsArchitecture(candidate)) continue;
+                            if (candidate.Is32Bit) {
+                                if (preferHotSpot && candidate.VirtualMachine == "OpenJ9") x86OpenJ9Fallback ??= candidate;
+                                else x86Fallback ??= candidate;
+                                continue;
+                            }
+                            if (preferHotSpot && candidate.VirtualMachine == "OpenJ9") {
+                                openJ9Fallback ??= candidate;
+                                continue;
+                            }
                             Logger.Info($"已选定 Java：{candidate}");
                             return candidate;
                         }
-                        return null;
+                        Java? fallback = openJ9Fallback ?? x86Fallback ?? x86OpenJ9Fallback;
+                        if (fallback is not null) Logger.Info($"已选定 Java：{fallback}");
+                        return fallback;
                     }
                     p?.Set(0.25);
                     Java? result = SelectJavaFromJavaList();
@@ -113,7 +140,7 @@ public sealed partial class LegacyJavaService<TInstance> where TInstance : class
                             comp => range.Contains(comp.JavaVersion));
                         if (javaToDownload == null) {
                             Logger.Warn("Mojang 提供的 Java 列表中没有合适的 Java，无法自动下载");
-                            host.Message($"PCL 没能找到合适的 Java。\r\n请在网上搜索并手动安装{DescribeRequirement(range)}， 然后在【设置 → 启动 → 高级选项 → Java 列表】中导入它。",
+                            host.Message($"PCL 没能找到合适的 Java。\r\n请在【设置 → Java】中下载或导入{DescribeRequirement(range)}。",
                                 "需要手动安装 Java", false, false);
                             return null;
                         }

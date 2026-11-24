@@ -18,6 +18,7 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
 {
     internal enum LobbyStage { Setup, Lobby, Connecting, Room, Failed }
     internal enum LobbyFlow { Create, Join }
+    internal enum LobbySection { Lobby, Updates }
 
     internal const string Attribution = "Terracotta | 陶瓦联机 © Burning_TNT 与贡献者";
     internal const string HelpUrl = "https://docs.hmcl.net/multiplayer/help.html";
@@ -28,6 +29,12 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
     private readonly string _componentDirectory = Path.Combine(ModBase.PathTemp, "Terracotta");
     private readonly DispatcherTimer _poll;
     private LobbyFlow _flow = LobbyFlow.Create;
+    private LobbySection _section = LobbySection.Lobby;
+    private TerracottaRelease? _selected;
+    private TerracottaUpstream? _upstream;
+    private TerracottaHealth? _health;
+    private DateTime? _checkedAt;
+    private string _updateError = string.Empty, _updateNotice = string.Empty;
     private TerracottaConnection? _connection;
     private TerracottaRoom? _room;
     private string? _activeLabel;
@@ -70,6 +77,19 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
     internal string? ShareValue => _room?.State switch { "host-ok" => _room.Code, "guest-ok" => _room.Address, _ => null };
     internal string Code { get; set; } = string.Empty;
 
+    // ---------- State of the component page ----------
+
+    internal LobbySection Section => _section;
+    /// <summary>The release the lobby starts (a newer installed one, or the bundled one).</summary>
+    internal TerracottaRelease SelectedRelease => _selected ??= TerracottaComponent.Selected(_componentDirectory);
+    internal TerracottaUpstream? Upstream => _upstream;
+    internal TerracottaHealth? Health => _health;
+    internal DateTime? CheckedAt => _checkedAt;
+    internal string UpdateError => _updateError;
+    internal string UpdateNotice => _updateNotice;
+    /// <summary>Changing the component stops the helper, so it is not offered while a room is open or forming.</summary>
+    internal bool CanChangeComponent => IsIdle && Stage is LobbyStage.Setup or LobbyStage.Lobby or LobbyStage.Failed;
+
     internal string? InstanceName => LauncherApplicationServices.Instances.ReadSnapshot().Instance?.Name;
     internal bool GameRunning => ModWatcher.IsGameActive;
     internal bool CanChooseInstance => !LauncherApplicationServices.IsLaunchActive();
@@ -101,15 +121,19 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
 
     internal IReadOnlyList<GlassSidebarItem> SidebarItems()
     {
-        bool enabled = CanChooseFlow;
+        bool enabled = CanChooseFlow, lobby = _section == LobbySection.Lobby;
         return [
             new() {
                 Label = "创建房间", IconData = "F0 M3,3 H21 V21 H3 Z M5,5 V19 H19 V5 Z M11,7 H13 V11 H17 V13 H13 V17 H11 V13 H7 V11 H11 Z",
-                IsEnabled = enabled, IsSelected = enabled && _flow == LobbyFlow.Create, Invoked = () => ChooseFlow(LobbyFlow.Create)
+                IsEnabled = enabled, IsSelected = lobby && enabled && _flow == LobbyFlow.Create, Invoked = () => ChooseFlow(LobbyFlow.Create)
             },
             new() {
                 Label = "加入房间", IconData = "M11,3 H21 V21 H11 V19 H19 V5 H11 Z M2,11 H12 L8.5,7.5 L10,6 L16,12 L10,18 L8.5,16.5 L12,13 H2 Z",
-                IsEnabled = enabled, IsSelected = enabled && _flow == LobbyFlow.Join, Invoked = () => ChooseFlow(LobbyFlow.Join)
+                IsEnabled = enabled, IsSelected = lobby && enabled && _flow == LobbyFlow.Join, Invoked = () => ChooseFlow(LobbyFlow.Join)
+            },
+            new() {
+                Label = "组件更新", IconData = "M11,3 H13 V13.2 L16.6,9.6 L18,11 L12,17 L6,11 L7.4,9.6 L11,13.2 Z M4,19 H20 V21 H4 Z",
+                IsEnabled = !_disposed, IsSelected = !lobby, Invoked = () => ShowSection(LobbySection.Updates)
             }
         ];
     }
@@ -118,11 +142,22 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
 
     internal void ChooseFlow(LobbyFlow flow)
     {
-        if (!CanChooseFlow || _flow == flow) return;
+        if (!CanChooseFlow || _flow == flow && _section == LobbySection.Lobby) return;
         _flow = flow;
+        _section = LobbySection.Lobby;
         _error = string.Empty;
         NotifyChanged();
         _owner.RefreshGlassShell();
+    }
+
+    internal void ShowSection(LobbySection section)
+    {
+        if (_disposed || _section == section) return;
+        _section = section;
+        NotifyChanged();
+        _owner.RefreshGlassShell();
+        // The first visit checks the installed files right away; upstream is only asked when the user checks.
+        if (section == LobbySection.Updates && _health is null) _ = VerifyComponentAsync();
     }
 
     // ---------- Actions ----------
@@ -164,11 +199,88 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
         return RunAsync("正在卸载陶瓦联机组件…", UninstallAsync);
     }
 
+    // ---------- Component page actions ----------
+
+    internal const string CheckLabel = "正在检查陶瓦联机更新…";
+    internal bool CheckingUpdates => _activeLabel == CheckLabel;
+
+    internal Task CheckUpdatesAsync() => RunAsync(CheckLabel, async token =>
+    {
+        _upstream = null;
+        _upstream = await TerracottaUpdates.CheckAsync(token);
+        _checkedAt = DateTime.Now;
+    }, updates: true);
+
+    internal Task VerifyComponentAsync() => RunAsync("正在校验组件文件…", async token =>
+        _health = await TerracottaComponent.VerifyAsync(_componentDirectory, token), updates: true);
+
+    internal Task RepairComponentAsync()
+    {
+        if (!CanChangeComponent) return Task.CompletedTask;
+        return RunAsync("正在修复陶瓦联机组件…", async token =>
+        {
+            await StopConnectionAsync();
+            await TerracottaComponent.EnsureAsync(_componentDirectory, token, QueueDownloadAsync);
+            _health = await TerracottaComponent.VerifyAsync(_componentDirectory, token);
+            _updateNotice = _health == TerracottaHealth.Intact ? "组件文件已修复。" : "";
+        }, updates: true);
+    }
+
+    internal Task InstallUpstreamAsync()
+    {
+        if (!CanChangeComponent || _upstream?.Package is not { } package) return Task.CompletedTask;
+        if (ModMain.MyMsgBox(
+                $"陶瓦联机 {package.Version} 尚未由启动器适配。安装包会按上游提供的 SHA-256 校验，但新版本的功能或接口可能有变化。" +
+                $"\n\n安装后会停用当前的陶瓦联机；如果新版本无法正常启动，会自动改回 {TerracottaComponent.Version}。",
+                $"安装陶瓦联机 {package.Version}", "安装并使用", "取消") != 1)
+            return Task.CompletedTask;
+        return RunAsync($"正在安装陶瓦联机 {package.Version}…", async token =>
+        {
+            await StopConnectionAsync();
+            TerracottaRelease installed = await TerracottaComponent.InstallReleaseAsync(_componentDirectory, package, token, QueueDownloadAsync);
+            _selected = installed;
+            _health = await TerracottaComponent.VerifyAsync(_componentDirectory, token);
+            _updateNotice = $"已安装陶瓦联机 {installed.Version}，回到联机大厅启用即可使用。";
+        }, updates: true);
+    }
+
+    internal Task UseBundledAsync()
+    {
+        if (!CanChangeComponent || SelectedRelease.IsBundled) return Task.CompletedTask;
+        return RunAsync($"正在改回陶瓦联机 {TerracottaComponent.Version}…", async token =>
+        {
+            await StopConnectionAsync();
+            await TerracottaComponent.UseBundledAsync(_componentDirectory, removeSelected: true, token);
+            _selected = null;
+            _health = await TerracottaComponent.VerifyAsync(_componentDirectory, token);
+            _updateNotice = $"已改回启动器适配的 {TerracottaComponent.Version}。";
+        }, updates: true);
+    }
+
+    private async Task StopConnectionAsync()
+    {
+        var connection = _connection;
+        _connection = null;
+        _room = null;
+        _pollFailures = 0;
+        if (connection is not null) await connection.StopAsync();
+    }
+
     private static string? PlayerName() => LauncherApplicationServices.Accounts.ReadSnapshot().DisplayName;
 
     private async Task EnableAsync(CancellationToken token)
     {
-        var connection = await TerracottaConnection.StartAsync(_componentDirectory, token, QueueDownloadAsync);
+        TerracottaConnection connection;
+        try { connection = await TerracottaConnection.StartAsync(_componentDirectory, token, QueueDownloadAsync); }
+        catch (Exception error) when (error is not OperationCanceledException && !SelectedRelease.IsBundled)
+        {
+            // A newer release that cannot start (or no longer speaks the expected interface) falls back to the bundled one.
+            string failed = SelectedRelease.Version;
+            await TerracottaComponent.UseBundledAsync(_componentDirectory, removeSelected: false, CancellationToken.None);
+            _selected = null;
+            _health = null;
+            throw new IOException($"陶瓦联机 {failed} 未能正常启动，已改回启动器适配的 {TerracottaComponent.Version}，请重新启用。", error);
+        }
         if (_disposed)
         {
             await connection.StopAsync();
@@ -196,13 +308,16 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
         _pollFailures = 0;
         if (connection is not null) await connection.StopAsync();
         await TerracottaComponent.UninstallAsync(_componentDirectory, token);
+        _selected = null;
+        _health = null;
     }
 
-    private async Task RunAsync(string label, Func<CancellationToken, Task> action)
+    private async Task RunAsync(string label, Func<CancellationToken, Task> action, bool updates = false)
     {
         if (_disposed || _activeLabel is not null) return;
         _activeLabel = label;
-        _error = string.Empty;
+        if (updates) { _updateError = string.Empty; _updateNotice = string.Empty; }
+        else _error = string.Empty;
         NotifyChanged();
         try
         {
@@ -212,19 +327,32 @@ internal sealed class TerracottaLobbyPage : MyPageRight, IDisposable
         }
         catch (OperationCanceledException error) when (_disposed || error.InnerException is not TimeoutException)
         {
-            if (!_disposed) _error = "操作已取消，可以重试。";
+            if (!_disposed) Report("操作已取消，可以重试。");
         }
         catch (Exception error)
         {
-            if (!_disposed)
-                _error = error is HttpRequestException or JsonException or OperationCanceledException ?
-                    "陶瓦联机暂时没有响应，请稍后重试。" : error.Message;
+            if (!_disposed) Report(Describe(error));
         }
         finally
         {
             _activeLabel = null;
             if (!_disposed) NotifyChanged();
         }
+
+        void Report(string message)
+        {
+            if (updates) _updateError = message;
+            else _error = message;
+        }
+
+        // Network failures read as one plain sentence; the update check's own messages (rate limit) pass through.
+        string Describe(Exception error) => error switch
+        {
+            HttpRequestException { StatusCode: null, InnerException: null } own when updates => own.Message,
+            HttpRequestException or JsonException or OperationCanceledException =>
+                updates ? "无法连接 GitHub，请检查网络后重试。" : "陶瓦联机暂时没有响应，请稍后重试。",
+            _ => error.Message
+        };
     }
 
     private async Task PollAsync()

@@ -77,6 +77,9 @@ public sealed class LegacyLaunchHost<TInstance, TOptions, TData, TServer, TMicro
     public Func<string, char, string> FilterAccessToken = null!, FilterUserName = null!;
     public Func<TInstance, bool, IEnumerable<LegacyMinecraftLibrary>> Libraries = null!;
     public Func<JToken, bool> JsonRuleCheck = null!;
+    public Func<TInstance, bool, IEnumerable<LegacyMinecraftLibrary>>? LibrariesForX86;
+    public Func<JToken, bool>? JsonRuleCheckForX86;
+    public Action<TInstance, CancellationToken>? PrepareX86Libraries;
     public Func<TInstance, string> AssetsIndexName = null!;
     public Action<string> CreateLauncherProfiles = null!;
     public Func<TInstance, bool, CancellationToken, ProgressProvider, Java> SelectJava = null!;

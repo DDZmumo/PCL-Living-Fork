@@ -83,8 +83,6 @@ internal static class PersonalOptionsPageChecks {
             Native.Call(typeof(PageSetupPersonal), "BeginProfileCapture", page, "key_key.forward"); Press(Key.R);
             Native.Check((string?)Profile()["values"]!["key_key.forward"] == "key.keyboard.k" && (string?)Profile()["values"]!["invertYMouse"] == "false" &&
                 File.ReadAllBytes(sourceFile).SequenceEqual(sourceBefore) && File.ReadAllBytes(targetFile).SequenceEqual(targetBefore), "Global key/toggle editors wrote before Save.");
-            ((MyComboBox)page.FindName("ComboCapture")).SelectedIndex = 0;
-            Native.Check(!Settings.Get<bool>("LaunchPersonalOptionsCapture"), "The global capture policy wrote before Save.");
             Native.Call(typeof(PageSetupPersonal), "SelectOptions", page, new[] { PersonalOptionsCatalog.Items.Single(item=>item.Key=="soundCategory_master") }, false);
             Native.Check(Settings.Get<string>("LaunchPersonalOptionsExcluded") == "[]", "Global participation wrote before Save.");
             Show(versionPage); Search("视场角");
@@ -95,14 +93,14 @@ internal static class PersonalOptionsPageChecks {
             Native.Check((string?)Profile()["values"]!["fov"]=="105" && (string?)Profile()["values"]!["invertYMouse"]=="true" &&
                 (string?)Profile()["values"]!["key_key.forward"]=="key.keyboard.r" && (string?)Profile()["sourceKind"]=="custom" &&
                 ((TextBlock)page.FindName("LabImportedInstance")).Text=="自定义" && JToken.DeepEquals(origin,Profile()["importSource"]) &&
-                Settings.Get<bool>("LaunchPersonalOptionsCapture") && Settings.Get<string>("LaunchPersonalOptionsExcluded").Contains("soundCategory_master",StringComparison.Ordinal),
+                Settings.Get<string>("LaunchPersonalOptionsExcluded").Contains("soundCategory_master",StringComparison.Ordinal),
                 "Save did not commit the global draft or mark the source as custom.");
             ChangeSlider("profile-value:fov",70); Native.Call(typeof(PageSetupPersonal),"DiscardDraft",page);
             Native.Check((string?)Profile()["values"]!["fov"]=="105" && Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"profile-value:fov")).Value==75, "Discard changed stored settings or retained the draft.");
             byte[] globalBefore = File.ReadAllBytes(profileFile);
             Show(versionPage);
             Native.Check(ReferenceEquals(((TextBlock)page.FindName("LabInstance")).Tag, target) && ((MyCheckBox)page.FindName("CheckEnabled")).Visibility == Visibility.Collapsed &&
-                ((MyButton)page.FindName("BtnImport")).Visibility == Visibility.Collapsed && ((MyComboBox)page.FindName("ComboCapture")).Visibility == Visibility.Collapsed,
+                ((MyButton)page.FindName("BtnImport")).Visibility == Visibility.Collapsed && page.FindName("ComboCapture") is null,
                 "Version page exposes global import/master/recapture controls or follows the wrong owner.");
             Search("视场角");
             var localSlider = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag, "instance-value:fov"));
@@ -177,6 +175,18 @@ internal static class PersonalOptionsPageChecks {
             Native.Call(typeof(PageSetupPersonal),"SaveGlobalSettings",page);
             Native.Check((string?)Profile()["values"]!["fov"]=="100" && Profile()["conflicts"]!["fov"] is null &&
                 ((TextBlock)page.FindName("LabImportedInstance")).Text=="自定义", "Saving the conflict choice did not commit the custom scheme.");
+            PageInstanceLeft.Instance = target;
+            Show(versionPage);
+            var policy = (MyComboBox)page.FindName("ComboPolicy");
+            policy.SelectedIndex = 1; Refresh();
+            var push = (MyButton)page.FindName("BtnWriteBack");
+            var pull = (MyButton)page.FindName("BtnSyncFromGlobal");
+            Native.Check(push.IsEnabled && push.IsVisible && pull.IsEnabled && pull.IsVisible, "Independent instance did not expose both reconciliation actions.");
+            pull.PerformClick(); Refresh();
+            Native.Check(policy.SelectedIndex == 0 && !pull.IsVisible, "Pulling the scheme did not restore the instance policy.");
+            policy.SelectedIndex = 1; Refresh();
+            push.PerformClick(); Refresh();
+            Native.Check(policy.SelectedIndex == 0 && !push.IsVisible, "Writing back did not restore the instance policy.");
             environment.AssertNoForbiddenIo();
             Console.WriteLine("PASS personal settings: explicit global/local Save, retained/discarded drafts, import/custom source, separate current/source comparison, following locks local editors, native controls, matching tracks, conflict drafts, stale guards, backup and key annotations.");
         } finally {

@@ -37,6 +37,7 @@ namespace PCL
         {
             __LfAttachOwnHandles();
             this.InitializeComponent();
+            ItemJava.Check += (sender, args) => PageCheck((MyListItem)sender, args);
             ItemUpdate.Logo = ModBase.Logo.IconButtonRefresh;
             ItemUpdate.Check += (sender, args) => PageCheck((MyListItem)sender, args);
             ItemPersonal.Logo = ModBase.Logo.IconButtonPersonalSettings;

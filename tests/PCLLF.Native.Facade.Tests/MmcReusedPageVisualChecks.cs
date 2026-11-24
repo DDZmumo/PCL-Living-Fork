@@ -208,16 +208,12 @@ internal static class MmcReusedPageVisualChecks {
             var controller = (SettingsController)Native.Property(typeof(PageInstanceSetup), "Controller").GetValue(settings)!;
             var select = Part<FrameworkElement>(settings, "PanArgumentJavaSelect");
             var grid = (Grid)select.Parent;
-            // Preserve the original Java rows and controls. Hide only the preceding
-            // unrelated launch-option rows when extracting this native settings fragment.
-            foreach (UIElement child in grid.Children) if (Grid.GetRow(child) < 6) child.Visibility = Visibility.Collapsed;
-            for (int row = 0; row < 6; row++) grid.RowDefinitions[row].Height = new GridLength(0);
-            var card = Part<MyCard>(settings, "CardArgument"); ((Panel)card.Parent).Children.Remove(card);
+            var card = Part<MyCard>(settings, "CardInstanceJava"); ((Panel)card.Parent).Children.Remove(card);
             var content = new StackPanel { Margin = new Thickness(25) }; content.Children.Add(card);
             var fragment = new MyScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             Part<ComboBox>(settings, "ComboArgumentJava").SelectedIndex = 3;
             controller.UpdateJavaUi();
-            Composite(FormMain.PageSubType.InstanceSetup, fragment, "mmc-java-manual", () => {
+            Composite(FormMain.PageSubType.InstanceJava, fragment, "mmc-java-manual", () => {
                 controller.UpdateJavaList(); controller.UpdateJavaUi(); fragment.UpdateLayout(); VisualAssetChecks.Drain();
                 var hint = Part<MyHint>(settings, "HintArgumentJava");
                 var selectionBounds = new Rect(select.TranslatePoint(new Point(), grid), select.RenderSize);

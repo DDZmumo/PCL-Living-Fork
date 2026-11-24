@@ -34,7 +34,7 @@ public sealed partial class LegacyJavaService<TInstance>(LegacyJavaHost<TInstanc
                         oldJavaList.Insert(0, match);
                         Logger.Info($"已将老版本设置中强制选择的 Java 置顶：{match}");
                     }
-                    Configs.JavaList.Set(new ConcurrentList<Java>(oldJavaList));
+                    lock (Configs.JavaList) Configs.JavaList.Set(new ConcurrentList<Java>(oldJavaList));
                     Configs.JavaConfigVersion.Set(Versions.JavaConfigVersion);
                 } catch (Exception ex) {
                     Logger.Error(ex, "从老版本 PCL 迁移 Java 列表失败");
@@ -49,7 +49,7 @@ public sealed partial class LegacyJavaService<TInstance>(LegacyJavaHost<TInstanc
             host.RefreshWorker().Start();
         } catch (Exception ex) {
             Logger.Error(ex, "初始化 Java 列表失败");
-            Configs.JavaList.Reset();
+            lock (Configs.JavaList) Configs.JavaList.Reset();
         }
     }
 
@@ -61,20 +61,24 @@ public sealed partial class LegacyJavaService<TInstance>(LegacyJavaHost<TInstanc
             host.Hint("该 Java 存在异常，无法使用", LegacyJavaHintKind.Red);
             return;
         }
-        Configs.JavaRemovedList.Edit((ref List<string>? list) =>
-            list!.RemoveIf(f => PathUtils.IsSame(f, newJava.Folder)));
-        Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => {
-            list!.Remove(newJava);
-            list.Insert(0, newJava);
-        });
+        lock (Configs.JavaList) {
+            Configs.JavaRemovedList.Edit((ref List<string>? list) =>
+                list!.RemoveIf(f => PathUtils.IsSame(f, newJava.Folder)));
+            Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => {
+                list!.Remove(newJava);
+                list.Insert(0, newJava);
+            });
+        }
         host.Hint($"已将 Java 加入列表：{newJavaPath}", LegacyJavaHintKind.Green);
         host.UpdateJavaLists();
     }
 
     public void ManuallyRemoveJava(Java javaEntry) {
-        Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => { list!.Remove(javaEntry); });
-        Configs.JavaRemovedList.Edit(list => MeloongCore.Extensions.EnumerableExtensions
-            .DistinctBy(list!.Append(javaEntry.Folder), s => s.Lower()).ToList());
+        lock (Configs.JavaList) {
+            Configs.JavaRemovedList.Edit(list => MeloongCore.Extensions.EnumerableExtensions
+                .DistinctBy(list!.Append(javaEntry.Folder), s => s.Lower()).ToList());
+            Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => { list!.Remove(javaEntry); });
+        }
         host.Hint($"已将 Java 移除出列表：{javaEntry}", LegacyJavaHintKind.Green);
         host.UpdateJavaLists();
         host.ReloadCurrentJava();
@@ -104,7 +108,9 @@ public sealed partial class LegacyJavaService<TInstance>(LegacyJavaHost<TInstanc
                 if (forcedJava.CheckAsync(c).Run()) {
                     Logger.Info($"将版本独立设置改为老版本中强制指定的 Java：{forcedJava}");
                     if (!Configs.JavaList.Get()!.Contains(forcedJava)) {
-                        Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => { list!.Add(forcedJava); });
+                        lock (Configs.JavaList) Configs.JavaList.Edit((ref ConcurrentList<Java>? list) => {
+                            if (!list!.Contains(forcedJava)) list.Add(forcedJava);
+                        });
                         Logger.Info($"已将强制指定的 Java 加入 Java 列表底部：{forcedJava}");
                     }
                     Configs.JavaForced.Set(forcedJava, host.Config(instance));

@@ -78,7 +78,8 @@ namespace PCL
                 IsCanceled = Canceled,
                 Progress = new Func<double>(() => Task.Progress),
                 SetProgress = value => { if (!Canceled()) Task.Progress = value; }
-            }, ShowAvailable is not null && input.TargetResultCount == PageResource.PAGE_SIZE && ModMain.FrmMain?.GlassShellActive == true
+            }, ShowAvailable is not null && input.PresentationPageSize > 0 &&
+                ModMain.FrmMain?.GlassShellActive == true
                 ? results => ShowAvailable(input, results) : null);
         }
     }

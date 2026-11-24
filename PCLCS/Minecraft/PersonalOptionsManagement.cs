@@ -106,8 +106,11 @@ public sealed class PersonalOptionsManagement {
         }
     }
     public int Apply(IPersonalOptionsInstance instance, PersonalOptionsPreview preview) {
-        if (running()) throw new IOException("请先关闭游戏，再应用个人设置。");
         if (!instance.SyncEnabled) throw new IOException("请先开启全局同步，并允许此版本跟随全局设置。");
+        return Transfer(instance, preview, false);
+    }
+    public int Transfer(IPersonalOptionsInstance instance, PersonalOptionsPreview preview, bool writeBack) {
+        if (running()) throw new IOException("请先关闭游戏，再应用个人设置。");
         lock (gate) {
             if (instance.VersionPath != preview.VersionPath || Path.Combine(instance.GameFolder, "options.txt") != preview.FileName)
                 throw new IOException("目标版本已变化，请重新预览。");
@@ -118,6 +121,12 @@ public sealed class PersonalOptionsManagement {
             // Recompute with live category/item selection rather than trusting a stale UI plan.
             PersonalOptionsPreview current = Preview(instance);
             if (current.Merged != preview.Merged) throw new IOException("同步项目已变化，请刷新预览后重试。");
+            if (!current.HasProfile || !current.Current.Properties().Any(p => current.Saved[p.Name] is not null && selected(p.Name)))
+                throw new IOException("当前版本没有可传递的已同步项目。");
+            if (writeBack) {
+                EditValues(current.Changed.Select(key => new PersonalOptionEdit(key, current.Current[key]!.ToString(), (string?)current.Saved[key])));
+                return current.Changed.Count;
+            }
             PersonalOptionsFiles.ApplyMerged(preview.FileName, bytes, preview.Original, preview.Merged, invalidate);
             return preview.Changed.Count;
         }

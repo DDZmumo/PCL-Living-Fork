@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading;
@@ -58,11 +59,21 @@ internal static class Program
             string payload = Path.Combine(folder, "pcl-fork-" + Guid.NewGuid().ToString("N") + ".exe");
             try
             {
-                using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("PCLLivingFork.Payload"))
+                using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("PCLLivingFork.Payload.gz"))
                 using (var output = new FileStream(payload, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
                     if (input == null) throw new InvalidOperationException("更新附件中没有主程序。");
-                    input.CopyTo(output);
+                    using (var unpacked = new GZipStream(input, CompressionMode.Decompress))
+                    {
+                        var buffer = new byte[81920];
+                        int read;
+                        while ((read = unpacked.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            if (output.Position + read > PayloadInfo.Length) throw new InvalidDataException("主程序解压长度超过预期。");
+                            output.Write(buffer, 0, read);
+                        }
+                    }
+                    if (output.Position != PayloadInfo.Length) throw new InvalidDataException("主程序解压不完整。");
                     output.Flush(true);
                 }
                 if (!string.Equals(Hash(payload), PayloadInfo.Sha256, StringComparison.OrdinalIgnoreCase))

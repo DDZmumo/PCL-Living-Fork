@@ -3,11 +3,13 @@
 #nullable enable
 using System;
 using System.Globalization;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using PCLLF.Wpf.Glass;
 using PCLLF.Wpf.Motion;
 
@@ -42,6 +44,37 @@ internal sealed class GlassCommandButton : Button, IDisposable {
 }
 
 internal static class GlassCommandChrome {
+    private static readonly DependencyProperty ToolTipScrollScopeProperty = DependencyProperty.RegisterAttached(
+        "ToolTipScrollScope", typeof(ToolTipScrollScope), typeof(GlassCommandChrome),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.Inherits));
+
+    static GlassCommandChrome() {
+        EventManager.RegisterClassHandler(typeof(ScrollViewer), ScrollViewer.ScrollChangedEvent,
+            new ScrollChangedEventHandler(OnToolTipViewportScrolled), handledEventsToo: true);
+        EventManager.RegisterClassHandler(typeof(FrameworkElement), ToolTipService.ToolTipOpeningEvent,
+            new ToolTipEventHandler(OnToolTipOpening));
+    }
+
+    internal static void SetToolTipScrollTracking(FrameworkElement root, bool enabled) {
+        if (enabled) {
+            root.SetValue(ToolTipScrollScopeProperty, new ToolTipScrollScope(root));
+        } else {
+            (root.ReadLocalValue(ToolTipScrollScopeProperty) as ToolTipScrollScope)?.Stop();
+            root.ClearValue(ToolTipScrollScopeProperty);
+        }
+    }
+
+    private static void OnToolTipViewportScrolled(object sender, ScrollChangedEventArgs args) {
+        if (ReferenceEquals(sender, args.OriginalSource) && (args.VerticalChange != 0 || args.HorizontalChange != 0) &&
+            sender is ScrollViewer scroll && scroll.GetValue(ToolTipScrollScopeProperty) is ToolTipScrollScope scope)
+            scope.OnOffsetChanged();
+    }
+
+    private static void OnToolTipOpening(object sender, ToolTipEventArgs args) {
+        if (sender is FrameworkElement owner && owner.GetValue(ToolTipScrollScopeProperty) is ToolTipScrollScope scope &&
+            scope.SuppressOpening()) args.Handled = true;
+    }
+
     internal static Color LightSecondaryTextColor => Color.FromRgb(38, 43, 52);
     internal static readonly ComponentResourceKey ContrastWindowKey = new(typeof(GlassCommandChrome), "NativeContrastWindow");
     internal static readonly ComponentResourceKey ContrastTextKey = new(typeof(GlassCommandChrome), "NativeContrastText");
@@ -123,9 +156,18 @@ internal static class GlassCommandChrome {
         }
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
-        style.Setters.Add(new Setter(Control.TemplateProperty, new ControlTemplate(typeof(ToolTip)) {
+        var template = new ControlTemplate(typeof(ToolTip)) {
             VisualTree = PopupRoot(presenter, darkText, 10, new Thickness(11, 7, 11, 8), allowDesktopBackdrop: true)
-        }));
+        };
+        // Give plain strings their own layout before the popup measures them.
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetValue(FrameworkElement.StyleProperty, null);
+        text.SetBinding(TextBlock.TextProperty, new Binding());
+        text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.None);
+        var textTemplate = new DataTemplate(typeof(string)) { VisualTree = text };
+        template.Resources.Add(textTemplate.DataTemplateKey, textTemplate);
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
         style.Setters.Add(new EventSetter(System.Windows.Controls.ToolTip.OpenedEvent, new RoutedEventHandler(OnToolTipOpened)));
         return style;
     }
@@ -133,14 +175,83 @@ internal static class GlassCommandChrome {
         if (sender is not ToolTip tooltip) return;
         if (SystemParameters.HighContrast) RefreshContrastResources(tooltip.Resources);
         if (tooltip.PlacementTarget is FrameworkElement owner) CopyMaterial(owner, tooltip, allowDesktopBackdrop: true);
-        // String content becomes a TextBlock that would pick up the application's themed TextBlock style; keep the
-        // tooltip's own foreground and wrap long descriptions.
-        if (!tooltip.Resources.Contains(typeof(TextBlock))) {
-            var text = new Style(typeof(TextBlock));
-            text.Setters.Add(new Setter(TextBlock.ForegroundProperty, new Binding(nameof(Control.Foreground)) { Source = tooltip }));
-            text.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
-            text.Setters.Add(new Setter(TextBlock.FontSizeProperty, 12d));
-            tooltip.Resources[typeof(TextBlock)] = text;
+    }
+
+    private sealed class ToolTipScrollScope {
+        private const int QuietMilliseconds = 140;
+        private readonly FrameworkElement _root;
+        private readonly DispatcherTimer _settleTimer;
+        private long _lastScrollAt;
+        private bool _resumeHover;
+
+        internal ToolTipScrollScope(FrameworkElement root) {
+            _root = root;
+            _settleTimer = new DispatcherTimer(DispatcherPriority.Background, root.Dispatcher);
+            _settleTimer.Tick += OnScrollSettled;
+        }
+
+        internal void OnOffsetChanged() {
+            _lastScrollAt = Environment.TickCount64;
+            if (_settleTimer.IsEnabled) return;
+            _settleTimer.Interval = TimeSpan.FromMilliseconds(QuietMilliseconds);
+            _settleTimer.Start();
+            _resumeHover = WpfToolTipHover.DismissInScope(this);
+        }
+
+        internal bool SuppressOpening() {
+            if (!_settleTimer.IsEnabled) {
+                if (!SmoothScroll.IsScrolling) return false;
+                OnOffsetChanged();
+            }
+            _resumeHover = true;
+            return true;
+        }
+
+        private void OnScrollSettled(object? sender, EventArgs args) {
+            // Only the timestamp changes on scroll frames. Rearm the timer once if the viewport is still moving.
+            long remaining = QuietMilliseconds - (Environment.TickCount64 - _lastScrollAt);
+            if (SmoothScroll.IsScrolling || remaining > 0) {
+                _settleTimer.Interval = TimeSpan.FromMilliseconds(remaining > 0 ? remaining : QuietMilliseconds);
+                return;
+            }
+            _settleTimer.Stop();
+            if (!_resumeHover) return;
+            _resumeHover = false;
+            if (_root.IsVisible) WpfToolTipHover.ResumeInScope(this);
+        }
+
+        internal void Stop() => _settleTimer.Stop();
+    }
+
+    private static class WpfToolTipHover {
+        // Closing the popup directly or cancelling an opening can leave WPF's hover history in place.
+        // Use the native close path and recheck that history when scrolling has finished.
+        private const BindingFlags InstanceMember = BindingFlags.Instance | BindingFlags.NonPublic;
+        private static readonly PropertyInfo? Service = typeof(FrameworkElement).GetProperty(
+            "PopupControlService", BindingFlags.Static | BindingFlags.NonPublic);
+        private static readonly PropertyInfo? Current = Service?.PropertyType.GetProperty("CurrentToolTip", InstanceMember);
+        private static readonly MethodInfo? DismissCurrent = Service?.PropertyType.GetMethod("DismissCurrentToolTip", InstanceMember);
+        private static readonly PropertyInfo? LastOwner = Service?.PropertyType.GetProperty("LastMouseToolTipOwner", InstanceMember);
+        private static readonly PropertyInfo? LastHit = Service?.PropertyType.GetProperty("LastMouseDirectlyOver", InstanceMember);
+
+        internal static bool DismissInScope(ToolTipScrollScope scope) {
+            object? service = Service?.GetValue(null);
+            if (service is null || DismissCurrent is null ||
+                Current?.GetValue(service) is not ToolTip { IsOpen: true, PlacementTarget: { } owner } ||
+                !ReferenceEquals(owner.GetValue(ToolTipScrollScopeProperty), scope)) return false;
+            DismissCurrent.Invoke(service, null);
+            return true;
+        }
+
+        internal static void ResumeInScope(ToolTipScrollScope scope) {
+            if (Current is null || LastOwner?.CanWrite != true || LastHit?.CanWrite != true) return;
+            object? service = Service?.GetValue(null);
+            if (service is null || Current.GetValue(service) is not null ||
+                LastOwner.GetValue(service) is not DependencyObject owner ||
+                !ReferenceEquals(owner.GetValue(ToolTipScrollScopeProperty), scope)) return;
+            LastOwner.SetValue(service, null);
+            LastHit.SetValue(service, null);
+            Mouse.Synchronize();
         }
     }
     internal static ToolTip ToolTip(FrameworkElement owner, bool darkText) => new() { PlacementTarget = owner, Style = ToolTipStyle(darkText) };

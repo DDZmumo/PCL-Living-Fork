@@ -38,6 +38,8 @@ namespace PCL
     public partial class PageLaunchLeft
     {
         private readonly global::PCLLF.Presentation.Launch.LegacyLaunchLeft<global::PCL.ModMinecraft.McInstance, global::PCL.ModAnimation.AniData> Native;
+        internal bool InitialInstanceSelectionComplete => Native.InitialInstanceSelectionComplete;
+
         public PageLaunchLeft()
         {
             __LfAttachOwnHandles();

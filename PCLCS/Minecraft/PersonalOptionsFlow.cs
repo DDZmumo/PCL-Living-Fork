@@ -29,6 +29,7 @@ public class PersonalOptionsSessionData {
     public JObject? Baseline;
     public HashSet<string> Keys = new(StringComparer.Ordinal);
     public bool Tracked;
+    internal long StartedUtcTicks;
 }
 
 /// <summary>
@@ -48,11 +49,13 @@ public sealed class PersonalOptionsFlow {
     private readonly Func<PersonalOptionsSessionData> _sessionFactory;
     private readonly Func<bool> _captureEnabled;
     private readonly bool _existingOnly;
+    private readonly Action<IPersonalOptionsInstance>? _keepIndependent;
 
     public PersonalOptionsFlow(LocalGameDataStore data, object gate, Func<bool> hasRunning,
         Func<string, IPersonalOptionsInstance> instanceFactory, Func<string, bool> selected,
         Action<string> invalidateCache, Func<string, string, bool> samePath,
-        Action<Exception, string> warn, Func<PersonalOptionsSessionData> sessionFactory, Func<bool>? captureEnabled = null, bool existingOnly = false) {
+        Action<Exception, string> warn, Func<PersonalOptionsSessionData> sessionFactory, Func<bool>? captureEnabled = null, bool existingOnly = false,
+        Action<IPersonalOptionsInstance>? keepIndependent = null) {
         _data = data;
         _gate = gate;
         _hasRunning = hasRunning;
@@ -64,6 +67,7 @@ public sealed class PersonalOptionsFlow {
         _sessionFactory = sessionFactory;
         _captureEnabled = captureEnabled ?? (() => true);
         _existingOnly = existingOnly;
+        _keepIndependent = keepIndependent;
     }
 
     public bool Enabled(IPersonalOptionsInstance? instance) => instance is not null && instance.SyncEnabled;
@@ -106,7 +110,7 @@ public sealed class PersonalOptionsFlow {
         }
     }
 
-    public PersonalOptionsSessionData? Prepare(IPersonalOptionsInstance? instance) {
+    public PersonalOptionsSessionData? Prepare(IPersonalOptionsInstance? instance, Func<int?>? readDataVersion = null) {
         if (!Enabled(instance) || _hasRunning()) return null;
         RecoverExitedSessions();
         string folder = instance!.GameFolder;
@@ -145,9 +149,17 @@ public sealed class PersonalOptionsFlow {
                 var present = PersonalOptionsRules.Parse(text);
                 keys.RemoveWhere(key => !present.ContainsKey(PersonalOptionsRules.CanonicalKey(key)));
             }
+            bool modern = Modern(instance);
+            bool modernKeys = modern;
+            if (_existingOnly && modern) {
+                var options = PersonalOptionsRules.Parse(text);
+                modernKeys = options.TryGetValue("version", out string? schema) && int.TryParse(schema, out int version)
+                    ? version >= 1344 : !PersonalOptionsFiles.HasNumericBindings(options);
+            }
             string merged = initializing
-                ? PersonalOptionsRules.MergeInitialText(text, values, Modern(instance), keys, _selected, instance.VanillaMajor >= 19)
-                : PersonalOptionsRules.MergeText(text, values, Modern(instance), keys, _selected, instance.VersionValid && instance.VanillaMajor >= 19);
+                ? PersonalOptionsRules.MergeInitialText(text, values, modernKeys, keys, _selected, fovDegrees: false)
+                : PersonalOptionsRules.MergeText(text, values, modernKeys, keys, _selected, !_existingOnly && instance.VersionValid && instance.VanillaMajor >= 19);
+            if (_existingOnly && modernKeys) merged = PersonalOptionsFiles.MarkModernKeyFormat(merged, readDataVersion);
             if (bytes is null) PersonalOptionsFiles.CreateInitial(fileName, merged, _invalidateCache);
             else PersonalOptionsFiles.ApplyMerged(fileName, bytes, initialText, merged, _invalidateCache);
             JObject baseline = new();
@@ -167,9 +179,10 @@ public sealed class PersonalOptionsFlow {
     public void Track(PersonalOptionsSessionData? session, Process game) {
         if (session is null) return;
         lock (_gate) {
+            session.StartedUtcTicks = game.StartTime.ToUniversalTime().Ticks;
             var journal = new JObject(
                 new JProperty("versionPath", session.VersionPath), new JProperty("gameFolder", session.GameFolder),
-                new JProperty("pid", game.Id), new JProperty("started", game.StartTime.ToUniversalTime().Ticks),
+                new JProperty("pid", game.Id), new JProperty("started", session.StartedUtcTicks),
                 new JProperty("baseline", session.Baseline), new JProperty("keys", new JArray(session.Keys)));
             LegacyJavaLaunchIdentity.WriteJournal(journal, game);
             _data.WriteJson("options-sessions/" + session.Id + ".json", journal);
@@ -185,6 +198,10 @@ public sealed class PersonalOptionsFlow {
             if (values is null) return;
             string? canonical = CaptureValue(key, value);
             if (canonical is null) return;
+            if (_keepIndependent is not null) {
+                if (values[PersonalOptionsRules.CanonicalKey(key)] is JValue shared && shared.ToString() != canonical) _keepIndependent(instance!);
+                return;
+            }
             values[PersonalOptionsRules.CanonicalKey(key)] = canonical;
             _data.WriteJson(ProfileName, profile);
         }
@@ -211,11 +228,25 @@ public sealed class PersonalOptionsFlow {
             JObject profile = _data.ReadJson(ProfileName);
             JObject? values = profile["values"] as JObject;
             if (values is null) return;
+            bool changed = false;
             foreach (string key in session.Keys.Where(_selected)) {
                 if (!current.TryGetValue(key, out string? raw)) continue;
                 string? value = CaptureValue(key, raw);
                 if (value is null || session.Baseline![key] is null || value == session.Baseline[key]!.ToString()) continue;
+                // Minecraft can serialize the same slider setting with extra floating-point digits on exit.
+                if (_keepIndependent is not null && double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double actual) &&
+                    double.TryParse((string?)session.Baseline[key], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double before) &&
+                    Math.Abs(actual - before) < 0.0000001) continue;
                 string? latest = (string?)values[key];
+                if (!changed && PersonalOptionsFiles.GameReportedOptionsLoadFailure(session.GameFolder!, session.StartedUtcTicks)) {
+                    MeloongCore.Logger.Info("游戏报告 options.txt 加载失败，已跳过本次个人设置回写");
+                    return;
+                }
+                changed = true;
+                if (_keepIndependent is not null) {
+                    _keepIndependent(instance);
+                    return;
+                }
                 if (latest != (string?)session.Baseline[key] && latest != value) {
                     JObject conflicts = profile["conflicts"] as JObject ?? new JObject();
                     conflicts[key] = new JObject(new JProperty("baseline", session.Baseline[key]!.DeepClone()),
@@ -227,6 +258,7 @@ public sealed class PersonalOptionsFlow {
                     (profile["conflicts"] as JObject)?.Remove(key);
                 }
             }
+            if (!changed) return;
             profile["updatedUtc"] = DateTime.UtcNow.ToString("O");
             _data.WriteJson(ProfileName, profile);
         }
@@ -247,6 +279,7 @@ public sealed class PersonalOptionsFlow {
                     session.Baseline = (JObject?) json["baseline"];
                     session.Keys = new HashSet<string>(json["keys"]!.Select(item => item.ToString()), StringComparer.Ordinal);
                     session.Tracked = true;
+                    if (json["started"]?.Type == JTokenType.Integer) session.StartedUtcTicks = (long)json["started"]!;
                     Finish(session);
                 } catch (Exception error) {
                     _warn(error, "恢复个人游戏设置同步会话失败");

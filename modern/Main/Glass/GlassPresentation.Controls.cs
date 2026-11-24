@@ -202,7 +202,7 @@ public sealed partial class GlassPresentationSession
 
     private Node ProjectSlider(MySlider source)
     {
-        var slider = new Slider { Style = Style("GlassPresentationSlider"), Minimum = 0, SmallChange = source.ValueByKey, LargeChange = Math.Max(1, source.ValueByKey * 5) };
+        var slider = new TrackDragSlider { Style = Style("GlassPresentationSlider"), Minimum = 0, SmallChange = source.ValueByKey, LargeChange = Math.Max(1, source.ValueByKey * 5) };
         var dragHint = new SliderDragHint(slider);
         bool pulling = false;
         slider.ValueChanged += (_, _) =>
@@ -458,13 +458,19 @@ public sealed partial class GlassPresentationSession
                         if (javaActions && item is MyListItem java)
                         {
                             var row = new Grid();
+                            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                             row.ColumnDefinitions.Add(new ColumnDefinition());
                             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                            var title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                            // Each runtime leads with its distribution's mark; the import command gets a plus in the same slot.
+                            FrameworkElement mark = java.Tag is PCLCS.Java runtime ? VendorMark(VendorOf(runtime.Distribution), 22) : JavaImportMark(22);
+                            mark.Margin = new Thickness(0, 3, 10, 3);
+                            var title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
                             Bind(title, TextBlock.TextProperty, java, nameof(java.Title));
+                            Bind(title, FrameworkElement.ToolTipProperty, java, nameof(java.Title));
+                            Grid.SetColumn(title, 1);
                             var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 0) };
-                            Grid.SetColumn(actions, 1);
-                            row.Children.Add(title); row.Children.Add(actions);
+                            Grid.SetColumn(actions, 2);
+                            row.Children.Add(mark); row.Children.Add(title); row.Children.Add(actions);
                             choice.Content = row;
                             Bind(choice, AutomationProperties.NameProperty, java, nameof(java.Title));
                             Bind(choice, UIElement.IsEnabledProperty, java, nameof(UIElement.IsEnabled));
@@ -491,7 +497,7 @@ public sealed partial class GlassPresentationSession
                     var choice = (ComboBoxItem)combo.Items[index];
                     if (javaActions && items[index] is MyListItemView java && choice.Content is Grid row)
                     {
-                        var actions = (StackPanel)row.Children[1];
+                        var actions = row.Children.OfType<StackPanel>().Single();
                         Children(actions, java.Buttons?.Select(button => Project(button)).Where(item => item != null).ToArray() ?? Array.Empty<UIElement>());
                     }
                     else if (items[index] is ContentControl original) choice.Content = Content(original.Content);
@@ -509,6 +515,16 @@ public sealed partial class GlassPresentationSession
 
     private sealed class JavaActionComboBox : ComboBox
     {
+        public override void OnApplyTemplate()
+        {
+            base.OnApplyTemplate();
+            if (GetTemplateChild("DropDownSurface") is GlassSurface surface)
+            {
+                surface.SetBinding(WidthProperty, new Binding(nameof(ActualWidth)) { Source = this });
+                surface.SetResourceReference(Border.BackgroundProperty, "GlassPresentationDialogFill");
+            }
+        }
+
         protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
             // Let the page scroll when the closed menu has focus, without invoking a Java command.
@@ -629,7 +645,7 @@ public sealed partial class GlassPresentationSession
             AutomationProperties.SetHelpText(action, string.IsNullOrEmpty(primaryText.Text) ? source.Info ?? string.Empty : primaryText.Text + " " + source.Title);
             info.Text = source.Info; info.Visibility = string.IsNullOrEmpty(source.Info) ? Visibility.Collapsed : Visibility.Visible;
             date.Text = source.Tag is ResourceVersion version && version.ReleaseDate.Year > 1900 ? version.ReleaseDate.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
-            date.Visibility = downloadRow || string.IsNullOrEmpty(date.Text) ? Visibility.Collapsed : Visibility.Visible;
+            date.Visibility = string.IsNullOrEmpty(date.Text) ? Visibility.Collapsed : Visibility.Visible;
             if (source.Tag is ResourceVersion && !string.IsNullOrEmpty(source.Info)) info.Text = string.Join("，", source.Info.Split('，').Where(part => !part.StartsWith("更新于 ", StringComparison.Ordinal)));
             action.ToolTip = source.ToolTip as string ?? source.Info;
             if (action is ToggleButton toggle) toggle.IsChecked = source.Checked;

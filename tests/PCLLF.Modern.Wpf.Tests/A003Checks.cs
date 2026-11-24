@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows.Controls;
 using PCLCS;
 using PCLCS.Startup;
@@ -33,7 +34,7 @@ internal static class A003Checks {
         public string Dismissed = "";
         public string Identity = "fixture|1.4.0|stable|415|0";
         public bool ThrowOnRead;
-        public int UpdateChecks;
+        public readonly List<Task> UpdateChecks = new();
         public readonly List<Action> Threads = new();
         public readonly List<bool> Notices = new();
         public readonly List<string> Writes = new();
@@ -47,7 +48,7 @@ internal static class A003Checks {
             UpdateLogIdentity = () => Identity,
             ShowReleaseNotes = (automatic, _) => { Notices.Add(automatic); return true; },
             NewThread = (work, name, priority) => Threads.Add(work),
-            CheckUpdates = () => UpdateChecks++,
+            CheckUpdates = noticeClosed => UpdateChecks.Add(noticeClosed),
             LauncherName = () => "LivingPCL",
             VersionBaseName = () => "synthetic",
             ReleasesUrl = () => "https://example.invalid/releases",
@@ -76,18 +77,21 @@ internal static class A003Checks {
         controller.Upgrade(999);
         Check(host.Threads.Count == 0, "Suppressed prompt must not schedule the update log.");
         controller.CheckStartupUpdates();
-        Check(host.UpdateChecks == 1 && host.Threads.Count == 0, "Suppressing notes must keep automatic update checking active.");
+        Check(host.UpdateChecks.Count == 1 && host.UpdateChecks[0].IsCompleted && host.Threads.Count == 0,
+            "Suppressing notes must keep automatic update checking active without a pending notice.");
         host.Identity = "fixture|1.4.1|stable|416|0";
         Check(controller.ShouldAutoShowUpdateLog(), "A version change must show notes again.");
         controller.Upgrade(999);
         controller.CheckStartupUpdates();
-        controller.ShowAutomaticUpdateLog();
+        Task closed = controller.ShowAutomaticUpdateLog();
         Check(host.Threads.Count == 1, "Enabled prompt must schedule exactly one update log thread.");
-        Check(host.UpdateChecks == 2, "An issued automatic notice must not suppress update checking.");
+        Check(host.UpdateChecks.Count == 2 && ReferenceEquals(host.UpdateChecks[1], closed) && !closed.IsCompleted,
+            "Automatic checking must start and receive the pending notice's completion.");
 
         Action logThread = host.Threads[0];
         host.Threads.Clear();
         logThread();
+        Check(closed.IsCompletedSuccessfully, "Closing the announcement did not release the automatic update prompt.");
         Check(host.Notices.SequenceEqual(new[] { true }), "Upgrade must reach the same automatic dialog path as startup.");
 
         host.Dismissed = host.Identity;

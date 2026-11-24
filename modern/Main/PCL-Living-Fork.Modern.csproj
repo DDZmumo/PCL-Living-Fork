@@ -208,6 +208,7 @@
 <Compile Include="Pages/PageSetup/PageSetupLeft.xaml.cs" />
 <Compile Include="Pages/PageSetup/Settings.cs" />
 <Compile Include="Pages/PageSetup/PageSetupLaunch.xaml.cs" />
+<Compile Include="Pages/PageSetup/PageSetupJava.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.BackupStorage.cs" />
 <Compile Include="Pages/PageSetup/PageSetupUpdate.xaml.cs" />

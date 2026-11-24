@@ -13,14 +13,21 @@ public sealed class InstanceSettingsController<TInstance,TState,TCard,TItem,TBut
     where TInstance : LegacyMcInstance<TInstance,TState,TCard> where TState : struct,Enum where TCard : struct,Enum where TItem : FrameworkElement where TButton : FrameworkElement {
     private readonly InstanceSettingsView<TItem,TButton> view; private readonly InstanceSettingsHost<TInstance> host; private readonly InstanceRamDisplayController ram;
     private bool isReverting;
+    private bool javaBindingsInitialized;
     private long javaListRevision;
     public InstanceSettingsController(InstanceSettingsView<TItem,TButton> view, InstanceSettingsHost<TInstance> host, InstanceRamDisplayController ram) { this.view=view; this.host=host; this.ram=ram; }
     public void Loaded() {
         host.ApplyVisibility(); view.ScrollHome(); ram.Refresh(false); host.AddAnimation(1); Reload(); host.AddAnimation(-1);
         if (view.LoadedFirst()) return; view.SetLoadedFirst(true);
-        host.JavaWorker().Started += UpdateJavaRelatedUi; host.JavaWorker().Stopped += UpdateJavaRelatedUi;
-        view.SetJavaRangeValidator(text => InstanceJavaRangeValidation.Validate(text,host.LeftQuote,host.RightQuote));
+        InitializeJavaBindings();
         DispatcherTimer timer = new() { Interval = new TimeSpan(0,0,0,1) }; timer.Tick += (_,_) => ram.Refresh(true); timer.Start();
+    }
+    public void InitializeJavaBindings() {
+        if (javaBindingsInitialized) return;
+        javaBindingsInitialized = true;
+        host.JavaWorker().Started += UpdateJavaRelatedUi;
+        host.JavaWorker().Stopped += UpdateJavaRelatedUi;
+        view.SetJavaRangeValidator(text => InstanceJavaRangeValidation.Validate(text,host.LeftQuote,host.RightQuote));
     }
     public void Reload() {
         try {

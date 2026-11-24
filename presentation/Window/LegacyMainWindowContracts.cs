@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Threading;
 using System.Windows;
@@ -133,7 +134,8 @@ public sealed class LegacyMainWindowHost<TStack, TInstance, TAnimation>
     public Action<string, LegacyMainHint> Hint = null!;
     public Func<LegacyMainMessage, int> Message = null!;
     public Action<string> OpenWebsite = null!;
-    public Action StartAnimationLoop = null!, StartMainTimer = null!, JavaInitialize = null!, ClearTaskTemp = null!, CheckUpdates = null!, StartFolderLoader = null!, StartClientList = null!;
+    public Action StartAnimationLoop = null!, StartMainTimer = null!, JavaInitialize = null!, ClearTaskTemp = null!, StartFolderLoader = null!, StartClientList = null!;
+    public Action<Task> CheckUpdates = null!;
     public Func<LegacyMainDragHelperPort> CreateDragHelper = null!;
     public Func<LegacyMainDialog> FirstDialog = null!;
     public Func<int> GlobalMessageCount = null!;

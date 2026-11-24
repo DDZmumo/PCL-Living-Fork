@@ -358,6 +358,9 @@ namespace PCL
         {
             return global::PCL.ModMinecraft.Service.McLibListGet(Instance, IncludeMainJar);
         }
+        internal static List<McLibEntry> McLibListGetForX86(McInstance instance, bool includeMainJar) =>
+            Service.McLibListGet(instance, includeMainJar, x86: true);
+        internal static bool McJsonRuleCheckForX86(JToken rules) => Service.McJsonRuleCheckForX86(rules);
         public static global::System.Collections.Generic.List<global::PCL.ModMinecraft.McLibEntry> McLibListGetWithJson(global::Newtonsoft.Json.Linq.JObject JsonObject, global::System.Boolean KeepSameNameDifferentVersionResult = false, global::System.String CustomMcFolder = null)
         {
             return global::PCL.ModMinecraft.Service.McLibListGetWithJson(JsonObject, KeepSameNameDifferentVersionResult, CustomMcFolder);

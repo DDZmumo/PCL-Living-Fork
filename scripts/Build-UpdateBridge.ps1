@@ -42,6 +42,16 @@ try{
   $parsed=[version]$nativeIdentity.FileVersion
  }
  $hash=(Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+ $payloadLength=(Get-Item -LiteralPath $ExecutablePath).Length
+ $packed=Join-Path $temporary 'Payload.gz'
+ $output=[IO.File]::Create($packed)
+ try {
+  $gzip=[IO.Compression.GZipStream]::new($output,[IO.Compression.CompressionLevel]::Optimal)
+  try {
+   $inputFile=[IO.File]::OpenRead($ExecutablePath)
+   try { $inputFile.CopyTo($gzip) } finally { $inputFile.Dispose() }
+  } finally { $gzip.Dispose() }
+ } finally { $output.Dispose() }
  $info=Join-Path $temporary 'PayloadInfo.cs'
  $text=@"
 using System.Reflection;
@@ -49,14 +59,15 @@ using System.Reflection;
 [assembly:AssemblyProduct("LivingPCL")]
 [assembly:AssemblyVersion("$parsed")]
 [assembly:AssemblyFileVersion("$parsed")]
-internal static class PayloadInfo { internal const string Sha256 = "$hash"; }
+internal static class PayloadInfo { internal const string Sha256 = "$hash"; internal const long Length = ${payloadLength}L; }
 "@
  [IO.File]::WriteAllText($info,$text,[Text.UTF8Encoding]::new($false))
  $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
  $compiler=(& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\Roslyn\csc.exe'|Select-Object -First 1)
  if(-not $compiler){throw 'Visual Studio C# compiler unavailable'}
+ $icon=Join-Path (Split-Path $PSScriptRoot -Parent) 'modern/Main/Images/Branding/LivingPCL.ico'
  $compiled=Join-Path $temporary 'LivingPCL.exe'
- & $compiler /nologo /target:winexe /optimize+ ('/out:'+$compiled) ('/resource:'+$ExecutablePath+',PCLLivingFork.Payload') /reference:System.dll /reference:System.Core.dll /reference:System.Windows.Forms.dll (Join-Path $PSScriptRoot 'update-bridge/Program.cs') $info
+ & $compiler /nologo /target:winexe /optimize+ ('/out:'+$compiled) ('/win32icon:'+$icon) ('/resource:'+$packed+',PCLLivingFork.Payload.gz') /reference:System.dll /reference:System.Core.dll /reference:System.Windows.Forms.dll (Join-Path $PSScriptRoot 'update-bridge/Program.cs') $info
  if($LASTEXITCODE -ne 0){throw 'Update bridge compilation failed'}
  if([Reflection.AssemblyName]::GetAssemblyName($compiled).Name -ne 'LivingPCL' -or [Diagnostics.FileVersionInfo]::GetVersionInfo($compiled).ProductName -ne 'LivingPCL'){throw 'Legacy bridge identity mismatch'}
  [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($OutputPath))|Out-Null

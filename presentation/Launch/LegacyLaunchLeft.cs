@@ -22,6 +22,8 @@ public sealed partial class LegacyLaunchLeft<TInstance, TAnimation> where TInsta
     private TInstance? launchButtonInstance;
     private string? displayedAuthEndpoint;
     public LegacyLaunchLeft(LegacyLaunchLeftView view, LegacyLaunchLeftHost<TInstance> host, LegacyLaunchAnimations<TAnimation> animation, Func<bool>? hasSkinSite = null) { this.view = view; this.host = host; this.animation = animation; this.hasSkinSite = hasSkinSite; }
+    public bool InitialInstanceSelectionComplete => loadFinished;
+
     public void Loaded() {
         if (isLoaded) RefreshPage(true, false);
         view.AprilPosition().X = 0; view.AprilPosition().Y = 0;

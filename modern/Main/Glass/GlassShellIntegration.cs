@@ -52,6 +52,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     private MyPageRightView? _sourceRightPage;
     private UIElement? _projectedPage;
     private InstancePageScope? _projectedInstance;
+    private (UIElement Page, InstancePageScope Scope)? _instanceResourceDetailOrigin;
     private readonly List<GlassExtraButtonAdapter> _extraButtons = new();
     private GlassWindowRegionClip? _windowRegion;
     private GlassToastHost? _toasts;
@@ -90,6 +91,9 @@ internal sealed class GlassShellIntegration : IDisposable {
     internal void Attach() {
         if (_attached) return;
         _attached = true;
+        // Only cold product startup prepares the selected video before the window is shown.
+        _startupPreload = System.Reflection.Assembly.GetEntryAssembly() == typeof(GlassShellIntegration).Assembly && _owner.GlassPreviewState is null;
+        if (_startupPreload && !_owner.IsLoaded) PreloadSelectedVideoWallpaper();
         _legacyRoot = (UIElement)_owner.Content;
         _owner.Content = null;
         _legacyRoot.Visibility = Visibility.Hidden;
@@ -99,6 +103,7 @@ internal sealed class GlassShellIntegration : IDisposable {
         Panel.SetZIndex(_modalScrim, 25); _root.Children.Add(_modalScrim);
         View.SetSurfaceMaskHost(_root);
         ModernTooltipService.SetUseModernTooltip(_root, false);
+        GlassCommandChrome.SetToolTipScrollTracking(_root, true);
         _owner.Content = _root;
         _windowRegion = GlassWindowRegionClip.Attach(_owner);
         GlassMaterial.SetIsEnabled(_root, true);
@@ -172,8 +177,6 @@ internal sealed class GlassShellIntegration : IDisposable {
         _owner.IsVisibleChanged += OnWindowVisibilityChanged;
         _owner.LocationChanged += OnWindowLocationChanged;
         _owner.DpiChanged += OnWindowDpiChanged;
-        // Startup splash for the real product only (test hosts and design previews open straight into the interface).
-        _startupPreload = System.Reflection.Assembly.GetEntryAssembly() == typeof(GlassShellIntegration).Assembly && _owner.GlassPreviewState is null;
         if (_startupPreload)
         {
             GlassStartupPreload.Begin();
@@ -292,7 +295,7 @@ internal sealed class GlassShellIntegration : IDisposable {
         _refreshing = true;
         try {
             _owner.Opacity = 1;
-            double opacityMultiplier = Math.Clamp(Settings.Get<int>("UiPanelOpacity") / 1000d, 0.4, 1);
+            double opacityMultiplier = Math.Clamp(Settings.Get<int>("UiPanelOpacity") / 1000d, 0, 1);
             if (_lastOpacityMultiplier != opacityMultiplier) {
                 _lastOpacityMultiplier = opacityMultiplier;
                 GlassMaterial.SetOpacityMultiplier(_root, opacityMultiplier);
@@ -368,26 +371,20 @@ internal sealed class GlassShellIntegration : IDisposable {
             }
             if (!motionBusy) UpdatePageGutter();
             RefreshToasts();
-            // While the loader shows, preload one step per refresh (dialog bodies, next pages). The splash may leave once
-            // the instance list has loaded, the first page has been built and the preloads are done (or out of time).
-            if (View.IsSplashLoading) GlassStartupPreload.Step();
             if (View.IsSplashing) {
-                // Four stages, a quarter of the water each; a stage that is not needed counts as done at once.
-                bool listed = ModMinecraft.McInstanceListLoader.State is not (ModBase.LoadState.Loading or ModBase.LoadState.Waiting);
-                bool notes = GlassStartupPreload.NotesDone, update = GlassStartupPreload.UpdateDone;
-                bool homepage = HomepageLoaded();
-                double resources = _pagePresentation is null ? Math.Min(.5, GlassStartupPreload.ResourcesDone) : GlassStartupPreload.ResourcesDone;
-                double progress = ((notes ? 1 : 0) + (update ? 1 : 0) + (homepage ? 1 : 0) + resources) / 4;
-                // The instance list starts only after Java discovery; while everything else is ready the splash says so
-                // and holds just short of full instead of sitting at a misleading figure.
-                bool waitingForList = !listed && progress >= .999;
-                View.SplashProgress = listed ? progress : Math.Min(progress, .95);
-                View.SplashStageText = !notes ? "正在加载更新公告" : !update ? "正在检查更新" : !homepage ? "正在加载主页" :
-                    waitingForList ? "正在加载版本列表" : "正在加载其他资源";
+                // Restoring a valid selection skips the full instance list scan. Wait for the launch page's
+                // initial selection and first projection; updates and custom homepage content can arrive later.
+                bool selectionReady = ModMain.FrmLaunchLeft?.InitialInstanceSelectionComplete == true;
+                bool workspaceReady = _pagePresentation is not null;
+                bool foldersReady = ModMinecraft.McFolderListLoader.State is not (ModBase.LoadState.Loading or ModBase.LoadState.Waiting);
+                bool ready = selectionReady && workspaceReady;
+                View.SplashProgress = ready ? 1 : (foldersReady ? .25 : 0) + (selectionReady ? .50 : 0) + (workspaceReady ? .25 : 0);
+                View.SplashStageText = !selectionReady
+                    ? foldersReady ? "正在读取本地游戏实例" : "正在查找游戏文件夹"
+                    : GlassStartupPreload.CheckingForUpdate ? "正在检查启动器更新" : "正在进入主界面";
+                if (ready) View.CompleteSplash();
+                if (View.IsSplashLoading) GlassStartupPreload.Step();
             }
-            if (View.IsSplashing && _pagePresentation is not null && GlassStartupPreload.Settled &&
-                ModMinecraft.McInstanceListLoader.State is not (ModBase.LoadState.Loading or ModBase.LoadState.Waiting))
-                View.CompleteSplash();
             RefreshRegions();
         } catch (Exception error) {
             // Keep the shell alive during a page's transient replacement; original operation failures retain their own feedback.
@@ -457,6 +454,16 @@ internal sealed class GlassShellIntegration : IDisposable {
         GlassPresentationSession? previous = _pagePresentation;
         UIElement? previousSource = _projectedPage;
         InstancePageScope? previousInstance = _projectedInstance;
+        bool enteringResourceDetail = ReferenceEquals(next, _owner.PageRight) &&
+            _owner.GlassPageCode == (int)FormMain.PageType.ResourceDetail;
+        bool returnToResources = !enteringResourceDetail &&
+            _instanceResourceDetailOrigin is { } origin && ReferenceEquals(origin.Page, next) &&
+            SameInstancePageScope(origin.Scope, instance);
+        if (enteringResourceDetail && previous?.InstanceResourceScroll is not null &&
+            previousSource is not null && previousInstance is { } resourceScope)
+            _instanceResourceDetailOrigin = (previousSource, resourceScope);
+        else if (!enteringResourceDetail)
+            _instanceResourceDetailOrigin = null;
         GlassPresentationSession? reusable = null;
         // The home page's projection (its homepage cards) is kept while other pages show and reused on return, so the
         // cards are not rebuilt (and an online homepage not re-laid out) every time Home opens.
@@ -476,6 +483,7 @@ internal sealed class GlassShellIntegration : IDisposable {
             // contents after the page motion, instead of walking the whole homepage before the first frame.
             if (!homePage) reusable.Refresh();
         } else _pagePresentation = CreatePresentation(_owner.PanMainRight);
+        if (!returnToResources) _pagePresentation.ResetInstanceResourceScroll();
         _projectedPage = next;
         _projectedInstance = instance;
         if (previous is not null) {
@@ -486,6 +494,21 @@ internal sealed class GlassShellIntegration : IDisposable {
         }
         ObserveRightPage(next);
         View.SetPageContent(_pagePresentation.View);
+        _owner.BtnExtraBack?.ShowRefresh();
+        return true;
+    }
+
+    private ScrollViewer? ActiveBackToTopScroll =>
+        ReferenceEquals(_projectedPage, _owner.PageRight) && ReferenceEquals(_projectedPage, DisplayedPage)
+        ? _pagePresentation?.BackToTopScroll : null;
+
+    internal bool? ProjectedBackShowCheck() =>
+        ActiveBackToTopScroll is { } scroll ? scroll.IsVisible && scroll.VerticalOffset > 1 : null;
+
+    internal bool TryScrollProjectedPageToTop()
+    {
+        if (ActiveBackToTopScroll is null) return false;
+        _pagePresentation!.ScrollToTop();
         return true;
     }
 
@@ -620,6 +643,16 @@ internal sealed class GlassShellIntegration : IDisposable {
         ? Settings.Get<string>("UiGlassWallpaperPath") ?? ""
         : "";
 
+    private void PreloadSelectedVideoWallpaper() {
+        try {
+            string path = ReadSelectedWallpaper();
+            if (!GlassVideoWallpaper.IsVideo(path)) return;
+            GlassVideoWallpaper.SetPaused(true);
+            _ = ReadWallpaper(path);
+        }
+        catch (Exception error) { Logger.Warn(error, "预读启动器视频壁纸失败"); }
+    }
+
     private void SetWallpaperSelection(string path) {
         Settings.Set("UiGlassWallpaperPath", path);
         if (path.Length > 0) Settings.Set("UiBackgroundMode", 0);
@@ -711,7 +744,6 @@ internal sealed class GlassShellIntegration : IDisposable {
             View.SetWallpaperDisplay(displayed!, material);
             GlassMaterial.SetWallpaperSource(_root, material);
             _modalEffects?.SetVideoBackdrop(video ? wallpaper : null, video ? material : null);
-            SetVideoFrost(video && material is null ? wallpaper : null);
         }
         GlassMaterial.SetWallpaperHost(_root, wallpaper ?? (FrameworkElement)View);
         // Wallpaper owns only the main panel; the detached rail keeps desktop Acrylic.
@@ -725,6 +757,9 @@ internal sealed class GlassShellIntegration : IDisposable {
     }
     private void UpdateBackdropState() {
         bool active = _backdrop?.HasDesktopBackdrop == true;
+        bool alphaFallback = _backdrop?.Status is GlassBackdropStatus.UnsupportedPlatform or
+            GlassBackdropStatus.LayeredWindowUnsupported or GlassBackdropStatus.Failed;
+        GlassMaterial.SetAlphaFallback(_root, alphaFallback);
         GlassMaterial.SetDesktopBackdropEnabled(_root, active);
         View.SetDesktopBackdropActive(active);
     }
@@ -751,16 +786,8 @@ internal sealed class GlassShellIntegration : IDisposable {
         UpdateToastPlacement();
     }
 
-    // The homepage counts as loaded once its content is in place (or when no homepage is configured).
-    private static bool HomepageLoaded() =>
-        Settings.Get<int>("UiCustomType") == 0 || ModMain.FrmLaunchRight?.HasHomepageContent == true;
-
-    private VideoWallpaperSampler? _videoFrost;
-
     private void UpdateVideoWallpaperActivity() {
-        bool paused = !CanRenderWindow;
-        GlassVideoWallpaper.SetPaused(paused);
-        _videoFrost?.SetPaused(paused || _windowResizing);
+        GlassVideoWallpaper.SetPaused(!CanRenderWindow);
     }
 
     private void RefreshAudioVisualization() {
@@ -771,17 +798,6 @@ internal sealed class GlassShellIntegration : IDisposable {
         bool playing = CanRenderWindow && !GlassModalEffects.IsCrashReport(_lastActiveModal) &&
             _music.IsReady && _music.OnHome && ModMusic.MusicState == ModMusic.MusicStates.Play;
         _visualizer.Update(enabled && CanRenderWindow, playing, style);
-    }
-
-    private void SetVideoFrost(Image? source) {
-        if (source is null) { _videoFrost?.Dispose(); _videoFrost = null; return; }
-        _videoFrost ??= new VideoWallpaperSampler(_owner.Dispatcher, frame => {
-            GlassMaterial.SetWallpaperSource(_root, frame);
-            View.SetWallpaperMaterialSource(frame);
-            _modalEffects?.SetVideoBackdrop(View.FindName("WallpaperImage") as Image, frame);
-        });
-        _videoFrost.SetHost(source);
-        UpdateVideoWallpaperActivity();
     }
 
     private PCLLF.Wpf.Motion.SpringMotion? _backdropPresence;
@@ -878,7 +894,8 @@ internal sealed class GlassShellIntegration : IDisposable {
         if (View.ActualWidth <= 0 || View.ActualHeight <= 0) return;
         var surfaces = View.GetSurfaceRegions();
         // Exclude the wallpaper panel from native sampling while retaining rail Acrylic.
-        _backdrop?.SetRegions(View.GetDesktopBackdropRegions());
+        _backdrop?.SetRegions(View.GetDesktopBackdropRegions(),
+            reserveLeftInset: View.IsRailAnimating && View.LeftExpansionAllowance > 0);
         // GDI regions have one-bit edges. Keep only the gap out of the native hit envelope;
         // the layered window's antialiased alpha mask owns its rounded outer edge.
         _windowRegion?.SetRegions(View.GetWindowHitRegions().Select(surface => surface with { CornerRadius = 0 }));
@@ -930,7 +947,7 @@ internal sealed class GlassShellIntegration : IDisposable {
         _toasts.AvoidOverlays(_contentLayer.RenderSize, obstacles);
     }
     internal void SetMaterialDensity(double opacity) {
-        GlassMaterial.SetOpacityMultiplier(_root, Math.Clamp(opacity, 0.4, 1));
+        GlassMaterial.SetOpacityMultiplier(_root, Math.Clamp(opacity, 0, 1));
     }
     internal void SetWindowResizing(bool resizing) {
         if (_disposed || _windowResizing == resizing) return;
@@ -1153,6 +1170,7 @@ internal sealed class GlassShellIntegration : IDisposable {
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
+        GlassCommandChrome.SetToolTipScrollTracking(_root, false);
         _pageProjection?.Abort();
         _pageProjection = null;
         _visualizer?.Update(false, false, GlassAudioVisualizer.SpectrumStyle.Bars);
@@ -1194,7 +1212,6 @@ internal sealed class GlassShellIntegration : IDisposable {
         _owner.DpiChanged -= OnWindowDpiChanged;
         if (_workAreaCheck?.Status == DispatcherOperationStatus.Pending) _workAreaCheck.Abort();
         _workAreaCheck = null;
-        _videoFrost?.Dispose();
         GlassVideoWallpaper.Stop();
         if (_startupPreload) GlassStartupPreload.Cancel();
         _backdropPresence?.Dispose();

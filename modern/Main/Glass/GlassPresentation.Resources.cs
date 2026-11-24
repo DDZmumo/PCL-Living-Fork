@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -12,11 +13,151 @@ using System.Windows.Input;
 using System.Windows.Media;
 using PCLLF.Wpf.Glass;
 using PCLLF.Wpf.Motion;
+using PCLLF.Presentation.Controls;
 
 namespace PCL;
 
 public sealed partial class GlassPresentationSession
 {
+    private sealed record ResourceScrollPosition(ResourceSearcher.SearchRequest Input, int Page, double Offset);
+    private static readonly ConditionalWeakTable<PageResource, ResourceScrollPosition> ResourceScrollPositions = new();
+    private const double DownloadResourceRowHeight = 52;
+    private static readonly Geometry DownloadPlaceholderShape = Geometry.Parse(
+        "M4,0 H28 Q32,0 32,4 V28 Q32,32 28,32 H4 Q0,32 0,28 V4 Q0,0 4,0 Z M44,7 H162 V16 H44 Z M44,21 H124 V27 H44 Z");
+
+    private Node ProjectDownloadResourceRows(Func<DependencyObject[]> readRows)
+    {
+        var stack = new StackPanel();
+        var node = new Node(stack);
+        Action schedule = BindResourceViewport(stack, node);
+        DependencyObject[] previous = [];
+        node.Pull = () =>
+        {
+            DependencyObject[] rows = readRows();
+            Children(stack, rows.Select(row => row is IControlVirtualElement element
+                ? Project(row, create: () => DownloadResourcePlaceholder(element)) : Project(row))
+                .Where(row => row is not null).ToArray());
+            if (rows.SequenceEqual(previous, ReferenceEqualityComparer.Instance)) return;
+            previous = rows;
+            schedule();
+        };
+        return node;
+    }
+
+    private Node DownloadResourcePlaceholder(IControlVirtualElement source)
+    {
+        var preview = new System.Windows.Shapes.Path { Data = DownloadPlaceholderShape, Stretch = Stretch.None, Opacity = .18,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+        preview.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "GlassPresentationSecondary");
+        var row = new Border { Height = DownloadResourceRowHeight, Padding = new Thickness(8, 0, 0, 0),
+            IsHitTestVisible = false, Child = preview };
+        // The shared viewport pump admits only a few rows per slice. Refresh requests coalesce.
+        return new Node(row) { PrepareResourceRow = () => {
+            if (source is not FrameworkElement { Parent: Panel }) return;
+            source.InitializeElement();
+            QueueRefresh();
+        } };
+    }
+    private sealed record InstanceResourceScrollKey(string Instance, string Query, object Filter, string Sort);
+    private sealed record InstanceResourceScrollPosition(InstanceResourceScrollKey Key, double Offset);
+    private static readonly ConditionalWeakTable<ScrollViewer, InstanceResourceScrollPosition> InstanceResourceScrollPositions = new();
+    internal ScrollViewer InstanceResourceScroll { get; private set; }
+    internal ScrollViewer BackToTopScroll { get; private set; }
+    private Action _resetInstanceResourceScroll;
+
+    internal void ResetInstanceResourceScroll() => _resetInstanceResourceScroll?.Invoke();
+
+    internal void ScrollToTop()
+    {
+        if (BackToTopScroll is not { } scroll) return;
+        if (ReferenceEquals(scroll, InstanceResourceScroll)) { ResetInstanceResourceScroll(); return; }
+        SmoothScroll.Stop(scroll);
+        scroll.ScrollToTop();
+    }
+
+    private void TrackBackToTop(ScrollViewer scroll, Node node)
+    {
+        BackToTopScroll = scroll;
+        void RefreshButton() {
+            if (_source.Name == "PanMainRight" && Live(scroll)) ModMain.FrmMain?.BtnExtraBack?.ShowRefresh();
+        }
+        ScrollChangedEventHandler changed = (_, args) => {
+            if (ReferenceEquals(args.OriginalSource, scroll) && args.VerticalChange != 0) RefreshButton();
+        };
+        DependencyPropertyChangedEventHandler visible = (_, _) => RefreshButton();
+        scroll.ScrollChanged += changed;
+        scroll.IsVisibleChanged += visible;
+        node.Cleanup.Add(() => {
+            scroll.ScrollChanged -= changed;
+            scroll.IsVisibleChanged -= visible;
+            if (ReferenceEquals(BackToTopScroll, scroll)) BackToTopScroll = null;
+        });
+    }
+
+    private void KeepInstanceResourceScroll(ScrollViewer source, ScrollViewer scroll, Node node)
+    {
+        var search = source.FindName("SearchBox") as MySearchBox;
+        var filters = source.FindName("PanFilter") as Panel;
+        var sort = source.FindName("BtnSort") as MyIconTextButton;
+        InstanceResourceScrollKey key = null;
+        double? pending = null;
+        InstanceResourceScrollKey CurrentKey() => new(PageInstanceLeft.Instance?.PathVersion, search?.Text,
+            filters?.Children.OfType<MyRadioButton>().FirstOrDefault(button => button.Checked)?.Tag, sort?.Text);
+
+        void Restore()
+        {
+            if (!scroll.IsLoaded || pending is not double offset || (offset > 0 && scroll.ScrollableHeight <= 0)) return;
+            pending = null;
+            scroll.ScrollToVerticalOffset(offset);
+        }
+
+        InstanceResourceScroll = scroll;
+        TrackBackToTop(scroll, node);
+        _resetInstanceResourceScroll = () =>
+        {
+            InstanceResourceScrollPositions.Remove(source);
+            SmoothScroll.Stop(scroll);
+            pending = 0;
+            Restore();
+        };
+
+        RoutedEventHandler loaded = (_, _) =>
+        {
+            if (pending is null && InstanceResourceScrollPositions.TryGetValue(source, out var saved) && saved.Key == CurrentKey())
+                pending = saved.Offset;
+            Restore();
+        };
+        ScrollChangedEventHandler changed = (_, args) =>
+        {
+            if (!ReferenceEquals(args.OriginalSource, scroll) || !Live(scroll) || !scroll.IsLoaded || !scroll.IsVisible) return;
+            if (pending.HasValue) { Restore(); return; }
+            if (args.VerticalChange != 0 && scroll.ScrollableHeight > 0 && key == CurrentKey())
+                InstanceResourceScrollPositions.AddOrUpdate(source, new(key, args.VerticalOffset));
+        };
+        scroll.Loaded += loaded;
+        scroll.ScrollChanged += changed;
+        node.Cleanup.Add(() =>
+        {
+            scroll.Loaded -= loaded;
+            scroll.ScrollChanged -= changed;
+            if (!ReferenceEquals(InstanceResourceScroll, scroll)) return;
+            InstanceResourceScroll = null;
+            _resetInstanceResourceScroll = null;
+        });
+
+        var pull = node.Pull;
+        node.Pull = () =>
+        {
+            pull();
+            var next = CurrentKey();
+            if (next == key) return;
+            pending = key is null && InstanceResourceScrollPositions.TryGetValue(source, out var saved) && saved.Key == next
+                ? saved.Offset : 0;
+            key = next;
+            Restore();
+        };
+    }
+
     private Node ProjectResourcePage(PageResource source)
     {
         var frame = new Grid();
@@ -101,13 +242,17 @@ public sealed partial class GlassPresentationSession
 
         var results = new StackPanel();
         var error = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch }; results.Children.Add(error);
-        var pending = PlainText("正在补充搜索结果…");
-        pending.Margin = new Thickness(12, 8, 12, 4);
-        pending.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
-        results.Children.Add(pending);
         var items = new ContentControl { Name = "ResourceFlatResults", HorizontalContentAlignment = HorizontalAlignment.Stretch }; results.Children.Add(items);
-        var pages = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 8) };
-        var pageActions = new Border { Child = pages }; results.Children.Add(pageActions);
+        var loading = new ContentControl { Name = "ResourceSearchLoading", Visibility = Visibility.Collapsed,
+            HorizontalContentAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
+        results.Children.Add(loading);
+        var pages = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var pageSize = new ContentControl { Name = "ResourcePageSizeSlot", Width = 106, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 10, 0) };
+        Bind(pageSize, UIElement.VisibilityProperty, source.ComboResultPageSize, nameof(UIElement.Visibility));
+        var footer = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 8), Children = { pageSize, pages } };
+        var pageActions = new Border { Child = footer }; results.Children.Add(pageActions);
         Bind(pages, UIElement.VisibilityProperty, source.CardPages, nameof(UIElement.Visibility));
         Bind(pages, UIElement.IsEnabledProperty, source.CardPages, nameof(UIElement.IsEnabled));
         var content = new Grid { ClipToBounds = true };
@@ -125,9 +270,6 @@ public sealed partial class GlassPresentationSession
         resultsHost.Margin = new Thickness(6, 4, 2, 4);
         resultsPlate.Children.Add(resultsHost);
         content.Children.Add(resultsPlate);
-        var loading = new ContentControl { Name = "ResourceSearchLoading", Visibility = Visibility.Collapsed,
-            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 38, 0, 0) };
-        content.Children.Add(loading);
         Grid.SetRow(content, 2); layout.Children.Add(content);
 
         // Move the rows in depth while keeping the live wallpaper sample fixed to the viewport.
@@ -136,13 +278,13 @@ public sealed partial class GlassPresentationSession
         var resultTransform = new TransformGroup();
         resultTransform.Children.Add(resultScale);
         resultTransform.Children.Add(resultOffset);
-        resultsHost.RenderTransform = resultTransform;
-        resultsHost.RenderTransformOrigin = new Point(.5, .5);
+        items.RenderTransform = resultTransform;
+        items.RenderTransformOrigin = new Point(.5, .5);
         const double ExitThreshold = .04;
         bool leavingResults = false, showLoading = false;
         var resultsMotion = new SpringMotion(frame, 0, value => {
             double p = Math.Clamp(value, 0, 1);
-            resultsPlate.Opacity = p;
+            items.Opacity = p;
             resultScale.ScaleX = resultScale.ScaleY = MotionTokens.RevealScale + (1 - MotionTokens.RevealScale) * p;
             resultOffset.Y = MotionTokens.PageTravel * (1 - p);
             if (leavingResults && p <= ExitThreshold) QueueRefresh();
@@ -152,12 +294,20 @@ public sealed partial class GlassPresentationSession
             if (!showLoading && loading.Visibility == Visibility.Visible && value <= ExitThreshold) QueueRefresh();
         }, MotionTokens.Reveal);
         DependencyObject[] displayedRows = [];
-        Func<Node> createRows = () => ProjectStack(source.PanProjects, () => displayedRows);
+        Func<Node> createRows = () => ProjectDownloadResourceRows(() => displayedRows);
         StackPanel displayedPanel = null;
         ResourceSearcher.SearchRequest displayedInput = null;
         int displayedRevision = -1;
         int displayedPage = source.Page;
         bool scrollResultsHome = false;
+        double? restoreOffset = null;
+        scroller.ScrollChanged += (_, args) =>
+        {
+            if (!ReferenceEquals(args.OriginalSource, scroller) || args.VerticalChange == 0 ||
+                !scroller.IsLoaded || !scroller.IsVisible || leavingResults || restoreOffset.HasValue ||
+                displayedPanel is null || displayedPage != source.Page || !ReferenceEquals(displayedInput, source.Loader.Input)) return;
+            ResourceScrollPositions.AddOrUpdate(source, new(displayedInput, displayedPage, args.VerticalOffset));
+        };
 
         void UpdateSearchStage()
         {
@@ -165,7 +315,7 @@ public sealed partial class GlassPresentationSession
             StackPanel next = preview ?? (source.PanContent.Visibility == Visibility.Visible ? source.PanProjects : null);
             int revision = preview is null ? source.ResultsRevision : -1;
             bool merge = displayedPanel is not null && !ReferenceEquals(displayedPanel, source.PanProjects) &&
-                ReferenceEquals(next, source.PanProjects) && ReferenceEquals(displayedInput, source.Loader.Input);
+                next is not null && ReferenceEquals(displayedInput, source.Loader.Input) && displayedPage == source.Page;
             bool changed = next is not null && (!ReferenceEquals(displayedPanel, next) || displayedRevision != revision);
             bool replace = changed && !merge;
             bool animate = frame.IsLoaded && frame.IsVisible && MotionPreferences.AllowsAnimation;
@@ -174,15 +324,16 @@ public sealed partial class GlassPresentationSession
             if (animate && (leavingResults || replace || next is null) && resultsMotion.Value > ExitThreshold)
             {
                 leavingResults = true;
-                resultsPlate.IsHitTestVisible = false;
+                items.IsHitTestVisible = false;
                 if (resultsMotion.Target != 0) resultsMotion.Retarget(0);
             }
             else
             {
-                bool entering = leavingResults || replace || resultsPlate.Visibility != Visibility.Visible;
+                bool firstDisplay = displayedPanel is null;
+                bool entering = leavingResults || replace || items.Visibility != Visibility.Visible;
                 leavingResults = false;
-                resultsPlate.Visibility = next is not null ? Visibility.Visible : Visibility.Collapsed;
-                resultsPlate.IsHitTestVisible = next is not null;
+                items.Visibility = next is not null ? Visibility.Visible : Visibility.Collapsed;
+                items.IsHitTestVisible = next is not null;
                 displayedPanel = next;
                 displayedInput = source.Loader.Input;
                 if (next is not null)
@@ -190,7 +341,18 @@ public sealed partial class GlassPresentationSession
                     // Viewport realization can replace an individual source row without changing the result batch.
                     displayedRows = next.Children.OfType<DependencyObject>().ToArray();
                     displayedRevision = revision;
-                    if (replace || displayedPage != source.Page || scrollResultsHome) scroller.ScrollToHome();
+                    if (replace || displayedPage != source.Page || scrollResultsHome)
+                    {
+                        if (firstDisplay && !scrollResultsHome &&
+                            ResourceScrollPositions.TryGetValue(source, out var previous) &&
+                            ReferenceEquals(previous.Input, displayedInput) && previous.Page == source.Page)
+                            restoreOffset = previous.Offset;
+                        else
+                        {
+                            ResourceScrollPositions.Remove(source);
+                            scroller.ScrollToHome();
+                        }
+                    }
                     displayedPage = source.Page;
                     scrollResultsHome = false;
                     if (entering)
@@ -207,14 +369,18 @@ public sealed partial class GlassPresentationSession
             }
 
             bool showingPreview = displayedPanel is not null && !ReferenceEquals(displayedPanel, source.PanProjects);
-            pending.Visibility = showingPreview ? Visibility.Visible : Visibility.Collapsed;
-            pageActions.Visibility = error.Visibility = showingPreview ? Visibility.Collapsed : Visibility.Visible;
-            showLoading = next is null && !leavingResults && source.PanLoad.Visibility == Visibility.Visible;
+            bool loadingPage = source.IsOnlineSearch && source.Loader.State == ModBase.LoadState.Loading;
+            pageActions.Visibility = source.IsOnlineSearch || displayedPanel is not null ? Visibility.Visible : Visibility.Collapsed;
+            error.Visibility = showingPreview || displayedPanel is null ? Visibility.Collapsed : Visibility.Visible;
+            showLoading = loadingPage && !source.IsPreviewPageFull ||
+                next is null && source.PanLoad.Visibility == Visibility.Visible;
             if (showLoading) loading.Visibility = Visibility.Visible;
-            loading.IsHitTestVisible = showLoading;
+            loading.IsHitTestVisible = showLoading && !loadingPage;
             double loadingTarget = showLoading ? 1 : 0;
             if (loadingMotion.Target != loadingTarget) loadingMotion.Retarget(loadingTarget, immediate: !animate);
             if (!showLoading && loadingMotion.Value <= ExitThreshold) loading.Visibility = Visibility.Collapsed;
+            resultsPlate.Visibility = source.IsOnlineSearch || displayedPanel is not null || loading.Visibility == Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
         }
 
         bool open = false;
@@ -290,8 +456,19 @@ public sealed partial class GlassPresentationSession
             UIElement itemView = Project(source.PanProjects, create: createRows);
             if (itemView is FrameworkElement itemElement) itemElement.Margin = new Thickness();
             if (!ReferenceEquals(items.Content, itemView)) items.Content = itemView;
+            if (restoreOffset is double offset)
+            {
+                restoreOffset = null;
+                scroller.ScrollToVerticalOffset(offset);
+            }
             UIElement loadView = Project(source.Load);
             if (!ReferenceEquals(loading.Content, loadView)) loading.Content = loadView;
+            if (source.ComboResultPageSize.Visibility == Visibility.Visible)
+            {
+                UIElement sizeControl = Project(source.ComboResultPageSize);
+                if (sizeControl is FrameworkElement element) element.Margin = new Thickness();
+                if (!ReferenceEquals(pageSize.Content, sizeControl)) pageSize.Content = sizeControl;
+            }
             Children(pages, new[] { Project(source.BtnPageFirst), Project(source.BtnPageLeft), Project(source.LabPage), Project(source.BtnPageRight) }.Where(item => item != null).ToArray());
             if (open) MeasureFilters();
         };

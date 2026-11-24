@@ -55,6 +55,7 @@ namespace PCL
             PanTitle.Children.Insert(1, titleStars);
             RegisterName("TitleStars", titleStars);
             Controller.ConstructAfterXaml();
+            BtnExtraBack.ShowCheck = BtnExtraBack_ShowCheck;
             AttachGlassShell();
         }
         private static void ConfigureThemeToggle(MyIconButton button)
@@ -169,13 +170,13 @@ namespace PCL
         {
             Default = 0, DownloadInstall = 0, DownloadMod = 2, DownloadPack = 3,
             DownloadDataPack = 4, DownloadResourcePack = 5, DownloadShader = 6, DownloadMap = 7,
-            SetupLaunch = 0, SetupLink = 1, SetupUI = 2, SetupSystem = 3, SetupUpdate = 4, SetupPersonal = 5, LinkMain = 0,
+            SetupLaunch = 0, SetupLink = 1, SetupUI = 2, SetupSystem = 3, SetupUpdate = 4, SetupPersonal = 5, SetupJava = 6, LinkMain = 0,
             OtherHelp = 0, OtherAbout = 1, OtherTest = 2, InstanceOverall = 0,
             InstanceSetup = 1, InstanceModify = 2, InstanceMod = 3, InstanceModDisabled = 4,
             InstanceExport = 5, InstanceSaves = 6, InstanceScreenshots = 7,
             InstanceResourcePacks = 8, InstanceShaderPacks = 9, InstanceSchematics = 10,
             InstanceKeybindings = 11, InstanceRestorePoints = 12, InstanceBackups = 13, InstanceClone = 14, InstancePackUpdate = 15,
-            InstancePersonal = 16, InstanceMmcPlatformOrigin = 17, InstanceMmcMove = 18
+            InstancePersonal = 16, InstanceMmcPlatformOrigin = 17, InstanceMmcMove = 18, InstanceJava = 19
         }
         private string PageNameGet(PageStackData Stack) => Controller.PageNameGet(Stack);
         public void PageNameRefresh(PageStackData Type) => Controller.PageNameRefresh(Type);
@@ -235,8 +236,12 @@ namespace PCL
         public bool BtnExtraApril_ShowCheck() => Controller.AprilShowCheck();
         public void BtnExtraShutdown_Click() => Controller.ShutdownClick();
         public bool BtnExtraShutdown_ShowCheck() => Controller.ShutdownShowCheck();
-        public void BackToTop() => Controller.BackToTop();
-        private bool BtnExtraBack_ShowCheck() => Controller.BackShowCheck();
+        public void BackToTop()
+        {
+            if (glassShell?.TryScrollProjectedPageToTop() == true) return;
+            Controller.BackToTop();
+        }
+        private bool BtnExtraBack_ShowCheck() => glassShell?.ProjectedBackShowCheck() ?? Controller.BackShowCheck();
         private MyScrollViewer BtnExtraBack_GetRealChild() => (MyScrollViewer)Controller.RealScroll();
         public MouseEventArgs lastMouseArg = null;
         private void FormMain_MouseMove(object sender, MouseEventArgs e) => Controller.MouseMove(e);
@@ -320,7 +325,7 @@ namespace PCL
                 Message = value => ModMain.MyMsgBox(value.Text, value.Title, value.Button1, value.Button2, value.Button3, Button3Action: value.ThirdAction),
                 OpenWebsite = value => ModBase.OpenWebsite(value),
                 StartAnimationLoop = () => ModAnimation.AniStart(), StartMainTimer = () => ModMain.TimerMainStart(), JavaInitialize = () => ModJava.JavaInit(),
-                ClearTaskTemp = () => ModMain.TryClearTaskTemp(), CheckUpdates = () => ModLauncherUpdate.CheckForUpdates(true),
+                ClearTaskTemp = () => ModMain.TryClearTaskTemp(), CheckUpdates = noticeClosed => ModLauncherUpdate.CheckForUpdates(true, noticeClosed),
                 StartFolderLoader = () => ModMinecraft.McFolderListLoader.Start(0), StartClientList = () => ModDownload.DlClientListMojangLoader.Start(1),
                 CreateDragHelper = CreateDragPort, WindowHook = WndProc, DragHandler = HandleDrag,
                 FirstDialog = FirstDialogPort, GlobalMessageCount = () => ModMain.FrmMain.PanMsg.Children.Count,
@@ -349,7 +354,7 @@ namespace PCL
                 InstallMods = value => PageInstanceMod.InstallMods(value), InstallModpack = value => ModModpack.ModpackInstall(value), CreateCrashAnalyzer = CrashPort,
                 EnsureLeftPage = EnsureLeftPage, EnsureRightPage = EnsureRightPage,
                 LeftPage = LeftPagePort, RightPage = RightPageElement, NewBlankLeft = () => new MyPageLeft(),
-                HelpTitle = value => ((ModMain.HelpEntry)value).Title,
+                HelpTitle = value => value is ModMain.HelpEntry entry ? entry.Title : value?.ToString() ?? string.Empty,
                 HasDownloadingTask = () => ModNet.HasDownloadingTask(), HasLaunchOperation = () => ModLaunch.McLaunchLoaderReal != null,
                 HasBlockingFileOperation = () => InstanceDeletionOperation.HasActiveOperations || MmcOperationLoaders.HasBlockingCommit || MmcCloneUi.HasActiveOperation || MmcLifecycleUi.HasActiveOperation || MmcDeleteUi.HasActiveOperation || MmcExportUi.HasActiveOperation || MmcHistoryUi.HasActiveOperation || MmcRepairUi.HasActiveOperation || MmcLegacyAdoptionUi.HasActiveOperation || MmcPackageUpdateUi.HasActiveOperation || MmcComponentEditorUi.HasActiveOperation,
                 HasRunningMinecraft = () => ModWatcher.HasRunningMinecraft,
@@ -514,7 +519,9 @@ namespace PCL
                 case PageType.Setup: return new LegacyMainLeftPage
                 {
                     Element = ModMain.FrmSetupLeft, PageId = () => (int)ModMain.FrmSetupLeft.PageID,
-                    PageGet = subType => (MyPageRightView)ModMain.FrmSetupLeft.PageGet((PageSubType)subType), Item = subType => (MyListItem)ModMain.FrmSetupLeft.PanItem.Children[subType]
+                    PageGet = subType => (MyPageRightView)ModMain.FrmSetupLeft.PageGet((PageSubType)subType),
+                    Item = subType => ModMain.FrmSetupLeft.PanItem.Children.OfType<MyListItem>()
+                        .First(item => Convert.ToInt32(item.Tag) == subType)
                 };
                 case PageType.Other: return new LegacyMainLeftPage
                 {
