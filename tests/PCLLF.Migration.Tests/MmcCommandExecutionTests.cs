@@ -707,6 +707,7 @@ internal static class MmcCommandExecutionTests {
 
             File.WriteAllText(stop, "stop");
             Require(IsProcessGone(childPid, 8000), tag + " descendant did not exit after stop.");
+            WaitForEmptyCommandJob(cmdLease.Intent.JobName);
             using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
                 MmcCommandOperations.ReconcileAll(admission, authority);
                 MmcFileTransactions.AssertNoPending(admission);
@@ -764,6 +765,7 @@ internal static class MmcCommandExecutionTests {
 
             File.WriteAllText(childStop, "stop");
             Require(IsProcessGone(childPid, 8000), "Orphaned start /b child did not exit after stop.");
+            WaitForEmptyCommandJob(intent.JobName);
 
             using (var admission = MmcAdmissionGate.Acquire(instance.Root, instance.InstanceId, TimeSpan.Zero)) {
                 MmcCommandOperations.ReconcileAll(admission, authority);
@@ -775,6 +777,16 @@ internal static class MmcCommandExecutionTests {
             File.WriteAllText(childStop, "stop");
             if (childPid > 0) IsProcessGone(childPid, 3000);
         }
+    }
+
+    private static void WaitForEmptyCommandJob(string name) {
+        // The named job can retain a console host or report an exiting PID after Process.HasExited.
+        // Exercise successful recovery only after the held kernel job itself reports zero processes.
+        var clock = Stopwatch.StartNew();
+        MmcNamedJobObservation job;
+        while ((job = MmcSessionProcessTree.ObserveNamedJob(name)).State == MmcNamedJobState.Active &&
+               clock.Elapsed < TimeSpan.FromSeconds(8)) Thread.Sleep(25);
+        Require(job.State == MmcNamedJobState.Empty, $"Fixture command job did not drain: {job.State}, {job.Diagnostic}");
     }
 
     private static SafeWaitHandle RetainCommandJob(string name) {

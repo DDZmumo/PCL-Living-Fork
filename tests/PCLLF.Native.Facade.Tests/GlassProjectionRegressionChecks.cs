@@ -138,6 +138,10 @@ internal static class GlassProjectionRegressionChecks
     private static void PersonalSyncLayout()
     {
         var page = new PageSetupPersonal();
+        foreach (string name in new[] { "BtnImport", "BtnSaveGlobal" })
+            ((UIElement)page.FindName(name)).Visibility = Visibility.Collapsed;
+        foreach (string name in new[] { "BtnWriteBack", "BtnSyncFromGlobal" })
+            ((UIElement)page.FindName(name)).Visibility = Visibility.Visible;
         using var session = GlassPresentation.Create(page);
         var window = Host(session.View);
         try
@@ -150,10 +154,10 @@ internal static class GlassProjectionRegressionChecks
                     var element = Tree(session.View).OfType<FrameworkElement>().Single(item => item.Name == name);
                     return element.TransformToAncestor(session.View).TransformBounds(new Rect(element.RenderSize));
                 }
-                Rect policy = Bounds("ComboPolicy"), capture = Bounds("ComboCapture");
-                Native.Check(capture.Top - policy.Bottom >= 7 && Math.Abs(policy.Left - capture.Left) < 1 &&
-                    Math.Abs(policy.Right - capture.Right) < 1 && capture.Right <= session.View.ActualWidth - 12,
-                    $"Personal sync options are crowded or misaligned at {width} DIP: gap={capture.Top - policy.Bottom:0.##}, widths={policy.Width:0.##}/{capture.Width:0.##}.");
+                Rect policy = Bounds("ComboPolicy"), push = Bounds("BtnWriteBack"), pull = Bounds("BtnSyncFromGlobal");
+                Native.Check(push.Width > 0 && pull.Width > 0 && !push.IntersectsWith(pull) &&
+                    Math.Min(push.Top, pull.Top) >= policy.Bottom && Math.Max(push.Right, pull.Right) <= session.View.ActualWidth,
+                    $"Instance sync actions clipped or overlapped at {width} DIP: {push}, {pull}.");
             }
         }
         finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
@@ -318,7 +322,7 @@ internal static class GlassProjectionRegressionChecks
         var adoption = (MyButton)overview.FindName("BtnMmcLegacyAdoption");
         using var overviewSession = GlassPresentation.Create(overview);
         var personal = new PageSetupPersonal();
-        foreach (string name in new[] { "BtnImport", "BtnSaveGlobal", "ComboCapture", "LabCaptureCaption" })
+        foreach (string name in new[] { "BtnImport", "BtnSaveGlobal" })
             ((UIElement)personal.FindName(name)).Visibility = Visibility.Collapsed;
         var scope = (TextBlock)personal.FindName("LabEditScope");
         scope.Text = "跟随全局时只读。选择不同步后可编辑本版本。";
