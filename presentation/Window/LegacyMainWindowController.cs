@@ -55,6 +55,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
             : (host.InstanceSettingsTitlePrefix?.Invoke(settingsInstance) ?? "版本设置") + " - " + host.InstanceName(settingsInstance)),
         LegacyMainPage.ResourceDetail => ((ResourceProjectModelData)AdditionalAt(stack, 0)).TranslatedName,
         LegacyMainPage.HelpDetail => host.HelpTitle(AdditionalAt(stack, 0)),
+        LegacyMainPage.Schematics => "投影管理",
         _ => ""
     };
     public void PageNameRefresh(TStack stack) => view.LabTitleInner().Text = PageNameGet(stack)!;

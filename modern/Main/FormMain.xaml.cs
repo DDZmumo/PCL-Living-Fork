@@ -164,14 +164,14 @@ namespace PCL
         public enum PageType
         {
             Launch = 0, Download = 1, Link = 2, Setup = 3, Other = 4,
-            InstanceSelect = 5, TaskManager = 6, InstanceSetup = 7, ResourceDetail = 8, HelpDetail = 9, Favorites = 10
+            InstanceSelect = 5, TaskManager = 6, InstanceSetup = 7, ResourceDetail = 8, HelpDetail = 9, Favorites = 10, Schematics = 11
         }
         public enum PageSubType
         {
             Default = 0, DownloadInstall = 0, DownloadMod = 2, DownloadPack = 3,
             DownloadDataPack = 4, DownloadResourcePack = 5, DownloadShader = 6, DownloadMap = 7,
             SetupLaunch = 0, SetupLink = 1, SetupUI = 2, SetupSystem = 3, SetupUpdate = 4, SetupPersonal = 5, SetupJava = 6, LinkMain = 0,
-            OtherHelp = 0, OtherAbout = 1, OtherTest = 2, InstanceOverall = 0,
+            OtherHelp = 0, OtherAbout = 1, OtherTest = 2, OtherSchematics = 3, InstanceOverall = 0,
             InstanceSetup = 1, InstanceModify = 2, InstanceMod = 3, InstanceModDisabled = 4,
             InstanceExport = 5, InstanceSaves = 6, InstanceScreenshots = 7,
             InstanceResourcePacks = 8, InstanceShaderPacks = 9, InstanceSchematics = 10,
@@ -495,6 +495,7 @@ namespace PCL
                 case PageType.InstanceSelect: if (ModMain.FrmSelectRight == null) ModMain.FrmSelectRight = new PageSelectRight(); break;
                 case PageType.TaskManager: if (ModMain.FrmSpeedRight == null) ModMain.FrmSpeedRight = new PageSpeedRight(); break;
                 case PageType.ResourceDetail: if (ModMain.FrmDownloadResourceDetail == null) ModMain.FrmDownloadResourceDetail = new PageDownloadResourceDetail(); break;
+                case PageType.Schematics: if (ModMain.FrmOtherSchematics == null) ModMain.FrmOtherSchematics = new PageSchematicManager(); break;
                 case PageType.Favorites: if (ModMain.FrmFavorites == null) ModMain.FrmFavorites = new PageFavorites(); break;
 #if LEGACY_LINK
                 case PageType.Link: if (ModMain.FrmLinkMain == null) ModMain.FrmLinkMain = new PageLinkMain(); break;
@@ -549,6 +550,7 @@ namespace PCL
                 case PageType.InstanceSelect: return ModMain.FrmSelectRight;
                 case PageType.TaskManager: return ModMain.FrmSpeedRight;
                 case PageType.ResourceDetail: return ModMain.FrmDownloadResourceDetail;
+                case PageType.Schematics: return ModMain.FrmOtherSchematics;
                 case PageType.Favorites: return ModMain.FrmFavorites;
 #if LEGACY_LINK
                 case PageType.Link: return ModMain.FrmLinkMain;

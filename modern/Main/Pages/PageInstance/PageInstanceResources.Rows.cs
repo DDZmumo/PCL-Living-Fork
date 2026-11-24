@@ -39,11 +39,29 @@ namespace PCL
                 Row.ResourceDetailsRequested = new Action(() => Actions.Details(Row.ResourceEntry));
                 if (Page.Kind == InstanceResourceKind.Schematics)
                     Row.ResourceFolderRequested = () => Actions.EnterFolder(Row.ResourceEntry);
-                Row.Buttons = NativeRowButtons(Page.Kind, Row, Actions);
+                List<MyIconButton> Buttons = NativeRowButtons(Page.Kind, Row, Actions);
+                if (Page.Kind == InstanceResourceKind.Schematics)
+                {
+                    // 投影文件可做 3D 预览，入口放在行内按钮最前面。
+                    var Preview = new MyIconButton
+                    {
+                        Logo = "M12,2 L21.5,7.2 V16.8 L12,22 L2.5,16.8 V7.2 Z M12,4.2 L4.5,8.4 V15.6 L12,19.8 L19.5,15.6 V8.4 Z",
+                        LogoScale = 0.95d,
+                        ToolTip = "3D 预览"
+                    };
+                    Preview.Click += (Sender, Args) => Page.ShowSchematicPreview(Row.ResourceEntry);
+                    Buttons.Insert(0, Preview);
+                }
+                Row.Buttons = Buttons;
                 Row.MouseLeftButtonDown += (Sender, e) =>
                 {
                     if (e.ClickCount == 2)
-                        Actions.EnterFolder(Row.ResourceEntry);
+                    {
+                        if (Page.Kind == InstanceResourceKind.Schematics && !Row.ResourceEntry.IsDirectory)
+                            Page.ShowSchematicPreview(Row.ResourceEntry);
+                        else
+                            Actions.EnterFolder(Row.ResourceEntry);
+                    }
                 };
             }
 

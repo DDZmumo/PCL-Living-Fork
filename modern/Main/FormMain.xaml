@@ -186,6 +186,7 @@
                     <local:MyExtraButton x:Name="BtnExtraMusic" HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed" CanRightClick="True" />
                 </StackPanel>
                 <Grid x:Name="PanMsg" Grid.RowSpan="2" Background="#00000000" Visibility="Collapsed" />
+                <Grid x:Name="PanSchematicPreview" Grid.RowSpan="2" Background="Transparent" Visibility="Collapsed" Panel.ZIndex="20" />
             </Grid>
         </Border>
     </Grid>

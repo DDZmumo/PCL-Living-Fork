@@ -104,6 +104,7 @@ namespace PCL
         public static PageDownloadResourceDetail FrmDownloadResourceDetail;
         public static PageFavorites FrmFavorites;
         public static PageDownloadLeft FrmFavoritesLeft;
+        public static PageSchematicManager FrmOtherSchematics;
 
         private readonly static MainHintRuntime<HintType> NativeHints = new MainHintRuntime<HintType>(new MainHintHost<HintType>()
         {

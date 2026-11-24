@@ -37,7 +37,7 @@ public partial class FormMain {
     }
 
     /// <summary>Detail pages keep the sidebar of the page they were opened from.</summary>
-    internal static bool IsGlassDetailPage(PageType page) => page is PageType.ResourceDetail or PageType.HelpDetail;
+    internal static bool IsGlassDetailPage(PageType page) => page is PageType.ResourceDetail or PageType.HelpDetail or PageType.Schematics;
 
     /// <summary>
     /// While a detail page is shown, the most recent stacked page that owns a contextual sidebar

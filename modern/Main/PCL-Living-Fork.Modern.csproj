@@ -2,7 +2,7 @@
 <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting><CETCompat>false</CETCompat>
 <OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.LauncherEntryPoint</StartupObject>
 <EnableDefaultCompileItems>false</EnableDefaultCompileItems><EnableDefaultPageItems>false</EnableDefaultPageItems><EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
-<GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><EnableLegacyLink>false</EnableLegacyLink><DefineConstants Condition="'$(EnableLegacyLink)' == 'true'">$(DefineConstants);LEGACY_LINK</DefineConstants><AllowUnsafeBlocks>true</AllowUnsafeBlocks><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
+<GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><EnableLegacyLink>false</EnableLegacyLink><DefineConstants Condition="'$(EnableLegacyLink)' == 'true'">$(DefineConstants);LEGACY_LINK</DefineConstants><AllowUnsafeBlocks>true</AllowUnsafeBlocks><AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
 </PropertyGroup>
 <PropertyGroup Condition="'$(LFOfficialRelease)' == 'true'"><DefineConstants>$(DefineConstants);OFFICIAL_RELEASE</DefineConstants></PropertyGroup>
 <PropertyGroup Condition="'$(Configuration)' == 'Debug'"><DefineConstants>$(DefineConstants);SNAPSHOT</DefineConstants></PropertyGroup>
@@ -11,7 +11,7 @@
 <!-- Main-only generated C# credential source/intermediate; before other build imports. -->
 <Import Project="CredentialBuild.targets" />
 <ItemGroup>
-<ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/>
+<ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/><ProjectReference Include="../../SchematicKit/SchematicKit.csproj"/>
 </ItemGroup><ItemGroup>
 <Compile Include="Application/*.cs" />
 <Compile Include="Glass/*.cs" />
@@ -128,6 +128,10 @@
 <Compile Include="Pages/PageInstance/WorldBackupSettings.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceResources.Backups.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceResources.Rows.cs" />
+<Compile Include="Pages/PageInstance/PageInstanceResources.Schematics.cs" />
+<Compile Include="Pages/PageSchematic/PageSchematicManager.xaml.cs" />
+<Compile Include="Pages/PageSchematic/SchematicPreviewOverlay.cs" />
+<Compile Include="Modules/Minecraft/SchematicSupport.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceClone.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstancePackUpdate.xaml.cs" />
 <Compile Include="Pages/PageDownload/Resource/PageDownloadMap.xaml.cs" />
@@ -305,6 +309,7 @@
 <Page Include="Pages/PageInstance/MyScreenshotItem.xaml" />
 <Page Include="Pages/PageDownload/Resource/PageDownloadMap.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceResources.xaml" />
+<Page Include="Pages/PageSchematic/PageSchematicManager.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceModDisabled.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceOverall.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceSetup.xaml" />

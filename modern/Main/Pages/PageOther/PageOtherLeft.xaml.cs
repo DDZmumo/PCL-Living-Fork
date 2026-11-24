@@ -38,6 +38,8 @@ namespace PCL
             __LfAttachOwnHandles();
             this.InitializeComponent();
             Controller.InitializePageId();
+            // 玻璃界面只投影到右侧页；更多里的投影管理换页后要让新界面重新投影一次。
+            this.ItemSchematics.Check += (Sender, UserChange) => ModMain.FrmMain?.PageChange(new global::PCL.FormMain.PageStackData { Page = global::PCL.FormMain.PageType.Schematics });
         }
 
         private void PageCheck(FrameworkElement sender, PCL.ModBase.RouteEventArgs e)

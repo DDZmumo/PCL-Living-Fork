@@ -24,7 +24,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         if (host.PackBlocksPage(stack.PageCode)) { Hint("整合包模式已隐藏此功能，可在 设置 → 启动器 中关闭整合包模式。"); return; }
         if (stack.PageCode == (int)LegacyMainPage.Setup) subType = host.NormalizeSetupPage(subType);
         if (stack.PageCode == (int)LegacyMainPage.InstanceSetup) subType = host.NormalizeInstancePage(subType);
-        if (stack.PageCode == (int)LegacyMainPage.Other && subType > 2) subType = 1;
+        if (stack.PageCode == (int)LegacyMainPage.Other && subType > 3) subType = 1;
         if (stack.PageCode != (int)LegacyMainPage.InstanceSetup && string.IsNullOrEmpty(PageNameGet(stack))) {
             PageChangeExit(); host.WriteChangingPage(true);
             // Page codes are stable persisted identities, not title-panel indexes.
@@ -96,6 +96,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
                     break;
                 case LegacyMainPage.InstanceSelect: case LegacyMainPage.TaskManager: host.EnsureLeftPage(stack.PageCode); host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.LeftPage(stack.PageCode).Element, host.RightPage(stack.PageCode)); break;
                 case LegacyMainPage.ResourceDetail: host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode)); break;
+                case LegacyMainPage.Schematics: host.EnsureRightPage(stack.PageCode); PageChangeAnim(host.NewBlankLeft(), host.RightPage(stack.PageCode)); break;
                 case LegacyMainPage.HelpDetail: PageChangeAnim(host.NewBlankLeft(), (FrameworkElement)AdditionalAt(stack, 1)); break;
             }
             view.ExtraDownload().ShowRefresh(); view.ExtraApril().ShowRefresh();

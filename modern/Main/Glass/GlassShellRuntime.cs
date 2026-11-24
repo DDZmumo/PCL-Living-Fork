@@ -141,7 +141,8 @@ internal sealed class GlassShellRuntime : IDisposable {
             SelectedNavigationId = _owner.GlassContextOrigin is { } origin ? (int)origin : page,
             PageTitle = ShowLegacyHome && page == (int)FormMain.PageType.Launch ? "主页内容与启动日志" : resourceTitle ?? title,
             IsResourceList = resourceTitle is not null,
-            CanGoBack = ShowLegacyHome || !string.IsNullOrEmpty(title),
+            // 投影管理是可直接从导航进入的一级页，不需要标题栏返回键。
+            CanGoBack = ShowLegacyHome || (!string.IsNullOrEmpty(title) && page != (int)FormMain.PageType.Schematics),
             AccountName = accountName,
             AccountAvatar = accountAvatar,
             HasInstance = hasInstance,

@@ -5,7 +5,7 @@ using Microsoft.VisualBasic.CompilerServices;
 namespace PCLCS.Startup;
 
 // Portable LF window state/equality and the original statement-by-statement forced-exit behavior.
-public enum LegacyMainPage { Launch, Download, Link, Setup, Other, InstanceSelect, TaskManager, InstanceSetup, ResourceDetail, HelpDetail, Favorites = 10 }
+public enum LegacyMainPage { Launch, Download, Link, Setup, Other, InstanceSelect, TaskManager, InstanceSetup, ResourceDetail, HelpDetail, Favorites = 10, Schematics = 11 }
 public interface ILegacyMainPageStack { int PageCode { get; set; } object? Additional { get; } }
 public static class LegacyMainPageIdentity {
     public static bool Equals<TStack>(TStack self, object? other) where TStack : class, ILegacyMainPageStack {

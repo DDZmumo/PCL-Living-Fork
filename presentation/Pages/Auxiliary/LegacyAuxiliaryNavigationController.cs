@@ -114,7 +114,7 @@ public sealed class LegacyAuxiliaryNavigationController
             if (!host.LegacyLink() && id == 1)
                 id = 0;
         }
-        else if (id > 2)
+        else if (id > 3)
             id = 1;
         return id;
     }
@@ -157,6 +157,8 @@ public sealed class LegacyAuxiliaryNavigationController
                 return host.About.Get();
             case 2:
                 return host.Test.Get();
+            case 3:
+                return host.Schematics.Get();
         }
 
         throw new Exception("未知的更多子页面种类：" + host.FormatNumber(id));

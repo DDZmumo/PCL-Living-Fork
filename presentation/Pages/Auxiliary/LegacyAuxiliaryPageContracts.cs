@@ -37,12 +37,12 @@ public sealed class LegacyAuxiliaryNavigationHost
     public Func<MyPageRightView> Target = null!;
     public Action<MyPageRightView> SetTarget = null!;
     public Func<Border> MainRight = null!;
-    public LegacyAuxiliaryPageSlot Launch = null!, UI = null!, Link = null!, System = null!, Update = null!, Personal = null!, Help = null!, About = null!, Test = null!;
+    public LegacyAuxiliaryPageSlot Launch = null!, UI = null!, Link = null!, System = null!, Update = null!, Personal = null!, Help = null!, About = null!, Test = null!, Schematics = null!;
 }
 
 public sealed class LegacyAuxiliaryNavigationView
 {
-    public Func<MyListItemView> Launch = null!, UI = null!, Link = null!, System = null!, Help = null!, About = null!, Test = null!;
+    public Func<MyListItemView> Launch = null!, UI = null!, Link = null!, System = null!, Help = null!, About = null!, Test = null!, Schematics = null!;
 }
 
 public sealed class LegacyAuxiliaryBasicView
