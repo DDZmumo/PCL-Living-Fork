@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using PCL;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -33,10 +34,86 @@ internal static class TerracottaLobbyChecks
             throw new InvalidOperationException("The upstream rejection did not reach the launcher.");
         } catch (InvalidDataException) { }
 
+        CheckUpdateCatalogue();
+        CheckReleaseReceipt(Path.Combine(environment.Data, "terracotta-receipt"));
         string? components = Environment.GetEnvironmentVariable("PCLLF_TERRACOTTA_TEST_COMPONENTS");
         if (!string.IsNullOrWhiteSpace(components)) CheckUpstream(type, environment.Data, components);
         environment.AssertNoForbiddenIo();
-        Console.WriteLine("PASS Terracotta lobby IPC contract: standard U/ room codes, escaped names, state mapping, host and exit commands.");
+        Console.WriteLine("PASS Terracotta lobby IPC contract: standard U/ room codes, escaped names, state mapping, host and exit commands; " +
+            "update catalogue accepts only digested project assets and a tampered release receipt falls back to the bundled release.");
+    }
+
+    private const string Digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    private static string ReleaseJson(string tag = "v0.5.0", string? digest = Digest, string? url = null, long size = 9000000, string? name = null)
+    {
+        name ??= $"terracotta-{tag.TrimStart('v')}-windows-x86_64-pkg.tar.gz";
+        url ??= $"https://github.com/burningtnt/Terracotta/releases/download/{tag}/{name}";
+        var asset = new Dictionary<string, object?> { ["name"] = name, ["size"] = size, ["browser_download_url"] = url };
+        if (digest is not null) asset["digest"] = digest;
+        return JsonSerializer.Serialize(new Dictionary<string, object?> {
+            ["tag_name"] = tag, ["published_at"] = "2026-10-01T08:00:00Z", ["body"] = "## 更新\n- 修复连接",
+            ["html_url"] = "https://github.com/burningtnt/Terracotta/releases/tag/" + tag, ["assets"] = new[] { asset }
+        });
+    }
+
+    private static object Parse(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return Native.Call(Native.Type("PCL.TerracottaUpdates"), "Parse", null, document.RootElement, "x86_64")!;
+    }
+
+    private static object? Get(object value, string name) => Native.Property(value.GetType(), name).GetValue(value);
+
+    private static void CheckUpdateCatalogue()
+    {
+        object accepted = Parse(ReleaseJson());
+        object? package = Get(accepted, "Package");
+        Native.Check(package is not null && Get(package, "Version") as string == "0.5.0" &&
+            Get(package, "ArchiveHash") as string == Digest[7..].ToUpperInvariant() && (long)Get(package, "Size")! == 9000000 &&
+            Get(package, "ExecutableHash") is null && (bool)Native.Call(accepted.GetType(), "IsNewerThan", accepted, "0.4.2")!,
+            "A digested upstream release for this machine was not offered for installation.");
+        foreach ((string json, string reason) in new[] {
+            (ReleaseJson(digest: null), "missing digest"),
+            (ReleaseJson(digest: "sha1:0123"), "non-SHA-256 digest"),
+            (ReleaseJson(url: "https://example.com/terracotta-0.5.0-windows-x86_64-pkg.tar.gz"), "foreign download host"),
+            (ReleaseJson(name: "terracotta-0.5.0-windows-x86_64.exe"), "unexpected asset name"),
+            (ReleaseJson(size: 512L * 1024 * 1024), "oversized archive")
+        })
+            Native.Check(Get(Parse(json), "Package") is null && Get(Parse(json), "Unavailable") is string { Length: > 0 },
+                "An upstream release with a " + reason + " was offered for installation.");
+        try {
+            Parse(ReleaseJson(tag: "latest"));
+            throw new InvalidOperationException("An unversioned upstream tag was accepted.");
+        } catch (InvalidDataException) { }
+        Native.Check(!(bool)Native.Call(accepted.GetType(), "IsNewerThan", accepted, "0.10.0")!,
+            "Upstream versions were compared as text instead of numerically.");
+    }
+
+    private static void CheckReleaseReceipt(string root)
+    {
+        if (RuntimeInformation.OSArchitecture != Architecture.X64) return;
+        Type component = Native.Type("PCL.TerracottaComponent");
+        string Selected() => (string)Get(Native.Call(component, "Selected", null, root)!, "Version")!;
+        Directory.CreateDirectory(root);
+        string receipt = Path.Combine(root, "selected.json");
+        string hash = new('A', 64);
+        object Receipt(string source) => new Dictionary<string, object> {
+            ["version"] = "0.5.0", ["architecture"] = "x86_64", ["size"] = 9000000, ["source"] = source,
+            ["archiveHash"] = hash, ["executableHash"] = hash, ["runtimeHash"] = hash
+        };
+        try {
+            Native.Check(Selected() == "0.4.2", "Without a receipt the bundled release was not selected.");
+            File.WriteAllText(receipt, JsonSerializer.Serialize(Receipt(
+                "https://github.com/burningtnt/Terracotta/releases/download/v0.5.0/terracotta-0.5.0-windows-x86_64-pkg.tar.gz")));
+            Native.Check(Selected() == "0.5.0", "A valid release receipt did not select the installed release.");
+            File.WriteAllText(receipt, JsonSerializer.Serialize(Receipt("https://example.com/terracotta-0.5.0-windows-x86_64-pkg.tar.gz")));
+            Native.Check(Selected() == "0.4.2", "A receipt pointing at a foreign host was trusted.");
+            File.WriteAllText(receipt, "{ not json");
+            Native.Check(Selected() == "0.4.2", "A malformed receipt did not fall back to the bundled release.");
+        } finally {
+            File.Delete(receipt);
+        }
     }
 
     private static void CheckUpstream(Type type, string fixtureRoot, string components)

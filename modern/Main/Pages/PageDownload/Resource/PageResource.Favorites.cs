@@ -26,6 +26,7 @@ public partial class PageResource {
         FavoriteStatus = new TextBlock { Name = "FavoriteStatus", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(15) };
         FavoriteStatus.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray3");
         BtnSearchInstallModPack.Visibility = Visibility.Collapsed;
+        ComboResultPageSize.Visibility = Visibility.Collapsed;
         TextSearchVersion.ToolTip = "按已缓存的项目兼容信息筛选；未知信息不匹配，具体文件以详情为准。";
         ComboSearchLoader.ToolTip = TextSearchVersion.ToolTip;
         Load.AutoRun = false; Load.ShowProgress = false;

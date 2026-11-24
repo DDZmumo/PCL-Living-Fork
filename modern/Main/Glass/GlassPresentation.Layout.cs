@@ -33,6 +33,9 @@ public sealed partial class GlassPresentationSession
             PageSetupUpdate updatePage => ProjectLauncherUpdate(updatePage),
             PageSpeedRight taskPage => ProjectTaskManager(taskPage),
             TerracottaLobbyPage lobbyPage => ProjectTerracottaLobby(lobbyPage),
+            PageSetupJava { Host: PageSetupLaunch launchSettings } => ProjectJavaManagement(launchSettings),
+            PageSetupJava { Host: PageInstanceSetup instanceSettings } => ProjectInstanceJava(instanceSettings),
+            PageSetupJavaDownload javaDownload => ProjectJavaDownload(javaDownload.Host),
             MySearchBox search => ProjectSearch(search),
             FrameworkElement virtualElement when virtualElement is IControlVirtualElement virtualized => ProjectVirtual(virtualElement, virtualized),
             MyButtonView button => ActionButton(button, nameof(button.Text), button.PerformClick),
@@ -993,7 +996,9 @@ public sealed partial class GlassPresentationSession
         double expectedSource = double.NaN, expectedTarget = double.NaN;
         // The homepage is never laid out in its original page while the shell shows it, so its offsets mean nothing:
         // the home scroller keeps its own position instead of mirroring the hidden original.
-        bool independent = source.Name == "PanBack" && (source.Parent is FrameworkElement { Parent: PageLaunchRight } || source.Parent is PageLaunchRight);
+        bool resourcePosition = source.Name == "PanBack" && (InPage<PageInstanceMod>(source) || InPage<PageInstanceResources>(source));
+        bool independent = resourcePosition || source.Name == "PanBack" &&
+            (source.Parent is FrameworkElement { Parent: PageLaunchRight } || source.Parent is PageLaunchRight);
         ScrollChangedEventHandler changed = (_, args) =>
         {
             if (independent || !Live(scroll) || !ReferenceEquals(args.OriginalSource, source) || Math.Abs(args.VerticalChange) < .01) return;
@@ -1016,6 +1021,7 @@ public sealed partial class GlassPresentationSession
         // The page-level scroller softens content passing under its top/bottom edges with a progressive blur.
         var node = new Node(PageScroller(source) ? new ScrollEdgeFade(scroll) : scroll); node.Cleanup.Add(() => source.ScrollChanged -= changed);
         node.Pull = () => { object child = Content(source.Content); if (!ReferenceEquals(scroll.Content, child)) scroll.Content = child; };
+        if (resourcePosition) KeepInstanceResourceScroll(source, scroll, node);
         return node;
     }
     private bool PageScroller(ScrollViewer source)
@@ -2067,7 +2073,7 @@ public sealed partial class GlassPresentationSession
 
     private Node ProjectResourceRow(MyResourceItem source)
     {
-        var row = new Grid { MinHeight = 52 };
+        var row = new Grid { MinHeight = DownloadResourceRowHeight };
         row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var content = new Grid(); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition()); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var image = new Image { Width = 32, Height = 32, Margin = new Thickness(0, 0, 12, 0), Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center }; content.Children.Add(image);
@@ -2194,6 +2200,8 @@ public sealed partial class GlassPresentationSession
         target.Stretch = source.Stretch; target.StrokeThickness = source.StrokeThickness;
         target.Fill = source.Fill; target.Stroke = source.Stroke;
         target.StrokeDashArray = source.StrokeDashArray;
+        if (source is Rectangle { Tag: "NoticeSeparator" })
+            target.SetResourceReference(Shape.FillProperty, "GlassPresentationSeparator");
         if (source.Tag is ModDependencyGraphRelation relation)
         {
             string brush = relation switch {
@@ -2226,7 +2234,7 @@ public sealed partial class GlassPresentationSession
     }
     private Node ProjectNativeSlider(Slider source)
     {
-        var slider = new Slider { Style = Style("GlassPresentationSlider") };
+        var slider = new TrackDragSlider { Style = Style("GlassPresentationSlider") };
         Bind(slider, RangeBase.ValueProperty, source, nameof(source.Value), BindingMode.TwoWay);
         Bind(slider, RangeBase.MinimumProperty, source, nameof(source.Minimum)); Bind(slider, RangeBase.MaximumProperty, source, nameof(source.Maximum));
         return new Node(slider);

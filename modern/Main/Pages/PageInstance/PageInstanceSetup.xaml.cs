@@ -69,7 +69,24 @@ namespace PCL
             this.SettingsView = new global::PCLCS.InstanceSettingsView<global::PCL.MyListItem, global::PCL.MyIconButton>();
             this.RamView = new global::PCLCS.InstanceRamDisplayView();
             this.InitializeComponent();
+            JavaPage = new PageSetupJava(this, CardInstanceJava, LoadJavaPage);
         }
+
+        internal PageSetupJava JavaPage { get; }
+
+        private void LoadJavaPage()
+        {
+            var controller = this.Controller;
+            controller.InitializeJavaBindings();
+            ModAnimation.AniControlEnabled++;
+            try { SettingService.RefreshSettings(CardInstanceJava); }
+            finally { ModAnimation.AniControlEnabled--; }
+            controller.UpdateJavaList();
+            controller.UpdateJavaUi();
+        }
+
+        private void OpenJavaManagement_Click(object sender, MouseButtonEventArgs e) =>
+            ModMain.FrmMain.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupJava);
 
         private void UpdateViews()
         {
@@ -156,7 +173,10 @@ namespace PCL
                 SetForcedJava = global::PCL.MmcLaunchPreferences.SetForcedJava,
                 ApplyVisibility = global::PCL.ModModpackMode.ApplyInstanceVisibility,
                 RefreshSettings = new Action(() => global::PCL.SettingService.RefreshSettings(this)),
-                ResetSettings = new Action(() => global::PCL.SettingService.ResetSettings(this)),
+                ResetSettings = () => {
+                    SettingService.ResetSettings(this);
+                    SettingService.ResetSettings(CardInstanceJava);
+                },
                 Animation = new Func<global::System.Int32>(() => global::PCL.ModAnimation.AniControlEnabled),
                 AddAnimation = new Action<global::System.Int32>(Value => global::PCL.ModAnimation.AniControlEnabled += Value),
                 RunInUi = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),

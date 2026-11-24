@@ -17,7 +17,7 @@ internal static class LocalSkinLaunchSupport {
     internal sealed record Agent(string Path, byte[] Bytes, string Sha256);
 
     internal static LocalSkinLaunch? Capture(string player, string uuid) {
-        if (SkinLibraryApplicationService.Store.ReadOfflineTextures(player) is not { } textures) return null;
+        if (LauncherApplicationServices.SkinLibrary.Store.ReadOfflineTextures(player) is not { } textures) return null;
         if (!Guid.TryParse(uuid, out var profile)) throw new IOException("离线角色标识无效，无法应用本地皮肤库。");
         return new(player, profile, textures);
     }

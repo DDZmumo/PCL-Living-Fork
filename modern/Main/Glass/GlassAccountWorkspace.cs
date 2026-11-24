@@ -5,7 +5,6 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #nullable enable
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -89,12 +88,19 @@ internal sealed class GlassAccountWorkspace : IDisposable
     private readonly FrameworkElement _accountSide, _accountScene;
     private readonly GlassSkinLibrary _library;
     private bool _libraryOpen;
+    private readonly Dictionary<string, Task<BitmapSource?>> _offlineHeads = new(StringComparer.Ordinal);
 
     // Account ↔ skin library: the outgoing page recedes into the card while the incoming one settles from in front of
     // it (going back mirrors this), on the same springs as the side card's own depth swaps.
     private void ShowLibrary(bool open, bool instant = false)
     {
         if (_libraryOpen == open && !instant) return;
+        if (_libraryOpen && !open && Settings.Get<ModLaunch.McLoginType>("LoginType") == ModLaunch.McLoginType.Legacy)
+        {
+            _offlineHeads.Clear();
+            _deckSignature = string.Empty;
+            _rebuildInstantly = true;
+        }
         _libraryOpen = open;
         if (open) _library.Open();
         DepthSwap(open ? _accountSide : _library.Side, open ? _library.Side : _accountSide, open, instant);
@@ -370,7 +376,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
     // ---------- State ----------
 
     /// <summary>Called when the page opens: rebuild and bring the account in use to the front.</summary>
-    internal void Open() { ShowLibrary(false, instant: true); _deckSignature = string.Empty; _front = -1; _rebuildInstantly = true; Refresh(); }
+    internal void Open() { _offlineHeads.Clear(); ShowLibrary(false, instant: true); _deckSignature = string.Empty; _front = -1; _rebuildInstantly = true; Refresh(); }
 
     internal void Refresh()
     {
@@ -630,13 +636,11 @@ internal sealed class GlassAccountWorkspace : IDisposable
                 accounts.Add(new(saved, saved, () => UseMicrosoft(chosen)));
             }
         }
-        else if (!microsoft && ModMain.FrmLoginLegacy is { } offline)
+        else
         {
-            IEnumerable names = offline.ComboName.ItemsSource ?? offline.ComboName.Items;
-            foreach (string value in names.OfType<object>().Select(item => item?.ToString() ?? string.Empty).Where(text => text.Length > 0).Distinct())
+            foreach (string player in SkinLibraryApplicationService.ReadOfflinePlayers())
             {
-                string chosen = value;
-                accounts.Add(new(value, value, () => UseOffline(chosen)));
+                accounts.Add(new(player, player, () => UseOffline(player)));
             }
         }
         string current = selected?.Key ?? currentName;
@@ -700,7 +704,8 @@ internal sealed class GlassAccountWorkspace : IDisposable
                 _cards.Add(AccountCard(account.Key, chosen, string.IsNullOrEmpty(site.Name) ? "外置登录角色" : site.Name, isCurrent, avatar, account.Use, () => { }, true,
                     () => GlassSkinSites.Head(character.Site.Server, character.Profile.Id), deletable: false));
             }
-            else _cards.Add(AccountCard(account.Key, chosen, microsoft ? "正版账号" : "离线账号", isCurrent, avatar, account.Use, () => Delete(chosen, microsoft), microsoft));
+            else _cards.Add(AccountCard(account.Key, chosen, microsoft ? "正版账号" : "离线账号", isCurrent, avatar, account.Use, () => Delete(chosen, microsoft), microsoft,
+                microsoft ? null : () => OfflineHead(chosen)));
         }
         if (site is null) _cards.Add(microsoft ? AddMicrosoftCard() : AddOfflineCard());
         foreach (FrameworkElement card in _cards) _deck.Children.Add(card);
@@ -973,13 +978,20 @@ internal sealed class GlassAccountWorkspace : IDisposable
         return card;
     }
 
+    private Task<BitmapSource?> OfflineHead(string player)
+    {
+        if (!_offlineHeads.TryGetValue(player, out var head))
+            _offlineHeads[player] = head = LauncherApplicationServices.SkinLibrary.ReadOfflineAvatarAsync(player);
+        return head;
+    }
+
     private readonly Dictionary<FrameworkElement, (string Key, Action<bool, ImageSource?> Update)> _inUse = new(ReferenceEqualityComparer.Instance);
 
     private FrameworkElement AccountBody(string name, string method, bool current, Action use, Action delete, bool microsoft, Func<System.Threading.Tasks.Task<System.Windows.Media.Imaging.BitmapSource?>>? head, bool deletable, out LayeredHead? inUseHead)
     {
         var body = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         inUseHead = null;
-        if (current)
+        if (current && microsoft)
         {
             inUseHead = new LayeredHead(84);
             body.Children.Add(inUseHead);
@@ -988,7 +1000,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         {
             var initial = AvatarPlaceholder(84, name.Length > 0 ? name[..1].ToUpperInvariant() : "?");
             body.Children.Add(initial);
-            // Skin-site characters: the site's own head replaces the initial once it has loaded (fades in).
+            // Local players and skin-site characters resolve the head for this card's own identity.
             if (head is not null) _ = ShowFetchedHead(initial, head);
         }
         var title = Text(name, 19, FontWeights.SemiBold); title.HorizontalAlignment = HorizontalAlignment.Center; title.Margin = new Thickness(0, 16, 0, 0); title.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -1474,6 +1486,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
                 page.ComboName.Text = name;
             }
             _source.RefreshPage(false, false);
+            PageLaunchLeft.SkinLegacy.Start();
         }
         catch (Exception error) { Logger.Error(error, "切换离线账号失败", LogBehavior.Toast); }
     }

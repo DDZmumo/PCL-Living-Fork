@@ -56,6 +56,7 @@ namespace PCL
                 RefreshHelp = global::PCL.AuxiliaryPageRuntime.RefreshHelp,
                 NormalizeSetup = new Func<global::System.Int32, global::System.Int32>(ID => (global::System.Int32)global::PCL.ModModpackMode.NormalizeSetupPage((global::PCL.FormMain.PageSubType)(ID))),
                 LauncherSettingsPage = new Func<global::PCLLF.Presentation.Controls.MyPageRightView>(() => global::PCL.ModModpackMode.LauncherSettingsPage()),
+                JavaSettingsPage = () => (ModMain.FrmSetupLaunch ??= new PageSetupLaunch()).JavaPage,
                 PageId = ReadId,
                 SetPageId = WriteId,
                 ParseTag = new Func<global::System.Object, global::System.Int32>(Value => (global::System.Int32)Math.Round(global::PCL.ModBase.Val(Value))),

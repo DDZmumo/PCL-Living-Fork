@@ -36,10 +36,6 @@
                             <RowDefinition Height="28" />
                             <RowDefinition Height="9" />
                             <RowDefinition Height="28" />
-                            <RowDefinition Height="9" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock x:Name="LabArgumentIndie" Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="版本隔离" Margin="0,0,25,0" />
                         <local:MyComboBox x:Name="ComboArgumentIndieV2" Grid.Row="0" Grid.ColumnSpan="2" Grid.Column="1">
@@ -62,8 +58,23 @@
                                 </local:ValidateExcept>
                             </local:MyTextBox.ValidateRules>
                         </local:MyTextBox>
-                        <TextBlock VerticalAlignment="Center" Grid.Row="6" HorizontalAlignment="Left" Text="Java" Margin="0,0,25,0" />
-                        <Grid Grid.ColumnSpan="2" Grid.Row="6" Grid.Column="1">
+                    </Grid>
+                </StackPanel>
+            </local:MyCard>
+            <local:MyCard x:Name="CardInstanceJava" Title="实例 Java">
+                <StackPanel Margin="25,40,25,18">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock VerticalAlignment="Center" Grid.Row="0" HorizontalAlignment="Left" Text="选择方式" Margin="0,0,25,0" />
+                        <Grid Grid.Row="0" Grid.Column="1">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
                                 <ColumnDefinition Width="Auto" />
@@ -82,8 +93,8 @@
                                              Grid.Column="1" Margin="7,0,0,0" Width="200"
                                              ToolTip="输入允许的 Java 版本区间，例如 [17.0.1, 25.0)。&#xa;方括号代表包含，圆括号代表不包含。不写其中一侧代表不限制。&#xa;&#xa;例如：&#xa;[21.0, ) 代表至少需要 Java 21。&#xa;(, 18.0) 代表允许 Java 17-，但不允许 Java 18+（圆括号代表不包含）。&#xa;[8.0.81, 8.0.141] 则代表仅允许 Java 8u81 ~ 8u141。&#xa;&#xa;你可以在左侧选择 “使用指定的 Java” 来查看你电脑中已有的 Java 的版本号。" HintText="版本区间…" MaxLength="100" />
                         </Grid>
-                        <local:MyHint Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="HintArgumentJava" Margin="0,8,0,0" Visibility="Collapsed" />
-                        <Grid x:Name="PanArgumentJavaSelect" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" Visibility="Collapsed"
+                        <local:MyHint Grid.Row="2" Grid.Column="1" x:Name="HintArgumentJava" Margin="0,8,0,0" Visibility="Collapsed" />
+                        <Grid x:Name="PanArgumentJavaSelect" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" Visibility="Collapsed"
                               Height="28" Margin="0,9,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
@@ -95,6 +106,8 @@
                                 Logo="M512.0 838.3c-80.2 0-153.4-29.3-210.2-77.4l75.5-75.5c11.5-11.5 25.8-22.0 25.8-37.0a27.2 27.2 0 0 0-27.1-27.1H104.0c-27.1 0-27.1 23.9-27.1 27.1v271.9a27.1 27.1 0 0 0 27.1 27.1c15.0 0 27.8-16.6 42.5-31.2l77.9-77.9c76.6 67.7 177.1 108.9 287.4 108.9 221.7 0 404.5-166.0 431.2-380.6h-109.8c-25.9 154.2-159.7 271.9-321.3 271.9zM919.9 76.6c-15.0 0-27.8 16.6-42.5 31.3L799.5 185.8c-76.5-67.7-177.1-108.9-287.4-108.9-221.8 0-404.5 166.1-431.3 380.6H190.6c25.9-154.2 159.7-271.9 321.4-271.9 80.2 0 153.4 29.3 210.1 77.4l-75.5 75.5c-11.6 11.5-25.8 22.0-25.8 37.1a27.2 27.2 0 0 0 27.1 27.1h271.9c27.1 0 27.1-23.9 27.1-27.1V103.8a27.1 27.1 0 0 0-27.1-27.1z" />
                         </Grid>
                     </Grid>
+                    <local:MyButton Text="管理本机 Java" Click="OpenJavaManagement_Click" Margin="0,12,0,0"
+                                    MinWidth="115" Height="28" HorizontalAlignment="Left" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="内存分配">
@@ -120,14 +133,10 @@
                     <Grid Margin="0,5,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition />
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Margin="0,6,30,0" Text="启动游戏前进行内存优化" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Left" />
-                        <local:MyComboBox x:Name="ComboRamOptimize" Margin="10,0,0,0" Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="2" local:SettingService.Key="VersionRamOptimize">
+                        <TextBlock Margin="0,0,30,0" Text="启动游戏前进行内存优化" VerticalAlignment="Center" />
+                        <local:MyComboBox x:Name="ComboRamOptimize" Grid.Column="1" local:SettingService.Key="VersionRamOptimize">
                             <local:MyComboBoxItem Content="跟随全局设置" IsSelected="True" />
                             <local:MyComboBoxItem Content="开启" />
                             <local:MyComboBoxItem Content="关闭" />

@@ -74,12 +74,16 @@ public static partial class MmcRuntimeLaunchBuilder {
         string gameClasspath = string.Join(Path.PathSeparator, classpath.Select(path => MmcRuntimeFiles.RelativeJavaPath(currentPaths.GameRoot, path)));
         var replacements = Variables(request, targets, gameClasspath, mutable);
         List<Value> logicalJvm = [];
-        if (settings.MinimumMemoryMiB > 0) logicalJvm.Add(new("-Xms" + settings.MinimumMemoryMiB.ToString(CultureInfo.InvariantCulture) + "m", "-Xms" + settings.MinimumMemoryMiB.ToString(CultureInfo.InvariantCulture) + "m"));
-        logicalJvm.Add(new("-Xmx" + settings.MaximumMemoryMiB.ToString(CultureInfo.InvariantCulture) + "m", "-Xmx" + settings.MaximumMemoryMiB.ToString(CultureInfo.InvariantCulture) + "m"));
+        bool x86 = request.Java.Bitness == 32;
+        int maximumHeap = x86 ? Math.Min(settings.MaximumMemoryMiB, Java.X86MaxHeapMiB) : settings.MaximumMemoryMiB;
+        int minimumHeap = Math.Min(settings.MinimumMemoryMiB, maximumHeap);
+        if (minimumHeap > 0) logicalJvm.Add(new("-Xms" + minimumHeap.ToString(CultureInfo.InvariantCulture) + "m", "-Xms" + minimumHeap.ToString(CultureInfo.InvariantCulture) + "m"));
+        logicalJvm.Add(new("-Xmx" + maximumHeap.ToString(CultureInfo.InvariantCulture) + "m", "-Xmx" + maximumHeap.ToString(CultureInfo.InvariantCulture) + "m"));
         var userJvm = settings.UserJvmTokens.Select(t => Expand(t, replacements, request.Account)).ToArray();
         logicalJvm.AddRange(userJvm);
         logicalJvm.AddRange(compiled.JvmArguments.Select(a => Expand(a.Value, replacements, request.Account)));
         ValidateJvm(logicalJvm.Select(t => t.Actual).ToArray());
+        if (x86) logicalJvm.RemoveAll(value => Java.HeapOptionExceeds(value.Actual, maximumHeap));
         ValidateWorkingDirectory(logicalJvm.Select(t => t.Actual), currentPaths.GameRoot);
         // Only the dedicated live binding can introduce a host authentication agent.
         // Package/user JVM tokens above still cannot authorize execution inputs.

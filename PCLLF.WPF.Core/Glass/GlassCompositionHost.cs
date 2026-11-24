@@ -37,9 +37,19 @@ internal sealed class GlassCompositionHost : IDisposable {
 
     internal nint Handle { get; private set; }
 
-    internal static bool IsResetNotification(int message, nint reason) =>
-        message is 0x007E or 0x031E || // WM_DISPLAYCHANGE, WM_DWMCOMPOSITIONCHANGED.
-        message == 0x0218 && reason == 0x12; // WM_POWERBROADCAST / PBT_APMRESUMEAUTOMATIC.
+    private static readonly Guid SessionDisplayStatus = new("2b84c20e-ad23-4ddf-93db-05ffbd7efca5");
+    internal static nint WatchDisplayPower(nint hwnd) => RegisterPowerSettingNotification(hwnd, in SessionDisplayStatus, 0);
+    internal static void UnwatchDisplayPower(nint registration) {
+        if (registration != 0) UnregisterPowerSettingNotification(registration);
+    }
+
+    internal static bool IsResetNotification(int message, nint reason, nint data) {
+        if (message is 0x007E or 0x031E) return true; // WM_DISPLAYCHANGE, WM_DWMCOMPOSITIONCHANGED.
+        if (message != 0x0218) return false;
+        if (reason == 0x12 || reason == 0x07 || reason == 0x0A) return true; // Resume or AC/battery source change.
+        return reason == 0x8013 && data != 0 && Marshal.PtrToStructure<Guid>(data) == SessionDisplayStatus &&
+               Marshal.ReadInt32(data, 16) == sizeof(uint) && Marshal.ReadInt32(data, 20) == 1;
+    }
 
     internal GlassCompositionHost(nint owner) {
         _owner = owner;
@@ -72,7 +82,7 @@ internal sealed class GlassCompositionHost : IDisposable {
         _regionsDirty = true;
     }
 
-    internal void SyncBounds(Func<bool> shouldBeVisible, Action<Size>? updateRegions = null) {
+    internal void SyncBounds(Func<bool> shouldBeVisible, Action<Size>? updateRegions = null, bool reserveLeftInset = false) {
         if (_disposed || Handle == 0) return;
         if (!shouldBeVisible() || !IsWindowVisible(_owner) || IsIconic(_owner)) {
             // Reconcile the actual native state even after a reentrant show/hide sequence.
@@ -87,8 +97,11 @@ internal sealed class GlassCompositionHost : IDisposable {
         Rect visible = VisiblePixelBounds(_regions, _transform, clientPixels);
         if (visible.IsEmpty) { ShowWindow(Handle, 0); return; }
 
-        // Keep the native helper outside the transparent expansion reserve. Its composition
-        // visuals are rebased so each panel still samples at the same screen position.
+        // Keep the HWND fixed while the rail travels into the left inset. Resizing the HWND
+        // on every frame can leave newly exposed pixels without host backdrop sampling.
+        // The rounded composition clips still follow the arranged surfaces.
+        if (reserveLeftInset) visible = new Rect(0, visible.Top, visible.Right, visible.Height);
+
         var bounds = new NativeRect {
             Left = origin.X + (int)visible.Left, Top = origin.Y + (int)visible.Top,
             Right = origin.X + (int)visible.Right, Bottom = origin.Y + (int)visible.Bottom
@@ -210,6 +223,9 @@ internal sealed class GlassCompositionHost : IDisposable {
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(nint hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowCompositionAttribute(nint hwnd, ref WindowCompositionAttributeData data);
+    [DllImport("user32.dll")] private static extern nint RegisterPowerSettingNotification(nint hwnd, in Guid setting, uint flags);
+    [DllImport("user32.dll")] private static extern bool UnregisterPowerSettingNotification(nint notification);
+    [DllImport("user32.dll")] internal static extern nint MonitorFromWindow(nint hwnd, uint flags);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? moduleName);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(nint hwnd, ref Margins margins);

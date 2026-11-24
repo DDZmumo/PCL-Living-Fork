@@ -31,8 +31,8 @@ namespace PCL
         }
         public MyVirtualizingElement<MyResourceItem> ToResourceItem(bool ShowMcVersionDesc, bool ShowLoaderDesc, ResourceTypes? ResourceTypeContext = null)
         {
-            var Context = ResourcePresentation.ProjectContext(this, ShowMcVersionDesc, ShowLoaderDesc);
             return new MyVirtualizingElement<MyResourceItem>(() => {
+                var Context = ResourcePresentation.ProjectContext(this, ShowMcVersionDesc, ShowLoaderDesc);
                 MyResourceItem Row = ResourcePresentation.ProjectRow(this, Context, CreateItemHost());
                 Row.ResourceTypeContext = ResourceTypeContext;
                 return Row;

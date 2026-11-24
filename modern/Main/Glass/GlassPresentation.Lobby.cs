@@ -107,6 +107,8 @@ public sealed partial class GlassPresentationSession
         private double _spinSpeed, _breath;
         private TimeSpan? _lastFrame;
         private bool _busy, _hooked, _primed, _disposed;
+        // 组件更新: a second page of content in the same scroller, shown instead of the lobby.
+        private readonly TerracottaUpdateView _updates;
         private string? _sceneKey, _headline, _badgeKind;
 
         internal TerracottaLobbyView(GlassPresentationSession owner, TerracottaLobbyPage page)
@@ -114,6 +116,7 @@ public sealed partial class GlassPresentationSession
             _owner = owner; _page = page;
             Root = new ScrollViewer { Content = _stack, Style = owner.Style("GlassPresentationScrollViewer"), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             SmoothScroll.SetIsEnabled(Root, true);
+            _updates = new TerracottaUpdateView(owner, page);
 
             // ---------- Halo ----------
             _glow.SetResourceReference(Shape.FillProperty, "GlassPresentationAccent");
@@ -285,6 +288,13 @@ public sealed partial class GlassPresentationSession
         internal void Pull()
         {
             if (_disposed) return;
+            bool updates = _page.Section == TerracottaLobbyPage.LobbySection.Updates;
+            ShowSection(updates ? _updates.Content : _stack);
+            if (updates)
+            {
+                _updates.Pull();
+                return;
+            }
             TerracottaLobbyPage.LobbyStage stage = _page.Stage;
             bool lobby = stage == TerracottaLobbyPage.LobbyStage.Lobby;
             if (!PrepareFlow(lobby)) return;
@@ -383,6 +393,15 @@ public sealed partial class GlassPresentationSession
                 if (!first && _primed && !_swappingFlow)
                     StaggeredEntrance.Play(_hero.Children.Cast<UIElement>().Skip(1).Concat(_stack.Children.Cast<UIElement>().Skip(1)));
             }
+        }
+
+        // Swaps the scroller between the lobby and the component page; the incoming page starts at the top and rises in.
+        private void ShowSection(StackPanel content)
+        {
+            if (ReferenceEquals(Root.Content, content)) return;
+            Root.Content = content;
+            Root.ScrollToTop();
+            if (_primed) StaggeredEntrance.Play(content.Children.Cast<UIElement>());
         }
 
         private bool CanAnimateFlow => _primed && Root.IsVisible && _owner.Live(Root) && MotionPreferences.AllowsAnimation &&

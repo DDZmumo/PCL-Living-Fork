@@ -14,8 +14,15 @@ internal sealed class MmcOperationCancellationFence {
     private readonly CancellationTokenSource source = new();
     private readonly CancellationToken token;
     private Action released;
+    private int workersRemaining;
     private bool finishing, completed, workerScheduled;
-    public MmcOperationCancellationFence(Action onReleased = null) { token=source.Token;released=onReleased; }
+    public MmcOperationCancellationFence(Action onReleased = null) : this(onReleased, 1) { }
+    internal MmcOperationCancellationFence(Action onReleased, int workerCount) {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workerCount);
+        token = source.Token;
+        released = onReleased;
+        workersRemaining = workerCount;
+    }
     public CancellationToken Token => token;
     internal bool IsCompleted { get { lock(gate)return completed; } }
     public void Cancel(Action standardCancel) {
@@ -51,8 +58,18 @@ internal sealed class MmcOperationCancellationFence {
         }}finally{release?.Invoke();}
     }
     internal void ExecuteWorker(Action work) {
-        try {token.ThrowIfCancellationRequested();work();}
-        finally {Action release;lock(gate)release=CompleteUnderGate();release?.Invoke();}
+        bool succeeded = false;
+        try { token.ThrowIfCancellationRequested(); work(); succeeded = true; }
+        finally {
+            Action release = null;
+            lock (gate) {
+                workerScheduled = false;
+                workersRemaining--;
+                if (!succeeded || workersRemaining == 0 || token.IsCancellationRequested)
+                    release = CompleteUnderGate();
+            }
+            release?.Invoke();
+        }
     }
     public void AbandonUnstarted()=>Cancel(()=>{});
     private Action CompleteUnderGate(){

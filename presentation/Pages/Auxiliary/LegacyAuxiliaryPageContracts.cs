@@ -29,6 +29,7 @@ public sealed class LegacyAuxiliaryNavigationHost
     public Action HiddenRefresh = null!, ApplyModpackVisibility = null!, RefreshHelp = null!;
     public Func<int, int> NormalizeSetup = null!;
     public Func<MyPageRightView> LauncherSettingsPage = null!;
+    public Func<MyPageRightView> JavaSettingsPage = null!;
     public Func<int> PageId = null!;
     public Action<int> SetPageId = null!;
     public Func<object, int> ParseTag = null!;

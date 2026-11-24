@@ -41,7 +41,7 @@ internal sealed class GlassSkinLibrary : IDisposable
     private const string RefreshGlyph = "M19,8 A8,8 0 1 0 20,13 M19,3 V8 H14";
     private const string AccountGlyph = "M12,12 A4,4 0 1 0 12,4 A4,4 0 1 0 12,12 M4,20 A8,6 0 0 1 20,20";
 
-    private readonly SkinLibraryApplicationService _library = LauncherApplicationServices.SkinLibrary;
+    private readonly SkinLibraryApplicationService _library;
     private readonly Func<SkinLibraryTarget, CancellationToken, Task<IReadOnlyList<MicrosoftCape>>> _readMicrosoftCapes;
     private readonly Func<bool> _darkText;
     private readonly Action _back;
@@ -49,7 +49,7 @@ internal sealed class GlassSkinLibrary : IDisposable
     private readonly TextBlock _name = Text("", 19, FontWeights.SemiBold), _meta = Text("", 12.5, FontWeights.Normal, secondary: true);
     private readonly TextBlock _target = Text("", 12, FontWeights.Normal, secondary: true);
     private readonly StackPanel _models = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
-    private readonly Button _apply, _resetOfflineSkin;
+    private readonly Button _apply, _resetOfflineSkin, _offlineRolePicker;
     private readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
     private readonly WrapPanel _grid = new() { Margin = new Thickness(0, 2, 0, 12) };
     private readonly StackPanel _empty = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -63,6 +63,7 @@ internal sealed class GlassSkinLibrary : IDisposable
     private IReadOnlyList<MicrosoftCape>? _microsoftCapes;
     private SkinLibraryAccount _account = new(null, null, false, new(), null);
     private string _accountKey = "";
+    private string? _offlinePlayer;
     private CancellationTokenSource? _work;
     private bool _busy;
 
@@ -70,11 +71,17 @@ internal sealed class GlassSkinLibrary : IDisposable
     internal FrameworkElement Scene { get; }
 
     internal GlassSkinLibrary(Func<bool> darkText, Action back,
-        Func<SkinLibraryTarget, CancellationToken, Task<IReadOnlyList<MicrosoftCape>>>? readMicrosoftCapes = null)
+        Func<SkinLibraryTarget, CancellationToken, Task<IReadOnlyList<MicrosoftCape>>>? readMicrosoftCapes = null,
+        SkinLibraryApplicationService? library = null)
     {
         _darkText = darkText; _back = back;
+        _library = library ?? LauncherApplicationServices.SkinLibrary;
         _readMicrosoftCapes = readMicrosoftCapes ?? _library.GetMicrosoftCapesAsync;
         _apply = Pill("应用到账号", PillKind.Primary, () => _ = ApplyAsync());
+        _offlineRolePicker = Pill("选择离线角色", PillKind.Plain, () => BuildOfflineRoleMenu().Show());
+        _offlineRolePicker.Visibility = Visibility.Collapsed;
+        _offlineRolePicker.Margin = new Thickness(0, 0, 0, 8);
+        ((TextBlock)_offlineRolePicker.Content).TextTrimming = TextTrimming.CharacterEllipsis;
         _resetOfflineSkin = Pill("恢复默认皮肤", PillKind.Plain, ResetOfflineSkin);
         _resetOfflineSkin.Visibility = Visibility.Collapsed;
         _resetOfflineSkin.Margin = new Thickness(0, 6, 0, 0);
@@ -111,6 +118,7 @@ internal sealed class GlassSkinLibrary : IDisposable
         var footer = new StackPanel();
         _apply.HorizontalAlignment = HorizontalAlignment.Stretch; _apply.Height = 38;
         _target.HorizontalAlignment = HorizontalAlignment.Center; _target.Margin = new Thickness(0, 8, 0, 0); _target.TextTrimming = TextTrimming.CharacterEllipsis;
+        footer.Children.Add(_offlineRolePicker);
         footer.Children.Add(_apply);
         footer.Children.Add(_resetOfflineSkin);
         footer.Children.Add(_target);
@@ -178,24 +186,50 @@ internal sealed class GlassSkinLibrary : IDisposable
     /// <summary>Called when the page opens: re-reads the account and the library.</summary>
     internal void Open()
     {
+        _offlinePlayer = null;
         _accountKey = "";
-        RefreshAccount();
+        RefreshAccount(updateContent: false);
         Reload();
     }
 
     /// <summary>Periodic refresh while the page is open: follows account switches.</summary>
     internal void Refresh() => RefreshAccount();
 
-    private void RefreshAccount()
+    private void RefreshAccount(bool updateContent = true)
     {
-        try { _account = _library.ReadAccount(); }
+        var previous = _account.Target;
+        try { _account = _library.ReadAccount(_offlinePlayer); }
         catch (Exception error) { Logger.Warn(error, "读取皮肤库账号失败"); return; }
+        if (_account.Target is not { Provider: AccountProvider.Offline } role || role.Name != _offlinePlayer)
+            _offlinePlayer = null;
+        bool offlineChanged = previous != _account.Target &&
+            (previous?.Provider == AccountProvider.Offline || _account.Target?.Provider == AccountProvider.Offline);
+        if (offlineChanged)
+        {
+            _selectedSkin = _account.OfflineAppearance.SkinId;
+            _selectedCape = _account.OfflineAppearance.CapeId;
+        }
         string key = _account.Target is { } t ? t.Provider + "|" + t.Name + "|" + t.ProfileId : "";
         if (key == _accountKey) return;
         _accountKey = key;
         _microsoftCapes = null; _capesRequested = false;
         _work?.Cancel();
-        if (_kind == SkinTextureKind.Cape) Reload(); else RefreshSide();
+        if (updateContent)
+        {
+            if (offlineChanged || _kind == SkinTextureKind.Cape) Reload(); else RefreshSide();
+        }
+    }
+
+    private GlassActionMenu BuildOfflineRoleMenu()
+    {
+        var menu = new GlassActionMenu(_offlineRolePicker, _darkText()) { Placement = PlacementMode.Bottom };
+        foreach (string player in SkinLibraryApplicationService.ReadOfflinePlayers())
+            menu.AddCommand("角色 " + player, () =>
+            {
+                _offlinePlayer = player;
+                RefreshAccount();
+            }, check: _account.Target?.Name == player);
+        return menu;
     }
 
     private string ProviderLabel(AccountProvider provider) => provider switch
@@ -519,6 +553,12 @@ internal sealed class GlassSkinLibrary : IDisposable
         else { _name.Text = _entries.Count == 0 ? "还没有" + (_kind == SkinTextureKind.Skin ? "皮肤" : "披风") : "选择一个" + (_kind == SkinTextureKind.Skin ? "皮肤" : "披风"); _meta.Text = ""; }
 
         SkinLibraryTarget? target = _account.Target;
+        bool offline = target?.Provider == AccountProvider.Offline;
+        bool showRolePicker = offline || target is null && SkinLibraryApplicationService.ReadOfflinePlayers().Length > 0;
+        _offlineRolePicker.Visibility = showRolePicker ? Visibility.Visible : Visibility.Collapsed;
+        _offlineRolePicker.IsEnabled = !_busy;
+        ((TextBlock)_offlineRolePicker.Content).Text = offline ? "离线角色 · " + target!.Name + " ▾" : "选择离线角色 ▾";
+        _target.Visibility = offline ? Visibility.Collapsed : Visibility.Visible;
         _target.Text = target is null ? "当前没有可以应用的角色" : "应用到：" + target.Name + " · " + ProviderLabel(target.Provider);
         string label2 = target?.Provider switch
         {
@@ -526,6 +566,7 @@ internal sealed class GlassSkinLibrary : IDisposable
             AccountProvider.Nide => "由统一通行证网站管理",
             AccountProvider.Microsoft when _kind == SkinTextureKind.Cape => "在右侧选择正版披风",
             AccountProvider.Microsoft => "上传到正版账号",
+            AccountProvider.Offline => "应用到此角色",
             _ => "应用到账号"
         };
         ((TextBlock)_apply.Content).Text = _busy ? "正在应用…" : label2;
@@ -692,7 +733,6 @@ internal sealed class GlassSkinLibrary : IDisposable
             {
                 if (entry is null) return;
                 _library.SetOfflineTexture(target, _kind, entry.Id);
-                RefreshAccountSkin(target.Provider);
                 ModMain.Hint("已应用到 " + target.Name + "，启动游戏后生效", ModMain.HintType.Green);
             }
             else if (target.Provider == AccountProvider.Auth && _kind == SkinTextureKind.Cape)
@@ -721,7 +761,7 @@ internal sealed class GlassSkinLibrary : IDisposable
         catch (OperationCanceledException) { ModMain.Hint("应用超时，请稍后再试", ModMain.HintType.Red); }
         catch (Exception error) { ModMain.Hint("应用失败：" + error.Message, ModMain.HintType.Red); }
         finally { SetBusy(false); }
-        _accountKey = ""; RefreshAccount(); Reload();
+        _accountKey = ""; RefreshAccount(updateContent: false); Reload();
     }
 
     private void ResetOfflineSkin()
@@ -730,12 +770,12 @@ internal sealed class GlassSkinLibrary : IDisposable
         try
         {
             _library.SetOfflineTexture(target, SkinTextureKind.Skin, null);
-            RefreshAccountSkin(target.Provider);
+            _selectedSkin = null;
             ModMain.Hint("已恢复 " + target.Name + " 的默认皮肤", ModMain.HintType.Green);
         }
         catch (Exception error) { ModMain.Hint("恢复失败：" + error.Message, ModMain.HintType.Red); }
         _accountKey = "";
-        RefreshAccount();
+        RefreshAccount(updateContent: false);
         Reload();
     }
 
@@ -745,11 +785,10 @@ internal sealed class GlassSkinLibrary : IDisposable
         try
         {
             _library.SetOfflineTexture(target, SkinTextureKind.Cape, id);
-            RefreshAccountSkin(target.Provider);
             ModMain.Hint(id is null ? "已隐藏 " + target.Name + " 的披风" : "已应用披风，启动游戏后生效", ModMain.HintType.Green);
         }
         catch (Exception error) { ModMain.Hint("应用失败：" + error.Message, ModMain.HintType.Red); }
-        _accountKey = ""; RefreshAccount(); Reload();
+        _accountKey = ""; RefreshAccount(updateContent: false); Reload();
     }
 
     private async Task ApplyMicrosoftCape(SkinLibraryTarget target, string? capeId)

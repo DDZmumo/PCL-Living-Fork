@@ -52,6 +52,11 @@ public sealed class LegacyLaunchSkins<TTask> {
         return kind is 1 or 2 ? new(kind.ToString(), "") : new("0", player);
     }
     private string DefaultSkin(string user) => host.ImagePath() + "Skins/" + host.SkinSex(host.OfflineUuid(user)) + ".png";
+    public string OfflineDefaultSkin(string player) => host.ReadInteger("LaunchSkinType") switch {
+        1 => host.ImagePath() + "Skins/Steve.png",
+        2 => host.ImagePath() + "Skins/Alex.png",
+        _ => DefaultSkin(player)
+    };
     public void Official(TTask Data, string Kind) {
         Thread worker = Thread.CurrentThread;
         LegacySkinRequest request = host.Input(Data);

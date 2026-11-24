@@ -2,6 +2,7 @@ using Expression = System.Linq.Expressions.Expression;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -16,6 +17,8 @@ namespace PCLLF.Native.Facade.Tests;
 
 internal static class LauncherUpdatePageChecks
 {
+    private const string AutoCheckKey = "ToolLauncherUpdateAutoCheck";
+
     internal static void Run(FixtureEnvironment environment)
     {
         StartupReleaseNotesChecks.Run();
@@ -36,6 +39,10 @@ internal static class LauncherUpdatePageChecks
 
         object? previousUpdate = Native.Field(typeof(ModMain), "FrmSetupUpdate").GetValue(null);
         object? previousLeft = Native.Field(typeof(ModMain), "FrmSetupLeft").GetValue(null);
+        bool previousAutoCheck = Settings.Get<bool>(AutoCheckKey);
+        Native.Check(bool.TryParse(Settings.GetDefault(AutoCheckKey), out bool enabledByDefault) && enabledByDefault,
+            "An existing installation would silently stop checking for updates.");
+        Native.Cache(AutoCheckKey, false);
         Native.Cache("ToolLauncherUpdateSource", 1);
         Native.Cache("ToolLauncherUpdateChannel", 0);
         using var allowRead = new ManualResetEventSlim(false);
@@ -73,6 +80,9 @@ internal static class LauncherUpdatePageChecks
             var loading = (FrameworkElement)page.FindName("Loading");
             var hint = (FrameworkElement)page.FindName("HintStatus");
             var count = (FrameworkElement)page.FindName("LabResultCount");
+            Native.Check(loading.Visibility == Visibility.Collapsed && Volatile.Read(ref reads) == 0,
+                "Opening the update page still fetched releases with automatic checks disabled.");
+            ToggleAutoCheckAndManuallyRefresh(page);
             void CheckLoadingState()
             {
                 Native.Check(loading.Visibility == Visibility.Visible && rows.Visibility == Visibility.Collapsed && hint.Visibility == Visibility.Collapsed &&
@@ -217,7 +227,31 @@ internal static class LauncherUpdatePageChecks
             window?.Close();
             Native.Field(typeof(ModMain), "FrmSetupUpdate").SetValue(null, previousUpdate);
             Native.Field(typeof(ModMain), "FrmSetupLeft").SetValue(null, previousLeft);
+            Settings.Set(AutoCheckKey, previousAutoCheck);
         }
+    }
+
+    private static void ToggleAutoCheckAndManuallyRefresh(PageSetupUpdate page)
+    {
+        using var session = GlassPresentation.Create(page);
+        var controls = Descendants(session.View).ToArray();
+        CheckBox toggle = controls.OfType<CheckBox>().Single(control => AutomationProperties.GetName(control) == "自动检查更新");
+        Native.Check(toggle.IsChecked == false && controls.OfType<TextBlock>().Any(text => text.Text == "尚未检查更新"),
+            "The update page did not reflect the disabled setting or reported its unchecked build as current.");
+        toggle.SetCurrentValue(CheckBox.IsCheckedProperty, true);
+        Native.Check(Settings.Get<bool>(AutoCheckKey), "The projected switch failed to turn automatic checks on.");
+        toggle.SetCurrentValue(CheckBox.IsCheckedProperty, false);
+        Native.Check(!Settings.Get<bool>(AutoCheckKey) && bool.TryParse(ModBase.ReadIni("Setup", AutoCheckKey, ""), out bool saved) && !saved,
+            "The projected switch did not persist the disabled preference.");
+        Button manual = controls.OfType<Button>().Single(button => Equals(button.Content, "检查更新"));
+        manual.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, manual));
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        yield return root;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+            foreach (var descendant in Descendants(child)) yield return descendant;
     }
 
     private static void CheckProjectedLatestRelease(PageSetupUpdate page, MySearchBox search, string newestTag, string olderUpdate, string historicalTag)
@@ -247,12 +281,6 @@ internal static class LauncherUpdatePageChecks
         }
         finally { search.Text = originalSearch; request.SetValue(page, originalRequest); }
 
-        static IEnumerable<DependencyObject> Descendants(DependencyObject root)
-        {
-            yield return root;
-            foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
-                foreach (var descendant in Descendants(child)) yield return descendant;
-        }
     }
 
     private static void CheckProjectedScrollEdges(PageSetupUpdate page)

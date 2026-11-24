@@ -33,7 +33,16 @@ public void McLaunchJava(LegacyLaunchTask<int, int> Task)
             McLaunchLog($"Java 版本设置类别：{Setting<int>("VersionArgumentJavaV2", McInstanceSelected)}");
         }
         McLaunchLog("选择的 Java：" + McLaunchJavaSelected.ToString());
+        if (McLaunchJavaSelected.Is32Bit)
+            host.PrepareX86Libraries?.Invoke(McInstanceSelected, Task.CreateCancellationToken());
     }
+
+    private IEnumerable<LegacyMinecraftLibrary> SelectedJavaLibraries(bool includeMainJar) =>
+        (McLaunchJavaSelected?.Is32Bit == true ? host.LibrariesForX86 ?? host.Libraries : host.Libraries)
+        (McInstanceSelected, includeMainJar);
+
+    private bool SelectedJavaRuleCheck(JToken rule) =>
+        (McLaunchJavaSelected?.Is32Bit == true ? host.JsonRuleCheckForX86 ?? host.JsonRuleCheck : host.JsonRuleCheck)(rule);
 
 
     private int? launchRamMiB;
@@ -99,7 +108,7 @@ public List<string> McLaunchArgumentsJVM()
                         case JTokenType.Object:
                             {
                                 JObject Argument = (JObject)SubJson;
-                                if (Argument.ContainsKey("rules") && !host.JsonRuleCheck(Argument["rules"]))
+                                if (Argument.ContainsKey("rules") && !SelectedJavaRuleCheck(Argument["rules"]))
                                     continue; // 不满足准则
                                 if (!Argument.ContainsKey("value"))
                                     continue; // 没有 value 字段
@@ -194,7 +203,7 @@ public List<string> McLaunchArgumentsJVM()
         McLaunchLog("使用 JLW：" + UseJLW);
 
         // LUA
-        bool UseLUA = !Setting<bool>("LaunchAdvanceDisableLUA") && !Setting<bool>("VersionAdvanceDisableLUA", McInstanceSelected) && host.Libraries(McInstanceSelected, false).Select(e => e.OriginalName).Contains("org.lwjgl:lwjgl:3.4.1");
+        bool UseLUA = !Setting<bool>("LaunchAdvanceDisableLUA") && !Setting<bool>("VersionAdvanceDisableLUA", McInstanceSelected) && SelectedJavaLibraries(false).Select(e => e.OriginalName).Contains("org.lwjgl:lwjgl:3.4.1");
         if (UseLUA)
             Args.Add($"-javaagent:\"{LaunchUtils.ExtractPatch(@"Launch\LwjglUnsafeAgent.jar", host.PureFolder())}\"");
         McLaunchLog("使用 LUA：" + UseLUA);
@@ -219,6 +228,12 @@ public List<string> McLaunchArgumentsJVM()
 
         McLaunchLog("当前剩余内存：" + Math.Round(host.AvailablePhysicalMemory() / 1024d / 1024d / 1024d * 10d) / 10 + "G");
         int TargetRam = Conversions.ToInteger(Math.Floor(host.RamGb(McInstanceSelected) * 1024d));
+        if (McLaunchJavaSelected.Is32Bit)
+        {
+            TargetRam = Math.Min(TargetRam, Java.X86MaxHeapMiB);
+            Args.RemoveAll(argument => Java.HeapOptionExceeds(argument, TargetRam));
+            McLaunchLog($"32 位 Java 的本次最大堆内存为 {TargetRam} MiB");
+        }
         launchRamMiB = TargetRam;
         Args.Add("-Xmx" + TargetRam + "m");
 
@@ -230,7 +245,7 @@ public List<string> McLaunchArgumentsJVM()
         int SetupType = Setting<int>("LaunchAdvanceGC");
         if (McInstanceSelected is not null && Setting<int>("VersionAdvanceGC", McInstanceSelected) > 0)
             SetupType = Setting<int>("VersionAdvanceGC", McInstanceSelected) - 1; // 去掉默认
-        if (SetupType != 3)
+        if (PrepareJavaGcArguments(Args, McLaunchJavaSelected.VirtualMachine, SetupType, McLaunchJavaSelected.Is32Bit))
         {
             // 确定是使用 G1GC 还是 ZGC
             bool UseG1GC = false;
@@ -239,8 +254,6 @@ public List<string> McLaunchArgumentsJVM()
             if (Environment.OSVersion.Version.Major < 10 || Environment.OSVersion.Version.Build < 17763)
                 UseG1GC = true; // 检查系统兼容性，ZGC 需要 Windows 10 1809+
             McLaunchLog($"GC 设置：{SetupType}，选取 {(UseG1GC ? "G1GC" : "ZGC")}，Java 版本：{McLaunchJavaSelected.Version.Major}");
-            // 移除已有的 GC 参数
-            Args = Args.Where(a => !a.RegexCheck(@"( )*-XX:[+-]?(Use\w+GC|ZGenerational|UseCompactObjectHeaders|G1\w+Percent|G1\w+Size|(Max|Min)(GCPauseMillis|HeapFreeRatio))")).ToList();
             // 添加 GC 参数
             Args.Add("-XX:+UnlockExperimentalVMOptions");
             if (McLaunchJavaSelected.Version.Major >= 24)
@@ -282,6 +295,10 @@ public List<string> McLaunchArgumentsJVM()
                 if (McLaunchJavaSelected.Version.Major == 21 || McLaunchJavaSelected.Version.Major == 22)
                     Args.Add("-XX:+ZGenerational");
             } // Java 23 起默认启用分代 ZGC，不需要再添加参数
+        }
+        else if (SetupType != 3)
+        {
+            McLaunchLog(McLaunchJavaSelected.Is32Bit ? "32 位 Java 使用虚拟机自身的 GC 策略" : "使用 OpenJ9 的 GC 策略");
         }
 
         Args.Remove("-XX:MaxDirectMemorySize=256M"); // #3511 的清理
@@ -328,6 +345,19 @@ public List<string> McLaunchArgumentsJVM()
     }
 
 
+    internal static bool PrepareJavaGcArguments(List<string> arguments, string virtualMachine, int gcMode, bool x86)
+    {
+        if (gcMode == 3) return false; // Leave the explicitly unmanaged JVM arguments alone.
+        bool useVmPolicy = x86 || virtualMachine == "OpenJ9";
+        arguments.RemoveAll(argument =>
+        {
+            string option = argument.Trim(' ', '"');
+            return option.RegexCheck(@"\A-XX:[+-]?(Use\w+GC|ZGenerational|UseCompactObjectHeaders|G1\w+(Percent|Size)|(Max|Min)(GCPauseMillis|HeapFreeRatio))(?:=|\z)") ||
+                useVmPolicy && option.RegexCheck(@"\A-XX:[+-]?(UnlockExperimentalVMOptions|PerfDisableSharedMem|MaxPermSize|ParallelRefProcEnabled)(?:=|\z)");
+        });
+        return !useVmPolicy;
+    }
+
 public List<string> McLaunchArgumentsGame()
     {
         string Arg = "";
@@ -364,7 +394,7 @@ public List<string> McLaunchArgumentsGame()
                         case JTokenType.Object:
                             {
                                 JObject Argument = (JObject)SubJson;
-                                if (Argument.ContainsKey("rules") && !host.JsonRuleCheck(Argument["rules"]))
+                                if (Argument.ContainsKey("rules") && !SelectedJavaRuleCheck(Argument["rules"]))
                                     continue; // 不满足准则
                                 if (!Argument.ContainsKey("value"))
                                     continue; // 没有 value 字段
@@ -540,7 +570,7 @@ public IEnumerable<(string Key, string Value)> McLaunchArgumentsReplace(List<str
         // 支持库
         var Cps = new List<string>();
         string OptiFineCp = null;
-        foreach (LegacyMinecraftLibrary Library in host.Libraries(McInstanceSelected, true))
+        foreach (LegacyMinecraftLibrary Library in SelectedJavaLibraries(true))
         {
             if (Library.IsNatives)
                 continue;

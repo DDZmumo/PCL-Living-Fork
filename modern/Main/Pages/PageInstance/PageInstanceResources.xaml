@@ -62,7 +62,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
         <local:MyCard x:Name="PanEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40" Visibility="Collapsed">
             <StackPanel Margin="20,17">
                 <TextBlock x:Name="LabEmptyTitle" Margin="0,0,0,9" HorizontalAlignment="Center" FontSize="19" Foreground="{DynamicResource ColorBrush3}" UseLayoutRounding="True" SnapsToDevicePixels="True" />
-                <Rectangle Height="2" Fill="{DynamicResource ColorBrush3}" />
+                <Rectangle Tag="NoticeSeparator" Height="2" Fill="{DynamicResource ColorBrush3}" />
                 <TextBlock x:Name="LabEmptyHint" Margin="10,10,10,0" TextWrapping="Wrap" />
                 <Grid Margin="15,20,0,5" Height="35" HorizontalAlignment="Center">
                     <Grid.ColumnDefinitions>

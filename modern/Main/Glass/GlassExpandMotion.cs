@@ -16,6 +16,8 @@ public static class GlassExpandMotion {
         "Enabled", typeof(bool), typeof(GlassExpandMotion), new PropertyMetadata(false, OnEnabledChanged));
     public static readonly DependencyProperty ReduceMotionProperty = DependencyProperty.RegisterAttached(
         "ReduceMotion", typeof(bool), typeof(GlassExpandMotion), new PropertyMetadata(false, OnReduceMotionChanged));
+    public static readonly DependencyProperty CascadeAllItemsProperty = DependencyProperty.RegisterAttached(
+        "CascadeAllItems", typeof(bool), typeof(GlassExpandMotion), new PropertyMetadata(false));
     private static readonly DependencyProperty StateProperty = DependencyProperty.RegisterAttached(
         "State", typeof(State), typeof(GlassExpandMotion));
 
@@ -23,6 +25,8 @@ public static class GlassExpandMotion {
     public static void SetEnabled(DependencyObject element, bool value) => element.SetValue(EnabledProperty, value);
     public static bool GetReduceMotion(DependencyObject element) => (bool)element.GetValue(ReduceMotionProperty);
     public static void SetReduceMotion(DependencyObject element, bool value) => element.SetValue(ReduceMotionProperty, value);
+    public static bool GetCascadeAllItems(DependencyObject element) => (bool)element.GetValue(CascadeAllItemsProperty);
+    public static void SetCascadeAllItems(DependencyObject element, bool value) => element.SetValue(CascadeAllItemsProperty, value);
 
     private static void OnEnabledChanged(DependencyObject element, DependencyPropertyChangedEventArgs args) {
         if (element is not Expander expander) return;
@@ -145,8 +149,10 @@ public static class GlassExpandMotion {
         private void PlayCascade() {
             if (_body is null || GetReduceMotion(_owner)) return;
             _body.UpdateLayout();
-            if (PCLLF.Wpf.Motion.StaggeredEntrance.FindItemsPanel(_body) is System.Windows.Controls.Panel rows)
-                PCLLF.Wpf.Motion.StaggeredEntrance.Play(rows.Children.OfType<UIElement>().Where(row => row.Visibility == Visibility.Visible).Take(CascadeRows));
+            if (StaggeredEntrance.FindItemsPanel(_body) is System.Windows.Controls.Panel rows) {
+                var visible = rows.Children.OfType<UIElement>().Where(row => row.Visibility == Visibility.Visible);
+                StaggeredEntrance.Play(GetCascadeAllItems(_owner) ? visible : visible.Take(CascadeRows));
+            }
         }
 
         private void OnTemplateChanged(object sender, EventArgs args) => BindParts();

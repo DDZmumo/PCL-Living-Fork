@@ -13,15 +13,12 @@ using Newtonsoft.Json.Linq;
 namespace PCL;
 
 /// <summary>
-/// Work done while the startup splash is on screen, so the interface and its first dialogs appear without stalls:
-/// the current version's release notes and the update check are fetched and their dialog bodies built ahead of time,
-/// and the most used pages are constructed. Each dialog is skipped when the user has already said not to show it
-/// (notes dismissed until the next update, or the last update prompt answered with "暂不更新"). Automatic startup
-/// dialogs wait until the splash has gone instead of opening over it.
+/// Starts release lookups and warms upcoming views during the startup animation. The workspace may show while
+/// preloads are pending. Automatic dialogs wait for the workspace to become visible before opening.
 /// </summary>
 internal static class GlassStartupPreload
 {
-    // Never hold the splash longer than this for preloading; anything still running finishes in the background.
+    // Limit optional UI-thread warming while startup is in progress.
     private static readonly TimeSpan PreloadBudget = TimeSpan.FromSeconds(5);
     private static TaskCompletionSource<bool>? _interfaceShown;
     private static readonly Stopwatch Clock = new();
@@ -50,8 +47,7 @@ internal static class GlassStartupPreload
                 ModLauncherUpdate.UpdateSource source = ModLauncherUpdate.PreferredUpdateSource();
                 _notes = Task.Run<ModLauncherUpdate.CurrentReleaseNotes?>(() => ModLauncherUpdate.ReadCurrentReleaseNotes(ModBase.VersionBaseName, null, source));
             }
-            // Update check: not when the user turned the last offered update down.
-            if (string.IsNullOrEmpty(Settings.Get<string>("ToolLauncherUpdateIgnoredTag")))
+            if (ModLauncherUpdate.AutomaticCheckEnabled)
             {
                 _releaseSource = ModLauncherUpdate.PreferredUpdateSource();
                 ModLauncherUpdate.UpdateSource source = _releaseSource;
@@ -63,32 +59,12 @@ internal static class GlassStartupPreload
         if (_release is null) _updateViewDone = true;
     }
 
-    /// <summary>Whether the update notes / update check are finished (or not needed).</summary>
-    internal static bool NotesDone => !Clock.IsRunning || _notesViewDone || Clock.Elapsed > PreloadBudget;
-    internal static bool UpdateDone => !Clock.IsRunning || _updateViewDone || Clock.Elapsed > PreloadBudget;
-    /// <summary>Share of the remaining resources (next pages) built so far.</summary>
-    internal static double ResourcesDone => !Clock.IsRunning || Clock.Elapsed > PreloadBudget ? 1 : (double)_warmStep / WarmPages.Length;
-
-    /// <summary>How far the preloading has come (0..1), for the splash's progress.</summary>
-    internal static double Progress
-    {
-        get
-        {
-            if (!Clock.IsRunning || Settled) return 1;
-            double done = (_notesViewDone ? 1 : 0) + (_updateViewDone ? 1 : 0) + _warmStep;
-            double steps = 2 + WarmPages.Length;
-            return Math.Max(done / steps, Math.Min(.95, Clock.Elapsed.TotalSeconds / PreloadBudget.TotalSeconds));
-        }
-    }
-
-    /// <summary>True once the splash may leave: everything is preloaded, or the budget is spent.</summary>
-    internal static bool Settled => !Clock.IsRunning || Clock.Elapsed > PreloadBudget ||
-        _notesViewDone && _updateViewDone && _warmStep >= WarmPages.Length;
+    internal static bool CheckingForUpdate => Volatile.Read(ref _release) is { IsCompleted: false };
 
     /// <summary>One small step of UI-thread preloading; called from the shell's refresh while the splash shows its loader.</summary>
     internal static void Step()
     {
-        if (!Clock.IsRunning) return;
+        if (!Clock.IsRunning || Clock.Elapsed >= PreloadBudget) return;
         try
         {
             if (!_notesViewDone && _notes is { IsCompleted: true })
@@ -98,10 +74,10 @@ internal static class GlassStartupPreload
                     _notesView = Warm(new ReleaseNotesPromptView(notes.Markdown, FormMain.IsCurrentUpdateLogSuppressed, FormMain.PersistUpdateLogSuppression), 720);
                 return;
             }
-            if (!_updateViewDone && _release is { IsCompleted: true })
+            if (!_updateViewDone && _release is { IsCompleted: true } release)
             {
                 _updateViewDone = true;
-                string? tag = _release.Status == TaskStatus.RanToCompletion ? _release.Result?["tag_name"]?.ToString() : null;
+                string? tag = release.Status == TaskStatus.RanToCompletion ? release.Result?["tag_name"]?.ToString() : null;
                 if (tag is not null && ModLauncherUpdate.ShouldPromptForUpdate(tag, ModBase.VersionBaseName, Settings.Get<string>("ToolLauncherUpdateIgnoredTag")))
                 {
                     _updateTag = tag;
@@ -160,10 +136,11 @@ internal static class GlassStartupPreload
     /// <summary>The latest release fetched during the splash from <paramref name="source"/>, or null.</summary>
     internal static JObject? TakeRelease(ModLauncherUpdate.UpdateSource source)
     {
-        Task<JObject?>? release = Interlocked.Exchange(ref _release, null);
+        Task<JObject?>? release = Volatile.Read(ref _release);
         if (release is null || source != _releaseSource) return null;
         try { return release.Wait(TimeSpan.FromSeconds(15)) ? release.Result : null; }
         catch (Exception) { return null; }
+        finally { Interlocked.CompareExchange(ref _release, null, release); }
     }
 
     /// <summary>The prebuilt update prompt body for <paramref name="tag"/>, or null.</summary>

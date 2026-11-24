@@ -30,6 +30,8 @@ internal sealed class TerracottaConnection(HttpClient client) : IDisposable
     internal static async Task<TerracottaConnection> StartAsync(string directory, CancellationToken token,
         Func<ModLoader.LoaderCombo<int>, CancellationToken, Task>? queueDownload = null)
     {
+        // The helper must report the release it was installed as; a newer release that does not is rejected.
+        string expectedVersion = TerracottaComponent.Selected(directory).Version;
         string executable = await TerracottaComponent.EnsureAsync(directory, token, queueDownload).ConfigureAwait(false);
         string runtime = Path.Combine(directory, "data");
         Directory.CreateDirectory(runtime);
@@ -71,7 +73,7 @@ internal sealed class TerracottaConnection(HttpClient client) : IDisposable
             using JsonDocument meta = await http.GetFromJsonAsync<JsonDocument>("meta", timeout.Token).ConfigureAwait(false)
                 ?? throw new InvalidDataException("陶瓦联机组件没有报告版本。");
             if (!meta.RootElement.TryGetProperty("version", out JsonElement version) ||
-                version.GetString()?.TrimStart('v') != TerracottaComponent.Version)
+                version.GetString()?.TrimStart('v') != expectedVersion)
                 throw new InvalidDataException("本机陶瓦联机组件版本与接入接口不匹配。");
             return connection;
         }

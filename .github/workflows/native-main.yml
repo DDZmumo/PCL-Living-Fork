@@ -544,8 +544,11 @@ jobs:
             try { return [Convert]::ToHexString($hash.ComputeHash($stream)).ToLowerInvariant() } finally { $hash.Dispose() }
           }
           $assembly = [Reflection.Assembly]::LoadFile($exe)
-          $payload = $assembly.GetManifestResourceStream('PCLLivingFork.Payload')
-          try { $embeddedHash = Hash-Stream $payload } finally { $payload.Dispose() }
+          $payload = $assembly.GetManifestResourceStream('PCLLivingFork.Payload.gz')
+          try {
+            $unpacked = [IO.Compression.GZipStream]::new($payload, [IO.Compression.CompressionMode]::Decompress)
+            try { $embeddedHash = Hash-Stream $unpacked } finally { $unpacked.Dispose() }
+          } finally { $payload.Dispose() }
           $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
           try {
             if ($zip.Entries.Count -ne 1 -or $zip.Entries[0].FullName -cne [IO.Path]::GetFileName($exe)) { throw 'Public ZIP layout changed.' }

@@ -7,7 +7,7 @@ using MeloongCore;
 namespace PCLCS;
 
 public static class InstanceNavigationRules {
-    public static bool IsEditingPage(int id) => id is 1 or 2 or 11;
+    public static bool IsEditingPage(int id) => id is 1 or 2 or 11 or 19;
     public static void ReloadJava<TInstance>(Func<int> animation, Func<TInstance?> instance, RedoableWorker<Java> worker) where TInstance : class {
         if (animation() != 0) return; if (instance() is null) return; worker.Start();
     }

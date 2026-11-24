@@ -53,6 +53,7 @@ public static class GlassPopupBackdrop {
         private readonly FrameworkElement _surface;
         private readonly HwndSource _source;
         private readonly HwndSourceHook _hook;
+        private readonly nint _displayPowerRegistration;
         private readonly Canvas? _wallpaperLayer;
         private readonly Border? _wallpaperHost;
         private readonly GlassSurface.TransformWatch _transform;
@@ -68,6 +69,7 @@ public static class GlassPopupBackdrop {
                 panel.Children.Insert(0, _wallpaperLayer);
             }
             source.AddHook(_hook);
+            _displayPowerRegistration = GlassCompositionHost.WatchDisplayPower(source.Handle);
             _transform = new GlassSurface.TransformWatch(_surface, QueueRefresh);
             OpacityProperty?.AddValueChanged(_surface, OnSurfaceOpacityChanged);
             root.LayoutUpdated += OnLayoutUpdated;
@@ -79,7 +81,7 @@ public static class GlassPopupBackdrop {
         private void OnSurfaceOpacityChanged(object? sender, EventArgs args) => QueueRefresh();
         private void OnSystemChanged(object? sender, PropertyChangedEventArgs args) => QueueRefresh();
         private nint Hook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled) {
-            if (GlassCompositionHost.IsResetNotification(message, wParam)) {
+            if (GlassCompositionHost.IsResetNotification(message, wParam, lParam)) {
                 _resetHost = true;
                 QueueRefresh();
             }
@@ -192,6 +194,7 @@ public static class GlassPopupBackdrop {
         public void Dispose() {
             if (_disposed) return; _disposed = true;
             _source.RemoveHook(_hook);
+            GlassCompositionHost.UnwatchDisplayPower(_displayPowerRegistration);
             _root.LayoutUpdated -= OnLayoutUpdated;
             SystemParameters.StaticPropertyChanged -= OnSystemChanged;
             WatchWallpaperWindow(null);

@@ -98,7 +98,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     // The body's notch under the window buttons (BodyFrame coordinates); the splash cuts it too, so the buttons' own
     // frosted slice looks the same during the splash and after it (no jump when the normal clip takes over).
     private (Rect Rect, double Radius)? _controlsCutout;
-    private (bool DarkText, bool Wallpaper, bool Desktop, double Density, bool HighContrast, bool IsHome, Color? Hue)? _lastPalette;
+    private (bool DarkText, bool Wallpaper, bool Desktop, bool AlphaFallback, double Density, bool HighContrast, bool IsHome, Color? Hue)? _lastPalette;
 
     public event EventHandler StartRequested;
     public event EventHandler CancelRequested;
@@ -1076,20 +1076,21 @@ public partial class GlassLauncherView : UserControl, IDisposable
         bool highContrast = SystemParameters.HighContrast;
         bool wallpaper = WallpaperImage.Source != null;
         bool desktop = GlassMaterial.GetDesktopBackdropEnabled(ShellRoot);
-        bool translucent = wallpaper || desktop;
+        bool alphaFallback = GlassMaterial.GetAlphaFallback(ShellRoot) && GlassMaterial.AllowsTransparency(ShellRoot);
+        bool translucent = wallpaper || desktop || alphaFallback;
         // Colourless blur only (no tint), and never on the launch page, which has no page title.
         PageTitleBacking.Visibility = wallpaper && !_state.IsHome ? Visibility.Visible : Visibility.Collapsed;
         bool controlsFrost = translucent && !highContrast && WindowControlsChrome.IsTransparencyActive;
         WindowControlsWallpaperFrost.Visibility = controlsFrost ? Visibility.Visible : Visibility.Collapsed;
         double density = translucent ? Math.Clamp(GlassMaterial.GetOpacityMultiplier(this), 0, 1) : 1;
-        var paletteKey = (darkText, wallpaper, desktop, density, highContrast, _state.IsHome, _wallpaperHue);
+        var paletteKey = (darkText, wallpaper, desktop, alphaFallback, density, highContrast, _state.IsHome, _wallpaperHue);
         if (_lastPalette == paletteKey)
         {
             UpdateWallpaperClip();
             return;
         }
         _blendPalette = _lastPalette is { HighContrast: false } old && old.DarkText != darkText && !highContrast &&
-            !ShouldSnapMotion && IsVisible && !IsSplashing && !HoldsBackdrop && !IsClosing && ThemeTransition.CanBlendPalette;
+            !ShouldSnapMotion && IsVisible && !HoldsBackdrop && !IsClosing && ThemeTransition.CanBlendPalette;
         _lastPalette = paletteKey;
         ThemeToggleGlyph.Data = (Geometry)Resources[darkText ? "IconThemeMoon" : "IconThemeSun"];
         string themeAction = darkText ? "切换到深色主题" : "切换到浅色主题";
@@ -1098,7 +1099,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
         if (highContrast)
         {
-            foreach (string name in new[] { "GlassWindowBrush", "GlassMainBrush", "GlassCardBrush", "GlassChromeBrush" }) SetBrush(name, SystemColors.WindowColor);
+            foreach (string name in new[] { "GlassWindowBrush", "GlassMainBrush", "GlassSplashBrush", "GlassCardBrush", "GlassChromeBrush" }) SetBrush(name, SystemColors.WindowColor);
             foreach (string name in new[] { "GlassTextBrush", "GlassSecondaryTextBrush", "HomeTextBrush", "HomeSecondaryTextBrush" }) SetBrush(name, SystemColors.WindowTextColor);
             SetBrush("GlassControlBrush", SystemColors.ControlColor);
             SetBrush("GlassHoverBrush", SystemColors.ControlDarkColor);
@@ -1124,7 +1125,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
         NavigationSurface.TintOpacity = wallpaper ? 1 : .48;
         WindowControlsChrome.TintOpacity = wallpaper ? .66 : .52;
         WallpaperImage.Visibility = wallpaper ? Visibility.Visible : Visibility.Collapsed;
-        SetBrush("GlassWindowBrush", desktop ? Colors.Transparent : darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
+        SetBrush("GlassWindowBrush", desktop || alphaFallback ? Color.FromArgb(1, 0, 0, 0) : darkText ? Color.FromRgb(245, 246, 248) : Color.FromRgb(24, 24, 24));
+        SetBrush("GlassSplashBrush", darkText ? Color.FromArgb(0xC8, 0xF4, 0xF5, 0xF8) : Color.FromArgb(0xB8, 0x14, 0x14, 0x16));
         SetBrush("GlassTextBrush", darkText ? Color.FromRgb(32, 43, 58) : Color.FromRgb(244, 244, 244));
         SetBrush("GlassSecondaryTextBrush", darkText ? global::PCL.GlassCommandChrome.LightSecondaryTextColor : Color.FromRgb(184, 184, 184));
         Color mainBase = darkText ? Color.FromRgb(241, 243, 246) : Color.FromRgb(24, 24, 24);
@@ -1686,8 +1688,6 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _splashRequested = false; // only once it can actually start (layout may not be ready on the first call)
         _splashActive = true;
         SetSplashUnderlay(0);
-        // Theme tone: solid dark glass in a dark theme, solid light glass in a light theme.
-        SplashGlass.Background = new SolidColorBrush(_state.UseDarkText ? Color.FromArgb(0xC8, 0xF4, 0xF5, 0xF8) : Color.FromArgb(0xB8, 0x14, 0x14, 0x16));
         if (AppLogoImage.Source is null)
         {
             try { AppLogoImage.Source = (ImageSource)Application.LoadComponent(new Uri("/LivingPCL;component/Images/Branding/PCLLF.Logo.xaml", UriKind.Relative)); }
@@ -1711,7 +1711,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         NavigationSurface.RenderTransform = _splashRailShift;
         NavigationSurface.IsHitTestVisible = false;
         // Cache the travelling rail's tint while the native blur follows its moving region underneath.
-        NavigationSurface.Background = SplashGlass.Background;
+        NavigationSurface.SetResourceReference(Border.BackgroundProperty, "GlassSplashBrush");
         NavigationSurface.CacheMode = new BitmapCache { RenderAtScale = 1, SnapsToDevicePixels = true };
         RegionsChanged?.Invoke(this, EventArgs.Empty);
         WindowControlsSurface.Opacity = 0;
@@ -1915,7 +1915,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         }
     }
 
-    /// <summary>Loading progress shown by the splash (instance list, first page, preloads); set by the shell.</summary>
+    /// <summary>Startup progress for the local instance selection and first workspace; set by the shell.</summary>
     public double SplashProgress { get; set; }
 
     /// <summary>The loading stage shown under the splash loader (crossfades when it changes).</summary>

@@ -82,6 +82,8 @@ public sealed class GlassWindowBackdrop : IDisposable {
     private bool _regionRefreshQueued;
     private bool _usedDwmPolicy;
     private bool _resetCompositionHost;
+    private nint _displayPowerRegistration, _monitor;
+    private bool _reserveLeftInset;
     private Color? _originalTargetBackground;
     private GlassCompositionHost? _compositionHost;
 
@@ -140,13 +142,6 @@ public sealed class GlassWindowBackdrop : IDisposable {
     }
 
     /// <summary>
-    /// Sets the union of the floating shapes. Empty clears the custom native region
-    /// when ManageWindowRegion is enabled; otherwise only the backdrop shapes change.
-    /// Callers retain their own WM_NCHITTEST hook for dragging/resizing; this utility never consumes it.
-    /// With window-region management enabled, only points inside these shapes receive
-    /// mouse input, so include any desired resize grip.
-    /// </summary>
-    /// <summary>
     /// How present the native backdrop is (0 hidden … 1 full), multiplied into every region's opacity. The backdrop is
     /// drawn by a separate host window that Windows shows at once, while the WPF content needs a render pass; holding it
     /// at 0 until the content is up (startup, restore from minimized) and then fading it in keeps the blur from arriving
@@ -162,7 +157,11 @@ public sealed class GlassWindowBackdrop : IDisposable {
         SyncCompositionHost();
     }
 
-    public void SetRegions(IEnumerable<GlassWindowRegion>? regions) {
+    /// <summary>Sets the painted shapes and, when managed here, the native hit region.</summary>
+    public void SetRegions(IEnumerable<GlassWindowRegion>? regions) => SetRegions(regions, reserveLeftInset: false);
+
+    /// <summary>Reserves native backdrop space on the left while the painted shapes animate into it.</summary>
+    public void SetRegions(IEnumerable<GlassWindowRegion>? regions, bool reserveLeftInset) {
         VerifyUsable();
         var snapshot = regions?.ToArray() ?? [];
         foreach (var region in snapshot) {
@@ -172,9 +171,13 @@ public sealed class GlassWindowBackdrop : IDisposable {
                 !double.IsFinite(region.Opacity) || region.Opacity < 0 || region.Opacity > 1)
                 throw new ArgumentOutOfRangeException(nameof(regions), "Glass regions require finite, positive bounds and a nonnegative radius.");
         }
-        if (_regions.SequenceEqual(snapshot)) return;
-        _regions = snapshot;
-        ApplyRegions();
+        bool regionsChanged = !_regions.SequenceEqual(snapshot);
+        if (!regionsChanged && _reserveLeftInset == reserveLeftInset) return;
+        _reserveLeftInset = reserveLeftInset;
+        if (regionsChanged) {
+            _regions = snapshot;
+            ApplyRegions();
+        }
         SyncCompositionHost();
     }
 
@@ -270,6 +273,8 @@ public sealed class GlassWindowBackdrop : IDisposable {
         SystemParameters.StaticPropertyChanged -= OnSystemParameterChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _source?.RemoveHook(_hook);
+        GlassCompositionHost.UnwatchDisplayPower(_displayPowerRegistration);
+        _displayPowerRegistration = 0;
         DisposeCompositionHost();
         if (_handle != 0 && IsWindow(_handle)) {
             var none = DwmSystemBackdropNone;
@@ -306,6 +311,8 @@ public sealed class GlassWindowBackdrop : IDisposable {
     private void InitializeSource(HwndSource source) {
         _source = source;
         _handle = source.Handle;
+        _displayPowerRegistration = GlassCompositionHost.WatchDisplayPower(_handle);
+        _monitor = GlassCompositionHost.MonitorFromWindow(_handle, 2);
         _originalTargetBackground = source.CompositionTarget?.BackgroundColor;
         source.AddHook(_hook);
         Refresh();
@@ -328,7 +335,7 @@ public sealed class GlassWindowBackdrop : IDisposable {
                 IReadOnlyList<GlassWindowRegion> shown = regions is { Count: > 0 } ? regions : _regions;
                 double presence = Presence;
                 host.SetRegions(presence >= .999 ? shown : shown.Select(region => region with { Opacity = region.Opacity * presence }).ToArray(), toDevice);
-            }));
+            }, reserveLeftInset: _reserveLeftInset));
     }
 
     private void UseCompositionHost(Action<GlassCompositionHost> operation) {
@@ -366,7 +373,13 @@ public sealed class GlassWindowBackdrop : IDisposable {
 
     private nint WindowHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled) {
         // Never consume input, resize, or DPI messages owned by the shell.
-        if (GlassCompositionHost.IsResetNotification(message, wParam)) {
+        bool changedOutput = false;
+        if (message == 0x0047) {
+            nint monitor = GlassCompositionHost.MonitorFromWindow(hwnd, 2);
+            changedOutput = monitor != 0 && _monitor != monitor;
+            if (monitor != 0) _monitor = monitor;
+        }
+        if (changedOutput || GlassCompositionHost.IsResetNotification(message, wParam, lParam)) {
             // Rebuild off the native callback and coalesce notifications in the same burst.
             _resetCompositionHost = true;
             QueueRefresh();

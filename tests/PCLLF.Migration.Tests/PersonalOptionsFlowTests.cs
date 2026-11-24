@@ -184,7 +184,7 @@ internal static class PersonalOptionsFlowTests {
         var session=BasicFlow(f).Prepare(f.Instance);
         Equal(true,session is not null && File.Exists(f.OptionsPath));
         var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
-        Equal("key.keyboard.r",values["key_key.forward"]); Equal("90",values["fov"]);
+        Equal("key.keyboard.r",values["key_key.forward"]); Equal("0.5",values["fov"]); Equal("1446",values["version"]);
         Equal("false",values["bobView"]); Equal("0.3",values["soundCategory_master"]);
         Equal(false,values.ContainsKey("renderDistance") || values.ContainsKey("key_mod.magic"));
         Equal("90",(string?)session!.Baseline!["fov"]);
@@ -196,12 +196,12 @@ internal static class PersonalOptionsFlowTests {
         f.Profile(JObject.Parse("{\"mouseSensitivity\":\"0.8\",\"fov\":\"90\",\"key_key.forward\":\"key.keyboard.r\"}"));
         var session=BasicFlow(f).Prepare(f.Instance);
         var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
-        Equal("0.8",values.GetValueOrDefault("mouseSensitivity")); Equal("90",values.GetValueOrDefault("fov"));
+        Equal("0.8",values.GetValueOrDefault("mouseSensitivity")); Equal("0.5",values.GetValueOrDefault("fov"));
         Equal("zh_cn",values["lang"]); Equal("true",values["fullscreen"]);
         Equal(3,session!.Keys.Count); Bytes(before,File.ReadAllBytes(f.OptionsPath+".pcl-backup")); NoStaging(f);
     }
     private static void FirstLaunchDefaults() {
-        foreach(int major in new[] {7,12,13,18,19,21,26}) {
+        foreach(int major in new[] {7,12,13,16,18,19,20,21,26}) {
             using Fixture f=new(); f.Instance.Major=()=>major;
             string template=Path.Combine(f.GameFolder,"config","yosbr","options.txt");
             Directory.CreateDirectory(Path.GetDirectoryName(template)!);
@@ -209,10 +209,12 @@ internal static class PersonalOptionsFlowTests {
             File.WriteAllText(template,defaults,new UTF8Encoding(false));
             f.Select=_=>true;
             f.Profile(JObject.Parse("{\"fov\":\"90\",\"key_key.forward\":\"key.keyboard.r\",\"key_key.fullscreen\":\"key.keyboard.f11\",\"soundCategory_master\":\"0.3\",\"bobView\":\"false\"}"));
-            var session=BasicFlow(f).Prepare(f.Instance);
+            int dataVersion = major == 26 ? 5023 : major == 20 ? 3465 : major == 16 ? 2586 : 0;
+            var session=BasicFlow(f).Prepare(f.Instance, () => dataVersion);
             var values=PersonalOptionsRules.Parse(File.ReadAllText(f.OptionsPath));
             Equal(major>=13?"key.keyboard.r":"19",values["key_key.forward"]);
-            Equal(major>=19?"90":"0.5",values["fov"]);
+            Equal("0.5",values["fov"]);
+            Equal(major>=13 ? Math.Max(1446, dataVersion).ToString() : null, values.GetValueOrDefault("version"));
             Equal("0.3",values["soundCategory_master"]); Equal("false",values["bobView"]);
             Equal("keep",values["authorSetting"]); Equal("12",values["renderDistance"]);
             Equal(major>=8,values.ContainsKey("key_key.fullscreen"));

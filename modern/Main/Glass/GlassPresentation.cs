@@ -425,7 +425,7 @@ public sealed partial class GlassPresentationSession : IDisposable
         Color text = ThemeTransition.PaletteTarget(inherited) ?? (sourceText.R + sourceText.G + sourceText.B > 480 ? Color.FromRgb(232, 238, 245) : Color.FromRgb(32, 43, 58));
         bool dark = (text.R + text.G + text.B) > 480;
         bool material = GlassMaterial.GetIsEnabled(_root) &&
-            (GlassMaterial.GetWallpaperSource(_root) is not null || GlassMaterial.GetDesktopBackdropEnabled(_root));
+            (GlassMaterial.GetWallpaperSource(_root) is not null || GlassMaterial.GetDesktopBackdropEnabled(_root) || (GlassMaterial.GetAlphaFallback(_root) && GlassMaterial.AllowsTransparency(_root)));
         double density = material ? GlassMaterial.GetOpacityMultiplier(_root) : 1;
         Color? accentColor = ThemeTransition.PaletteTarget(_root.TryFindResource("GlassAccentBrush") as Brush);
         Color? onAccentColor = ThemeTransition.PaletteTarget(_root.TryFindResource("GlassAccentTextBrush") as Brush);

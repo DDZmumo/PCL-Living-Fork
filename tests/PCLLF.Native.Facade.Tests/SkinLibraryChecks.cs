@@ -28,7 +28,7 @@ internal static class SkinLibraryChecks {
         });
         byte[] skin = Png(64, 64), cape = Png(64, 32);
         var first = store.ImportTexture("Explorer", skin, model: SkinModel.Slim);
-        var duplicate = store.ImportTexture("Explorer", skin);
+        var duplicate = store.ImportTexture("Explorer", Png(64, 64, 30));
         var capeEntry = store.ImportTexture("Cloak", cape, SkinTextureKind.Cape);
         Native.Check(first.Id != duplicate.Id && store.List().Count == 2 && store.List(SkinTextureKind.Cape).Count == 1, "Skin and cape directories/duplicate import.");
         string bad = Path.Combine(environment.Data, "invalid.png");
@@ -36,6 +36,7 @@ internal static class SkinLibraryChecks {
         Native.Check(store.Import([bad]).Errors.Count == 1, "Invalid skin dimensions were accepted.");
         var preview = (SkinLibraryPreview)Native.Call(typeof(SkinLibraryApplicationService), "Preview", null, store.ReadTexture(first.Id), SkinTextureKind.Skin)!;
         Native.Check(preview.Texture.IsFrozen && preview.Avatar is { IsFrozen: true } && preview.Model == SkinModel.Slim, "WPF preview did not reuse the head renderer and model.");
+        CheckOfflineRolePicker(store, first.Id, duplicate.Id);
 
         store.SetOfflineTexture("Explorer", SkinTextureKind.Skin, first.Id);
         store.SetOfflineTexture("Explorer", SkinTextureKind.Cape, capeEntry.Id);
@@ -53,6 +54,71 @@ internal static class SkinLibraryChecks {
         CheckMicrosoftCapeRefresh();
     }
 
+    private static void CheckOfflineRolePicker(SkinLibraryStore store, string first, string second) {
+        Type type = Native.Type("PCL.GlassSkinLibrary");
+        var service = (SkinLibraryApplicationService)Activator.CreateInstance(typeof(SkinLibraryApplicationService), Native.Flags, null, [store], null)!;
+        using var library = (IDisposable)Activator.CreateInstance(type, Native.Flags, null,
+            [(Func<bool>)(() => false), (Action)(() => { }), null, service], null)!;
+        var side = (FrameworkElement)Native.Property(type, "Side").GetValue(library)!;
+        var providerCache = (System.Collections.IDictionary)Native.Get(Native.Entries["LoginType"]!, "ValueCache")!;
+        var namesCache = (System.Collections.IDictionary)Native.Get(Native.Entries["LoginLegacyName"]!, "ValueCache")!;
+        object? previousProvider = providerCache[""], previousNames = namesCache[""];
+        var settings = Native.Field(typeof(Settings), "Backend").GetValue(null)!;
+        var settingsHost = Native.Get(settings, "host")!;
+        var readRegistry = (Func<string, string, string?, string?>)Native.Get(settingsHost, "ReadRegistry")!;
+        var identify = (Func<string>)Native.Get(settingsHost, "Identify")!;
+        const string names = "Current¨Explorer¨Second";
+        string encryptedNames = PCLCS.LegacySettingsCrypto.Encrypt(names, "PCL" + identify());
+        var skins = Native.Field(Native.Type("PCL.LaunchPageRuntime"), "Skins").GetValue(null)!;
+        var host = Native.Get(skins, "host")!;
+        object? previousLookup = Native.Get(host, "OfflineLibrarySkin");
+        try {
+            Native.Set(settingsHost, "ReadRegistry", new Func<string, string, string?, string?>((folder, key, fallback) => key switch {
+                "LoginType" => ((int)ModLaunch.McLoginType.Legacy).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "LoginLegacyName" => encryptedNames,
+                _ => readRegistry(folder, key, fallback)
+            }));
+            Native.Set(host, "OfflineLibrarySkin", (Func<string, string?>)store.FindOfflineSkinFile);
+            Native.Call(type, "Open", library);
+            var picker = Buttons(side).Single(button => AutomationProperties.GetName(button) == "选择离线角色");
+            Native.Check(picker.Visibility == Visibility.Visible, "The offline role chooser is hidden.");
+            void Select(string player) {
+                var menu = (ContextMenu)Native.Call(type, "BuildOfflineRoleMenu", library)!;
+                menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "角色 " + player))
+                    .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            }
+            void Apply(string player, string skinId) {
+                Select(player);
+                Native.Set(library, "_selectedSkin", skinId);
+                ((Button)Native.Get(library, "_apply")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }
+            Apply("Explorer", first);
+            Apply("Second", second);
+            Native.Check(store.GetOfflineAppearance("Explorer").SkinId == first && store.GetOfflineAppearance("Second").SkinId == second &&
+                store.GetOfflineAppearance("Current").SkinId is null && Settings.Get<string>("LoginLegacyName") == names,
+                "Changing one offline role's skin changed another role or the active login.");
+
+            byte[] AvatarPixel(string player) {
+                var head = Task.Run(() => (Task<BitmapSource?>)Native.Call(typeof(SkinLibraryApplicationService), "ReadOfflineAvatarAsync", service, player)!)
+                    .GetAwaiter().GetResult() ?? throw new InvalidOperationException("An assigned offline role did not have an avatar.");
+                var pixels = new byte[4];
+                head.CopyPixels(new Int32Rect(head.PixelWidth / 2, head.PixelHeight / 2, 1, 1), pixels, 4, 0);
+                return pixels;
+            }
+            Native.Check(!AvatarPixel("Explorer").SequenceEqual(AvatarPixel("Second")), "The saved roles displayed the same head.");
+
+            Select("Explorer");
+            ((Button)Native.Get(library, "_resetOfflineSkin")!).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Native.Check(store.GetOfflineAppearance("Explorer").SkinId is null && store.GetOfflineAppearance("Second").SkinId == second,
+                "Restoring one role's default skin changed another role.");
+        } finally {
+            Native.Set(settingsHost, "ReadRegistry", readRegistry);
+            if (previousProvider is null) providerCache.Remove(""); else providerCache[""] = previousProvider;
+            if (previousNames is null) namesCache.Remove(""); else namesCache[""] = previousNames;
+            Native.Set(host, "OfflineLibrarySkin", previousLookup);
+        }
+    }
+
     private static void CheckMicrosoftCapeRefresh() {
         var target = new SkinLibraryTarget(AccountProvider.Microsoft, "Explorer", Guid.NewGuid().ToString("N"), "");
         IReadOnlyList<MicrosoftCape> cached = [new("old", "Old cape", false, null)];
@@ -64,7 +130,7 @@ internal static class SkinLibraryChecks {
             return Task.FromResult(latest);
         };
         Type type = Native.Type("PCL.GlassSkinLibrary");
-        using var library = (IDisposable)Activator.CreateInstance(type, Native.Flags, null, [(Func<bool>)(() => false), (Action)(() => { }), fetch], null)!;
+        using var library = (IDisposable)Activator.CreateInstance(type, Native.Flags, null, [(Func<bool>)(() => false), (Action)(() => { }), fetch, null], null)!;
         Native.Set(library, "_account", new SkinLibraryAccount(target, null, false, new(), null));
         Native.Set(library, "_kind", SkinTextureKind.Cape);
         Native.Set(library, "_microsoftCapes", cached);
@@ -134,9 +200,10 @@ internal static class SkinLibraryChecks {
         throw new IOException("Skin service continued to listen after its game process exited.");
     }
 
-    private static byte[] Png(int width, int height) {
+    private static byte[] Png(int width, int height, byte red = 255) {
         byte[] pixels = new byte[width * height * 4];
         Array.Fill(pixels, (byte)255);
+        for (int i = 2; i < pixels.Length; i += 4) pixels[i] = red;
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width * 4)));
         using var output = new MemoryStream();

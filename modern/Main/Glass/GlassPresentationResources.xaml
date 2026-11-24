@@ -258,6 +258,44 @@
     <Style x:Key="GlassPresentationSettingsCheckBox" TargetType="CheckBox" BasedOn="{StaticResource GlassPresentationCheckBox}">
         <Setter Property="FontSize" Value="14" />
     </Style>
+    <Style x:Key="GlassPresentationSwitch" TargetType="CheckBox" BasedOn="{StaticResource GlassPresentationCheckBox}">
+        <Setter Property="Width" Value="44" />
+        <Setter Property="motion:ToggleFeedback.Travel" Value="20" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid Background="Transparent">
+                        <Grid Height="24" VerticalAlignment="Center" ClipToBounds="True">
+                            <Border x:Name="SwitchTrack" CornerRadius="12" Background="{DynamicResource GlassPresentationField}"
+                                BorderBrush="{DynamicResource GlassPresentationControlStroke}" BorderThickness="1" />
+                            <Border x:Name="TrackActive" CornerRadius="12" Background="{DynamicResource GlassPresentationAccent}" Opacity="0" />
+                            <Ellipse x:Name="SwitchThumb" Width="16" Height="16" Margin="4,0,0,0" HorizontalAlignment="Left"
+                                VerticalAlignment="Center" Fill="{DynamicResource GlassPresentationText}" RenderTransformOrigin=".5,.5">
+                                <Ellipse.RenderTransform>
+                                    <TransformGroup>
+                                        <ScaleTransform x:Name="ThumbScale" />
+                                        <TranslateTransform x:Name="ThumbTransform" />
+                                    </TransformGroup>
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="SwitchThumb" Property="Fill" Value="{DynamicResource GlassPresentationOnAccent}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource GlassPresentationHover}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value=".42" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="GlassPresentationRadioButton" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="MinHeight" Value="38" /><Setter Property="Padding" Value="12,8" /><Setter Property="Cursor" Value="Hand" /><Setter Property="FocusVisualStyle" Value="{StaticResource GlassPresentationFocus}" /><Setter Property="motion:PressFeedback.IsEnabled" Value="True" />
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton"><Border x:Name="RadioSurface" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center" /></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="RadioSurface" Property="Background" Value="{DynamicResource GlassPresentationSelected}" /></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RadioSurface" Property="BorderBrush" Value="{DynamicResource GlassPresentationEdge}" /><Setter TargetName="RadioSurface" Property="BorderThickness" Value="0.7" /></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
@@ -418,6 +456,23 @@
             </Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger>
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="GlassJavaVendorExpander" TargetType="Expander">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="local:GlassExpandMotion.Enabled" Value="True" />
+        <Setter Property="local:GlassExpandMotion.CascadeAllItems" Value="True" />
+        <Setter Property="Template"><Setter.Value>
+            <ControlTemplate TargetType="Expander">
+                <Border x:Name="PART_BodyViewport" ClipToBounds="True" Visibility="Collapsed">
+                    <ContentPresenter x:Name="PART_BodyContent" ContentSource="Content" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsExpanded" Value="True">
+                        <Setter TargetName="PART_BodyViewport" Property="Visibility" Value="Visible" />
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value></Setter>
     </Style>
     <Style x:Key="GlassPresentationScrollBar" TargetType="ScrollBar">
         <Setter Property="Width" Value="12" /><Setter Property="MinWidth" Value="0" />

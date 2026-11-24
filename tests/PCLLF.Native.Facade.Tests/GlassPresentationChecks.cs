@@ -40,12 +40,16 @@ internal static class GlassPresentationChecks
             ResourceRows();
             ResourceEntryActivation(scope.Root);
             ResourceSearchLayout();
+            ResourceListPositions();
+            ResourcePageSizeAndBatches();
             ResourceSearchTransitions();
             ResourceSearchFirstSource();
             HomepageCards();
             VirtualizedRows();
             ActualSettingsPage(scope.Root);
             SettingsChoiceLayout();
+            InstanceMemoryOptimizationLayout();
+            ModNoticeColors();
         }
         finally { ModAnimation.AniControlEnabled = animation; }
         environment.AssertNoForbiddenIo();
@@ -258,12 +262,29 @@ internal static class GlassPresentationChecks
             range.Value = 600; Native.Check(slider.Value == 600, "New slider did not update the original semantic value.");
             slider.Value = 420; session.Refresh(); Native.Check(range.Value == 420, "Original slider did not update the new range control.");
             window.UpdateLayout();
-            var thumb = ((Track)range.Template.FindName("PART_Track", range)).Thumb;
+            var track = (Track)range.Template.FindName("PART_Track", range);
+            var thumb = track.Thumb;
+            track.IncreaseRepeatButton.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) {
+                RoutedEvent = Mouse.PreviewMouseDownEvent
+            });
+            Native.Check(thumb.IsDragging && thumb.IsMouseCaptured && range.Value != 420,
+                "Pressing the track failed to move and capture the thumb in the same gesture.");
+            double pressed = range.Value;
+            double distance = track.ActualWidth / 5 * (pressed > 500 ? -1 : 1);
+            thumb.RaiseEvent(new DragDeltaEventArgs(distance, 0) { RoutedEvent = Thumb.DragDeltaEvent });
+            Native.Check(range.Value != pressed && source.IsLoaded && slider.Value == range.Value,
+                "Continuing a drag from the track did not update the setting.");
+            thumb.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) {
+                RoutedEvent = Mouse.MouseUpEvent
+            });
+            Native.Check(!thumb.IsDragging && !thumb.IsMouseCaptured, "Releasing a track drag left the thumb captured.");
+            range.Value = 420;
+            window.UpdateLayout();
             thumb.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
             ToolTip? dragHint = null;
             VisualAssetChecks.Pump(() => (dragHint = PresentationSource.CurrentSources.OfType<PresentationSource>()
                 .Where(popupSource => popupSource.RootVisual is not null).SelectMany(popupSource => Descendants(popupSource.RootVisual))
-                .OfType<ToolTip>().FirstOrDefault(tip => ReferenceEquals(tip.PlacementTarget, range))) is not null,
+                .OfType<ToolTip>().FirstOrDefault(tip => tip.IsOpen && ReferenceEquals(tip.PlacementTarget, range))) is not null,
                 "drag tooltip opens in the WPF popup source");
             Native.Check(dragHint!.IsOpen && Equals(dragHint.Content, "42%") && !dragHint.IsHitTestVisible,
                 "Pressing a formatted slider thumb did not open a noninteractive value tooltip.");
@@ -304,6 +325,10 @@ internal static class GlassPresentationChecks
         var combo = new MyComboBox { Name = "WallpaperFit" };
         for (int index = 0; index < 24; index++) combo.Items.Add(new MyComboBoxItem { Content = "壁纸位置 " + index });
         source.Children.Add(combo);
+        var java = new MyComboBox { Name = "ComboAdvanceJava" };
+        string longPath = @"C:\Program Files\" + new string('a', 140) + @"\bin\java.exe";
+        java.Items.Add(new MyListItem { Title = longPath });
+        source.Children.Add(java);
         using GlassPresentationSession session = GlassPresentation.Create(source);
         var body = new StackPanel { Children = { session.View, new Border { Height = 900 } } };
         var page = new ScrollViewer { Content = body };
@@ -330,6 +355,17 @@ internal static class GlassPresentationChecks
             VisualAssetChecks.Pump(() => options.VerticalOffset > offset, "a wheel over the page goes to the open options");
             Native.Check(page.VerticalOffset == 0, "The page moved behind the expanded options.");
             projected.IsDropDownOpen = false;
+            VisualAssetChecks.Drain();
+            var priority = Find<ComboBox>(session.View, java.Name);
+            priority.Width = 260;
+            window.UpdateLayout();
+            priority.IsDropDownOpen = true;
+            var surface = (GlassSurface)priority.Template.FindName("DropDownSurface", priority);
+            VisualAssetChecks.Pump(() => surface.IsLoaded && surface.ActualWidth > 0, "Java priority popup opens");
+            Native.Check(Math.Abs(surface.ActualWidth - priority.ActualWidth) < 1 &&
+                Equals(surface.Background, surface.FindResource("GlassPresentationDialogFill")),
+                "A long Java path widened the popup or lost its menu tint.");
+            priority.IsDropDownOpen = false;
             VisualAssetChecks.Drain();
             Native.Check(!Wheel(page, Mouse.PreviewMouseWheelEvent), "The closed dropdown still intercepts the page's wheel input.");
             Wheel(page, Mouse.MouseWheelEvent);
@@ -759,6 +795,171 @@ internal static class GlassPresentationChecks
         finally { if (window != null) { window.Content = null; window.Close(); } VisualAssetChecks.Drain(); }
     }
 
+    private static void ResourceListPositions()
+    {
+        foreach (var kind in new[] { ResourceTypes.Mod, ResourceTypes.ResourcePack, ResourceTypes.DataPack })
+        {
+            var source = new PageResource { PageType = kind };
+            ((StackPanel)source.FindName("PanContent")).Visibility = Visibility.Visible;
+            var projects = (Panel)source.FindName("PanProjects");
+            for (int index = 0; index < 24; index++) projects.Children.Add(new MyResourceItem { Title = "资源 " + index });
+            Check(source, "ResourceResultsScroll", () => source.Page++);
+        }
+        var local = new PageInstanceResources();
+        ((Grid)local.FindName("PanAllBack")).Visibility = Visibility.Visible;
+        ((FrameworkElement)local.FindName("PanLoad")).Visibility = Visibility.Collapsed;
+        var originalScroll = (ScrollViewer)local.FindName("PanBack");
+        var longList = new StackPanel();
+        for (int index = 0; index < 70; index++) longList.Children.Add(new TextBlock { Text = "本机资源 " + index, FontSize = 18 });
+        originalScroll.Content = longList;
+        Check(local, null, () => ((MySearchBox)local.FindName("SearchBox")).Text = "新的筛选");
+
+        static void Check(FrameworkElement source, string? scrollName, Action newQuery)
+        {
+            var window = new Window { Width = 760, Height = 380, ShowActivated = false, ShowInTaskbar = false, Left = -30000, Top = -30000 };
+            ScrollViewer Attach(GlassPresentationSession session)
+            {
+                window.Content = session.View;
+                window.UpdateLayout();
+                VisualAssetChecks.Drain();
+                return Descendants(session.View).OfType<ScrollViewer>().First(viewer => scrollName is null || viewer.Name == scrollName);
+            }
+            try {
+                window.Show();
+                using (var before = GlassPresentation.Create(source)) {
+                    ScrollViewer scroll = Attach(before);
+                    Native.Check(scroll.ScrollableHeight > 350, $"The {source.GetType().Name} scroll fixture had only {scroll.ScrollableHeight:F0} DIP to scroll.");
+                    scroll.ScrollToVerticalOffset(320);
+                    VisualAssetChecks.Pump(() => Math.Abs(scroll.VerticalOffset - 320) < 1, "the resource list reaches its earlier position");
+                }
+                window.Content = new TextBlock { Text = "资源详情" };
+                window.UpdateLayout();
+                using (var after = GlassPresentation.Create(source)) {
+                    ScrollViewer scroll = Attach(after);
+                    VisualAssetChecks.Pump(() => Math.Abs(scroll.VerticalOffset - 320) < 1, "returning from details restores the resource offset");
+                    newQuery();
+                    after.Refresh();
+                    VisualAssetChecks.Pump(() => scroll.VerticalOffset < 1, "a new resource query/page begins at the top");
+                }
+            } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+        }
+    }
+
+    private static void ResourcePageSizeAndBatches()
+    {
+        const string key = "ToolDownloadResourcePageSize";
+        int saved = Settings.Get<int>(key);
+        Native.Check(Settings.GetDefault(key) == "15", "New resource lists do not default to fifteen entries.");
+        Native.Cache(key, 15);
+        var source = new PageResource { PageType = ResourceTypes.ModPack };
+        source.SearchTags.Add(new MyComboBoxItem { Content = "全部", Tag = "", IsSelected = true });
+        var results = (StackPanel)source.FindName("PanProjects");
+        var content = (StackPanel)source.FindName("PanContent");
+        var pagination = (MyCard)source.FindName("CardPages");
+        var warning = (MyHint)source.FindName("HintError");
+        Native.Check(warning.Visibility == Visibility.Collapsed, "The resource page showed a provider warning before the first request finished.");
+        var storage = source.Storage;
+        storage.ModrinthTotal = storage.ModrinthOffset = 95;
+        storage.CurseForgeTotal = storage.CurseForgeOffset = 0;
+        for (int index = 0; index < 95; index++) {
+            storage.Results.Add(new ResourceProject(new JObject {
+                ["Platform"] = (int)ResourcePlatforms.Modrinth, ["Types"] = (int)ResourceTypes.ModPack,
+                ["Id"] = "fixture-" + index, ["Slug"] = "fixture-" + index, ["RawName"] = "资源 " + index,
+                ["Description"] = "分页样本", ["LastUpdate"] = new DateTime(2024, 1, 1), ["DownloadCount"] = 1,
+                ["Tags"] = new JArray(), ["Drops"] = new JArray(210), ["ModLoaders"] = (int)ModLoaders.Fabric,
+                ["Website"] = "https://example.invalid/fixture"
+            }));
+        }
+        var remaining = storage.Results.Skip(40).ToArray();
+        storage.Results.RemoveRange(40, remaining.Length);
+        ((MyTextBox)source.FindName("TextSearchName")).Text = "应用过的搜索";
+        var input = (ResourceSearcher.SearchRequest)Native.Call(typeof(PageResource), "LoaderInput", source)!;
+        Native.Check(input.TargetResultCount == 15 && input.PresentationPageSize == 15, "The initial query did not ask for the new default.");
+        using var finishSupplement = new ManualResetEventSlim();
+        source.Loader = new ModLoader.LoaderTask<ResourceSearcher.SearchRequest, int>("分页样本", task => {
+            Native.Check(finishSupplement.Wait(TimeSpan.FromSeconds(8)), "The resource supplement fixture was not released.");
+            task.Input.Storage.Results.AddRange(remaining.Take(task.Input.TargetResultCount - storage.Results.Count));
+        });
+        source.Loader.Input = input;
+        source.Loader.State = ModBase.LoadState.Finished;
+        var wrapper = new ProjectedResourceLoaderPage { Child = source };
+        Native.Call(typeof(PageResource), "PageResource_Loaded", source, source, new RoutedEventArgs());
+        wrapper.PageOnEnter();
+        void Render() => Native.Call(typeof(PageResource), "Load_OnFinish", source);
+        Native.Check(results.Children.Count == 15, "The result page rendered a different default count.");
+        pagination.Visibility = Visibility.Collapsed;
+
+        using var view = GlassPresentation.Create(source);
+        var window = new Window { Width = 750, Height = 390, Content = view.View, ShowActivated = false,
+            ShowInTaskbar = false, Left = -30000, Top = -30000 };
+        try {
+            window.Show(); window.UpdateLayout();
+            var slot = Find<ContentControl>(view.View, "ResourcePageSizeSlot");
+            var selector = (ComboBox)slot.Content;
+            Native.Check(slot.IsVisible && ((ComboBoxItem)selector.SelectedItem).Content?.ToString() == "15 条/页" &&
+                !Descendants(Find<Border>(view.View, "ResourceFilterPanel")).Contains(selector),
+                "The page-size selector was missing from the footer or incorrectly lived inside the filters.");
+            source.Page = 2;
+            ((MyTextBox)source.FindName("TextSearchName")).Text = "尚未提交的搜索";
+            selector.SelectedIndex = 3;
+            Native.Check(source.Page == 0 && Settings.Get<int>(key) == 60 &&
+                source.Loader.Input.PresentationPageSize == 60 && source.Loader.Input.TargetResultCount == 60 &&
+                source.Loader.Input.SearchText == "应用过的搜索" && !ReferenceEquals(source.Loader.Input.Storage, storage) &&
+                source.Loader.Input.Storage.Results.SequenceEqual(storage.Results),
+                "Changing page size did not persist, reuse the applied query, or reset to page one.");
+
+            var scroll = Find<ScrollViewer>(view.View, "ResourceResultsScroll");
+            var flatRows = Find<ContentControl>(view.View, "ResourceFlatResults");
+            VisualAssetChecks.Pump(() => flatRows.Content is Panel { Children.Count: 40 } && scroll.ScrollableHeight > 1500,
+                "show cached rows while the rest of the page is loading");
+            scroll.ScrollToVerticalOffset(52 * 24);
+            VisualAssetChecks.Pump(() => scroll.VerticalOffset > 1200, "scroll through the preview before completion");
+            double before = scroll.VerticalOffset;
+            finishSupplement.Set();
+            VisualAssetChecks.Pump(() => source.Loader.State == ModBase.LoadState.Finished && content.Visibility == Visibility.Visible,
+                "the real loader publishes its completed page");
+            Native.Check(results.Children.Count == 60, "Completing the supplement removed the preview without publishing all sixty rows.");
+            VisualAssetChecks.Pump(() => flatRows.Content is Panel { Children.Count: 60 } && scroll.ScrollableHeight > 2500,
+                "the final list replaces the preview while keeping its extent");
+            Native.Check(Math.Abs(scroll.VerticalOffset - before) < 1, "Finishing a supplement changed the reader's scroll position.");
+            double extent = scroll.ExtentHeight;
+            scroll.ScrollToVerticalOffset(52 * 48);
+            VisualAssetChecks.Pump(() => results.Children[48] is MyResourceItem, "fast scroll prepares the destination viewport");
+            Native.Check(results.Children[16] is IControlVirtualElement &&
+                Math.Abs(scroll.ExtentHeight - extent) < 1, "Fast scrolling realized the skipped section or changed the scroll extent as rows became ready.");
+            source.Storage.Results.AddRange(remaining.Skip(20));
+            source.Page = 1;
+            Render();
+            Native.Check(results.Children.Count == 35 && !((MyIconButton)source.FindName("BtnPageRight")).IsEnabled,
+                "The second page used a stale slice size or advertised an empty next page.");
+
+            var pending = new ResourceSearcher.SearchRequest(source.PageType, source.Storage, 120) { PresentationPageSize = 60 };
+            source.Loader.Input = pending;
+            source.Loader.State = ModBase.LoadState.Loading;
+            content.Visibility = Visibility.Collapsed;
+            Native.Call(typeof(PageResource), "QueueSearchPreview", source, pending, remaining.Skip(20).Take(8).ToArray());
+            var back = Find<Button>(view.View, "BtnPageLeft");
+            var next = Find<Button>(view.View, "BtnPageRight");
+            var progress = Find<ContentControl>(view.View, "ResourceSearchLoading");
+            VisualAssetChecks.Pump(() => pagination.IsEnabled == false && progress.Visibility == Visibility.Visible,
+                "show inline progress and disable the pager on the partially loaded page");
+            Native.Check(back.IsVisible && next.IsVisible && !back.IsEnabled && !next.IsEnabled && slot.IsEnabled,
+                "The partially loaded page hid its arrows or enabled navigation before it was complete.");
+            source.Loader.State = ModBase.LoadState.Finished;
+            content.Visibility = Visibility.Visible;
+            Render();
+            VisualAssetChecks.Pump(() => back.IsEnabled && !next.IsEnabled && progress.Visibility == Visibility.Collapsed,
+                "allow going back after the final, short page has finished");
+        }
+        finally {
+            finishSupplement.Set();
+            window.Content = null; window.Close();
+            source.Loader.Cancel();
+            Settings.Set(key, saved);
+            VisualAssetChecks.Drain();
+        }
+    }
+
     private static void CheckTextPlaceholder(TextBox input, string text)
     {
         var hint = ((Panel)input.Parent).Children.OfType<TextBlock>().Single(label => label.Text == text);
@@ -798,16 +999,20 @@ internal static class GlassPresentationChecks
         {
             window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
             var plate = Find<Grid>(session.View, "ResourceResultsPlate");
+            var rows = Find<ContentControl>(plate, "ResourceFlatResults");
             var progress = Find<ContentControl>(session.View, "ResourceSearchLoading");
             var search = Find<TextBox>(session.View, "ResourceSearchInput");
             var old = Find<TextBlock>(plate, "PreviousSearchRow");
-            Native.Check(plate.Opacity == 1, "Already loaded results replayed the search animation on page mount.");
+            Native.Check(rows.Opacity == 1, "Already loaded results replayed the search animation on page mount.");
+            var stages = (StackPanel)rows.Parent;
+            Native.Check(stages.Children.IndexOf(progress) == stages.Children.IndexOf(rows) + 1,
+                "Search progress was not located beneath the list.");
 
             SetState(PageLoaderState.Loading);
             Native.Check(content.Visibility == Visibility.Collapsed && loading.Visibility == Visibility.Visible && wrapper.NativePageState == MyPageRightView.PageStates.LoaderStay,
                 "Resource search retained the legacy loader wait.");
             if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
-                VisualAssetChecks.Pump(() => plate.Opacity is > .08 and < .98 && !plate.IsHitTestVisible && old.IsVisible, "resource search old rows exit");
+                VisualAssetChecks.Pump(() => rows.Opacity is > .08 and < .98 && !rows.IsHitTestVisible && old.IsVisible, "resource search old rows exit");
             projects.Children.Clear();
             projects.Children.Add(new MyVirtualizingElement<TextBlock>(() => new TextBlock { Name = "NewSearchRow", Text = "新结果" }));
             Native.Call(typeof(PageResource), "NotifyResultsChanged", source);
@@ -815,18 +1020,18 @@ internal static class GlassPresentationChecks
             Native.Check(content.Visibility == Visibility.Visible && loading.Visibility == Visibility.Collapsed && wrapper.NativePageState == MyPageRightView.PageStates.ContentStay,
                 "A ready search was held behind a minimum loading time.");
             if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation)
-                VisualAssetChecks.Pump(() => !old.IsVisible && plate.Visibility == Visibility.Visible && plate.Opacity < .99, "resource search new rows enter");
-            VisualAssetChecks.Pump(() => plate.Opacity > .999 && progress.Visibility == Visibility.Collapsed &&
+                VisualAssetChecks.Pump(() => !old.IsVisible && rows.Visibility == Visibility.Visible && rows.Opacity < .99, "resource search new rows enter");
+            VisualAssetChecks.Pump(() => rows.Opacity > .999 && progress.Visibility == Visibility.Collapsed &&
                 Descendants(plate).OfType<TextBlock>().Any(row => row.Name == "NewSearchRow"), "resource search settles with viewport-realized results");
             session.Refresh();
-            Native.Check(plate.IsHitTestVisible && plate.Opacity > .999 && ReferenceEquals(search, Find<TextBox>(session.View, "ResourceSearchInput")),
+            Native.Check(rows.IsHitTestVisible && rows.Opacity > .999 && ReferenceEquals(search, Find<TextBox>(session.View, "ResourceSearchInput")),
                 "Realizing results replayed the entrance or replaced the editing surface.");
 
             // Local query changes replace rows without toggling the source loading panel.
             projects.Children.Clear();
             projects.Children.Add(new TextBlock { Name = "LocalSearchRow", Text = "收藏查询" });
             Native.Call(typeof(PageResource), "NotifyResultsChanged", source);
-            VisualAssetChecks.Pump(() => Descendants(plate).OfType<TextBlock>().Any(row => row.Name == "LocalSearchRow") && plate.Opacity > .999,
+            VisualAssetChecks.Pump(() => Descendants(plate).OfType<TextBlock>().Any(row => row.Name == "LocalSearchRow") && rows.Opacity > .999,
                 "local search publishes its replacement rows without polling");
         }
         finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
@@ -844,16 +1049,18 @@ internal static class GlassPresentationChecks
         using var slow = new ManualResetEventSlim();
         var available = new TaskCompletionSource<IReadOnlyList<ResourceProject>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var storage = new ResourceSearcher.SearchResult();
-        var request = new ResourceSearcher.SearchRequest(ResourceTypes.Mod, storage, 40);
+        var request = new ResourceSearcher.SearchRequest(ResourceTypes.Mod, storage, 15) { PresentationPageSize = 15 };
         var engine = new ResourceSearchEngine<ResourceProject, ResourceSearcher.SearchResult>(new ResourceSearchHost<ResourceProject> {
             CreateProject = json => new ResourceProject(json), SimplifyChinese = text => text,
             WikiEntries = () => [], Info = _ => { }, Warning = _ => { }, Warn = (_, _) => { },
             StartThread = (action, name) => { var thread = new Thread(() => action()) { IsBackground = true, Name = name }; thread.Start(); return thread; },
             Request = url => {
                 if (url.Contains("curseforge.com", StringComparison.Ordinal)) {
+                    Native.Check(url.Contains("pageSize=8&", StringComparison.Ordinal), "CurseForge exceeded its share of the fifteen-result batch.");
                     if (!slow.Wait(TimeSpan.FromSeconds(6))) throw new TimeoutException("Timed out waiting for fixture to release CurseForge.");
                     return new JObject { ["data"] = new JArray(Project(ResourcePlatforms.CurseForge, "1")), ["pagination"] = new JObject { ["totalCount"] = 1 } };
                 }
+                Native.Check(url.Contains("limit=7&", StringComparison.Ordinal), "Modrinth exceeded its share of the fifteen-result batch.");
                 return new JObject { ["hits"] = new JArray(Project(ResourcePlatforms.Modrinth, "fixture1")), ["total_hits"] = 1 };
             }
         });
@@ -1001,11 +1208,22 @@ internal static class GlassPresentationChecks
         }
     }
 
+    // Keep the download page ancestry without starting the network loader.
+    private sealed class PageDownloadResourceFixture : StackPanel { }
+
     private static void ResourceRows()
     {
-        var source = new StackPanel();
+        var source = new PageDownloadResourceFixture();
         var search = new MySearchBox { Name = "ResourceSearch", HintText = "搜索资源", Text = "实际关键词" };
-        var version = new MyListItem { Name = "ResourceVersionRow", Type = MyListItem.CheckType.Clickable, Title = "实际文件", Info = "文件说明，更新于 3 天前，正式版", Tag = new ResourceVersion { ReleaseDate = new DateTime(2026, 7, 20, 12, 0, 0) } };
+        var file = new ResourceVersion {
+            Display = "实际文件",
+            FileName = new string('a', 100) + ".jar",
+            ReleaseDate = new DateTime(2026, 7, 20, 12, 0, 0, DateTimeKind.Local),
+            GameVersions = ["1.21.1"],
+            ReleaseType = ResourceVersion.ReleaseTypes.Release
+        };
+        MyListItem version = file.ToListItem((_, _) => { }).Init();
+        version.Name = "ResourceVersionRow";
         var resource = new MyResourceItem { Name = "ResourceProjectRow", Title = "实际资源项目", Description = "实际资源说明" };
         ((TextBlock)resource.FindName("LabTime")).Text = "2026-07-20";
         object controller = Native.Property(typeof(MyResourceItem), "Service").GetValue(resource)!;
@@ -1022,11 +1240,17 @@ internal static class GlassPresentationChecks
         try
         {
             window = Host(source, session.View);
+            window.Width = 400;
             session.Refresh(); window.UpdateLayout(); VisualAssetChecks.Drain();
             Native.Check(Find<FrameworkElement>(session.View, "ResourceSearch").ActualHeight == 32, "Search is not a compact32px native field.");
             FrameworkElement fileRow = Find<FrameworkElement>(session.View, "ResourceVersionRow");
             Native.Check(fileRow.ActualHeight >= 48 && fileRow.ActualHeight <= 56, "Version row no longer uses the reference-scale flat list height.");
-            Native.Check(Descendants(fileRow).OfType<TextBlock>().Any(text => text.Text == "2026-07-20") && !Descendants(fileRow).OfType<TextBlock>().Any(text => text.Text.Contains("更新于 3 天前", StringComparison.Ordinal)), "The actual typed release date was not separated into trailing metadata.");
+            var releaseDate = Descendants(fileRow).OfType<TextBlock>().Single(text => text.Text == "2026-07-20");
+            Native.Check(releaseDate.IsVisible && releaseDate.ActualWidth > 0 &&
+                releaseDate.TranslatePoint(new Point(releaseDate.ActualWidth, 0), session.View).X <= session.View.ActualWidth,
+                "The resource detail page hid or clipped the file's release date.");
+            Native.Check(!Descendants(fileRow).OfType<TextBlock>().Any(text => text.Text.Contains("更新于 ", StringComparison.Ordinal)),
+                "The resource file description duplicated its separate release date.");
             Button detail = Descendants(session.View).OfType<Button>().Single(button => AutomationProperties.GetName(button) == resource.Title);
             Invoke(detail); Native.Check(opened == 1 && clicks == 1, "New resource row did not execute the genuine detail/Click path exactly once.");
             resource.CanInteraction = false; session.Refresh(); resource.PerformClick();
@@ -1059,6 +1283,43 @@ internal static class GlassPresentationChecks
                 }
             }
             Native.Check(!page.IsLoaded, "Layout verification ran original settings load workflows.");
+        } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void ModNoticeColors()
+    {
+        using var session = GlassPresentation.Create(new PageInstanceModDisabled());
+        var view = session.View;
+        var size = new Size(900, 480);
+        view.Measure(size); view.Arrange(new Rect(size)); view.UpdateLayout();
+        var line = Descendants(view).OfType<System.Windows.Shapes.Rectangle>().Single(shape => Equals(shape.Tag, "NoticeSeparator"));
+        var label = Descendants(view).OfType<TextBlock>().Single(text => text.Text == "该版本不可使用 Mod");
+        var grid = (Grid)label.Parent;
+        foreach (Brush palette in new[] { Brushes.DarkSlateGray, Brushes.LightGray }) {
+            grid.Resources["GlassPresentationSeparator"] = palette;
+            Native.Check(ReferenceEquals(line.Fill, palette), "The mod notice divider retained its old fill after the palette changed.");
+        }
+    }
+
+    private static void InstanceMemoryOptimizationLayout()
+    {
+        var page = new PageInstanceSetup();
+        var source = (FrameworkElement)page.FindName("ComboRamOptimize");
+        var row = (Grid)source.Parent;
+        var card = (MyCard)((FrameworkElement)row.Parent).Parent;
+        using var view = GlassPresentation.Create(card);
+        var window = new Window { Content = view.View, Height = 480, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
+        try {
+            window.Show();
+            foreach (double width in new[] { 820d, 440d }) {
+                window.Width = width; window.UpdateLayout(); view.Refresh(); VisualAssetChecks.Drain(); window.UpdateLayout();
+                var editor = Find<ComboBox>(view.View, "ComboRamOptimize");
+                var meter = Find<FrameworkElement>(view.View, "PanRamDisplay");
+                Rect slot = LayoutInformation.GetLayoutSlot(editor);
+                Native.Check(editor.ActualHeight >= 34 && slot.Height >= editor.ActualHeight - .5 &&
+                    editor.TranslatePoint(new Point(0, editor.ActualHeight), meter).Y <= .5,
+                    $"The instance memory optimization dropdown was clipped or overlapped the meter at width {width}.");
+            }
         } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
     }
 

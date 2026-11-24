@@ -253,8 +253,25 @@ internal static class LegacyJavaTests {
         int updates = f.Updates;
         Equal<Java?>(null, f.Engine.SelectOrDownloadJava(f.Owner, false)); Equal<Java?>(null, Configs.JavaForced.Get(f.Owner.Config)); Equal(updates + 1, f.Updates); Equal(0, f.Starts);
         f.Mode = 0; f.Game("1.18.2"); Java older = f.CheckedJava("first", "17.0.2.0");
-        Configs.JavaList.Set(new ConcurrentList<Java>([invalid, forced, older, automatic]));
+        Java openJ9 = f.CheckedJava("openj9", "17.0.2.0", openJ9: true);
+        Configs.JavaList.Set(new ConcurrentList<Java>([invalid, forced, openJ9, older, automatic]));
         Require(ReferenceEquals(older, f.Engine.SelectOrDownloadJava(f.Owner, false)), "Automatic selection reordered LF's stored preference list.");
+        Configs.JavaList.Set(new ConcurrentList<Java>([invalid, forced, openJ9]));
+        Require(ReferenceEquals(openJ9, f.Engine.SelectOrDownloadJava(f.Owner, false)), "A compatible OpenJ9 was discarded when no suitable HotSpot existed.");
+        Configs.JavaList.Set(new ConcurrentList<Java>([invalid, forced, openJ9, older, automatic]));
+        f.GlobalGcMode = 3;
+        Require(ReferenceEquals(openJ9, f.Engine.SelectOrDownloadJava(f.Owner, false)), "Disabling automatic GC should allow an otherwise compatible OpenJ9 runtime.");
+        Java x86 = f.CheckedJava("x86", "17.0.2.0", x86: true);
+        Configs.JavaList.Set(new ConcurrentList<Java>([x86, older]));
+        Require(ReferenceEquals(older, f.Engine.SelectOrDownloadJava(f.Owner, false)), "A 32-bit Java won over a compatible 64-bit Java.");
+        Configs.JavaList.Set(new ConcurrentList<Java>([x86]));
+        Require(ReferenceEquals(x86, f.Engine.SelectOrDownloadJava(f.Owner, false)), "A usable 32-bit Java was not selected as the fallback.");
+        f.Mode = 3; Configs.JavaForced.Set(x86, f.Owner.Config);
+        Configs.JavaList.Set(new ConcurrentList<Java>([older, x86]));
+        Require(ReferenceEquals(x86, f.Engine.SelectOrDownloadJava(f.Owner, false)), "The 64-bit preference overrode an explicit 32-bit choice.");
+        f.Owner.Json["libraries"] = JArray.Parse("""[{"name":"org.lwjgl:lwjgl:3.4.3:natives-windows"}]""");
+        Equal<Java?>(null, f.Engine.SelectOrDownloadJava(f.Owner, true));
+        Equal("需要 64 位 Java", f.Messages.Last().Title);
         Equal(0, f.Starts);
         Configs.JavaRemovedList.Set([older.Folder.ToUpperInvariant()]); f.Engine.ManuallyRemoveJava(older);
         Equal(1, Configs.JavaRemovedList.Get()!.Count); Require(!Configs.JavaList.Get()!.Contains(older) && f.Reloaded == 1, "Removing Java lost its persistent exclusion or current-selection refresh.");
@@ -335,7 +352,7 @@ internal static class LegacyJavaTests {
         internal readonly LegacyJavaService<Owner> Engine;
         private readonly List<RedoableWorker> workers = [];
         internal RedoableWorker CurrentWorker = null!;
-        internal int Mode, Disabled, Restored, Starts, Updates, Reloaded;
+        internal int Mode, Disabled, Restored, Starts, Updates, Reloaded, GlobalGcMode;
         internal bool UiDisabled, Nide;
         internal string Range = "", OldInstanceJava = "";
         internal readonly List<(string Text, string Title, bool Warn, bool Wait)> Messages = [];
@@ -350,7 +367,12 @@ internal static class LegacyJavaTests {
             Owner = new Owner(Root); Directory.CreateDirectory(Owner.Folder); ReplaceWorker(() => { });
             Host = new LegacyJavaHost<Owner> {
                 ReadString = (key, _) => key switch { "LaunchArgumentJavaAll" => "[]", "LaunchArgumentJavaSelect" => "", "VersionArgumentJavaSelect" => OldInstanceJava, "VersionArgumentJavaRange" => Range, _ => throw new InvalidOperationException("Unexpected Java setting: " + key) },
-                ReadInteger = (key, _) => key == "VersionArgumentJavaV2" ? Mode : throw new InvalidOperationException(key),
+                ReadInteger = (key, _) => key switch {
+                    "VersionArgumentJavaV2" => Mode,
+                    "VersionAdvanceGC" => 0,
+                    "LaunchAdvanceGC" => GlobalGcMode,
+                    _ => throw new InvalidOperationException(key)
+                },
                 WriteInteger = (key, value, _) => { Require(key == "VersionArgumentJavaV2", "Unexpected setting write."); Mode = value; },
                 Config = instance => instance.Config, Version = instance => instance.Version, VersionPath = instance => instance.Folder,
                 InstanceName = _ => "instance", VersionDisplayName = instance => instance.Version.VanillaName,
@@ -371,11 +393,17 @@ internal static class LegacyJavaTests {
             Java java = new(Path.Combine(Root, name), new Version(17, 0, 0, 0));
             Require(!java.CheckAsync().Run(), "An absent fixture java.exe unexpectedly exists."); return java;
         }
-        internal Java CheckedJava(string name, string version) {
-            Java java = UnavailableJava(name); java.Version = new Version(version);
-            // A pre-checked platform cache entry: the actual checked-state transition above is real.
-            // This does not claim that a java.exe process or its architecture was executed/validated.
-            java.available = true; return java;
+        internal Java CheckedJava(string name, string version, bool openJ9 = false, bool x86 = false) {
+            Java java = new(Path.Combine(Root, name, "bin"));
+            Directory.CreateDirectory(Path.Combine(java.Folder, "server"));
+            File.WriteAllText(java.JavaExePath, "Owned Java probe fixture");
+            File.WriteAllText(Path.Combine(java.Folder, "server", "jvm.dll"), "Owned runtime marker");
+            string vm = openJ9 ? "Eclipse OpenJ9 VM" : "OpenJDK 64-Bit Server VM";
+            Require(java.CheckForDiscoveryAsync(CancellationToken.None, (_, _) =>
+                Task.FromResult($"openjdk version \"{version}\"\njava.vm.name = {vm}\nos.arch = {(x86 ? "x86" : "amd64")}\nsun.arch.data.model = {(x86 ? 32 : 64)}")).Run(),
+                "Failed to create the verified fixture state.");
+            java.available = true;
+            return java;
         }
         internal void ReplaceWorker(Action work) {
             RedoableWorker worker = new(work); worker.Started += () => Interlocked.Increment(ref Starts); workers.Add(worker); CurrentWorker = worker;

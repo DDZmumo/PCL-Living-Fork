@@ -79,7 +79,7 @@ public static class MmcLaunchJava {
         if (preference.InstanceFolderOnly) folders = folders.Where(folder => Within(folder, instanceRoot)).ToList();
         folders = folders.GroupBy(CanonicalPath, StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
         var constraints = (accountConstraints.IsDefault ? [] : accountConstraints).Concat(platformConstraints.IsDefault ? [] : platformConstraints).ToImmutableArray();
-        MmcLaunchJavaSelection? variant = null;
+        MmcLaunchJavaSelection? variant = null, x86Current = null, x86Variant = null;
         foreach (string folder in folders) {
             token.ThrowIfCancellationRequested();
             try {
@@ -92,6 +92,11 @@ public static class MmcLaunchJava {
                 var environment = new MmcRuntimeEnvironment("windows", actual.Runtime.Architecture, actual.Runtime.Major, actual.Runtime.Bitness);
                 var compiled = MmcProfileCompiler.Compile(resolved, environment);
                 if (compiled.HasErrors || compiled.Profile is null) { if (preference.Force) Fail("MMC_JAVA_PREFERENCE_INCOMPATIBLE", "强制 Java 不满足整合包组件声明或其平台规则。"); continue; }
+                if (actual.Runtime.Bitness == 32 && compiled.Profile.Classpath.Any(item =>
+                    item.Coordinate is { Group: "org.lwjgl", Classifier: "natives-windows" or "natives-windows-arm64" or "natives-windows-x64" })) {
+                    if (preference.Force) Fail("MMC_JAVA_PREFERENCE_INCOMPATIBLE", "此整合包的 LWJGL 支持库需要 64 位 Java。");
+                    continue;
+                }
                 var policy = MmcJavaPolicyEvaluator.Create(compiled.Profile.JavaPolicy.Kind == MmcJavaPolicyKind.DeclaredCandidates ? compiled.Profile.JavaPolicy.AllowedMajors : [],
                     compiled.Profile.JavaPolicy.RecommendedRuntimeName, compiled.Profile.JavaPolicy.HardConstraints.Concat(constraints).ToArray());
                 if (compiled.Profile.JavaPolicy.Kind == MmcJavaPolicyKind.Unsatisfiable || !policy.Allows(actual.Runtime.Major)) { if (preference.Force) Fail("MMC_JAVA_PREFERENCE_INCOMPATIBLE", "强制 Java 不满足整合包、账户或平台的实际约束。"); continue; }
@@ -100,8 +105,14 @@ public static class MmcLaunchJava {
                     State = existing ? MmcLaunchJavaState.CurrentView : MmcLaunchJavaState.VariantRequired, CompiledProfile = compiled.Profile,
                     Diagnostics = diagnostics.ToImmutableArray().AddRange(existing ? [] : new[] { new MmcDiagnostic("MMC_JAVA_VARIANT_REQUIRED", MmcDiagnosticSeverity.Information, "java", "所选 Java 合法，但需要先采用新的运行环境变体；尚未授权使用旧运行视图启动。") })
                 };
-                if (preference.Force || existing) return selection;
-                variant ??= selection;
+                if (preference.Force) return selection;
+                if (actual.Runtime.Bitness == 32) {
+                    if (existing) x86Current ??= selection;
+                    else x86Variant ??= selection;
+                } else {
+                    if (existing) return selection;
+                    variant ??= selection;
+                }
             } catch (MmcLaunchJavaException error) when (!preference.Force && error.Code is "MMC_JAVA_PROBE" or "MMC_JAVA_IMAGE") {
                 diagnostics.Add(new(error.Code, MmcDiagnosticSeverity.Warning, "java", error.Message));
             } catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception) {
@@ -109,7 +120,8 @@ public static class MmcLaunchJava {
                 diagnostics.Add(new("MMC_JAVA_PROBE", MmcDiagnosticSeverity.Warning, "java", "候选 Java 无法完成实际可执行文件检查，已继续检查其他候选。"));
             }
         }
-        if (variant is not null) return variant with { Diagnostics = diagnostics.ToImmutableArray().AddRange(variant.Diagnostics.Where(d => d.Code == "MMC_JAVA_VARIANT_REQUIRED")) };
+        var fallback = variant ?? x86Current ?? x86Variant;
+        if (fallback is not null) return fallback with { Diagnostics = diagnostics.ToImmutableArray().AddRange(fallback.Diagnostics.Where(d => d.Code == "MMC_JAVA_VARIANT_REQUIRED")) };
         Fail("MMC_JAVA_NO_COMPATIBLE", preference.InstanceFolderOnly ? "实例目录中没有通过实际检查且符合组件声明的 Java，请修改目录或 Java 设置。" : "当前 Java 列表中没有通过实际检查且符合整合包、账户与平台约束的 Java，请下载或导入兼容版本后重试。");
         return null!;
     }

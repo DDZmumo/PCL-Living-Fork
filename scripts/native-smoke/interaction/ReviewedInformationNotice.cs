@@ -15,7 +15,8 @@ internal static class ReviewedInformationNotice
     private const string Version151Highlights = "- 整合包更新支持配置键值合并，同一键冲突可在预览选择\r\n- 批量更新模组前核对必需前置，完善 NeoForge 内嵌库识别\r\n- 修复拖拽安装模组时的线程错误\r\n- 保护受影响 Forge／NeoForge 实例的自定义键位和组合键\r\n- 修复 GTNH 等整合包接力启动时的崩溃误报\r\n- Windows x64 版需 .NET 10 Desktop Runtime";
     private const string FirstWpfPreviewHighlights = "- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置\r\n- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡\r\n- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime";
     private const string SecondWpfPreviewHighlights = "- 修复资源中心和收藏的中文输入，搜索先展示已返回的结果\r\n- 改善动态壁纸、页面过渡和崩溃提示的流畅度\r\n- 更新背景音乐设置、播放器和音频可视化\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
-    private const string LatestHighlights = "- 新增可选陶瓦联机，支持创建房间和通过房间码加入\r\n- 修复部分外置登录启动被取消的问题，改善游戏进程识别\r\n- 优化实例资源列表滚动和页面切换，修正联机按钮字色\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
+    private const string ThirdWpfPreviewHighlights = "- 新增可选陶瓦联机，支持创建房间和通过房间码加入\r\n- 修复部分外置登录启动被取消的问题，改善游戏进程识别\r\n- 优化实例资源列表滚动和页面切换，修正联机按钮字色\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
+    private const string LatestHighlights = "- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java\r\n- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例\r\n- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
     internal const string SuppressionLabel = "下次更新前不再弹出";
 
     internal static ReviewedNotice ForTitle(string title, string style = "plain", string source = "local")
@@ -33,6 +34,7 @@ internal static class ReviewedInformationNotice
             "PCL Living Fork 1.6.0-pre-1 更新说明" => "1.6.0-pre-1",
             "PCL Living Fork 1.6.0-pre-2 更新说明" => "1.6.0-pre-2",
             "PCL Living Fork 1.6.0-pre-3 更新说明" => "1.6.0-pre-3",
+            "PCL Living Fork 1.6.0-pre-4 更新说明" => "1.6.0-pre-4",
             _ => throw new InvalidOperationException("PENDING: only exact reviewed Markdown notice titles may be dismissed.")
         };
         if (style is not ("markdown-suppress" or "markdown") || source is not ("local" or "published-or-local") ||
@@ -79,6 +81,7 @@ internal static class ReviewedInformationNotice
             "PCL Living Fork 1.6.0-pre-1 版本说明" => "1.6.0-pre-1",
             "PCL Living Fork 1.6.0-pre-2 版本说明" => "1.6.0-pre-2",
             "PCL Living Fork 1.6.0-pre-3 版本说明" => "1.6.0-pre-3",
+            "PCL Living Fork 1.6.0-pre-4 版本说明" => "1.6.0-pre-4",
             "PCL Living Fork dev_edition 版本说明" => "dev_edition",
             "PCL Living Fork 1.4.2-pre-1 版本说明" => "1.4.2-pre-1",
             _ => throw new InvalidOperationException("PENDING: only exact reviewed information notices may be dismissed.")
@@ -91,7 +94,8 @@ internal static class ReviewedInformationNotice
         if (version == "1.5.1") highlights = Version151Highlights;
         if (version == "1.6.0-pre-1") highlights = FirstWpfPreviewHighlights;
         if (version == "1.6.0-pre-2") highlights = SecondWpfPreviewHighlights;
-        if (version is "dev_edition" or "1.6.0-pre-3") highlights = LatestHighlights;
+        if (version == "1.6.0-pre-3") highlights = ThirdWpfPreviewHighlights;
+        if (version is "dev_edition" or "1.6.0-pre-4") highlights = LatestHighlights;
         if (version == "1.4.2-pre-1") highlights = PreviousHighlights;
         return "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + highlights;
     }
@@ -100,7 +104,7 @@ internal static class ReviewedInformationNotice
     {
         if (!IsConfirmButtonId("Btn1") || !IsConfirmButtonId("Btn191") || IsConfirmButtonId("Btn292") || IsConfirmButtonId("Btn1Other"))
             throw new InvalidOperationException("Reviewed confirm button ID handling differs.");
-        foreach (string version in new[] { "1.3.5-pre-3", "1.4.0-pre-4", "1.4.0", "1.4.1", "1.4.2-pre-1", "1.4.3", "1.5.0", "1.5.1", "1.6.0-pre-1", "1.6.0-pre-2", "1.6.0-pre-3", "dev_edition" })
+        foreach (string version in new[] { "1.3.5-pre-3", "1.4.0-pre-4", "1.4.0", "1.4.1", "1.4.2-pre-1", "1.4.3", "1.5.0", "1.5.1", "1.6.0-pre-1", "1.6.0-pre-2", "1.6.0-pre-3", "1.6.0-pre-4", "dev_edition" })
         {
             string caption = CaptionForTitle("PCL Living Fork " + version + " 版本说明");
             string expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" +
@@ -112,7 +116,8 @@ internal static class ReviewedInformationNotice
             if (version == "1.5.1") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + Version151Highlights;
             if (version == "1.6.0-pre-1") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + FirstWpfPreviewHighlights;
             if (version == "1.6.0-pre-2") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + SecondWpfPreviewHighlights;
-            if (version is "dev_edition" or "1.6.0-pre-3") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + LatestHighlights;
+            if (version == "1.6.0-pre-3") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + ThirdWpfPreviewHighlights;
+            if (version is "dev_edition" or "1.6.0-pre-4") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + LatestHighlights;
             if (version == "1.4.2-pre-1") expected = "PCL Living Fork " + version + " 是基于 PCL 官方开源版的第三方版本。\r\n\r\n" + PreviousHighlights;
             if (!string.Equals(caption, expected, StringComparison.Ordinal))
                 throw new InvalidOperationException("Reviewed information notice body changed.");
@@ -129,9 +134,9 @@ internal static class ReviewedInformationNotice
             bool refused = false; try { action(); } catch (InvalidOperationException) { refused = true; }
             if (!refused) throw new InvalidOperationException("Unsafe rich information notice was accepted.");
         }
-        foreach (string version in new[] { "dev_edition", "1.4.0", "1.4.1", "1.4.2-pre-1", "1.4.3", "1.5.0", "1.5.1", "1.6.0-pre-1", "1.6.0-pre-2", "1.6.0-pre-3" })
+        foreach (string version in new[] { "dev_edition", "1.4.0", "1.4.1", "1.4.2-pre-1", "1.4.3", "1.5.0", "1.5.1", "1.6.0-pre-1", "1.6.0-pre-2", "1.6.0-pre-3", "1.6.0-pre-4" })
         {
-            string title = "PCL Living Fork " + version + " 更新说明", source = version is "dev_edition" or "1.4.2-pre-1" or "1.6.0-pre-1" or "1.6.0-pre-2" or "1.6.0-pre-3" ? "local" : "published-or-local";
+            string title = "PCL Living Fork " + version + " 更新说明", source = version is "dev_edition" or "1.4.2-pre-1" or "1.6.0-pre-1" or "1.6.0-pre-2" or "1.6.0-pre-3" or "1.6.0-pre-4" ? "local" : "published-or-local";
             var notice = ForTitle(title, "markdown-suppress", source);
             string log = "00:00:00.001 I [MessageDialogController] 普通弹窗：" + title + "\r\n" + string.Join("\r\n", notice.LogCaption.Split("\r\n").Select(line => "00:00:00.001 I [MessageDialogController] " + line)) + "\r\n";
             notice.VerifyLogCaption(log);

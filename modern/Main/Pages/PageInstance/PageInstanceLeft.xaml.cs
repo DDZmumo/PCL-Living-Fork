@@ -45,6 +45,7 @@ namespace PCL
         private global::PCL.PageInstanceClone ClonePage;
         private PageInstancePackUpdate PackUpdatePage;
         private PageSetupPersonal PersonalPage;
+        private PageSetupJava InstanceJavaPage;
         private readonly global::System.Collections.Generic.Dictionary<(global::PCL.ModMinecraft.McInstance Owner, string PathVersion, int Route), MyPageRight> _mmcToolPages = new();
         private readonly string _ordinaryModifyLogo;
         private readonly double _ordinaryModifyLogoScale;
@@ -107,6 +108,7 @@ namespace PCL
             this.ItemPackUpdate.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
             this.ItemPersonal.Logo = ModBase.Logo.IconButtonPersonalSettings;
             this.ItemPersonal.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
+            this.ItemJava.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
             this.ItemMmcMove.Logo = LegacyBaseIcons.IconButtonOpen;
             this.ItemMmcMove.Check += (sender, _) => this.Controller.Check((FrameworkElement)sender);
             this.SyncInstanceContext();
@@ -124,6 +126,10 @@ namespace PCL
             result.WritePage[(int)FormMain.PageSubType.InstancePersonal] = page => PersonalPage = (PageSetupPersonal)page;
             result.CreatePage[(int)FormMain.PageSubType.InstancePersonal] = () => new PageSetupPersonal { IsInstanceContext = true };
             result.RefreshSpecial[(int)FormMain.PageSubType.InstancePersonal] = page => ((PageSetupPersonal)page).RefreshPage();
+            int javaRoute = (int)FormMain.PageSubType.InstanceJava;
+            result.ReadPage[javaRoute] = () => InstanceJavaPage;
+            result.WritePage[javaRoute] = page => InstanceJavaPage = (PageSetupJava)page;
+            result.CreatePage[javaRoute] = () => (ModMain.FrmInstanceSetup ??= new PageInstanceSetup()).JavaPage;
             result.SyncContext = EnsureInstanceContext;
             result.IsMmcContext = () => { EnsureInstanceContext(); return _currentSidebarState.IsMmcFamily; };
             result.NormalizeForContext = code => { EnsureInstanceContext(); return global::PCLCS.InstanceSidebarContext.NormalizeRoute(code, _currentSidebarState.IsMmcFamily); };

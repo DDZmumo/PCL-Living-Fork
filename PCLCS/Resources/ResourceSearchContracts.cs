@@ -14,6 +14,7 @@ namespace PCLCS;
 // LF paging, partial errors, legacy Forge and mutable public request/result fields retained.
 public class ResourceSearchResultData<TProject> where TProject : ResourceProjectModelData {
     public int CurseForgeOffset, CurseForgeTotal = -1, ModrinthOffset, ModrinthTotal = -1;
+    public int ModrinthDirectOffset, ModrinthDirectTotal;
     public List<TProject> Results = new();
     public string? ErrorMessage;
 }
@@ -21,6 +22,7 @@ public class ResourceSearchRequestData<TProject, TResult>
     where TProject : ResourceProjectModelData where TResult : ResourceSearchResultData<TProject> {
     public TResult Storage;
     public int TargetResultCount;
+    public int PresentationPageSize;
     public ResourceTypes Type;
     public string Tag = "";
     public ModLoaders ModLoaders = ModLoaders.None;
@@ -30,14 +32,18 @@ public class ResourceSearchRequestData<TProject, TResult>
     public bool CanContinue {
         get {
             if (Tag.StartsWithF("/") || !Sources.HasFlagF(ResourcePlatforms.CurseForge)) Storage.CurseForgeTotal = 0;
-            if (Tag.EndsWithF("/") || !Sources.HasFlagF(ResourcePlatforms.Modrinth)) Storage.ModrinthTotal = 0;
+            if (Tag.EndsWithF("/") || !Sources.HasFlagF(ResourcePlatforms.Modrinth)) {
+                Storage.ModrinthTotal = 0;
+                Storage.ModrinthDirectTotal = 0;
+            }
             if (Storage.CurseForgeTotal == -1 || Storage.ModrinthTotal == -1) return true;
-            return Storage.CurseForgeOffset < Storage.CurseForgeTotal || Storage.ModrinthOffset < Storage.ModrinthTotal;
+            return Storage.CurseForgeOffset < Storage.CurseForgeTotal || Storage.ModrinthOffset < Storage.ModrinthTotal ||
+                Storage.ModrinthDirectOffset < Storage.ModrinthDirectTotal;
         }
     }
-    public string GetCurseForgeAddress(string? searchText, bool ignoreModLoaderFilter) {
+    public string GetCurseForgeAddress(string? searchText, bool ignoreModLoaderFilter, int limit = 40) {
         if (Tag.StartsWithF("/")) Storage.CurseForgeTotal = 0;
-        string address = "https://api.curseforge.com/v1/mods/search?gameId=432&sortField=2&sortOrder=desc&pageSize=40";
+        string address = $"https://api.curseforge.com/v1/mods/search?gameId=432&sortField=2&sortOrder=desc&pageSize={limit}";
         switch (Type) {
             case ResourceTypes.Mod: address += "&classId=6"; break;
             case ResourceTypes.ModPack: address += "&classId=4471"; break;
@@ -53,9 +59,9 @@ public class ResourceSearchRequestData<TProject, TResult>
         if (Storage.CurseForgeOffset > 0) address += "&index=" + Storage.CurseForgeOffset;
         return address;
     }
-    public string GetModrinthAddress(string? searchText, bool ignoreModLoaderFilter) {
+    public string GetModrinthAddress(string? searchText, bool ignoreModLoaderFilter, int limit = 40) {
         if (Tag.EndsWithF("/")) Storage.ModrinthTotal = 0;
-        string address = "https://api.modrinth.com/v2/search?limit=40&index=relevance";
+        string address = $"https://api.modrinth.com/v2/search?limit={limit}&index=relevance";
         if (!string.IsNullOrEmpty(searchText)) address += "&query=" + StringUtils.UrlEscape(searchText!);
         if (Storage.ModrinthOffset > 0) address += "&offset=" + Storage.ModrinthOffset;
         List<string> facets = new() { "[\"project_type:" + Type.ToString().Lower() + "\"]" };
@@ -64,8 +70,10 @@ public class ResourceSearchRequestData<TProject, TResult>
         if (!string.IsNullOrEmpty(GameVersion)) facets.Add("[\"versions:'" + GameVersion + "'\"]");
         return address + "&facets=[" + string.Join(",", facets) + "]";
     }
-    public override bool Equals(object? obj) => obj is ResourceSearchRequestData<TProject, TResult> request && Type == request.Type && TargetResultCount == request.TargetResultCount &&
+    public bool SameQuery(ResourceSearchRequestData<TProject, TResult> request) => Type == request.Type &&
         (Tag ?? "") == (request.Tag ?? "") && ModLoaders == request.ModLoaders && Sources == request.Sources && (GameVersion ?? "") == (request.GameVersion ?? "") && (SearchText ?? "") == (request.SearchText ?? "");
+    public override bool Equals(object? obj) => obj is ResourceSearchRequestData<TProject, TResult> request &&
+        TargetResultCount == request.TargetResultCount && PresentationPageSize == request.PresentationPageSize && SameQuery(request);
     public override int GetHashCode() => (Type, Tag, ModLoaders, GameVersion, SearchText, Sources).GetHashCode();
 }
 public sealed class ResourceSearchHost<TProject> where TProject : ResourceProjectModelData {

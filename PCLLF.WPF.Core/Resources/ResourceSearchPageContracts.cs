@@ -26,16 +26,17 @@ public sealed class ResourceSearchPageHost<TInstance, TProject, TResult, TReques
     public Func<TResult> Storage = null!;
     public Action<TResult> SetStorage = null!;
     public Func<int> Page = null!;
+    public Func<int>? ItemsPerPage;
     public Action<int> SetPage = null!;
     public Func<ResourceTypes, TResult, int, TRequest> Request = null!;
     public Func<TRequest> Input = null!;
     public Func<TRequest, bool> ShouldStart = null!;
     public Action Start = null!, ResetFinishedTime = null!, InitializeLoader = null!, Restart = null!, BackToTop = null!, InstallPack = null!;
+    public Action? StartPage;
     public Action<string> LoaderName = null!;
     public Func<bool> Failed = null!;
     public Func<Exception?> Error = null!;
     public Func<List<int>?> AllDrops = null!;
     public Func<object, object?, bool, ComboBoxItem> Item = null!;
     public Func<TProject, bool, bool, FrameworkElement> ProjectItem = null!;
-    public Action<Action> RunInThread = null!, RunInUi = null!;
 }

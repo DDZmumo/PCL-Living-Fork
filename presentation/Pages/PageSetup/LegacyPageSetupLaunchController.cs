@@ -95,7 +95,8 @@ public sealed class LegacyPageSetupLaunchController<TInstance, TSkin> where TIns
     public void Reset() {
         try {
             Common.ResetSettings(View.Page()); Common.Write("LaunchArgumentIndieV2", Common.Default("LaunchArgumentIndieV2"));
-            Configs.JavaList.Reset(); Configs.JavaRemovedList.Reset(); Host.StartJavaRefresh(); Common.Hint("已初始化启动设置！", LegacySetupHint.Green, true);
+            lock (Configs.JavaList) { Configs.JavaList.Reset(); Configs.JavaRemovedList.Reset(); }
+            Host.StartJavaRefresh(); Common.Hint("已初始化启动设置！", LegacySetupHint.Green, true);
         } catch (Exception error) { Logger.Error(error, "初始化启动设置失败", LogBehavior.Alert); }
         Refresh();
     }
@@ -235,7 +236,12 @@ public sealed class LegacyPageSetupLaunchController<TInstance, TSkin> where TIns
         } catch (Exception error) { Logger.Error(error, "更新 Java 列表下拉框失败"); }
     }
     public void MoveJavaInList(Java entry, int offset) {
-        Configs.JavaList.Edit((ref ConcurrentList<Java>? values) => { int index = values!.IndexOf(entry); int next = checked(index + offset); if (index < 0 || next < 0 || next >= values.Count) return; values.RemoveAt(index); values.Insert(next, entry); });
+        lock (Configs.JavaList) Configs.JavaList.Edit((ref ConcurrentList<Java>? values) => {
+            int index = values!.IndexOf(entry), next = checked(index + offset);
+            if (index < 0 || next < 0 || next >= values.Count) return;
+            values.RemoveAt(index);
+            values.Insert(next, entry);
+        });
         Host.UpdateJavaLists();
     }
     public void SearchJava() => Host.SearchJava();

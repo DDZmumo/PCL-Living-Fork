@@ -26,7 +26,9 @@ internal static class LegacySettingsTests {
         var fixture = new Fixture();
         // Notes use a version dismissal. Project favorites own their global JSON store;
         // the obsolete per-file favorite key is deliberately absent from active settings.
-        Equal(233, fixture.Entries.Count);
+        Equal(235, fixture.Entries.Count);
+        Equal(15, fixture.Entries["ToolDownloadResourcePageSize"].DefaultValue);
+        Equal(true, fixture.Entries["ToolLauncherUpdateAutoCheck"].DefaultValue);
         Equal(1, fixture.Entries["UiShellStyle"].DefaultValue);
         Equal("", fixture.Entries["UiGlassWallpaperPath"].DefaultValue);
         Equal(true, fixture.Entries["UiMusicVisualizerEnabled"].DefaultValue);

@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -21,11 +20,12 @@ public sealed class ResourceSearchPageController<TInstance, TState, TCard, TProj
     where TProject : ResourceProjectModelData
     where TResult : ResourceSearchResultData<TProject>, new()
     where TRequest : ResourceSearchRequestData<TProject, TResult> {
-    public const int PageSize = 40;
+    public const int PageSize = 15;
     private readonly ResourceSearchPageHost<TInstance, TProject, TResult, TRequest> host;
     private string? typeName = "", typeNameSpaced = "";
     private ResourceTypes pageType = (ResourceTypes)(-1);
     private bool firstLoaded;
+    private int ItemsPerPage => host.ItemsPerPage?.Invoke() ?? PageSize;
     public TInstance? DownloadTargetInstance { get; set; }
     public ResourceSearchPageController(ResourceSearchPageHost<TInstance, TProject, TResult, TRequest> host) { this.host = host; }
     private static bool Same(string? a, string? b) => string.Equals(a ?? "", b ?? "", StringComparison.Ordinal);
@@ -61,7 +61,9 @@ public sealed class ResourceSearchPageController<TInstance, TState, TCard, TProj
     }
     public TRequest LoaderInput() {
         ResourceSearchPageView view = host.View();
-        TRequest request = host.Request(PageType, host.Storage(), checked((host.Page() + 1) * PageSize));
+        int size = ItemsPerPage;
+        TRequest request = host.Request(PageType, host.Storage(), checked((host.Page() + 1) * size));
+        request.PresentationPageSize = size;
         string? version = Same(view.Version.Text, "全部 (也可自行输入)") ? null : view.Version.Text.Contains(".") || view.Version.Text.Contains("w") ? view.Version.Text : null;
         request.SearchText = view.Name.Text; request.GameVersion = version; request.Tag = Conversions.ToString(Tag(view.Tag))!;
         request.ModLoaders = PageType == ResourceTypes.Mod ? (ModLoaders)Conversions.ToInteger(LegacyBaseOperations.Val(Tag(view.Loader)!)) : ModLoaders.None;
@@ -70,16 +72,21 @@ public sealed class ResourceSearchPageController<TInstance, TState, TCard, TProj
     }
     public void LoadOnFinish() {
         try {
-            ResourceSearchPageView view = host.View(); TResult storage = host.Storage(); int page = host.Page();
+            ResourceSearchPageView view = host.View(); TResult storage = host.Storage();
+            int size = ItemsPerPage;
+            int page = Math.Clamp(host.Page(), 0, Math.Max(0, (storage.Results.Count - 1) / size));
+            host.SetPage(page);
             Logger.Info("开始可视化" + TypeNameSpaced + "列表，已储藏 " + storage.Results.Count + " 个结果，当前在第 " + (page + 1) + " 页");
             view.Projects.Children.Clear();
-            int index = Math.Min(checked(page * PageSize), storage.Results.Count - 1);
-            foreach (TProject result in storage.Results.GetRange(index, Math.Min(storage.Results.Count - index, PageSize))) view.Projects.Children.Add(host.ProjectItem(result, host.Input().GameVersion is null, host.Input().ModLoaders == ModLoaders.None && (PageType == ResourceTypes.Mod || PageType == ResourceTypes.ModPack)));
-            view.Pages.Visibility = storage.Results.Count > 40 || storage.CurseForgeOffset < storage.CurseForgeTotal || storage.ModrinthOffset < storage.ModrinthTotal ? Visibility.Visible : Visibility.Collapsed;
-            view.PageNumber.Text = Conversions.ToString(checked(page + 1));
-            view.First.IsEnabled = page > 1; view.First.Opacity = page > 1 ? 1 : 0.2; view.Left.IsEnabled = page > 0; view.Left.Opacity = page > 0 ? 1 : 0.2;
-            bool right = storage.Results.Count > checked(PageSize * (page + 1)) || storage.CurseForgeOffset < storage.CurseForgeTotal || storage.ModrinthOffset < storage.ModrinthTotal;
-            view.Right.IsEnabled = right; view.Right.Opacity = right ? 1 : 0.2;
+            int index = checked(page * size);
+            TRequest input = host.Input();
+            bool hasMore = storage.CurseForgeOffset < storage.CurseForgeTotal || storage.ModrinthOffset < storage.ModrinthTotal ||
+                storage.ModrinthDirectOffset < storage.ModrinthDirectTotal;
+            foreach (TProject result in storage.Results.GetRange(index, Math.Min(storage.Results.Count - index, size)))
+                view.Projects.Children.Add(host.ProjectItem(result, input.GameVersion is null, input.ModLoaders == ModLoaders.None &&
+                    (PageType == ResourceTypes.Mod || PageType == ResourceTypes.ModPack)));
+            bool right = storage.Results.Count > checked(size * (page + 1)) || hasMore;
+            ShowPager(view, page, right, storage.Results.Count > size || hasMore);
             if (storage.ErrorMessage is null) view.Error.Visibility = Visibility.Collapsed; else { view.Error.Visibility = Visibility.Visible; view.ErrorText(storage.ErrorMessage); }
             view.ScrollTop();
         } catch (Exception error) { Logger.Error(error, "可视化" + TypeNameSpaced + "列表出错"); }
@@ -88,16 +95,34 @@ public sealed class ResourceSearchPageController<TInstance, TState, TCard, TProj
         if (!host.Failed()) return;
         string message = host.Error()?.Message ?? "";
         if (message.Contains("不是有效的 json 文件")) { Logger.Warn("下载的" + TypeNameSpaced + "列表 json 文件损坏，已自动重试"); host.Restart(); }
+        else ShowPager(host.View(), host.Page(), canNext: false, visible: true);
     }
     public void ChangePage(int page) {
-        host.View().Pages.IsEnabled = false; host.SetPage(page); host.BackToTop(); Logger.Info(TypeName + "：切换到第 " + checked(host.Page() + 1) + " 页");
-        host.RunInThread(() => { Thread.Sleep(100); host.RunInUi(() => host.View().Pages.IsEnabled = true); host.Start(); });
+        host.SetPage(Math.Max(0, page));
+        ShowPendingPage();
+        host.BackToTop();
+        Logger.Info(TypeName + "：切换到第 " + checked(host.Page() + 1) + " 页");
+        (host.StartPage ?? host.Start)();
+    }
+    public void ShowPendingPage(bool full = false) {
+        var view = host.View();
+        ShowPager(view, host.Page(), canNext: full, visible: true);
+        view.Pages.IsEnabled = full;
+    }
+    private static void ShowPager(ResourceSearchPageView view, int page, bool canNext, bool visible) {
+        view.Pages.IsEnabled = true;
+        view.Pages.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        view.PageNumber.Text = Conversions.ToString(checked(page + 1));
+        view.First.IsEnabled = page > 1; view.First.Opacity = page > 1 ? 1 : 0.2;
+        view.Left.IsEnabled = page > 0; view.Left.Opacity = page > 0 ? 1 : 0.2;
+        view.Right.IsEnabled = canNext; view.Right.Opacity = canNext ? 1 : 0.2;
     }
     public void FirstPage() => ChangePage(0);
     public void PreviousPage() => ChangePage(checked(host.Page() - 1));
     public void NextPage() => ChangePage(checked(host.Page() + 1));
     public void KeyDown(Key key) { if (key == Key.Enter) StartNewSearch(); }
-    public void StartNewSearch() { host.SetPage(0); if (host.ShouldStart(LoaderInput())) host.SetStorage(new TResult()); host.Start(); }
+    public void ResetPage() { host.SetPage(0); host.View().Pages.IsEnabled = true; }
+    public void StartNewSearch() { ResetPage(); if (host.ShouldStart(LoaderInput())) host.SetStorage(new TResult()); host.Start(); }
     public void ResetFilter() {
         DownloadTargetInstance = null;
         ResourceSearchPageView view = host.View(); view.Name.Text = ""; view.Version.Text = "全部 (也可自行输入)"; view.Version.SelectedIndex = 0;

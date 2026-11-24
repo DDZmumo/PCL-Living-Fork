@@ -533,7 +533,7 @@ public sealed class GlassSurface : Border {
             var size = RenderSize;
             if (size.Width <= 0 || size.Height <= 0) return;
             var outer = layer.GetOuterGeometry(size);
-            var transparent = owner.CanUseTransparency;
+            var transparent = owner.CanUseTransparency || (GlassMaterial.GetAlphaFallback(owner) && GlassMaterial.AllowsTransparency(owner));
             var background = owner.Background;
             if (!transparent) {
                 background = SystemParameters.HighContrast ? SystemColors.WindowBrush :

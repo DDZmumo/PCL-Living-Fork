@@ -97,11 +97,13 @@ namespace PCL
                     HasActiveTasks = Tasks.Any(loader => loader.State is ModBase.LoadState.Loading or ModBase.LoadState.Waiting);
                     string PredictText = Math.Floor(RawPercent * 100d) + "." + Math.Floor((RawPercent * 100d - Math.Floor(RawPercent * 100d)) * 100d).ToString().EnsureLength('0', 2) + " %";
                     this.LabProgress.Text = RawPercent > 0.999999d ? "100 %" : PredictText;
-                    this.LabSpeed.Text = StringUtils.FormatByteSize(ModNet.NetManager.Speed) + "/s";
                     FileRates.Sample();
+                    this.LabSpeed.Text = StringUtils.FormatByteSize(ModNet.NetManager.Speed + (long)FileRates.DownloadPerSecond) + "/s";
                     this.LabReadSpeed.Text = StringUtils.FormatByteSize((long)FileRates.ReadPerSecond) + "/s";
                     this.LabWriteSpeed.Text = StringUtils.FormatByteSize((long)FileRates.WritePerSecond) + "/s";
-                    this.LabFile.Text = Conversions.ToString(ModNet.NetManager.FileRemain < 0 ? "0*" : global::PCL.ModNet.NetManager.FileRemain);
+                    int remaining = ModNet.NetManager.FileRemain;
+                    int fileCount = Math.Max(0, remaining) + PCLCS.FileTaskProgress.ActiveDownloads;
+                    this.LabFile.Text = fileCount + (remaining < 0 ? "*" : "");
                     this.LabThread.Text = ModNet.NetTaskThreadCount + " / " + ModNet.NetTaskThreadLimit;
                 }
             }

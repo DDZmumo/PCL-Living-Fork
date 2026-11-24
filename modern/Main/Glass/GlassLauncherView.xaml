@@ -45,6 +45,7 @@
         <SolidColorBrush x:Key="GlassTextBrush" Color="#FFF4F4F4" />
         <SolidColorBrush x:Key="GlassSecondaryTextBrush" Color="#FFB8B8B8" />
         <SolidColorBrush x:Key="GlassMainBrush" Color="#FF181818" />
+        <SolidColorBrush x:Key="GlassSplashBrush" Color="#B8141416" />
         <SolidColorBrush x:Key="GlassCardBrush" Color="#FF202020" />
         <SolidColorBrush x:Key="GlassChromeBrush" Color="#F5202020" />
         <SolidColorBrush x:Key="GlassOutlineBrush" Color="#20FFFFFF" />
@@ -420,7 +421,7 @@
                         <!-- Startup splash: solid frosted glass in the theme's tone with the brand mark, name and a loader. Shown only while
                              GlassLauncherView.BeginSplash runs; it sits above all body content and leaves once loading has finished. -->
                         <Grid x:Name="SplashLayer" Panel.ZIndex="60" Visibility="Collapsed">
-                            <glass:GlassSurface x:Name="SplashGlass" CornerRadius="11" BorderThickness="0" BlurRadius="48" TintOpacity="1" HighlightOpacity="0" Background="#E8141416" />
+                            <glass:GlassSurface x:Name="SplashGlass" CornerRadius="11" BorderThickness="0" BlurRadius="48" TintOpacity="1" HighlightOpacity="0" Background="{DynamicResource GlassSplashBrush}" />
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                 <Image x:Name="SplashLogo" Width="96" Height="96" Stretch="Uniform" Opacity="0" RenderTransformOrigin="0.5,0.5">
                                     <Image.RenderTransform><ScaleTransform x:Name="SplashLogoScale" ScaleX="0.6" ScaleY="0.6" /></Image.RenderTransform>
