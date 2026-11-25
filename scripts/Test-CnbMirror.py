@@ -1,12 +1,19 @@
 import copy
+from contextlib import redirect_stderr
 import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import runpy
+import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
+from unittest import mock
+from urllib.error import HTTPError
 
 spec = importlib.util.spec_from_file_location("cnb_mirror", Path(__file__).with_name("Sync-CnbRelease.py"))
 mirror = importlib.util.module_from_spec(spec)
@@ -65,7 +72,7 @@ class FakeHttp(mirror.Http):
             assets.append({"name": name, "size": len(value), "digest": "sha256:" + hashlib.sha256(value).hexdigest(), "browser_download_url": url})
         self.source = {"tag_name": tag, "name": "PCL Living Fork " + tag[1:], "body": "source notes", "draft": False, "prerelease": prerelease, "assets": assets}
 
-    def json(self, url, method="GET", data=None, auth=False, missing=False):
+    def json(self, url, method="GET", data=None, auth=False, missing=False, *, step=""):
         self.calls.append((method, url, auth))
         if url == mirror.GITHUB_API + "/releases/latest":
             assert not auth
@@ -108,6 +115,153 @@ class FakeHttp(mirror.Http):
         if self.corrupt_anonymous and url.startswith("https://cnb.cool/"):
             value = b"corrupt"
         return Response(value)
+
+
+class MirrorHttpTests(unittest.TestCase):
+    github_latest = mirror.GITHUB_API + "/releases/latest"
+    cnb_releases = "https://api.cnb.cool/" + mirror.CNB_REPO + "/-/releases"
+
+    def setUp(self):
+        self.http = mirror.Http("synthetic-cnb-secret", mirror.CNB_REPO)
+        self.http.opener = mock.Mock()
+        sleep = mock.patch.object(time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
+    @staticmethod
+    def error(url, status, headers=None, body=b""):
+        return HTTPError(url, status, "synthetic-untrusted-error", headers or {}, Response(body))
+
+    def test_plain_403_after_redirect_names_step_and_cdn(self):
+        source = "https://github.com/" + mirror.GITHUB_REPO + "/releases/download/v1.3.4/SHA256SUMS.txt"
+        redirected = "https://release-assets.githubusercontent.com/synthetic-signed-path?sig=synthetic-signed-query"
+        self.http.opener.open.side_effect = self.error(redirected, 403)
+        with tempfile.TemporaryDirectory() as folder, self.assertRaisesRegex(
+            RuntimeError, r"Fetch checksum.*GET .*releases/download.*release-assets\.githubusercontent\.com.*HTTP 403"
+        ) as result:
+            self.http.download(source, Path(folder) / "checksum", 1, "a" * 64, step="Fetch checksum")
+        self.assertNotIn("synthetic-", str(result.exception))
+        self.http.opener.open.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_signed_upload_and_confirmation_report_safe_routes(self):
+        upload = "https://cnb.cool/synthetic-signed-path?signature=synthetic-signed-query"
+        confirm = self.cnb_releases + "/fixture-id/asset-upload-confirmation/synthetic-confirmation-token/synthetic-object-path?ttl=0"
+        errors = (self.error(upload, 403), self.error(confirm, 403, body=b"synthetic-cnb-secret"))
+        self.http.opener.open.side_effect = errors
+        with self.assertRaisesRegex(RuntimeError, r"Upload fixture.*PUT CNB attachment storage.*HTTP 403") as result:
+            self.http.upload(upload, io.BytesIO(b"x"), 1, step="Upload fixture")
+        self.assertNotIn("synthetic-", str(result.exception))
+        with self.assertRaisesRegex(RuntimeError, r"Confirm fixture.*POST .*asset-upload-confirmation/\{redacted\}.*HTTP 403") as result:
+            self.http.json(confirm, "POST", auth=True, step="Confirm fixture")
+        self.assertNotIn("synthetic-", str(result.exception))
+        self.assertNotIn("ttl=", str(result.exception))
+        self.sleep.assert_not_called()
+
+    def test_github_403_respects_rate_limit_reset(self):
+        self.http.opener.open.side_effect = [
+            self.error(self.github_latest, 403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1007"}),
+            Response(b'{"tag_name":"v1.3.4"}'),
+        ]
+        logs = io.StringIO()
+        with mock.patch.object(time, "time", return_value=1000), redirect_stderr(logs):
+            self.assertEqual(self.http.json(self.github_latest)["tag_name"], "v1.3.4")
+        self.sleep.assert_called_once_with(7)
+        self.assertRegex(logs.getvalue(), r"Mirror retry: .*GET .*releases/latest.*HTTP 403.*rate limit")
+
+    def test_github_403_secondary_rate_limit_waits_at_least_a_minute(self):
+        self.http.opener.open.side_effect = [
+            self.error(self.github_latest, 403, body=b'{"message":"You have exceeded a secondary rate limit."}'),
+            Response(b'{"tag_name":"v1.3.4"}'),
+        ]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(self.http.json(self.github_latest)["tag_name"], "v1.3.4")
+        self.sleep.assert_called_once_with(60)
+
+    def test_429_respects_retry_after_and_declines_wait_beyond_budget(self):
+        self.http.opener.open.side_effect = [
+            self.error(self.github_latest, 429, {"Retry-After": "Thu, 01 Jan 1970 00:16:46 GMT"}),
+            self.error(self.github_latest, 429, {"Retry-After": "120"}),
+        ]
+        with mock.patch.object(time, "time", return_value=1000), redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, r"HTTP 429.*retry wait exceeds"):
+                self.http.json(self.github_latest)
+        self.sleep.assert_called_once_with(6)
+        self.assertEqual(self.http.opener.open.call_count, 2)
+
+    def test_unclassified_403_and_cnb_writes_are_single_attempt(self):
+        for method, url, status in (
+            ("GET", self.github_latest, 403),
+            ("GET", self.cnb_releases + "/tags/v1.3.4", 403),
+            ("POST", self.cnb_releases, 503),
+            ("PATCH", self.cnb_releases + "/1", 429),
+        ):
+            with self.subTest(method=method, url=url):
+                self.http.opener.open.reset_mock()
+                self.http.opener.open.side_effect = self.error(url, status)
+                with self.assertRaisesRegex(RuntimeError, f"HTTP {status}"):
+                    self.http.json(url, method, auth=url.startswith(self.cnb_releases))
+                self.http.opener.open.assert_called_once()
+        self.http.opener.open.reset_mock()
+        upload = "https://storage.example.invalid/upload?signature=synthetic"
+        self.http.opener.open.side_effect = self.error(upload, 503)
+        with self.assertRaisesRegex(RuntimeError, r"HTTP 503"):
+            self.http.upload(upload, io.BytesIO(b"x"), 1, step="Upload fixture")
+        self.http.opener.open.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_gateway_error_has_a_bounded_attempt_count(self):
+        self.http.opener.open.side_effect = [self.error(self.github_latest, 503) for _ in range(3)]
+        logs = io.StringIO()
+        with redirect_stderr(logs), self.assertRaisesRegex(RuntimeError, r"HTTP 503"):
+            self.http.json(self.github_latest)
+        self.assertEqual(self.http.opener.open.call_count, 3)
+        self.assertEqual(self.sleep.call_args_list, [mock.call(1), mock.call(2)])
+        self.assertEqual(logs.getvalue().count("Mirror retry:"), 2)
+
+    def test_download_restarts_after_interrupted_body(self):
+        class InterruptedResponse(Response):
+            def read(self, size):
+                if self.tell():
+                    raise ConnectionResetError("synthetic-untrusted-error")
+                return super().read(3)
+
+        data = b"complete attachment"
+        self.http.opener.open.side_effect = [InterruptedResponse(data), Response(data)]
+        with tempfile.TemporaryDirectory() as folder, redirect_stderr(io.StringIO()) as logs:
+            target = Path(folder) / "asset"
+            self.http.download(self.github_latest, target, len(data), hashlib.sha256(data).hexdigest())
+            self.assertEqual(target.read_bytes(), data)
+        self.assertEqual(self.http.opener.open.call_count, 2)
+        self.assertNotIn("synthetic-untrusted-error", logs.getvalue())
+
+    def test_missing_release_is_still_an_optional_404(self):
+        url = self.cnb_releases + "/tags/v1.3.4"
+        self.http.opener.open.side_effect = self.error(url, 404)
+        self.assertIsNone(self.http.json(url, auth=True, missing=True))
+        self.http.opener.open.assert_called_once()
+        self.sleep.assert_not_called()
+
+    def test_cli_hides_unexpected_errors(self):
+        logs = io.StringIO()
+        with (
+            mock.patch("urllib.request.OpenerDirector.open", side_effect=RuntimeError("synthetic-secret?signature=synthetic")),
+            mock.patch.dict(os.environ, {"CNB_TOKEN": "synthetic-secret"}),
+            mock.patch.object(sys, "argv", ["mirror.py"]),
+            redirect_stderr(logs),
+            self.assertRaises(SystemExit) as result,
+        ):
+            runpy.run_path(mirror.__file__, run_name="__main__")
+        self.assertEqual(result.exception.code, 1)
+        self.assertEqual(logs.getvalue(), "Mirror failed: unexpected RuntimeError\n")
+
+    def test_git_push_reports_status_without_raw_stderr(self):
+        result = SimpleNamespace(returncode=128, stderr="fatal: signed-query: The requested URL returned error: 403")
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(mirror.subprocess, "run", return_value=result):
+            git = mirror.Git(folder, "synthetic-secret")
+            with self.assertRaisesRegex(RuntimeError, r"Git push.*cnb\.cool.*HTTP 403") as failure:
+                git.run("push", "origin", "HEAD:updates")
+        self.assertNotIn("signed-query", str(failure.exception))
 
 
 class MirrorTests(unittest.TestCase):
@@ -271,7 +425,6 @@ class MirrorTests(unittest.TestCase):
 
     def test_git_helper_contains_no_credential_and_rejects_github(self):
         import subprocess
-        import sys
         with tempfile.TemporaryDirectory(prefix="pcl-cnb-test-") as directory:
             git = mirror.Git(directory, "synthetic-token")
             helper = Path(directory) / "askpass.py"
