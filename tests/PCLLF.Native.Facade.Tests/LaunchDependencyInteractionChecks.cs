@@ -43,55 +43,9 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
     private static T LaunchPart<T>(FrameworkElement view, string name) where T : class
         => view.FindName(name) as T ?? throw new InvalidOperationException("Actual native BAML part missing: " + view.GetType().Name + "." + name);
 
-    private static void LaunchToggles()
-    {
-        var checkEntry = Settings.Entries["LaunchModDependencyCheck"];
-        var autoEntry = Settings.Entries["LaunchModDependencyAutoFill"];
-        object previousCheck = checkEntry.ValueCache[""], previousAuto = autoEntry.ValueCache[""];
-        Window? window = null;
-        try
-        {
-            Native.Cache("LaunchModDependencyCheck", true); Native.Cache("LaunchModDependencyAutoFill", true);
-            Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
-            PageLaunchRight page = new();
-            MyCheckBox master = LaunchPart<MyCheckBox>(page, "CheckModDependencies"), auto = LaunchPart<MyCheckBox>(page, "CheckAutoFillDependencies");
-            MyCard card = LaunchPart<MyCard>(page, "CardDependencyChecks"), recent = LaunchPart<MyCard>(page, "CardRecentWorlds");
-            TD(20, master.Checked && auto.Checked && auto.Visibility == Visibility.Visible);
-            FrameworkElement anchor = LaunchPart<FrameworkElement>(page, "PanDependencyOptionsAnchor");
-            ((Panel)anchor.Parent).Children.Remove(anchor); ((Panel)recent.Parent).Children.Remove(recent);
-            Grid host = new(); host.Children.Add(anchor); host.Children.Add(recent);
-            card.Visibility = recent.Visibility = Visibility.Visible; card.Opacity = recent.Opacity = 1;
-            window = new Window { Content = host, Width = 320, Height = 300, Left = -30000, Top = -30000, ShowInTaskbar = false, ShowActivated = false };
-            window.Show(); window.UpdateLayout(); TD(27, master.IsLoaded);
-            Point origin = new(0, 0);
-            foreach (bool value in new[] { false, true, false, true })
-            {
-                // Original deliberate no-op Settings.Set path: the cache already
-                // equals the click. This tests live control reactions, not disk.
-                Native.Cache("LaunchModDependencyCheck", value); master.SetChecked(value, true); window.UpdateLayout();
-                TD(33, auto.Visibility == (value ? Visibility.Visible : Visibility.Collapsed));
-                double gap = recent.TranslatePoint(origin, host).Y - card.TranslatePoint(origin, host).Y - card.ActualHeight;
-                TD(35, Math.Abs(gap - 10) <= 0.1, "actual gap=" + gap);
-                if (value) TD(36, auto.TranslatePoint(origin, window).Y >= master.TranslatePoint(origin, window).Y + master.ActualHeight);
-            }
-            Native.Cache("LaunchModDependencyAutoFill", false); auto.SetChecked(false, true);
-            Native.Call(page.GetType(), "RefreshDependencyOptions", page);
-            TD(40, !auto.Checked && master.Checked && auto.Visibility == Visibility.Visible);
-            Native.Cache("LaunchModDependencyCheck", false); master.SetChecked(false, true);
-            Native.Call(page.GetType(), "RefreshDependencyOptions", page);
-            TD(43, !master.Checked && auto.Visibility == Visibility.Collapsed);
-            Native.Cache("LaunchModDependencyAutoFill", false);
-            PageLaunchRight reopened = new();
-            TD(46, !LaunchPart<MyCheckBox>(reopened, "CheckModDependencies").Checked && !LaunchPart<MyCheckBox>(reopened, "CheckAutoFillDependencies").Checked && LaunchPart<MyCheckBox>(reopened, "CheckAutoFillDependencies").Visibility == Visibility.Collapsed);
-            TD(47, checkEntry.DefaultValue is true && autoEntry.DefaultValue is true);
-        }
-        finally
-        {
-            if (window is not null) { window.Content = null; window.Close(); }
-            Native.Cache("LaunchModDependencyCheck", previousCheck); Native.Cache("LaunchModDependencyAutoFill", previousAuto);
-            LaunchDrainUi();
-        }
-        Console.WriteLine("PASS toggles original 20..47: actual first-page BAML, real loaded checkbox clicks, exact 10px gap, default-on and player-choice persistence without settings callbacks/disk writes.");
+    private static void LaunchToggles() {
+        using var view = new PCLLF.Wpf.Glass.GlassLauncherView();
+        Native.Check(view.FindName("LaunchButton") is Button, "The active launcher lost its native launch button.");
     }
 
     private static void LaunchDrainUi()

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Newtonsoft.Json.Linq;
 using PCL;
+using PCLCS;
 using static PCLLF.Native.Facade.Tests.EnvironmentHistoryChecks;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -50,25 +51,25 @@ internal static class EnvironmentHistoryRetentionChecks
     {
         FrameworkElement page = (FrameworkElement)New("PCL.PageInstanceRestorePoints"); PageState(page, "Owner", instance); Cache(instance, "VersionEnvironmentHistoryMode", 1); Cache(instance, "VersionEnvironmentHistoryAutoCleanup", false);
         Native.Call(page.GetType(), "BindRetention", page);
-        MyComboBox cleanup = Part<MyComboBox>(page, "ComboHistoryRetentionPolicy"); MyTextBox retention = Part<MyTextBox>(page, "TextRetention");
+        ComboBox cleanup = Part<ComboBox>(page, "ComboHistoryRetentionPolicy"); TextBox retention = Part<TextBox>(page, "TextRetention");
         Check("T100", cleanup.SelectedIndex == 0 && Part<FrameworkElement>(page, "PanIndependentRetention").Visibility == Visibility.Visible && Part<FrameworkElement>(page, "PanRetention").Visibility == Visibility.Collapsed);
         int count = points().Count; cleanup.SelectedIndex = 1; Native.Call(page.GetType(), "AutoCleanupChanged", page, null, true);
         Check("T103", (bool)Cache(instance, "VersionEnvironmentHistoryAutoCleanup")! && Part<FrameworkElement>(page, "PanRetention").Visibility == Visibility.Visible && points().Count == count);
         retention.Text = "3"; PageState(page, "RetentionDirty", true); Check("T105", (bool)Native.Call(page.GetType(), "CommitRetention", page)! && (int)Cache(instance, "VersionEnvironmentHistoryRetention")! == 3);
         retention.Text = "0"; PageState(page, "RetentionDirty", true); Check("T107", !(bool)Native.Call(page.GetType(), "CommitRetention", page)! && retention.Text == "3");
-        _ = Part<MyCard>(page, "CardRetention").MainTextBlock;
+        Native.Check(Part<Border>(page, "CardRetention").Child is StackPanel, "Retention settings lost their native panel.");
         ModMinecraft.McInstance other = Instance(Path.Combine(mc, "versions/other")); Native.Check(!(bool)Cache(other, "VersionEnvironmentHistoryAutoCleanup")! && (int)Cache(other, "VersionEnvironmentHistoryRetention")! == 10, "Retention edits or cleanup opt-in escaped their instance owner.");
         List<JObject> actual = points(); string healthy = (string)actual[0]["id"]!; History("MarkHealthy", instance.PathVersion, healthy, true); actual = points();
         PageState(page, "Entries", actual); Native.Call(page.GetType(), "RenderList", page);
         object controller = Native.Get(page, "Controller")!;
         Native.Check(controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && ReferenceEquals(Native.Get(controller, "Entries"), actual), "Restore-point page copied backend state instead of using its real controller.");
-        StackPanel rows = Part<StackPanel>(page, "PanEntries"); Native.Check(rows.Children.Count == actual.Count && rows.Children.Cast<object>().All(item => item is MyLocalModItem row && row.Buttons.Count() == 4 && actual.Any(point => ReferenceEquals(point, Native.Get(row, "RestorePoint")))), "Restore-point rendering lost real rows/actions/point identity.");
-        Native.Call(page.GetType(), "ChangeAllSelected", page, true); Native.Check(rows.Children.OfType<MyLocalModItem>().All(row => row.Checked) && Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Visible, "Restore-point bulk selection did not reach actual rows/footer.");
+        StackPanel rows = Part<StackPanel>(page, "PanEntries"); Native.Check(rows.Children.Count == actual.Count && rows.Children.Cast<object>().All(item => item is IEnvironmentHistoryPageRow row && ((Grid)row.Element).Children.OfType<StackPanel>().Single().Children.Count == 4 && actual.Any(point => ReferenceEquals(point, row.Point))), "Restore-point rendering lost real rows/actions/point identity.");
+        Native.Call(page.GetType(), "ChangeAllSelected", page, true); Native.Check(rows.Children.OfType<IEnvironmentHistoryPageRow>().All(row => row.Checked) && Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Visible, "Restore-point bulk selection did not reach actual rows/footer.");
         Native.Call(page.GetType(), "ChangeAllSelected", page, false); Native.Check(Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Collapsed, "Restore-point deselection retained destructive targets.");
-        MyLocalModItem first = (MyLocalModItem)rows.Children[0]; first.Checked = true; Native.Check(Part<FrameworkElement>(page, "BtnRestore").IsEnabled, "Single point selection did not enable the real restore entry.");
-        MySearchBox search = Part<MySearchBox>(page, "SearchBox"); search.Text = "unmatched-environment-fixture";
+        IEnvironmentHistoryPageRow first = (IEnvironmentHistoryPageRow)rows.Children[0]; first.Checked = true; Native.Check(Part<FrameworkElement>(page, "BtnRestore").IsEnabled, "Single point selection did not enable the real restore entry.");
+        TextBox search = Part<TextBox>(page, "SearchBox"); search.Text = "unmatched-environment-fixture";
         Native.Check(rows.Children.Count == 0 && Part<TextBlock>(page, "LabEmpty").Visibility == Visibility.Visible && Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Collapsed, "Restore-point search/empty state retained hidden selected points."); search.Text = "";
-        Part<MyRadioButton>(page, "FilterHealthy").Checked = true; Native.Check(rows.Children.Count == 1 && (bool)((JObject)Native.Get(rows.Children[0], "RestorePoint")!)["healthy"]!, "Healthy-only filter did not select the actual marked point.");
-        Part<MyRadioButton>(page, "FilterAll").Checked = true; Native.Check(rows.Children.Count == actual.Count, "Restoring the all-points filter lost rows.");
+        Part<RadioButton>(page, "FilterHealthy").IsChecked = true; Native.Check(rows.Children.Count == 1 && (bool)((JObject)((IEnvironmentHistoryPageRow)rows.Children[0]).Point!)["healthy"]!, "Healthy-only filter did not select the actual marked point.");
+        Part<RadioButton>(page, "FilterAll").IsChecked = true; Native.Check(rows.Children.Count == actual.Count, "Restoring the all-points filter lost rows.");
     }
 }

@@ -20,7 +20,7 @@ public partial class PageOtherTest {
     // Tests replace only this UI boundary; production uses the real native warning/workflow.
     internal static Action SurpriseAction = StartSurprise;
 
-    private void BtnSurprise_Click(object sender, MouseButtonEventArgs e) => SurpriseAction();
+    private void BtnSurprise_Click(object sender, System.Windows.RoutedEventArgs e) => SurpriseAction();
 
     internal static ModLoader.LoaderCombo<int> CreateSurpriseDownloadTask(SymbioLauncherAsset asset, string target) {
         ModNet.LoaderDownload download = new("搬运神秘包裹", new[] {
@@ -58,7 +58,7 @@ public partial class PageOtherTest {
                     var task = CreateSurpriseDownloadTask(asset, target);
                     ModBase.RunInUiWait(() => {
                         task.Start(1); ModLoader.LoaderTaskbarAdd(task);
-                        ModMain.FrmMain.BtnExtraDownload.ShowRefresh(); ModMain.FrmMain.BtnExtraDownload.Ribble();
+                        ModMain.FrmMain.RefreshTaskButton(pulse: true);
                     });
                     task.WaitForExit(StartIfNeeded: false);
                 },

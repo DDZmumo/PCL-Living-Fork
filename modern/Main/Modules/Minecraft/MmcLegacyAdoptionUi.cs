@@ -103,7 +103,7 @@ internal static class MmcLegacyAdoptionUi {
             }, AcquireLegacyPathLock = root => sourceRoot is not null && sourceWorker is not null && PathUtils.IsSame(root, sourceRoot) ? new SourceLease(sourceWorker, root) : throw new IOException("没有旧源路径修改租约。")
         });
     private static ModLoader.LoaderCombo<string> Register(ModLoader.LoaderCombo<string> combo, string input, MmcLegacyAdoptionUiServices services, MmcOperationCancellationFence fence, IWorker driver = null) {
-        try { if (services.RegisterTask is not null) services.RegisterTask(combo); else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); } if (driver is null) combo.Start(input); else driver.Start(); return combo; }
+        try { if (services.RegisterTask is not null) services.RegisterTask(combo); else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); } if (driver is null) combo.Start(input); else driver.Start(); return combo; }
         catch { fence.AbandonUnstarted(); throw; }
     }
     private static void CheckResult(MmcLegacyAdoptionResult result, CancellationToken token) {

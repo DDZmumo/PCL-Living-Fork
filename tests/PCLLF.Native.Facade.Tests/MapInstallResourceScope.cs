@@ -28,7 +28,7 @@ internal sealed class MapInstallResourceScope : IDisposable
         try {
             // FileTaskScope has already retained the exact prior instance object.
             // The original standalone page fixture has no selected global instance.
-            Native.Field(typeof(PageInstanceLeft), "Instance").SetValue(null, null);
+            Native.Field(typeof(LauncherInstanceContext), "Instance").SetValue(null, null);
             Root = Path.Combine(tasks.Root, name); Native.Check(!Directory.Exists(Root), "Refusing existing map/resource fixture data."); Directory.CreateDirectory(Root);
             object queue = Native.Field(typeof(ModMain), "HintWaiting").GetValue(null)!;
             Array before = (Array)Native.Call(queue.GetType(), "ToArray", queue)!;
@@ -129,7 +129,7 @@ internal sealed class MapInstallResourceScope : IDisposable
     public void Dispose()
     {
         try {
-            foreach(object page in pages) { Native.Call(page.GetType(),"PageUnloaded",page); ((MyPageRight)page).PageOnForceExit(); }
+            foreach(object page in pages) { Native.Call(page.GetType(),"PageUnloaded",page); }
             WaitUntil(()=>pages.All(page=>{object controller=Native.Get(page,"Controller")!;return !(bool)Native.Get(controller,"Busy")!&&!(bool)Native.Get(controller,"Checking")!&&Native.Get(controller,"Operation") is null&&Native.Get(controller,"OnlineCancellation") is null;}));
             ReleaseNeverStartedPageRegistrations();
             tasks.FinishActualTasks(); Native.Check(Volatile.Read(ref forbiddenOnline)==0,"Resource guard observed an unintended online lookup, even if Main caught its error."); fixture.AssertNoForbiddenIo();

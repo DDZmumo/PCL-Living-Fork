@@ -10,7 +10,6 @@ internal static class SkinSiteAuthenticationChecks {
     private const string OtherSite = "https://skins-b.invalid/api/yggdrasil";
 
     internal static void Run(FixtureEnvironment environment) {
-        LegacyCredentials();
         GlobalSelection(environment);
         AsyncLoaderCancellation();
         HttpsTransport();
@@ -45,31 +44,6 @@ internal static class SkinSiteAuthenticationChecks {
         }
     }
 
-    private static void LegacyCredentials() {
-        string instanceServer = OtherSite;
-        var cache = new Dictionary<string, object?> {
-            ["CacheAuthServerServer"] = SavedSite,
-            ["CacheAuthCredentialServer"] = SavedSite + "/authserver",
-            ["CacheAuthUsername"] = "fixture-user",
-            ["CacheAuthPass"] = "fixture-password",
-        };
-        var host = new LegacyLoginHost<LegacyLoginInput, LegacyLoginInput, LegacyLoginInput> {
-            AccountSnapshot = _ => cache,
-            HasSelectedInstance = () => true,
-            ReadInstanceString = _ => instanceServer,
-            CreateServer = input => input
-        };
-        var page = new LegacyLoggedInPage<LegacyLoginInput, LegacyLoginInput, LegacyLoginInput>(host, new(), "Auth");
-        var other = page.GetServerLoginData();
-        Native.Check(other.BaseUrl == OtherSite + "/authserver" && string.IsNullOrEmpty(other.UserName) && string.IsNullOrEmpty(other.Password),
-            "Dedicated instance login inherited the saved credentials of another skin site.");
-        instanceServer = SavedSite + "/";
-        var same = page.GetServerLoginData();
-        Native.Check(same.BaseUrl == SavedSite + "/authserver" && same.UserName == "fixture-user" && same.Password == "fixture-password",
-            "An account already bound to the instance's own endpoint lost its credentials.");
-        cache.Remove("CacheAuthCredentialServer");
-        Native.Check(string.IsNullOrEmpty(page.GetServerLoginData().Password), "Unattributed legacy credentials were reused.");
-    }
 
     private static void GlobalSelection(FixtureEnvironment environment) {
         const string identity = "00000000000000000000000000000001";

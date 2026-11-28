@@ -13,7 +13,8 @@ public sealed partial class DownloadModifyPageController<TInstance, TState, TCar
     public void LoadInstance(DownloadModifyTask<TInstance> task) {
         try { task.SetOutput(host.DetectPack(task.Input().PathVersion)); }
         catch (Exception error) { Logger.Warn(error, "读取整合包信息失败"); task.SetOutput(new JObject(new JProperty("error", true))); }
-        host.UiWait(() => { animation.Native.Stop("FrmDownloadInstall SelectPageSwitch"); Selection.IsSelectNameEdited = false; host.BaseClearSelected(); State.PendingComponents.Clear(); State.InitialTarget = null; Selection.IsInSelectPage = false; host.View().AllBack.IsHitTestVisible = false; });
+        host.UiWait(() => { if (!task.Canceled()) { animation.Stop("FrmDownloadInstall SelectPageSwitch"); Selection.IsSelectNameEdited = false; host.BaseClearSelected(); State.PendingComponents.Clear(); State.InitialTarget = null; Selection.IsInSelectPage = false; host.View().AllBack.IsHitTestVisible = false; } });
+        if (task.Canceled()) return;
         task.Input().Config.DiscardCache();
         McInstallManifest? manifest = Configs.McInstallManifest.Get(task.Input().Config);
         if (manifest is not null && manifest.SchemaVersion > Versions.McInstallManifestVersion) {

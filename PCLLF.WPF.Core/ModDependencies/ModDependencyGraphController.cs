@@ -34,7 +34,7 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
     where TOnlineFile : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.OnlineFileData, new()
     where TNode : ModDependencyGraphNodeData, new() {
     public readonly Canvas GraphCanvas = new() { Width = 708, Background = Brushes.Transparent };
-    private const double NodeWidth = 184, RowGap = 10;
+    private const double NodeWidth = 200, RowGap = 10;
     private static readonly SemaphoreSlim IconSlots = new(3);
     private readonly ScrollViewer graphScroll = new();
     private readonly Dictionary<Border, Image> iconImages = new();
@@ -43,7 +43,8 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
     private readonly ModDependencyGraphHost host;
     private readonly Grid view;
     private int iconGeneration;
-    public double PreferredWidth => GraphCanvas.Width + 84;
+    // Wide enough for all three lanes even when one is empty, so the dialog does not shrink to a narrow strip.
+    public double PreferredWidth => Math.Max(900, GraphCanvas.Width + 84);
     private static bool SameText(string? first, string? second) => string.Equals(first ?? "", second ?? "", StringComparison.Ordinal);
     private static string FilePathKey(string path) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.FilePathKey(path);
     private static bool SameFilePath(string first, string second) => ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.SameFilePath(first, second);
@@ -58,8 +59,11 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
 
     public ModDependencyGraphController(Grid view, TReport report, string fullPath, ModDependencyGraphHost host) {
         this.host = host; this.view = view;
+        // Rows: lead and legend, the graph, then notes. The graph scroller stays the view's first child.
+        view.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         view.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         view.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(graphScroll, 1);
         graphScroll.Content = GraphCanvas;
         graphScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         graphScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;

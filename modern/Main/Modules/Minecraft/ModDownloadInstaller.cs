@@ -77,7 +77,7 @@ internal static class ModDownloadInstaller {
                 task.Output = result.Destination;
                 ModBase.RunInUi(() => {
                     if(result.ReplacedFiles>0) ModMain.Hint($"已安装，并替换 {result.ReplacedFiles} 个同一模组的已有文件。",ModMain.HintType.Green);
-                    if (owner is not null && ModMain.FrmInstanceMod is not null && ReferenceEquals(PageInstanceLeft.Instance,owner)) ModMain.FrmInstanceMod.LoaderRun(ModLoader.LoaderFolderRunType.ForceRun);
+                    if (owner is not null && ModMain.FrmInstanceMod is not null && ReferenceEquals(LauncherInstanceContext.Instance,owner)) ModMain.FrmInstanceMod.LoaderRun(ModLoader.LoaderFolderRunType.ForceRun);
                 });
             } finally { if (acquired) ModMinecraft.McInstanceLock.Release(worker,lockedPath); }
         }) { ProgressWeight = 1, InterruptOnCancel = false, Block = true };
@@ -140,7 +140,7 @@ internal static class ModDownloadInstaller {
             } catch(Exception error) { Logger.Warn(error,"清理 Mod 下载暂存失败"); }
         };
         cleanup.Start(); ModLoader.LoaderTaskbarAdd(loader);
-        ModMain.FrmMain?.BtnExtraDownload.ShowRefresh(); ModMain.FrmMain?.BtnExtraDownload.Ribble();
+        ModMain.FrmMain?.RefreshTaskButton(pulse: true);
         return loader;
     }
 }

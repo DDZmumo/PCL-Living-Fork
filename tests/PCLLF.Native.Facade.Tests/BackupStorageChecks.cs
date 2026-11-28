@@ -20,7 +20,7 @@ internal static class BackupStorageChecks {
         object? oldProfile=profileProperty.GetValue(null),oldWorld=worldProperty.GetValue(null),oldHistory=historyProperty.GetValue(null);
         string root=Path.Combine(scope.Root,"storage-location"),profile=Path.Combine(root,"profile"),target=Path.Combine(root,"selected-folder");
         Directory.CreateDirectory(profile);Directory.CreateDirectory(target);
-        var loaderHost=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
+        var loaderHost=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,LauncherLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
         Action oldRefresh=loaderHost.RefreshExtraDownload;int refreshes=0;
         // The fixture has no startup window. Observe and drain the genuine
         // combo's final UI notification before restoring its host callback.
@@ -28,12 +28,12 @@ internal static class BackupStorageChecks {
         try {
             profileProperty.SetValue(null,profile);worldProperty.SetValue(null,null);historyProperty.SetValue(null,null);
             PageSetupSystem page=new(); Native.Call(typeof(PageSetupSystem),"RefreshBackupStorage",page);
-            var label=Part<MyTextBox>(page,"TextBackupStoragePath");var button=Part<MyButton>(page,"BtnBackupStorageChoose");
-            Native.Check(label.Text==profile && label.IsReadOnly && button.Text=="选择" && button.IsEnabled,"Settings did not reuse the native path textbox and picker button.");
+            var label=Part<System.Windows.Controls.TextBox>(page,"TextBackupStoragePath");var button=Part<System.Windows.Controls.Button>(page,"BtnBackupStorageChoose");
+            Native.Check(label.Text==profile && label.IsReadOnly && button.Content?.ToString()=="选择" && button.IsEnabled,"Settings did not reuse the native path textbox and picker button.");
             int confirmations=0;
             Native.Set(page,"SelectBackupFolder",new Func<string>(()=>""));
             Native.Set(page,"ConfirmBackupMove",new Func<string,string,bool>((_,_)=>{confirmations++;return false;}));
-            void Click()=>Native.Call(typeof(MyButton),"OnClick",button,button,new MouseButtonEventArgs(InputManager.Current.PrimaryMouseDevice,0,MouseButton.Left));
+            void Click()=>button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
             Click();Native.Check(confirmations==0 && !File.Exists(Path.Combine(profile,"backup-storage.json")),"Canceled folder picker changed the location.");
             Native.Set(page,"SelectBackupFolder",new Func<string>(()=>target));Click();
             Native.Check(confirmations==1 && !File.Exists(Path.Combine(profile,"backup-storage.json")),"Rejected migration confirmation changed the location.");
@@ -81,7 +81,7 @@ internal static class BackupStorageChecks {
             Native.Call(typeof(PageSetupSystem),"RefreshBackupStorage",page);Native.Check(label.Text==target,"Settings did not refresh to the selected root.");
             string? preview=Environment.GetEnvironmentVariable("PCLLF_PERSONAL_OPTIONS_PREVIEW_DIR");
             if(!string.IsNullOrWhiteSpace(preview)) {
-                Directory.CreateDirectory(preview);var stack=Part<StackPanel>(page,"PanMain");foreach(MyCard card in stack.Children.OfType<MyCard>())_=card.MainTextBlock;
+                Directory.CreateDirectory(preview);var stack=Part<StackPanel>(page,"PanMain");foreach(PCLLF.Wpf.Glass.GlassSurface card in stack.Children.OfType<PCLLF.Wpf.Glass.GlassSurface>())_=card.Child as TextBlock;
                 page.Measure(new Size(850,650));page.Arrange(new Rect(0,0,850,650));page.UpdateLayout();
                 RenderTargetBitmap bitmap=new(850,650,96,96,PixelFormats.Pbgra32);bitmap.Render(page);PngBitmapEncoder encoder=new();encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using FileStream file=File.Create(Path.Combine(preview,"backup-storage-settings.png"));encoder.Save(file);

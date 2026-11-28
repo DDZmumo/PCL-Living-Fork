@@ -33,7 +33,7 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
     private static bool Same(string? a, string? b) => string.Equals(a ?? "", b ?? "", StringComparison.Ordinal);
     public int VanillaDrop => McVersion.VersionToDrop(State.VanillaName);
     private DownloadInstallComponentView Component(DownloadInstallComponent kind) => host.Component(kind);
-    public void ControlInit() { host.SuppressStartAnimation(true); host.BindLoaders(); host.RefreshRecommended(); }
+    public void ControlInit() => host.RefreshRecommended();
     public void LoaderInit() { ControlInit(); host.InitializeLoader(); }
     public void Init() {
         if (isLoad) { State.IsSelectNameEdited = false; ExitSelectPage(); if (host.ClientFinished()) TrySelectWaitingVersion(); }
@@ -41,9 +41,9 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
         host.InitializeNameValidation(); host.ReloadSelected();
     }
     public void PrepareSelectPage() {
-        State.IsInSelectPage = true; DownloadInstallPageView view = host.View(); view.Inner.Margin = new Thickness(25, 10, 25, 40);
+        State.IsInSelectPage = true; DownloadInstallPageView view = host.View(); view.Inner.Margin = new Thickness(24, 10, 24, 24);
         view.Select.Visibility = Visibility.Visible; view.Select.IsHitTestVisible = true; view.Minecraft.IsHitTestVisible = false; view.Back.IsHitTestVisible = false; view.ScrollHome();
-        host.SuppressStartAnimation(false); host.StartShow(true);
+        host.StartShow(true);
         foreach (DownloadInstallComponent kind in Enum.GetValues(typeof(DownloadInstallComponent))) Component(kind).SetSwapped(true);
         foreach (FrameworkElement control in host.AnimationControls(view.Select)) { control.Opacity = 1; if (control.RenderTransform is null || control.RenderTransform is TranslateTransform) control.RenderTransform = new TranslateTransform(); }
     }
@@ -65,8 +65,8 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
     public void ReloadComponentLists() { host.View().ValidateName(); OptiFineLoaded(); LiteLoaderLoaded(); ForgeLoaded(); NeoForgeLoaded(); FabricLoaded(); FabricApiLoaded(); OptiFabricLoaded(); host.ReloadSelected(); }
     public void ExitSelectPage() {
         if (!State.IsInSelectPage) return; State.IsInSelectPage = false;
-        DownloadInstallPageView view = host.View(); view.Inner.Margin = new Thickness(25, 10, 25, 25);
-        host.SuppressStartAnimation(true); host.StartShow(false); ClearSelected(); view.Minecraft.Visibility = Visibility.Visible; view.Select.IsHitTestVisible = false; view.Minecraft.IsHitTestVisible = true; view.Back.IsHitTestVisible = false; view.ScrollHome();
+        DownloadInstallPageView view = host.View(); view.Inner.Margin = new Thickness(24, 10, 24, 24);
+        host.StartShow(false); ClearSelected(); view.Minecraft.Visibility = Visibility.Visible; view.Select.IsHitTestVisible = false; view.Minecraft.IsHitTestVisible = true; view.Back.IsHitTestVisible = false; view.ScrollHome();
         animation.Start(new[] {
             animation.Opacity(view.Select, -view.Select.Opacity, 70, 10, DownloadPageEase.None),
             animation.TranslateX(view.Select, 50 - ((TranslateTransform)view.Select.RenderTransform).X, 90, 10, DownloadPageEase.None),
@@ -132,7 +132,7 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
     }
     public void ReloadSelected() {
         if (State.VanillaName is null || ongoing) return; ongoing = true;
-        SelectNameUpdate(); DownloadInstallPageView view = host.View(); view.Logo(host.SelectLogo()); view.MinecraftLogo(State.VanillaIcon);
+        SelectNameUpdate(); DownloadInstallPageView view = host.View(); view.Logo(host.SelectLogo()); view.MinecraftLogo?.Invoke(State.VanillaIcon);
         RenderChoice(DownloadInstallComponent.OptiFine, LoadOptiFineGetError(), () => State.SelectedOptiFine is not null, () => State.SelectedOptiFine!.DisplayName.Replace(State.VanillaName + " ", ""));
         if (VanillaDrop >= 130) Component(DownloadInstallComponent.LiteLoader).Card.Visibility = Visibility.Collapsed;
         else { Component(DownloadInstallComponent.LiteLoader).Card.Visibility = Visibility.Visible; RenderChoice(DownloadInstallComponent.LiteLoader, LoadLiteLoaderGetError(), () => State.SelectedLiteLoader is not null, () => State.SelectedLiteLoader!.Inherit); }

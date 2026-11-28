@@ -51,7 +51,7 @@ public static class MmcInstances {
             if (services.RegisterTask is not null) services.RegisterTask(combo);
             else {
                 ModLoader.LoaderTaskbarAdd(combo);
-                ModBase.RunInUi(() => ModMain.FrmMain.BtnExtraDownload.ShowRefresh());
+                ModBase.RunInUi(() => ModMain.FrmMain.RefreshTaskButton());
             }
             combo.Start(request.ArchivePath);
             return combo;

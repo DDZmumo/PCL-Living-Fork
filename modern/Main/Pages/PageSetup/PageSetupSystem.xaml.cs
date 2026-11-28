@@ -1,101 +1,119 @@
+// SPDX-License-Identifier: MPL-2.0
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
-using PCLCS;
+using System.Windows.Threading;
+using MeloongCore;
 
-namespace PCL
+namespace PCL;
+
+public partial class PageSetupSystem : GlassWorkspacePage
 {
-    // Original LF XAML fields/Handles and public entry points remain typed; business lives in C#.
-    public partial class PageSetupSystem
+    private bool _bindingMode;
+    private bool _threadWarningQueued;
+
+    public PageSetupSystem()
     {
-        internal Func<bool> ConfirmPrereleaseUpdates = () => ModMain.MyMsgBox(
-            "预发布版本可能存在尚未发现的问题，稳定性不及正式发布版。\r\n\r\n启用后将同时接收正式发布版和预发布版的启动器更新。是否继续？",
-            "接收预发布版更新", "启用预发布更新", "取消", IsWarn: true) == 1;
-        private LegacyPageSetupSystemController _controller;
-        internal LegacyPageSetupSystemController Controller
+        InitializeComponent();
+        AttachScroll(PanBack);
+        AttachPlaceholder(TextSystemCache, "默认");
+        SettingService.BindNativeControls(this);
+        BindHint(SliderDownloadThread, value => (value + 1).ToString());
+        BindHint(SliderDownloadSpeed, SpeedLimitText);
+        BindHint(SliderDebugAnim, value => value == 30 ? "关闭" : $"{(value + 1) / 10.0:0.#}x");
+        SliderDownloadThread.ValueChanged += (_, _) => QueueThreadWarning();
+        SliderDownloadThread.LostMouseCapture += (_, _) => QueueThreadWarning();
+        CheckDebugMode.Checked += DebugModeChanged;
+        CheckDebugMode.Unchecked += DebugModeChanged;
+        CheckModpackMode.Checked += ModeChanged;
+        CheckModpackMode.Unchecked += ModeChanged;
+        BtnSystemSettingExp.Click += (_, _) => ModMain.Hint("该功能尚在开发中！", Log: false);
+        BtnSystemSettingImp.Click += (_, _) => ModMain.Hint("该功能尚在开发中！", Log: false);
+        RefreshBackupRetention();
+        Loaded += (_, _) => {
+            PanBack.ScrollToTop();
+            Reload();
+            RefreshBackupStorage();
+        };
+    }
+
+    public void Reload()
+    {
+        ModAnimation.AniControlEnabled++;
+        try
         {
-            get
-            {
-                if (_controller is null)
-                {
-                    _controller = new LegacyPageSetupSystemController(SetupPageRuntime.SystemHost, new LegacyPageSetupSystemView() { UpdatesOnSeparatePage = true, Page = new Func<DependencyObject>(() => this), ComboLauncherUpdateSource = () => ComboLauncherUpdateSource, ComboLauncherUpdateChannel = () => ComboLauncherUpdateChannel, ConfirmPrereleaseUpdates = () => ConfirmPrereleaseUpdates, PanBack = new Func<ScrollViewer>(() => this.PanBack), PanMain = new Func<StackPanel>(() => this.PanMain), ComboDownloadSource = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboDownloadSource), ComboDownloadVersion = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboDownloadVersion), SliderDownloadThread = new Func<PCLLF.Presentation.Controls.MySliderView>(() => this.SliderDownloadThread), SliderDownloadSpeed = new Func<PCLLF.Presentation.Controls.MySliderView>(() => this.SliderDownloadSpeed), ComboDownloadMod = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboDownloadMod), ComboDownloadTranslateV2 = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboDownloadTranslateV2), ComboModLocalNameStyle = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboModLocalNameStyle), CheckHelpChinese = new Func<PCLLF.Presentation.Controls.MyCheckBoxView>(() => this.CheckHelpChinese), LabLauncherVersion = new Func<TextBlock>(() => this.LabLauncherVersion), ComboSystemActivity = new Func<PCLLF.Presentation.Controls.MyComboBoxView>(() => this.ComboSystemActivity), TextSystemCache = new Func<PCLLF.Presentation.Controls.MyTextBoxView>(() => this.TextSystemCache), BtnSystemUpdate = new Func<PCLLF.Presentation.Controls.MyButtonView>(() => this.BtnSystemUpdate), BtnSystemSettingExp = new Func<PCLLF.Presentation.Controls.MyButtonView>(() => this.BtnSystemSettingExp), BtnSystemSettingImp = new Func<PCLLF.Presentation.Controls.MyButtonView>(() => this.BtnSystemSettingImp), LabModpackMode = new Func<TextBlock>(() => this.LabModpackMode), CheckModpackMode = new Func<PCLLF.Presentation.Controls.MyCheckBoxView>(() => this.CheckModpackMode), CardDebug = new Func<PCLLF.Presentation.Controls.MyCardView>(() => this.CardDebug), PanDebugAnim = new Func<Grid>(() => this.PanDebugAnim), SliderDebugAnim = new Func<PCLLF.Presentation.Controls.MySliderView>(() => this.SliderDebugAnim), CheckDebugSkipCopy = new Func<PCLLF.Presentation.Controls.MyCheckBoxView>(() => this.CheckDebugSkipCopy), CheckDebugMode = new Func<PCLLF.Presentation.Controls.MyCheckBoxView>(() => this.CheckDebugMode), CheckDebugDelay = new Func<PCLLF.Presentation.Controls.MyCheckBoxView>(() => this.CheckDebugDelay) });
-                }
-
-                return _controller;
-            }
-        }
-
-        public PageSetupSystem()
-        {
-            Initialized += InitLauncherUpdateSource;
-            __LfAttachOwnHandles();
-            this.InitializeComponent();
-            RefreshBackupRetention();
-            Loaded += (_, _) => { RefreshBackupStorage(); RefreshBackupRetention(); };
-        }
-
-        private void InitLauncherUpdateSource(object sender, EventArgs e) => Controller.InitializeLauncherUpdates();
-        private void RefreshUpdateChannel() => Controller.RefreshUpdateChannel();
-        private void UpdateChannelChanged(object sender, SelectionChangedEventArgs e) => Controller.UpdateChannelChanged();
-
-        private void PageSetupSystem_Loaded(object sender, RoutedEventArgs e)
-        {
-            Controller.Loaded();
-        }
-
-        public void Reload()
-        {
-            Controller.Reload();
+            SettingService.RefreshSettings(this);
+            RefreshModpackSwitch();
             RefreshBackupRetention();
         }
+        finally { ModAnimation.AniControlEnabled--; }
+    }
 
-        internal void RefreshModpackSwitch()
+    internal void RefreshModpackSwitch()
+    {
+        _bindingMode = true;
+        try
         {
-            Controller.RefreshModpackSwitch();
+            CheckModpackMode.IsChecked = ModModpackMode.Enabled;
+            LabModpackMode.Visibility = CheckModpackMode.Visibility = ModModpackMode.CanEnable ? Visibility.Visible : Visibility.Collapsed;
         }
+        finally { _bindingMode = false; }
+    }
 
-        private void ModpackModeChanged(object sender, bool User)
-        {
-            Controller.ModpackModeChanged(sender, User);
-        }
+    private void ModeChanged(object sender, RoutedEventArgs args)
+    {
+        if (!IsLoaded || _bindingMode) return;
+        _bindingMode = true;
+        try { ModModpackMode.Toggle(CheckModpackMode); }
+        finally { _bindingMode = false; }
+    }
 
-        public void Reset()
+    public void Reset()
+    {
+        try
         {
             Settings.Reset("LaunchWorldBackupKeepAll");
             Settings.Reset("LaunchEnvironmentHistoryAutoCleanup");
-            Controller.Reset();
-            RefreshBackupRetention();
+            SettingService.ResetSettings(this);
+            Logger.Info("已初始化启动器页设置");
+            ModMain.Hint("已初始化启动器页设置！", ModMain.HintType.Green);
         }
+        catch (Exception error) { Logger.Error(error, "初始化启动器页设置失败", LogBehavior.Alert); }
+        Reload();
+    }
 
-        private void SliderLoad()
-        {
-            Controller.SliderLoad();
-        }
+    private static string SpeedLimitText(int value) => value switch {
+        <= 14 => $"{(value + 1) * 0.1:0.#} M/s",
+        <= 31 => $"{(value - 11) * 0.5:0.#} M/s",
+        <= 41 => $"{value - 21} M/s",
+        _ => "无限制"
+    };
 
-        private void SliderDownloadThread_PreviewChange(object sender, ModBase.RouteEventArgs e)
-        {
-            Controller.DownloadThreadPreview();
-        }
+    private static void BindHint(Slider slider, Func<int, string> format)
+    {
+        var hint = new GlassPageResources.SliderDragHint(slider);
+        hint.SetText(format((int)slider.Value));
+        slider.ValueChanged += (_, _) => hint.SetText(format((int)slider.Value));
+    }
 
-        private void CheckDebugMode_Change()
-        {
-            Controller.DebugModeChanged();
-        }
+    private void QueueThreadWarning()
+    {
+        if (_threadWarningQueued || !IsLoaded || ModAnimation.AniControlEnabled != 0 ||
+            SliderDownloadThread.IsMouseCaptureWithin || SliderDownloadThread.Value < 100 ||
+            Settings.Get<bool>("HintDownloadThread")) return;
+        _threadWarningQueued = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+            _threadWarningQueued = false;
+            if (!IsLoaded || SliderDownloadThread.Value < 100 || Settings.Get<bool>("HintDownloadThread")) return;
+            Settings.Set("HintDownloadThread", true);
+            ModMain.MyMsgBox("如果设置过多的下载线程，可能会导致下载时出现严重的卡顿。\r\n一般设置 64 线程即可满足大多数下载需求。",
+                "警告", "我知道了", IsWarn: true);
+        }));
+    }
 
-        private void BtnSystemUpdate_Click(object sender, EventArgs e)
-        {
-            Controller.CheckUpdate();
-        }
-
-        private void BtnSystemSettingExp_Click(object sender, MouseButtonEventArgs e)
-        {
-            Controller.ExportSettings();
-        }
-
-        private void BtnSystemSettingImp_Click(object sender, MouseButtonEventArgs e)
-        {
-            Controller.ImportSettings();
-        }
+    private void DebugModeChanged(object sender, RoutedEventArgs args)
+    {
+        if (IsLoaded && ModAnimation.AniControlEnabled == 0)
+            ModMain.Hint("部分调试信息将在刷新或启动器重启后切换显示！");
     }
 }

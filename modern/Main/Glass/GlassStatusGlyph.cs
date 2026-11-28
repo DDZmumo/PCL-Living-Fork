@@ -32,7 +32,8 @@ internal sealed class GlassStatusGlyph : Viewbox
     private readonly double _hexLength, _firstLength, _secondLength;
     private SpringMotion? _hexMotion, _firstMotion, _secondMotion, _dotMotion, _tiltMotion;
 
-    internal GlassStatusGlyph(Kind kind, double size = 56)
+    internal GlassStatusGlyph(Kind kind, double size = 56, string signBrush = "GlassPresentationText",
+        string outlineBrush = "GlassPresentationSecondary")
     {
         _kind = kind;
         Width = Height = size;
@@ -49,7 +50,7 @@ internal sealed class GlassStatusGlyph : Viewbox
             if (index == 0) hex.StartPoint = point; else hex.Segments.Add(new LineSegment(point, true));
         }
         _hexLength = 6 * 26;
-        _hexagon = Line(new PathGeometry(new[] { hex }), "GlassPresentationSecondary", _hexLength);
+        _hexagon = Line(new PathGeometry(new[] { hex }), outlineBrush, _hexLength);
 
         if (kind == Kind.Failed)
         {
@@ -59,11 +60,11 @@ internal sealed class GlassStatusGlyph : Viewbox
         else
         {
             // The hook of the question mark (two curves), then the dot below it.
-            _first = Line(Geometry.Parse("M25,26 C25,17.5 39,17.5 39,25 C39,30.5 32,30 32,36.5"), "GlassPresentationText", _firstLength = 38);
-            _second = Line(Geometry.Parse("M32,36.5 L32,36.5"), "GlassPresentationText", _secondLength = 1);
+            _first = Line(Geometry.Parse("M25,26 C25,17.5 39,17.5 39,25 C39,30.5 32,30 32,36.5"), signBrush, _firstLength = 38);
+            _second = Line(Geometry.Parse("M32,36.5 L32,36.5"), signBrush, _secondLength = 1);
             _second.Visibility = Visibility.Collapsed;
             _dot = new Ellipse { Width = 5, Height = 5, RenderTransformOrigin = new Point(.5, .5), RenderTransform = _dotScale };
-            _dot.SetResourceReference(Shape.FillProperty, "GlassPresentationText");
+            _dot.SetResourceReference(Shape.FillProperty, signBrush);
             Canvas.SetLeft(_dot, 29.5); Canvas.SetTop(_dot, 41);
         }
         canvas.Children.Add(_hexagon); canvas.Children.Add(_first); canvas.Children.Add(_second);

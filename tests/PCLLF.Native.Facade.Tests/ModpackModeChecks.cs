@@ -11,7 +11,7 @@ using System.Windows.Threading;
 using MeloongCore;
 using PCL;
 using PCLCS;
-using ModeHost = PCLCS.ModpackModeHost<PCL.MyPageRight, PCL.ModMinecraft.McFolder, PCL.ModMinecraft.McInstance>;
+using ModeHost = PCLCS.ModpackModeHost<System.Windows.FrameworkElement, PCL.ModMinecraft.McFolder, PCL.ModMinecraft.McInstance>;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -55,7 +55,7 @@ internal static partial class ModpackModeChecks {
         private readonly List<ModLoader.LoaderBase> loaders = new();
         private readonly FixtureEnvironment fixture;
         private readonly PropertyInfo animation = Native.Property(Native.Type("PCL.ModAnimation"), "AniControlEnabled");
-        private readonly RedoableWorker<Java> java = PageInstanceLeft.CurrentJavaWorker;
+        private readonly RedoableWorker<Java> java = LauncherInstanceContext.CurrentJavaWorker;
         private readonly object producerGate = new();
         private readonly HashSet<Thread> producers = new();
         private readonly List<DispatcherOperation> producerUi = new();
@@ -71,7 +71,7 @@ internal static partial class ModpackModeChecks {
             this.fixture = fixture; Root = Path.Combine(fixture.Data, "modpack-mode"); Launcher = Path.Combine(Root, "other-launcher") + Path.DirectorySeparatorChar; AppData = Path.Combine(Root, "appdata") + Path.DirectorySeparatorChar;
             Native.Check(!Directory.Exists(Root), "Refusing existing modpack-mode fixture."); Directory.CreateDirectory(Launcher); Directory.CreateDirectory(AppData);
             object service = Native.Field(Mode, "Service").GetValue(null)!; Host = (ModeHost)Native.Get(service, "host")!;
-            Native.Check(service.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(MyPageRight), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
+            Native.Check(service.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && service.GetType().GetGenericArguments().SequenceEqual(new[] { typeof(FrameworkElement), typeof(ModMinecraft.McFolder), typeof(ModMinecraft.McInstance) }), "Mode fixture is not the genuine Core/Main closure.");
             try {
                 CaptureValidationThreads(false);
                 DispatcherHookEventHandler posted = (_,args) => { Thread thread = Thread.CurrentThread; if (!IsValidation(thread.Name)) return; lock (producerGate) { producers.Add(thread); producerUi.Add(args.Operation); } };
@@ -81,7 +81,7 @@ internal static partial class ModpackModeChecks {
                 Replace(Host, "RunInNewThread", new Action<Action,string>((_,_) => Forbidden<int>("unexpected mode scope worker")));
                 SaveField(service, "CompactSettings"); Native.Set(service, "CompactSettings", null);
                 foreach (string name in new[] { "FrmMain", "FrmSetupLeft", "FrmLaunchLeft", "FrmInstanceLeft", "FrmInstanceOverall", "FrmInstanceMod", "FrmInstanceModDisabled", "FrmInstanceSetup", "FrmSetupLaunch", "FrmSetupSystem", "FrmSelectLeft", "FrmSelectRight", "FrmInstanceExport", "FrmDownloadModify" }) Global(name, null);
-                SaveStatic(typeof(PageInstanceLeft), "Instance"); PageInstanceLeft.Instance = null!;
+                SaveStatic(typeof(LauncherInstanceContext), "Instance"); LauncherInstanceContext.Instance = null!;
                 SaveStatic(typeof(ModMinecraft), "McFolderList");
                 SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
                 SaveStatic(typeof(ModMinecraft), "_McFolderSelected"); Native.State(typeof(ModMinecraft), "_McFolderSelected").SetValue(null, Path.Combine(Launcher, ".minecraft") + Path.DirectorySeparatorChar);
@@ -90,12 +90,11 @@ internal static partial class ModpackModeChecks {
                 object minecraft = Native.Field(typeof(ModMinecraft), "Service").GetValue(null)!;
                 object minecraftHost = minecraft.GetType().GetFields(Native.Flags).Single(field => field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition() == typeof(LegacyMinecraftHost<,,,,>)).GetValue(minecraft)!;
                 Replace(minecraftHost, "PackFolder", new Func<string>(() => (string)Native.Static("PCL.MinecraftFolderPolicy", "PackFolder", Launcher)!));
-                SaveStatic(Native.Type("PCL.PageSetupUI"), "_HiddenForceShow");
+                SaveStatic(typeof(LauncherAppearanceSettings), "<HiddenForceShow>k__BackingField");
                 PropertyInfo before = Native.Property(Native.Type("PCL.InstanceClonerUi"), "BeforeMinecraftChangeHandler"); object? previous = before.GetValue(null); restore.Push(() => before.SetValue(null, previous));
                 int oldAnimation = (int)animation.GetValue(null)!; restore.Push(() => animation.SetValue(null, oldAnimation)); animation.SetValue(null, checked(oldAnimation + 1));
                 Native.Check(!java.Running, "An existing Java worker is running before the mode fixture."); ObserveEvent(java, "Stopped"); ObserveEvent(java, "Started");
                 ObserveLoader(ModMinecraft.McFolderListLoader); ObserveLoader(LocalResourceLoaders.LocalResourceLoader); ObserveLoader(LocalResourceLoaders.LocalResourceOnlineLoader);
-                ObserveEvent(typeof(MyTextBox), null, "ValidateChanged");
                 var ini = (ConcurrentDictionary<string,ConcurrentDictionary<string,string>>)Native.Field(Native.Type("PCL.ModBase"), "IniCache").GetValue(null)!;
                 restore.Push(() => { foreach (string key in ini.Keys.Where(key => key.StartsWith(Native.Full(Root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToArray()) Native.Static("PCL.ModBase", "IniClearCache", key); });
                 SetCache("LivingModpackMode", false); SetCache("LivingModpackExported", false); SetCache("LaunchArgumentIndieV2", 3);

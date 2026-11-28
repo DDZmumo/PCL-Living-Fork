@@ -1,4 +1,5 @@
-using System.Windows.Input;
+using System.Windows;
+using System.Windows.Controls;
 using PCL;
 using PCLCS;
 
@@ -19,10 +20,10 @@ internal static class DailyLuckChecks {
             Replace(host, "LuckIdentify", new Func<string>(() => "fixture-machine"));
             Replace(host, "LuckTimeChanged", new Func<bool>(() => false));
             Replace(common, "Message", new LegacySetupMessage((text,title,b1,b2,b3,warn) => { messages.Add((text,title,warn)); return response; }));
-            PageOtherTest page = new(); MyButton button = (MyButton)page.FindName("BtnJrrp");
-            void Click() { messages.Clear(); Native.Call(typeof(MyButton), "OnClick", button, button, new MouseButtonEventArgs(InputManager.Current.PrimaryMouseDevice, 0, MouseButton.Left)); }
+            PageOtherTest page = new(); Button button = (Button)page.FindName("BtnJrrp");
+            void Click() { messages.Clear(); button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
             Click();
-            Native.Check(button.Text == "今日人品" && messages.Count == 1 && messages[0] == ("你今天的人品值是：26！呜……", "今日人品 - 2026/11/8", false),
+            Native.Check(button.Content?.ToString() == "今日人品" && messages.Count == 1 && messages[0] == ("你今天的人品值是：26！呜……", "今日人品 - 2026/11/8", false),
                 "Daily luck's actual native button lost the reference algorithm/result dialog.");
             Replace(host, "LuckTimeChanged", new Func<bool>(() => true)); Click();
             Native.Check(messages[0].Text.StartsWith("在这个时候", StringComparison.Ordinal) && messages[0].Title.StartsWith("今日人品?", StringComparison.Ordinal), "Clock-change wording was lost.");

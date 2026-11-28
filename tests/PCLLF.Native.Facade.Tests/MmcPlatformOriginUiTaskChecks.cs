@@ -101,7 +101,7 @@ internal static class MmcPlatformOriginUiTaskChecks {
         internal readonly Data Data;
         private readonly Dictionary<PropertyInfo, object?> previous = [];
         private readonly List<ModLoader.LoaderCombo<string>> tasks = [];
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private readonly JsonConfigProvider? oldProfile;
         private bool finished;
@@ -129,7 +129,7 @@ internal static class MmcPlatformOriginUiTaskChecks {
                 Configs.JavaList.Set(new ConcurrentList<Java>([java])); Configs.JavaConfigVersion.Set(Versions.JavaConfigVersion);
             }
             Data = new(files, name, server);
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             void Register(ModLoader.LoaderCombo<string> task) { tasks.Add(task); ModLoader.LoaderTaskbar.Add(task); }
             Set("PCL.MmcPlatformOriginUi", "RegisterTask", new Action<ModLoader.LoaderCombo<string>>(Register));

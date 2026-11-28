@@ -2,6 +2,7 @@ using System.Collections;
 using System.IO.Compression;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json.Linq;
@@ -72,11 +73,11 @@ internal static class ModpackLivePreviewChecks
                 foreach (DependencyObject nested in Walk(child)) yield return nested;
             }
         }
-        MyCheckBox Option(string kind, string relative) {
+        CheckBox Option(string kind, string relative) {
             if (Convert.ToInt32(Native.Property(preview.GetType(), "ActiveKind").GetValue(preview)) != 4)
                 Native.Call(preview.GetType(), "ShowCompatibility", preview);
             preview.UpdateLayout();
-            var option = Walk(preview).OfType<MyCheckBox>().Single(box => Equals(box.Tag, "preview-repair:" + kind + ":" + relative));
+            var option = Walk(preview).OfType<CheckBox>().Single(box => Equals(box.Tag, "preview-repair:" + kind + ":" + relative));
             VisualAssetChecks.Pump(() => option.IsLoaded, "Repair option did not load after switching pages.", 2000);
             return option;
         }
@@ -86,15 +87,14 @@ internal static class ModpackLivePreviewChecks
             preview.UpdateLayout();
             return Walk(preview).OfType<Border>().Single(border => border.ToolTip is string tip && tip.StartsWith("mods/replaceable.jar\r\n", StringComparison.Ordinal));
         }
-        bool Checking() => ((StackPanel)Get(preview, "Header")!).Children.OfType<MyHint>().Any(hint => hint.Text.Contains("正在检查", StringComparison.Ordinal));
+        bool Checking() => ((StackPanel)Get(preview, "Header")!).Children.OfType<Border>().Select(border => border.Child).OfType<TextBlock>().Any(hint => hint.Text.Contains("正在检查", StringComparison.Ordinal));
         int cancelInvocations = 0;
         var converter = new ModMain.MyMsgBoxConverter { Title = "整合包更新预览", Text = "Live compatibility checks", Button1 = "按以上选择更新", Button2 = "取消", IsWarn = false, ContentFactory = () => preview, Button2Action = () => cancelInvocations++ };
-        var modal = new MyMsgText(converter);
+        var modal = Native.Dialog(converter);
         var messagePanel = new Grid(); messagePanel.Children.Add(modal);
         object dialogController = Native.Get(modal, "Native")!;
-        ((PCLLF.Presentation.Dialogs.MessageDialogHost)Native.Get(dialogController, "Host")!).MessagePanel = () => messagePanel;
-        ((RotateTransform)modal.FindName("TransformRotate")).Angle = 0; ((TranslateTransform)modal.FindName("TransformPos")).Y = 0;
-        var confirm = (MyButton)modal.FindName("Btn1");
+         
+        var confirm = (Button)((Button[])Native.Get(modal, "_buttons")!)[0];
         var app = System.Windows.Application.Current; Window? previousMain = app.MainWindow; ShutdownMode previousMode = app.ShutdownMode;
         int previousAnimation = ModAnimation.AniControlEnabled;
         var window = new Window { Content = messagePanel, Width = 850, Height = 650, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
@@ -103,11 +103,11 @@ internal static class ModpackLivePreviewChecks
             window.Show(); window.UpdateLayout(); modal.Opacity = 1;
             VisualAssetChecks.Pump(() => !Checking(), "Initial live compatibility check did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "Incompatible preview allowed confirmation.");
-            var cancel = (MyButton)modal.FindName("Btn2");
+            var cancel = (Button)((Button[])Native.Get(modal, "_buttons")!)[1];
             Native.Check(cancel.IsEnabled, "Compatibility errors disabled the native cancel button.");
-            modal.Btn2_Click();
+            ClickDialog(modal, 1);
             Native.Check(cancelInvocations == 1, "The native cancel action was blocked by compatibility errors.");
-            modal.Btn1_Click(); Native.Check(converter.Result is null, "A disabled confirmation was accepted through the message controller.");
+            ClickDialog(modal, 0); Native.Check(converter.Result is null, "A disabled confirmation was accepted through the message controller.");
             Native.Check(Convert.ToInt32(Native.Property(preview.GetType(), "ActiveKind").GetValue(preview)) == 4, "An actionable update did not default to update checks.");
             Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(Native.Type("PCL.ModpackUpdatePreviewView+ChangeKind"), "Preserved"));
             preview.UpdateLayout();
@@ -120,22 +120,22 @@ internal static class ModpackLivePreviewChecks
                 return Math.Abs(clip.Rect.Width - source.Width * scale) < 0.01 && Math.Abs(clip.Rect.Height - source.Height * scale) < 0.01;
             }), "Square or wide Uniform artwork lacks a rounded clip around its visible content.");
             Save(modal, "live-preview-files.png");
-            Native.Check(Walk(preview).OfType<MyCard>().Any(card => card.Title == "文件变更") && !Walk(preview).OfType<MyCard>().Any(card => card.Title == "更新检查"), "File page mixed in compatibility decisions.");
-            Native.Check(!Option("EnableRequired", "mods/provider-new.jar").Checked && !Option("DisableIncompatible", "mods/legacy-adapter.jar").Checked,
+            Native.Check(Walk(preview).OfType<Border>().Any(card => AutomationProperties.GetName(card) == "文件变更") && !Walk(preview).OfType<Border>().Any(card => AutomationProperties.GetName(card) == "更新检查"), "File page mixed in compatibility decisions.");
+            Native.Check(Option("EnableRequired", "mods/provider-new.jar").IsChecked == false && Option("DisableIncompatible", "mods/legacy-adapter.jar").IsChecked == false,
                 "Required-provider/unchanged-author decisions were missing or silently applied.");
-            MyCheckBox personalRequired = Option("EnableRequired", "mods/personal-provider.jar");
-            Native.Check(!personalRequired.Checked && personalRequired.Text == "启用本地的必需前置",
+            CheckBox personalRequired = Option("EnableRequired", "mods/personal-provider.jar");
+            Native.Check(personalRequired.IsChecked == false && personalRequired.Content?.ToString() == "启用本地的必需前置",
                 "A disabled personal provider was presented as an author package option or silently enabled.");
-            Native.Check(Option("EnableRequired", "mods/provider-new.jar").Text == "启用整包版本的必需前置",
+            Native.Check(Option("EnableRequired", "mods/provider-new.jar").Content?.ToString() == "启用整包版本的必需前置",
                 "The packaged provider lost its distinct author-version label.");
             Save(modal, "live-preview-needs-decisions.png");
-            var sections = Walk(preview).OfType<MyCard>().ToArray();
-            Native.Check(sections.Count(card => card.Title == "更新检查") == 1 && !sections.Any(card => card.Title == "文件变更"), "Compatibility page mixed in file changes.");
+            var sections = Walk(preview).OfType<Border>().ToArray();
+            Native.Check(sections.Count(card => AutomationProperties.GetName(card) == "更新检查") == 1 && !sections.Any(card => AutomationProperties.GetName(card) == "文件变更"), "Compatibility page mixed in file changes.");
             Native.Check(Walk(preview).OfType<Expander>().All(details => !details.IsExpanded), "Action details were repeated as expanded error walls.");
             // The original dialog controller follows the owned message panel's
             // real size changes, just as it follows FormMain.PanMsg in production.
             window.Width = 560; window.UpdateLayout();
-            var scroll = Walk(preview).OfType<MyScrollViewer>().Single();
+            var scroll = Walk(preview).OfType<ScrollViewer>().Single();
             Native.Check(scroll.ViewportHeight >= 80 && scroll.ScrollableHeight > 0, "Narrow preview lost its scrolling viewport.");
             foreach (var details in Walk(preview).OfType<Expander>().ToArray()) details.IsExpanded = true;
             window.UpdateLayout(); scroll.ScrollToBottom(); window.UpdateLayout();
@@ -147,49 +147,49 @@ internal static class ModpackLivePreviewChecks
             Save(modal, "live-preview-narrow.png");
             foreach (var details in Walk(preview).OfType<Expander>().ToArray()) details.IsExpanded = false;
             window.Width = 850; scroll.ScrollToTop(); window.UpdateLayout();
-            Option("DisableIncompatible", "mods/legacy-adapter.jar").SetChecked(true, true);
+            Option("DisableIncompatible", "mods/legacy-adapter.jar").IsChecked = true;
             VisualAssetChecks.Pump(() => !Checking(), "Disable decision check did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "Disabling one mod hid the remaining missing provider.");
-            Option("EnableRequired", "mods/provider-new.jar").SetChecked(true, true);
+            Option("EnableRequired", "mods/provider-new.jar").IsChecked = true;
             VisualAssetChecks.Pump(() => !Checking(), "Author-provider decision check did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "The remaining disabled personal provider did not block confirmation.");
-            Option("EnableRequired", "mods/personal-provider.jar").SetChecked(true, true);
+            Option("EnableRequired", "mods/personal-provider.jar").IsChecked = true;
             VisualAssetChecks.Pump(CanConfirm, "Enabling the local personal provider did not satisfy its consumer.", 12000);
             Native.Check(confirm.IsEnabled, "Live success did not reach the real native modal button.");
             // Explicitly return to an incompatible personal modification through its genuine radio control.
             void PreserveModified() {
                 Border card = ModifiedCard();
-                Walk(card).OfType<MyRadioBox>().Single(radio => Equals(radio.Tag, PackUpdateChoice.PreservePersonal)).Checked = true;
+                Walk(card).OfType<RadioButton>().Single(radio => Equals(radio.Tag, PackUpdateChoice.PreservePersonal)).IsChecked = true;
             }
             PreserveModified();
             VisualAssetChecks.Pump(() => !Checking(), "Personal modification recheck did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "An incompatible preserved personal modification was accepted.");
-            MyCheckBox restore = Option("UseAuthorVersion", "mods/replaceable.jar");
-            Native.Check(!restore.Checked && restore.Text == "使用整包新版", "The author restore decision was not explicit.");
-            Native.Check(!Walk(preview).OfType<MyCheckBox>().Any(box => Equals(box.Tag, "preview-repair:DisableIncompatible:mods/replaceable.jar")),
+            CheckBox restore = Option("UseAuthorVersion", "mods/replaceable.jar");
+            Native.Check(restore.IsChecked == false && restore.Content?.ToString() == "使用整包新版", "The author restore decision was not explicit.");
+            Native.Check(!Walk(preview).OfType<CheckBox>().Any(box => Equals(box.Tag, "preview-repair:DisableIncompatible:mods/replaceable.jar")),
                 "A healthy author replacement was offered for disabling to accommodate the personal modification.");
-            restore.SetChecked(true, true);
+            restore.IsChecked = true;
             VisualAssetChecks.Pump(CanConfirm, "Restoring the healthy author version did not enable confirmation.", 12000);
-            Native.Check(confirm.IsEnabled && Option("UseAuthorVersion", "mods/replaceable.jar").Checked, "The selected author restore decision disappeared or failed to reach the native confirm button.");
+            Native.Check(confirm.IsEnabled && Option("UseAuthorVersion", "mods/replaceable.jar").IsChecked == true, "The selected author restore decision disappeared or failed to reach the native confirm button.");
             Border restoredCard = ModifiedCard();
-            Native.Check(Walk(restoredCard).OfType<MyRadioBox>().Single(radio => Equals(radio.Tag, PackUpdateChoice.UseAuthor)).Checked,
+            Native.Check(Walk(restoredCard).OfType<RadioButton>().Single(radio => Equals(radio.Tag, PackUpdateChoice.UseAuthor)).IsChecked == true,
                 "The ordinary author-version radio did not reflect the repair decision.");
-            Option("UseAuthorVersion", "mods/replaceable.jar").SetChecked(false, true);
+            Option("UseAuthorVersion", "mods/replaceable.jar").IsChecked = false;
             VisualAssetChecks.Pump(() => !Checking(), "Reverting the author restore decision did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "Reverting to the personal modification bypassed compatibility checks.");
-            Option("UseAuthorVersion", "mods/replaceable.jar").SetChecked(true, true);
+            Option("UseAuthorVersion", "mods/replaceable.jar").IsChecked = true;
             VisualAssetChecks.Pump(CanConfirm, "Restoring the author version a second time did not recover confirmation.", 12000);
             scroll.ScrollToTop(); window.UpdateLayout();
             Save(modal, "live-preview-valid.png");
             var rapid = Option("DisableIncompatible", "mods/legacy-adapter.jar");
-            rapid.SetChecked(false, true); rapid.SetChecked(true, true); rapid.SetChecked(false, true);
+            rapid.IsChecked = false; rapid.IsChecked = true; rapid.IsChecked = false;
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "A changed selection retained stale permission while checking.");
             VisualAssetChecks.Pump(() => !Checking(), "Restored incompatible selection check did not finish.", 12000);
             Native.Check(!CanConfirm() && !confirm.IsEnabled, "Keeping an incompatible mod was not blocked inside the preview.");
-            modal.Btn1_Click(); Native.Check(converter.Result is null, "Invalid selected combination closed the modal or started the update.");
+            ClickDialog(modal, 0); Native.Check(converter.Result is null, "Invalid selected combination closed the modal or started the update.");
             // Unload while a valid review is pending: late completions must never reopen confirmation.
-            Option("DisableIncompatible", "mods/legacy-adapter.jar").SetChecked(true, true);
-            modal.Btn2_Click();
+            Option("DisableIncompatible", "mods/legacy-adapter.jar").IsChecked = true;
+            ClickDialog(modal, 1);
             Native.Check(cancel.IsEnabled && cancelInvocations == 2, "A pending review blocked the native cancel action.");
             window.Content = null;
             window.UpdateLayout();
@@ -206,15 +206,15 @@ internal static class ModpackLivePreviewChecks
     {
         string file = Path.Combine(root, "reader-seam.jar"); File.WriteAllText(file, "owned preview input");
         using ManualResetEventSlim entered = new(), release = new(), cancelled = new();
-        var view = new ModpackDialogController<MyButton, MyScrollViewer>("Reader lifetime", "", 4, new() {
-            AnimationName = () => "reader-lifetime", CreateButton = () => new(), SetButtonText = (button, text) => button.Text = text,
+        var view = new ModpackDialogController<Button, ScrollViewer>("Reader lifetime", "", 4, new() {
+            AnimationName = () => "reader-lifetime", CreateButton = () => new(), SetButtonText = (button, text) => button.Content = text,
             HighlightButton = (_, _) => { }, OnClick = (button, action) => button.Click += (_, _) => action(), CreateScroll = () => new(),
-            CreateRadio = (text, selected, action) => new MyRadioBox { Text = text, Checked = selected },
-            CreateCheck = (text, selected, action) => new MyCheckBox { Text = text, Checked = selected },
+            CreateRadio = (text, selected, action) => new RadioButton { Content = text, IsChecked = selected },
+            CreateCheck = (text, selected, action) => new CheckBox { Content = text, IsChecked = selected },
             AnimationControl = () => 1, StopAnimation = _ => { }, AnimateOpacity = (_, _, _, _) => { }
         });
         var plan = new PreviewPlan { Package = new PreviewPackage { Minecraft = "1.21.1" } };
-        var controller = new ModpackUpdatePreviewController<PackUpdateFileData, PreviewPackage, PreviewChange, PreviewPlan, DayOfWeek, MyButton, MyScrollViewer>(
+        var controller = new ModpackUpdatePreviewController<PackUpdateFileData, PreviewPackage, PreviewChange, PreviewPlan, DayOfWeek, Button, ScrollViewer>(
             view, plan, "1.21.1", new(), new(), _ => { }, text => new TextBlock { Text = text }, value => value, (_, token) => {
                 using var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
                 using var registration = token.Register(() => cancelled.Set());
@@ -235,11 +235,11 @@ internal static class ModpackLivePreviewChecks
             Native.Check(!view.CanConfirm, "A closed preview enabled confirmation after its read completed.");
         } finally { release.Set(); controller.CloseAndDrainAsync().GetAwaiter().GetResult(); }
         int selectedPage = -1;
-        var cleanView = new ModpackDialogController<MyButton, MyScrollViewer>("No decisions", "", 4, new() {
-            AnimationName = () => "clean-preview", CreateButton = () => new(), SetButtonText = (button, text) => button.Text = text,
+        var cleanView = new ModpackDialogController<Button, ScrollViewer>("No decisions", "", 4, new() {
+            AnimationName = () => "clean-preview", CreateButton = () => new(), SetButtonText = (button, text) => button.Content = text,
             HighlightButton = (_, _) => { }, OnClick = (_, _) => { }, CreateScroll = () => new(), AnimationControl = () => 1, StopAnimation = _ => { }, AnimateOpacity = (_, _, _, _) => { }
         });
-        var cleanController = new ModpackUpdatePreviewController<PackUpdateFileData, PreviewPackage, PreviewChange, PreviewPlan, DayOfWeek, MyButton, MyScrollViewer>(cleanView, plan, "1.21.1", new(), new(), value => selectedPage = value, text => new TextBlock { Text = text }, value => value, (_, _) => new());
+        var cleanController = new ModpackUpdatePreviewController<PackUpdateFileData, PreviewPackage, PreviewChange, PreviewPlan, DayOfWeek, Button, ScrollViewer>(cleanView, plan, "1.21.1", new(), new(), value => selectedPage = value, text => new TextBlock { Text = text }, value => value, (_, _) => new());
         VisualAssetChecks.Pump(() => cleanView.CanConfirm, "Empty review did not finish.", 5000);
         Native.Check(selectedPage == 3, "Empty update checks did not default to preserve/custom, including an empty file category.");
         cleanController.CloseAndDrainAsync().GetAwaiter().GetResult();
@@ -254,5 +254,11 @@ internal static class ModpackLivePreviewChecks
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(surface.ActualWidth), (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32); bitmap.Render(surface);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(Path.Combine(folder, name)); encoder.Save(stream);
+    }
+
+    private static void ClickDialog(GlassMessageDialog dialog, int index)
+    {
+        var button = ((Button[])Native.Get(dialog, "_buttons")!)[index];
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
     }
 }

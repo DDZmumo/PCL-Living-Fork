@@ -18,8 +18,8 @@ public sealed partial class DownloadModifyPageController<TInstance, TState, TCar
             try {
                 bool processed = false;
                 foreach (DownloadInstallComponent kind in new[] { DownloadInstallComponent.Fabric, DownloadInstallComponent.Forge, DownloadInstallComponent.NeoForge, DownloadInstallComponent.LiteLoader, DownloadInstallComponent.OptiFine, DownloadInstallComponent.FabricApi, DownloadInstallComponent.OptiFabric }) {
-                    TLoading loading = host.LoadingControl(kind); if (!State.PendingComponents.TryGetValue(loading, out string? version) || !host.IsLoader(loading)) continue; TLoader loader = host.ReadLoader(loading);
-                    bool Pending(DownloadInstallComponent component) => State.PendingComponents.ContainsKey(host.LoadingControl(component));
+                    TLoading loading = host.LoadingKey(kind); if (!State.PendingComponents.TryGetValue(loading, out string? version) || !host.IsLoader(loading)) continue; TLoader loader = host.ReadLoader(loading);
+                    bool Pending(DownloadInstallComponent component) => State.PendingComponents.ContainsKey(host.LoadingKey(component));
                     if (kind == DownloadInstallComponent.OptiFine) { if (new[] { DownloadInstallComponent.Fabric, DownloadInstallComponent.Forge, DownloadInstallComponent.NeoForge, DownloadInstallComponent.LiteLoader }.Any(Pending)) continue; }
                     else if (kind == DownloadInstallComponent.FabricApi) { if (Pending(DownloadInstallComponent.Fabric)) continue; }
                     else if (kind == DownloadInstallComponent.Forge) {
@@ -79,8 +79,8 @@ public sealed partial class DownloadModifyPageController<TInstance, TState, TCar
         }
         bool pending = newVersion is null && (Same(newText, "获取中……") || newText.StartsWithF("获取失败：")); bool changed = !Same(oldVersion, newVersion) && !pending; canRestore = changed && oldVersion is not null && canRestore;
         comparePanel.Visibility = changed ? Visibility.Visible : Visibility.Collapsed; currentPanel.Visibility = changed ? Visibility.Collapsed : Visibility.Visible; restoreButton.Visibility = canRestore ? Visibility.Visible : Visibility.Collapsed;
-        if (clearButton is not null) clearButton.ToolTip = oldVersion is null ? "取消安装" : "移除"; bool hasClear = clearButton is not null && clearButton.Visibility == Visibility.Visible;
-        restoreButton.Margin = new Thickness(0, 5, canRestore && hasClear ? 60 : 32, 0); comparePanel.Margin = new Thickness(comparePanel.Margin.Left, comparePanel.Margin.Top, canRestore && hasClear ? 110 : 80, comparePanel.Margin.Bottom); if (!changed) return;
+        if (clearButton is not null) clearButton.ToolTip = oldVersion is null ? "取消安装" : "移除";
+        if (!changed) return;
         if (oldVersion is not null) { DownloadModifyComparison card = host.ComparisonCard(comparePanel); if (card.Card.Visibility == Visibility.Collapsed) { card.SetSwapped(true); if (card.MainSwap() is not null) card.MainSwap()!.Visibility = Visibility.Collapsed; card.Card.Visibility = Visibility.Visible; } }
         DockPanel oldSide = (DockPanel)comparePanel.Children[0], newSide = (DockPanel)comparePanel.Children[2]; oldSide.Children[0].Visibility = oldVersion is null ? Visibility.Collapsed : Visibility.Visible; ((TextBlock)oldSide.Children[1]).Margin = oldVersion is null ? new Thickness(0) : new Thickness(7, 0, 0, 0);
         newSide.Children[0].Visibility = newVersion is null ? Visibility.Collapsed : Visibility.Visible; TextBlock label = (TextBlock)newSide.Children[1]; label.Margin = newVersion is null ? new Thickness(0) : new Thickness(7, 0, 0, 0); label.Text = newVersion is null ? "移除" : newText;

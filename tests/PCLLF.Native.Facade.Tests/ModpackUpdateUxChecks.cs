@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -69,16 +70,16 @@ internal static class ModpackUpdateUxChecks
         ((IList)Get(plan, "Changes")!).Add(change);
         var preview = (FrameworkElement)Construct("ModpackUpdatePreviewView", plan, "1.21.11", new Dictionary<ModLoaders, string>());
         Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(Native.Type("PCL.ModpackUpdatePreviewView+ChangeKind"), "Updated"));
-        var options = Descendants(FileCards(preview).Single()).OfType<MyRadioBox>()
-            .Where(option => option.Text.StartsWith("玩家值", StringComparison.Ordinal) || option.Text.StartsWith("作者值", StringComparison.Ordinal))
-            .ToDictionary(option => option.Text);
-        Native.Check(options.Count == 4 && options["玩家值 · 2"].Checked && options["玩家值 · 3"].Checked,
+        var options = Descendants(FileCards(preview).Single()).OfType<RadioButton>()
+            .Where(option => ((string)option.Content).StartsWith("玩家值", StringComparison.Ordinal) || ((string)option.Content).StartsWith("作者值", StringComparison.Ordinal))
+            .ToDictionary(option => ((string)option.Content));
+        Native.Check(options.Count == 4 && options["玩家值 · 2"].IsChecked == true && options["玩家值 · 3"].IsChecked == true,
             "Configuration choices default to personal values and only show actual conflicts. Observed " +
-            string.Join(", ", options.Select(pair => pair.Key + "=" + pair.Value.Checked)));
-        options["作者值 · 8"].Checked = true;
-        options["作者值 · 9"].Checked = true;
+            string.Join(", ", options.Select(pair => pair.Key + "=" + pair.Value.IsChecked)));
+        options["作者值 · 8"].IsChecked = true;
+        options["作者值 · 9"].IsChecked = true;
         Native.Check(keys.SetEquals(["/cap", "/speed"]), "Selecting one conflict changed another key.");
-        options["玩家值 · 3"].Checked = true;
+        options["玩家值 · 3"].IsChecked = true;
         Native.Check(keys.SetEquals(["/cap"]), "Returning one conflict to its personal value changed another key.");
         Console.WriteLine("PASS native configuration preview: default personal values and independent same-key choices.");
     }
@@ -170,20 +171,21 @@ internal static class ModpackUpdateUxChecks
             versions.Add(new ResourceVersion { Id = display, Display = display, ReleaseType = type, ReleaseDate = DateTime.ParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture), GameVersions = new() { game }, ModLoaders = ModLoaders.Fabric });
         object selector = Construct("ModpackVersionSelectView", versions, "Fabulously Optimized", "13.0.0 for 1.21.11");
         IList selections = (IList)Get(selector, "Selections")!;
-        Check(Property(selector, "ActiveChannel")!.ToString() == "Release" && selections.Count == 2 && ((MyListItem)selections[0]!).Title == "14.1.2 for 26.2", "UX-01", "channels mixed or releases not sorted by date");
-        MyMsgText modal = Dialog((FrameworkElement)selector, "选择整合包版本", "下载并预览");
-        MyButton confirm = (MyButton)modal.FindName("Btn1");
+        static RadioButton Choice(object? row) => Descendants((FrameworkElement)row!).OfType<RadioButton>().Single();
+        Check(Property(selector, "ActiveChannel")!.ToString() == "Release" && selections.Count == 2 && AutomationProperties.GetName(Choice(selections[0])) == "14.1.2 for 26.2", "UX-01", "channels mixed or releases not sorted by date");
+        GlassMessageDialog modal = Dialog((FrameworkElement)selector, "选择整合包版本", "下载并预览");
+        Button confirm = (Button)((Button[])Native.Get(modal, "_buttons")!)[0];
         Check(!confirm.IsEnabled, "UX-02", "download enabled before choosing a version");
-        MyListItem second = (MyListItem)selections[1]!;
-        second.Checked = true;
-        Check(ReferenceEquals(Property(selector, "Selected"), second.Tag) && confirm.IsEnabled, "UX-03", "grouped selection returned wrong version or left confirm disabled");
-        MyListItem first = (MyListItem)selections[0]!;
-        first.Checked = true;
-        Check(selections.Cast<MyListItem>().Count(item => item.Checked) == 1 && ReferenceEquals(Property(selector, "Selected"), first.Tag), "UX-04", "native radio selection not exclusive");
+        RadioButton second = Choice(selections[1]);
+        second.IsChecked = true;
+        Check(ReferenceEquals(Property(selector, "Selected"), ((FrameworkElement)selections[1]!).Tag) && confirm.IsEnabled, "UX-03", "grouped selection returned wrong version or left confirm disabled");
+        RadioButton first = Choice(selections[0]);
+        first.IsChecked = true;
+        Check(selections.Cast<object>().Select(Choice).Count(item => item.IsChecked == true) == 1 && ReferenceEquals(Property(selector, "Selected"), ((FrameworkElement)selections[0]!).Tag), "UX-04", "native radio selection not exclusive");
         Native.Call(selector.GetType(), "ShowChannel", selector, ResourceVersion.ReleaseTypes.Beta);
         selections = (IList)Get(selector, "Selections")!;
         Check(Property(selector, "Selected") is null && !confirm.IsEnabled && selections.Count == 1, "UX-05", "channel switch retained invisible selection");
-        ((MyListItem)selections[0]!).Checked = true;
+        Choice(selections[0]).IsChecked = true;
         Check(((ResourceVersion)Property(selector, "Selected")!).Id == "15.0.0-beta.3 for 26.3", "UX-06", "beta selection used stale ungrouped index");
         Render(modal, Path.Combine(folder, "modpack-version-selector.png"));
 
@@ -209,7 +211,7 @@ internal static class ModpackUpdateUxChecks
                 ((IList)Get(plan, "Changes")!).Add(change);
             }
         object preview = Construct("ModpackUpdatePreviewView", plan, "1.21.11", new Dictionary<ModLoaders, string> { [ModLoaders.Fabric] = "0.19.3" });
-        Native.Check(!Descendants((DependencyObject)preview).Any(control => control is RadioButton or CheckBox), "Preview options must use genuine PCL radio/checkbox controls.");
+        Native.Check(!Descendants((DependencyObject)preview).Any(control => control is RadioButton or CheckBox), "Preview still contains a legacy option control.");
         IDictionary counts = (IDictionary)Get(preview, "Counts")!;
         Type kinds = Native.Type("PCL.ModpackUpdatePreviewView+ChangeKind");
         Check(Property(preview, "ActiveKind")!.ToString() == "Preserved", "UX-07", "personal changes not visible by default");
@@ -222,13 +224,12 @@ internal static class ModpackUpdateUxChecks
             Check(boxes.Length == count && boxes.All(box => box.BorderThickness.Left == 1 && !string.IsNullOrWhiteSpace(box.ToolTip?.ToString())), "UX-09:" + kind, "file border or full path tooltip missing");
         }
         Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, "Preserved"));
-        MyMsgText previewModal = Dialog((FrameworkElement)preview, "整合包更新预览", "保留个人修改并更新");
-        Check(((MyButton)previewModal.FindName("Btn1")).ColorType != MyButton.ColorState.Red, "UX-10", "safe preserve action styled as destructive");
+        GlassMessageDialog previewModal = Dialog((FrameworkElement)preview, "整合包更新预览", "保留个人修改并更新");
         Render(previewModal, Path.Combine(folder, "modpack-update-preview.png"));
         Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, "Removed"));
         Render(previewModal, Path.Combine(folder, "modpack-removals-preview.png"));
         int before = Changes(plan).Count, conflicts = Changes(plan).Count(Conflict);
-        ((ContentControl)previewModal.FindName("PanCaption")).Content = null;
+        ((ContentControl)Native.Get(previewModal, "_nativeContentHost")).Content = null;
         FrameworkElement compact = (FrameworkElement)preview; compact.MaxHeight = 240; compact.Width = 460;
         Render(compact, Path.Combine(folder, "modpack-preview-compact.png"), 470, 250);
         Check(((UniformGrid)Get(preview, "Filters")!).Columns == 4, "UX-11", "compact categories unnecessarily consumed a second row");
@@ -275,7 +276,7 @@ internal static class ModpackUpdateUxChecks
         void Show(string kind) => Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, kind));
         Border Row(string relative) => FileCards(preview).Single(box => box.ToolTip?.ToString()?.Split('\r')[0] == relative);
         string[] Texts(DependencyObject element) => Descendants(element).OfType<TextBlock>().Select(block => block.Text).ToArray();
-        MyRadioBox[] Radios(Border row) => Descendants(row).OfType<MyRadioBox>().ToArray();
+        RadioButton[] Radios(Border row) => Descendants(row).OfType<RadioButton>().ToArray();
 
         Show("Preserved");
         Check(Texts(Row("mods/player-extra.jar")).Any(text => text.Contains("个人新增", StringComparison.Ordinal)) && Radios(Row("mods/player-extra.jar")).Length == 0,
@@ -283,10 +284,10 @@ internal static class ModpackUpdateUxChecks
         Check(Texts(Row("mods/ambiguous.jar")).Any(text => text.Contains("mods/copy-one.jar", StringComparison.Ordinal) && text.Contains("mods/copy-two.jar", StringComparison.Ordinal)) && Radios(Row("mods/ambiguous.jar")).Length == 0,
             "UX-C2", "ambiguous matches hidden or offered an unsafe author selection");
         Check(Radios(Row("mods/unknown.jar")).Length == 0, "UX-C3", "unconfirmed ownership offered an unsafe author selection");
-        MyRadioBox[] modifiedChoices = Radios(Row("mods/personal.jar"));
-        Check(modifiedChoices.Length == 2 && modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).Checked == true,
+        RadioButton[] modifiedChoices = Radios(Row("mods/personal.jar"));
+        Check(modifiedChoices.Length == 2 && modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).IsChecked == true,
             "UX-C4", "true conflicts must default to preserve and offer per-item choices");
-        modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor)).Checked = true;
+        modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor)).IsChecked = true;
         Check((PackUpdateChoice)Get(modified, "Choice")! == PackUpdateChoice.UseAuthor && (PackUpdateChoice)Get(disabled, "Choice")! == PackUpdateChoice.PreservePersonal,
             "UX-C5", "author selection did not reach the original DTO or changed another conflict");
         Show("Updated");
@@ -295,14 +296,14 @@ internal static class ModpackUpdateUxChecks
             "UX-C6", "pure rename must display one logical update with its real local and target paths");
         Show("Preserved");
         modifiedChoices = Radios(Row("mods/personal.jar"));
-        Check(modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor)).Checked == true,
+        Check(modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor)).IsChecked == true,
             "UX-C7", "changing filters lost the explicit author choice");
-        modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).Checked = true;
+        modifiedChoices.Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).IsChecked = true;
         Check((PackUpdateChoice)Get(modified, "Choice")! == PackUpdateChoice.PreservePersonal, "UX-C8", "returning to preserve did not reach the original DTO");
-        MyRadioBox disabledAuthor = Radios(Row("mods/disabled.jar")).Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor));
-        Check(Descendants(Row("mods/disabled.jar")).OfType<MyCheckBox>().Any(state => state.Checked == true && state.Text?.Contains("保持禁用", StringComparison.Ordinal) == true),
+        RadioButton disabledAuthor = Radios(Row("mods/disabled.jar")).Single(button => Equals(button.Tag, PackUpdateChoice.UseAuthor));
+        Check(Descendants(Row("mods/disabled.jar")).OfType<CheckBox>().Any(state => state.IsChecked == true && state.Content?.ToString()?.Contains("保持禁用", StringComparison.Ordinal) == true),
             "UX-C9", "disabled updates did not make their disabled result explicit");
-        disabledAuthor.Checked = true;
+        disabledAuthor.IsChecked = true;
         Check((PackUpdateChoice)Get(disabled, "Choice")! == PackUpdateChoice.UseAuthor && Property(disabled, "DestinationRelative")!.ToString() == "mods/disabled.jar.disabled",
             "UX-C10", "choosing an author update re-enabled a disabled mod");
         string[] header = Texts((StackPanel)Get(preview, "Header")!);
@@ -368,15 +369,15 @@ internal static class ModpackUpdateUxChecks
         });
         foreach (Expander detail in Descendants((StackPanel)Get(preview, "Rows")!).OfType<Expander>()) detail.IsExpanded = false;
         preview.Width = double.NaN;
-        MyMsgText modal = Dialog(preview, "整合包更新预览", "按以上选择更新");
+        GlassMessageDialog modal = Dialog(preview, "整合包更新预览", "按以上选择更新");
         modal.MaxHeight = 460; preview.MaxHeight = 240;
         Render(modal, Path.Combine(folder, "long-preview-modal.png"), 840, 520, () => {
             scroll.ScrollToTop(); modal.UpdateLayout();
-            FrameworkElement confirm = (FrameworkElement)modal.FindName("Btn1");
+            FrameworkElement confirm = (FrameworkElement)((Button[])Native.Get(modal, "_buttons")!)[0];
             Rect button = confirm.TransformToAncestor(modal).TransformBounds(new Rect(confirm.RenderSize));
             Native.Check(button.Height > 0 && button.Top >= 0 && button.Bottom <= modal.ActualHeight + 1, "Compact preview clipped its confirmation action.");
             Native.Check(scroll.ViewportHeight >= 80 && scroll.ScrollableHeight > 0, "Actual modal wrapper removed the file-list viewport.");
-            ScrollViewer outer = (ScrollViewer)modal.FindName("PanCaption");
+            ScrollViewer outer = (ScrollViewer)Native.Get(modal, "_nativeContentHost");
             Native.Check(Math.Abs(preview.ActualWidth - outer.ViewportWidth) <= 1, "Preview content left unused horizontal space inside the modal.");
             Grid cards = ((StackPanel)Get(preview, "Rows")!).Children.OfType<Grid>().Single();
             Border[] boxes = cards.Children.Cast<Border>().ToArray();
@@ -428,13 +429,13 @@ internal static class ModpackUpdateUxChecks
         Render((FrameworkElement)preview, Path.Combine(folder, "personal-duplicate-reason.png"), 740, 480);
         Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, "Updated"));
         Border row = FileCards(preview).Single(card => card.ToolTip!.ToString()!.StartsWith("mods/normal.jar", StringComparison.Ordinal));
-        Descendants(row).OfType<MyRadioBox>().Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).Checked = true;
+        Descendants(row).OfType<RadioButton>().Single(button => Equals(button.Tag, PackUpdateChoice.PreservePersonal)).IsChecked = true;
         Check(!(bool)Native.Property(update.GetType(), "ApplyAuthor").GetValue(update)! &&
             Descendants(row).OfType<TextBlock>().Any(text => text.Visibility == Visibility.Visible && text.Text.Contains("不执行作者更新", StringComparison.Ordinal)),
             "UX-policy-preserve", "Keeping an ordinary author version did not affect execution or explain the outcome.");
         Border disabledRow = FileCards(preview).Single(card => card.ToolTip!.ToString()!.StartsWith("mods/disabled.jar", StringComparison.Ordinal));
-        MyCheckBox state = Descendants(disabledRow).OfType<MyCheckBox>().Single();
-        Check(state.Checked == true && Native.Property(disabled.GetType(), "DestinationRelative").GetValue(disabled)!.ToString()!.EndsWith(".disabled", StringComparison.Ordinal),
+        CheckBox state = Descendants(disabledRow).OfType<CheckBox>().Single();
+        Check(state.IsChecked == true && Native.Property(disabled.GetType(), "DestinationRelative").GetValue(disabled)!.ToString()!.EndsWith(".disabled", StringComparison.Ordinal),
             "UX-disabled-default", "Disabled author update was not paired with an explicit keep-disabled choice.");
         Render((FrameworkElement)preview, Path.Combine(folder, "author-updates-and-disabled-state.png"), 740, 480);
         System.Windows.Application app = System.Windows.Application.Current;
@@ -445,7 +446,7 @@ internal static class ModpackUpdateUxChecks
             app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             window.Show(); window.UpdateLayout();
             Check(state.IsLoaded, "UX-native-loaded", "Native checkbox interactions require a live offscreen presentation source.");
-            state.SetChecked(false, true);
+            state.IsChecked = false;
             Check(!(bool)Get(disabled, "KeepDisabled")! && Native.Property(disabled.GetType(), "DestinationRelative").GetValue(disabled)!.ToString() == "mods/disabled.jar",
                 "UX-disabled-enable", "The explicit enabled-state choice did not reach the update plan.");
             Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, "Preserved"));
@@ -453,7 +454,7 @@ internal static class ModpackUpdateUxChecks
             Check(!(bool)Get(disabled, "KeepDisabled")! && !(bool)Native.Property(update.GetType(), "ApplyAuthor").GetValue(update)! &&
                 (bool)Native.Property(removal.GetType(), "ApplyAuthor").GetValue(removal)!, "UX-policy-independent", "Filter changes reset choices or changed unrelated author actions.");
             disabledRow = FileCards(preview).Single(card => card.ToolTip!.ToString()!.StartsWith("mods/disabled.jar", StringComparison.Ordinal));
-            Check(!Descendants(disabledRow).OfType<MyCheckBox>().Single().Checked,
+            Check(Descendants(disabledRow).OfType<CheckBox>().Single().IsChecked == false,
                 "UX-native-restored", "Native checkbox did not restore the explicit choice after changing filters.");
         }
         finally
@@ -467,12 +468,12 @@ internal static class ModpackUpdateUxChecks
         var constructor = Native.Type("PCL." + name).GetConstructors(Native.Flags).Single(info => info.GetParameters().Length == values.Length);
         return constructor.Invoke(values);
     }
-    private static MyMsgText Dialog(FrameworkElement content, string title, string button)
+    private static GlassMessageDialog Dialog(FrameworkElement content, string title, string button)
     {
         ModMain.MyMsgBoxConverter converter = new() { Title = title, Text = "整合包预览", Button1 = button, Button2 = "取消", IsWarn = false, ContentFactory = () => content };
-        MyMsgText modal = new(converter);
-        ((RotateTransform)modal.FindName("TransformRotate")).Angle = 0;
-        ((TranslateTransform)modal.FindName("TransformPos")).Y = 0;
+        GlassMessageDialog modal = Native.Dialog(converter);
+        
+        
         return modal;
     }
     private static void Render(FrameworkElement element, string path, int width = 820, int height = 640, Action? verifyLayout = null)

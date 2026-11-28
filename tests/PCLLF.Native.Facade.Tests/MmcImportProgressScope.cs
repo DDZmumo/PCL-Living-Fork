@@ -22,7 +22,7 @@ internal static partial class MmcImportRecoveryUiChecks {
         private readonly MmcArtifactCacheRoots cache;
         private readonly MmcRuntimeEnvironment runtime;
         private readonly JsonConfigProvider originalProfile;
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private readonly List<ModLoader.LoaderCombo<string>> tasks = [];
         private ModLoader.LoaderCombo<string>? current;
@@ -42,7 +42,7 @@ internal static partial class MmcImportRecoveryUiChecks {
             archive = Path.Combine(root, "original.zip"); WriteZip(archive, "original author world", index);
             metadata = new(Path.Combine(root, "metadata"), new Uri("https://fixture.invalid/meta/"), client);
             cache = new(Path.Combine(game, "libraries"), Path.Combine(game, "assets"), Path.Combine(root, "source-cache"), Path.Combine(game, "versions"));
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
         }
         private void Until(Func<bool> ready, string message) {

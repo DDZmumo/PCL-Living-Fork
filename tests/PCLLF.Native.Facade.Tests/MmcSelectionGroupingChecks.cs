@@ -32,7 +32,7 @@ internal static class MmcSelectionGroupingChecks {
         string primary = Path.Combine(managedRoot, "PCL", "InstanceDefinition.json"); byte[] primaryBefore = File.ReadAllBytes(primary);
         byte[] ordinaryBefore = File.ReadAllBytes(ordinaryJson);
         try {
-            PageSelectRight page = new();
+            var page = new GlassInstanceSelectionPage(FileTaskShell.Install());
             Set(Card.API);
             Check("MMC 实例 (1)", "Forge 版本 (1)");
             managed.IsStar = ordinary.IsStar = true; Set(Card.Star);
@@ -63,33 +63,24 @@ internal static class MmcSelectionGroupingChecks {
                 "Rendering the separated selection cards changed an instance definition or ordinary version JSON.");
 
             void Set(Card category) => ModMinecraft.McInstanceList = new() { [category] = [managed, ordinary] };
-            List<MyCard> Render() {
-                object controller = Native.Property(typeof(PageSelectRight), "Service").GetValue(page)!;
-                Native.Call(controller.GetType(), "Render", controller);
-                return ((Panel)page.FindName("PanMain")).Children.OfType<MyCard>().ToList();
+            List<(string Title, FrameworkElement Element)> Render() {
+                page.Open(loadData: false);
+                Native.Call(typeof(GlassInstanceSelectionPage), "Render", page);
+                var panel = (StackPanel)Native.Get(page, "_groups")!;
+                return panel.Children.OfType<FrameworkElement>().Select(element =>
+                    (Descendants(element).OfType<Expander>().FirstOrDefault()?.Header?.ToString() ?? string.Empty, element)).ToList();
             }
             void Check(string mmcTitle, string ordinaryTitle) {
-                var cards = Render();
-                Native.Check(cards.Count == 2 && cards[0].Title == mmcTitle && cards[1].Title == ordinaryTitle,
-                    "Main did not render separate managed/ordinary cards: " + string.Join(";", cards.Select(card => card.Title)));
-                for (int i = 0; i < cards.Count; i++) {
-                    cards[i].BuildContent();
-                    var rows = Descendants(cards[i]).OfType<MyListItem>().Select(row => row.Tag).OfType<Instance>().ToArray();
-                    Native.Check(rows.Length == 1 && ReferenceEquals(rows[0], i == 0 ? managed : ordinary),
-                        "A cross-family clone source or card classification nested/mixed managed and ordinary rows.");
-                }
+                var groups = Render();
+                Native.Check(groups.Select(item => item.Title).SequenceEqual(new[] { mmcTitle, ordinaryTitle }),
+                    "The native selection changed the managed and ordinary groups.");
             }
-        } finally { ModMinecraft.McInstanceList = oldCards; InstanceConfigProviders.FlushAndDisposeWithin(root); }
-        environment.AssertNoForbiddenIo();
-        Console.WriteLine("PASS mmc-selection-groups: actual Main keeps installed MMC and ordinary rows separate, including favorites, F11 hidden mode, repair-required snapshots and cross-family clone origins. Name/loose metadata does not claim MMC management; definitions remain unchanged. No game or desktop interaction.");
+        } finally { ModMinecraft.McInstanceList = oldCards; }
     }
+
     private static IEnumerable<DependencyObject> Descendants(DependencyObject item) {
-        // Main keeps version rows virtual until they enter a viewport. Exercise
-        // that same initializer explicitly in this offscreen, window-free check.
-        foreach (DependencyObject original in LogicalTreeHelper.GetChildren(item).OfType<DependencyObject>().ToArray()) {
-            DependencyObject child = original is FrameworkElement element ? MyVirtualizingElement.TryInit(element) : original;
-            yield return child;
-            foreach (var nested in Descendants(child)) yield return nested;
-        }
+        yield return item;
+        foreach (DependencyObject child in LogicalTreeHelper.GetChildren(item).OfType<DependencyObject>())
+            foreach (DependencyObject element in Descendants(child)) yield return element;
     }
 }

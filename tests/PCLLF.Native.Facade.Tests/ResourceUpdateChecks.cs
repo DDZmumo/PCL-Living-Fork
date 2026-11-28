@@ -97,9 +97,9 @@ internal static class ResourceUpdateChecks
                 Hash = Hash(candidate), DownloadUrls = ["https://cdn.modrinth.com/data/fixture/version.jar"]
             }
         };
-        var previousInstance = PageInstanceLeft.Instance;
+        var previousInstance = LauncherInstanceContext.Instance;
         try {
-            PageInstanceLeft.Instance = owner;
+            LauncherInstanceContext.Instance = owner;
             var page = new PageInstanceMod();
             object host = Native.Get(Native.Get(page, "Native")!, "host")!;
             Action<CancellationToken>? replace = null;
@@ -174,7 +174,7 @@ internal static class ResourceUpdateChecks
                 "An incomplete inventory must prompt for the changed declaration only and allow canceling before history capture.");
             Console.WriteLine("PASS native Mod update: new missing, disabled and out-of-range NeoForge prerequisites are blocked before replacement, with an actionable dialog. Compatible files and unrelated baseline issues preserve the update path.");
         } finally {
-            PageInstanceLeft.Instance = previousInstance;
+            LauncherInstanceContext.Instance = previousInstance;
         }
     }
 

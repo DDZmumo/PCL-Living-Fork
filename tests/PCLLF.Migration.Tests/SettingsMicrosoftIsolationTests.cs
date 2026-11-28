@@ -21,6 +21,7 @@ internal static class SettingsMicrosoftIsolationTests {
         yield return ("settings main50 isolates all thirteen Microsoft names and preserves ordinary defaults", () => RunCase(NamesAndSchema));
         yield return ("settings main50 saves logs out resets and probes only LF Microsoft storage", () => RunCase(ReadWriteAndLogout));
         yield return ("settings main50 excludes unattributed private Microsoft credentials while migrating other accounts", () => RunCase(SnapshotAndImport));
+        yield return ("settings startup recovers encrypted LF skin sites and offline history with a known previous identity", () => RunCase(ExternalAccountImport));
         yield return ("settings main50 transaction write readback and cleanup faults restore exact values and kinds", () => RunCase(TransactionFailures));
         yield return ("settings main50 upgrades only same-namespace caches and cancels before storage", () => RunCase(LocalUpgradeAndCancel));
     }
@@ -99,6 +100,41 @@ internal static class SettingsMicrosoftIsolationTests {
         Check(before.Count == f.Official.Values.Count && before.All(x => Equals(x.Value, f.Official.Values[x.Key])), "Account migration not idempotent");
         Check(f.Legacy.Reads.All(key => key != "LoginMsJson" && !key.StartsWith("CacheMs", StringComparison.Ordinal)), "Private MS was read despite exclusion");
     }
+    private static void ExternalAccountImport() {
+        const string previous = "1111-2222-3333-4444";
+        const string sites = """[{"Name":"Fixture","Server":"https://skin.invalid/api","Accounts":[{"Username":"Example","Profiles":[{"Id":"fixture-profile","Name":"Player"}]}]}]""";
+        const string selection = """{"Server":"https://skin.invalid/api","Username":"Example","ProfileId":"fixture-profile"}""";
+        const string offlineNames = "PlayerOne¨PlayerTwo";
+        const string credentialServer = "https://skin.invalid/api";
+        Fixture f = new(previous);
+        string Old(string text) => LegacySettingsCrypto.Encrypt(text, "PCL" + previous);
+        f.Official.Seed("Identify", "native-seed");
+        f.Official.Seed("LfSkinSites", Old(sites));
+        f.Official.Seed("LfSkinSiteSelection", Old(selection));
+        f.Official.Seed("LfSkinSiteActive", "1");
+        f.Official.Seed("LoginLegacyName", Old(offlineNames));
+        f.Official.Seed("CacheAuthCredentialServer", Old(credentialServer));
+        f.Legacy.Seed("LfSkinSites", Old("[]"));
+        f.Legacy.Seed("LfSkinSiteSelection", Old(""));
+        f.Legacy.Seed("CacheAuthCredentialServer", Old("https://different.invalid/api"));
+
+        f.Engine.ImportCompatibleAccounts();
+        Check(Equals(f.Engine.Get("LfSkinSites"), sites) && Equals(f.Engine.Get("LfSkinSiteSelection"), selection) &&
+            Equals(f.Engine.Get("LfSkinSiteActive"), 1), "Startup did not recover the saved LF sites and selected role.");
+        Check(Equals(f.Engine.Get("LoginLegacyName"), offlineNames), "Offline history did not survive the identity change.");
+        Check(Equals(f.Engine.Get("CacheAuthCredentialServer"), credentialServer), "The compatibility store overrode the LF server binding.");
+        Check(f.Legacy.Reads.All(key => !key.StartsWith("LfSkinSite", StringComparison.Ordinal) && key != "CacheAuthCredentialServer") &&
+            f.Legacy.Writes.Count == 0, "Startup treated an LF-owned account value as a private legacy record.");
+        int writes = f.Official.Writes.Count;
+        f.Engine.ImportCompatibleAccounts();
+        Check(f.Official.Writes.Count == writes, "Site recovery should be idempotent.");
+
+        string wrongShape = Old("""{"Server":"https://skin.invalid/api"}""");
+        f.Official.Seed("LfSkinSites", wrongShape);
+        f.Engine.ImportCompatibleAccounts();
+        Check(Equals(f.Official.Values["LfSkinSites"], wrongShape), "Startup replaced an invalid site list.");
+    }
+
     private static void TransactionFailures() {
         foreach (bool badReadback in new[] { false, true }) {
             Fixture f = new();
@@ -164,7 +200,7 @@ internal static class SettingsMicrosoftIsolationTests {
         public readonly Dictionary<string, Entry> Entries;
         public readonly Engine Engine;
         public readonly List<string> Logs = new();
-        public Fixture() {
+        public Fixture(string? previousIdentity = null) {
             fixtures.Add(this);
             Entries = LegacySettingsDefinitions.Create<Entry>((k, v, s, e, c) => new Entry(k,v,s,e,c), key => key switch {
                 "LoginType" => Login.Legacy, "UiLauncherHue" => 225, "UiLauncherSat" => 100, "UiLauncherDelta" => 115, "UiLauncherLight" => 40, "UiBackgroundOpacity" => 748, _ => throw new Exception("Unexpected platform default " + key)
@@ -176,7 +212,8 @@ internal static class SettingsMicrosoftIsolationTests {
                 ReadRegistry = (_,key,fallback) => Microsoft.VisualBasic.CompilerServices.Conversions.ToString(Official.GetValue(key, fallback)),
                 WriteRegistry = (_,key,value) => Official.SetValue(key,value!,RegistryValueKind.String), HasRegistry = (_,key) => Official.GetValue(key) is not null,
                 OpenRegistry = (folder,_,_) => folder == "PCL" ? Official : Legacy,
-                IdentifyCandidates = _ => new List<string> { Id }, Log = (_,message,_,_) => Logs.Add(message)
+                IdentifyCandidates = _ => previousIdentity is null ? new List<string> { Id } : new List<string> { Id, previousIdentity },
+                Log = (_,message,_,_) => Logs.Add(message)
             });
             foreach (Entry entry in Entries.Values) entry.Persist = e => Engine.SaveEntry(e);
         }

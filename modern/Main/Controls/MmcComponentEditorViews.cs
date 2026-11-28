@@ -15,20 +15,24 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
     private enum EditKind { Version, Enable, Disable, Patch, Reset }
     private const int PageSize = 40;
     private readonly MmcComponentEditorModel model;
+    private readonly bool embedded;
     private readonly List<MmcComponentEditorLocalFile> locals = [];
     private string uid, version, patchText, javaPath, newLocalName = "";
     private MmcComponentEditorFileFact patchFile;
     private EditKind kind;
     private int section, page;
-    internal MmcComponentEditorView(MmcComponentEditorModel model, MmcComponentEditorChoice previous = null) : base(
-        "MMC 组件与个人覆盖", "查看作者声明与当前生效结果；每次修改一个已有组件。", 3) {
+    internal MmcComponentEditorView(MmcComponentEditorModel model, MmcComponentEditorChoice previous = null) : this(model, previous, false) { }
+
+    internal MmcComponentEditorView(MmcComponentEditorModel model, MmcComponentEditorChoice previous, bool instancePage) : base(
+        "MMC 组件与个人覆盖", "查看作者声明与当前生效结果；每次修改一个已有组件。", 3, instancePage) {
+        embedded = instancePage;
         this.model = model;
         AddFilter("当前组件 · " + model.Saved.Resolved.Resolution.Profile.Components.Length, 0, true, Show);
         AddFilter("本次修改", 1, true, Show);
         AddFilter("本地运行库", 2, true, Show);
         Header.Children.Add(Label("当前已发布环境：" + EnvironmentText(model.PublishedEnvironment), 12, margin: new Thickness(0, 8, 0, 0)));
-        Header.Children.Add(StatusHint("新增直接组件需通过整合包来源更新；自动依赖由组件声明解析。", (int)MyHint.Themes.Blue));
-        Header.Children.Add(StatusHint("Java 统一使用“实例设置 → Java”中的选择。预览会检查目标组件的实际兼容要求；需要更换 Java 时请在实例设置中调整。", (int)MyHint.Themes.Blue));
+        Header.Children.Add(StatusHint("新增直接组件需通过整合包来源更新；自动依赖由组件声明解析。", (int)DialogTone.Information));
+        Header.Children.Add(StatusHint("Java 统一使用“实例设置 → Java”中的选择。预览会检查目标组件的实际兼容要求；需要更换 Java 时请在实例设置中调整。", (int)DialogTone.Information));
         if (previous is not null) {
             SelectComponent(previous.Edit.Uid);
             var edit = previous.Edit;
@@ -91,7 +95,14 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
                 (personal.Version is { } exact ? "版本 " + exact + "；" : "") +
                 (personal.PatchReference is { } patch ? "补丁 " + patch.Sha256[..12] : "保留其余作者设置"), 12, margin: new Thickness(0, 6, 0, 0)));
             if (author is not null) {
-                var edit = new MyButton { Text = uid == component.Uid ? "修改此组件（已选择）" : "修改此组件", Width = 176, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0) };
+                var edit = new Button { Content = uid == component.Uid ? "修改此组件（已选择）" : "修改此组件", Width = 176, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0) };
+                if (embedded) {
+                    edit.Width = double.NaN;
+                    edit.MinWidth = 88;
+                    edit.Height = 34;
+                    edit.Padding = new Thickness(14, 0, 14, 0);
+                    edit.FontSize = 13.5;
+                }
                 edit.Click += (_, _) => { SelectComponent(component.Uid); Show(1); }; body.Children.Add(edit);
             }
             Rows.Children.Add(Section(component.Uid, body));
@@ -116,11 +127,11 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
         Option("移除该组件的全部个人覆盖，恢复作者设置", EditKind.Reset, model.Source.Definition.ComponentOverrides.Any(value => value.Uid == uid));
         body.Children.Add(options);
         if (kind == EditKind.Version) {
-            var input = new MyTextBox { Text = version, HintText = "输入组件的精确版本号", Margin = new Thickness(0, 10, 0, 0) };
-            input.TextChanged += (_, _) => { version = input.Text; RefreshConfirmation(); }; body.Children.Add(input);
+            var input = new TextBox { Text = version, Margin = new Thickness(0, 10, 0, 0) };
+            input.TextChanged += (_, _) => { version = input.Text; RefreshConfirmation(); }; body.Children.Add(GlassDialogControls.WithPlaceholder(input, "输入组件的精确版本号"));
             body.Children.Add(Label("现有个人补丁会由本次所选版本的真实元数据替换。不会改成普通 Forge / Fabric 安装流程。", 12, margin: new Thickness(0, 8, 0, 0)));
         } else if (kind == EditKind.Patch) {
-            var select = new MyButton { Text = "选择本地 JSON…", Width = 150, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 8) };
+            var select = new Button { Content = "选择本地 JSON…", Width = 150, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 8) };
             select.Click += (_, _) => Pick(() => {
                 string path = MeloongCore.Wpf.Dialogs.SelectFile("选择组件 JSON 补丁", false, filter: new[] { (new[] { "json" }, "JSON 补丁") }).FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(path)) return;
@@ -128,11 +139,11 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
             });
             body.Children.Add(select);
             if (patchFile is not null) body.Children.Add(Label("已选择：" + patchFile.AbsolutePath + " · SHA256 " + patchFile.Sha256[..12], 12, margin: new Thickness(0, 0, 0, 8)));
-            var input = new MyTextBox { Text = patchText, AcceptsReturn = true, AcceptsTab = true, TextWrapping = TextWrapping.NoWrap,
+            var input = new TextBox { Text = patchText, AcceptsReturn = true, AcceptsTab = true, TextWrapping = TextWrapping.NoWrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MinHeight = 170, MaxHeight = 260 };
             input.TextChanged += (_, _) => { patchText = input.Text; patchFile = null; RefreshConfirmation(); }; body.Children.Add(input);
             body.Children.Add(Label("JSON 中的 UID 必须保持为所选组件；修改文本后按本次内嵌补丁提交。未知关键字段会阻止预览。", 12, margin: new Thickness(0, 8, 0, 0)));
-        } else if (kind == EditKind.Reset) body.Children.Add(StatusHint("仅移除此组件的启停、版本和补丁覆盖。运行库与实际启动配置仍需重新解析、校验。", (int)MyHint.Themes.Blue));
+        } else if (kind == EditKind.Reset) body.Children.Add(StatusHint("仅移除此组件的启停、版本和补丁覆盖。运行库与实际启动配置仍需重新解析、校验。", (int)DialogTone.Information));
         Rows.Children.Add(Section("本次修改", body));
     }
     private void RenderInputs() {
@@ -141,12 +152,12 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
         foreach (var local in locals.ToArray()) {
             var line = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
             line.Children.Add(Label(local.FileName + " ← " + local.AbsolutePath, 12));
-            var remove = new MyButton { Text = "移除此项", Width = 96, Height = 28, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+            var remove = new Button { Content = "移除此项", Width = 96, Height = 28, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
             remove.Click += (_, _) => { locals.Remove(local); Render(); }; line.Children.Add(remove); body.Children.Add(line);
         }
-        var name = new MyTextBox { Text = newLocalName, HintText = "目标文件名，例如 custom.jar（留空采用所选文件名）", Margin = new Thickness(0, 12, 0, 0) };
-        name.TextChanged += (_, _) => newLocalName = name.Text; body.Children.Add(name);
-        var add = new MyButton { Text = "选择真实本地 JAR…", Width = 170, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
+        var name = new TextBox { Text = newLocalName, Margin = new Thickness(0, 12, 0, 0) };
+        name.TextChanged += (_, _) => newLocalName = name.Text; body.Children.Add(GlassDialogControls.WithPlaceholder(name, "目标文件名，例如 custom.jar（留空采用所选文件名）"));
+        var add = new Button { Content = "选择真实本地 JAR…", Width = 170, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
         add.Click += (_, _) => Pick(() => {
             string path = MeloongCore.Wpf.Dialogs.SelectFile("选择组件需要的本地运行库", false, filter: new[] { (new[] { "jar" }, "Java 运行库") }).FirstOrDefault();
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -160,8 +171,8 @@ internal sealed class MmcComponentEditorView : ModpackDialogView {
     private void AddPaging(int count) {
         if (count <= PageSize) return;
         var line = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        var previous = new MyButton { Text = "上一页", Width = 90, Height = 30, IsEnabled = page > 0, Margin = new Thickness(8) };
-        var next = new MyButton { Text = "下一页", Width = 90, Height = 30, IsEnabled = (page + 1) * PageSize < count, Margin = new Thickness(8) };
+        var previous = new Button { Content = "上一页", Width = 90, Height = 30, IsEnabled = page > 0, Margin = new Thickness(8) };
+        var next = new Button { Content = "下一页", Width = 90, Height = 30, IsEnabled = (page + 1) * PageSize < count, Margin = new Thickness(8) };
         previous.Click += (_, _) => { page--; Render(); }; next.Click += (_, _) => { page++; Render(); };
         line.Children.Add(previous); line.Children.Add(Label((page + 1) + " / " + ((count + PageSize - 1) / PageSize), 12, margin: new Thickness(8, 15, 8, 0))); line.Children.Add(next); Rows.Children.Add(line);
     }
@@ -183,17 +194,17 @@ internal sealed class MmcComponentEditorPreviewView : ModpackDialogView {
         if (confirmation.Result.Preview is { } preview) {
             var digest = Label("已固定候选 · " + preview.CandidateSha256[..12], 12, margin: new Thickness(0, 8, 0, 0)); digest.ToolTip = preview.CandidateSha256; Header.Children.Add(digest);
             Header.Children.Add(Label("候选环境：" + MmcComponentEditorView.EnvironmentText(preview.Selection.Environment), 12, margin: new Thickness(0, 6, 0, 0)));
-            if (preview.Differences.Any(value => value.Field == "minecraft")) Header.Children.Add(StatusHint("Minecraft 版本将变化，当前已有存档全部备份成功后才会提交。", (int)MyHint.Themes.Yellow));
+            if (preview.Differences.Any(value => value.Field == "minecraft")) Header.Children.Add(StatusHint("Minecraft 版本将变化，当前已有存档全部备份成功后才会提交。", (int)DialogTone.Warning));
         }
         SetCanConfirm(confirmation.CanCommit); Render(confirmation.CanCommit ? 1 : 2);
     }
     private void Render(int value) {
         section = value; BeginFilter(section);
         if (section == 2) {
-            if (!string.IsNullOrWhiteSpace(confirmation.Result.Failure)) Rows.Children.Add(StatusHint(confirmation.Result.Failure, (int)MyHint.Themes.Red));
+            if (!string.IsNullOrWhiteSpace(confirmation.Result.Failure)) Rows.Children.Add(StatusHint(confirmation.Result.Failure, (int)DialogTone.Error));
             var diagnostics = confirmation.Result.Diagnostics.AddRange(confirmation.Result.Preview?.Diagnostics ?? []).Distinct().ToArray();
             foreach (var diagnostic in diagnostics) Rows.Children.Add(StatusHint(diagnostic.Code + " · " + diagnostic.Source + "\n" + diagnostic.Message,
-                (int)(diagnostic.Severity == MmcDiagnosticSeverity.Error ? MyHint.Themes.Red : diagnostic.Severity == MmcDiagnosticSeverity.Warning ? MyHint.Themes.Yellow : MyHint.Themes.Blue)));
+                (int)(diagnostic.Severity == MmcDiagnosticSeverity.Error ? DialogTone.Error : diagnostic.Severity == MmcDiagnosticSeverity.Warning ? DialogTone.Warning : DialogTone.Information)));
             if (diagnostics.Length == 0 && string.IsNullOrWhiteSpace(confirmation.Result.Failure)) Rows.Children.Add(Label("真实解析未报告诊断。", 13, margin: new Thickness(8, 12, 0, 0)));
             return;
         }
@@ -213,7 +224,7 @@ internal sealed class MmcComponentEditorPreviewView : ModpackDialogView {
         }
         if (differences.Length == 0) Rows.Children.Add(Label("此项没有差异。", 13, margin: new Thickness(8, 12, 0, 0)));
     }
-    private static MyTextBox Value(string text) => new() { Text = text, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+    private static TextBox Value(string text) => new() { Text = text, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MinHeight = 30, MaxHeight = 180, Margin = new Thickness(0, 6, 0, 0) };
     private static string FieldName(string value) => value switch {
         "minecraft" => "Minecraft 版本", "mainClass" => "游戏入口", "mainJar" => "游戏主运行库", "jvmArguments" => "JVM 参数", "gameArguments" => "游戏参数",

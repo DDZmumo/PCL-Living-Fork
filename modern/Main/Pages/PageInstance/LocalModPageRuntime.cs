@@ -28,8 +28,8 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
 using global::PCLLF.Presentation.Mods;
-using NativePage = global::PCLLF.Presentation.Mods.LegacyModPage<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.MyLocalModItem, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::PCL.MyIconButton, global::PCL.ModDependencyImpactView.Item>;
-using NativeHost = global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.MyLocalModItem, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::PCL.MyIconButton, global::PCL.ModDependencyImpactView.Item>;
+using NativePage = global::PCLLF.Presentation.Mods.LegacyModPage<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.GlassLocalModRow, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::System.Windows.Controls.Button, global::PCL.ModDependencyImpactView.Item>;
+using NativeHost = global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.GlassLocalModRow, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::System.Windows.Controls.Button, global::PCL.ModDependencyImpactView.Item>;
 using ThrottleDebounce;
 
 namespace PCL
@@ -38,16 +38,16 @@ namespace PCL
     // 原模型、Loader、依赖后端与主窗口的真实 typed 接线；不建立平行资源模型或调度器。
     internal sealed class LocalModPageRuntime
     {
-        internal static global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.MyLocalModItem, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::PCL.MyIconButton, global::PCL.ModDependencyImpactView.Item> CreateHost(global::PCL.PageInstanceMod Owner)
+        internal static global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.GlassLocalModRow, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::System.Windows.Controls.Button, global::PCL.ModDependencyImpactView.Item> CreateHost(global::PCL.PageInstanceMod Owner)
         {
-            return new global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.MyLocalModItem, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::PCL.MyIconButton, global::PCL.ModDependencyImpactView.Item>()
+            return new global::PCLLF.Presentation.Mods.LegacyModPageHost<global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.GlassLocalModRow, global::PCL.ModMinecraft.McInstance, global::PCL.ModNet.NetFile, global::System.Windows.Controls.Button, global::PCL.ModDependencyImpactView.Item>()
             {
-                Items = new Func<global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::PCL.MyLocalModItem>>(() => Owner.ModItems),
+                Items = new Func<global::System.Collections.Concurrent.ConcurrentDictionary<global::System.String, global::PCL.GlassLocalModRow>>(() => Owner.ModItems),
                 Selected = new Func<global::System.Collections.Generic.List<global::System.String>>(() => Owner.SelectedMods),
                 SetSelected = new Action<global::System.Collections.Generic.List<global::System.String>>(Value => Owner.SelectedMods = Value),
                 Output = new Func<global::System.Collections.Generic.List<global::PCL.LocalResourceFile>>(() => global::PCL.LocalResourceLoaders.LocalResourceLoader.Output),
                 UpdatingFolders = new Func<global::System.Collections.Generic.List<global::System.String>>(() => global::PCL.PageInstanceMod.UpdatingInstanceModFolders),
-                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
+                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.LauncherInstanceContext.Instance),
                 GlobalInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
                 AnyLocked = () => ModMinecraft.McInstanceLock.IsAnyLocked,
                 ResetIndexLookups = ModDependencyAutoFill.ResetIndexLookups,
@@ -58,7 +58,7 @@ namespace PCL
                 Modable = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Value => Value.Modable),
                 Locked = global::PCL.ModMinecraft.McInstanceLock.IsLocked,
                 LastWasDetails = new Func<global::System.Boolean>(() => (global::PCL.ModMain.FrmMain.PageLast.Page == global::PCL.FormMain.PageType.ResourceDetail)),
-                IsCurrentPage = new Func<global::System.Boolean>(() => Object.ReferenceEquals((global::PCL.ModMain.FrmMain.PageRight), Owner)),
+                IsCurrentPage = new Func<global::System.Boolean>(() => ModMain.FrmMain is { } window && (ReferenceEquals(window.PageRight, Owner) || window.IsCurrentGlassPage(Owner))),
                 CtrlDown = new Func<global::System.Boolean>(() => global::PCL.My.MyWpfExtension.Computer.Keyboard.CtrlKeyDown),
                 ShiftDown = new Func<global::System.Boolean>(() => global::PCL.My.MyWpfExtension.Computer.Keyboard.ShiftKeyDown),
                 IsInstanceSetup = new Func<global::System.Boolean>(() => ((global::PCL.ModMain.FrmMain.PageCurrent) == (global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup)),
@@ -69,7 +69,7 @@ namespace PCL
                 AnimationControl = new Func<global::System.Int32>(() => global::PCL.ModAnimation.AniControlEnabled),
                 SetAnimationControl = new Action<global::System.Int32>(Value => global::PCL.ModAnimation.AniControlEnabled = Value),
                 ChangeAnimationControl = new Action<global::System.Int32>(Delta => global::PCL.ModAnimation.AniControlEnabled += Delta),
-                LoaderRun = new Func<global::System.Int32, global::System.Boolean>(Type => global::PCL.ModLoader.LoaderFolderRun(global::PCL.LocalResourceLoaders.LocalResourceLoader, global::PCL.PageInstanceLeft.Instance.PathIndie + @"mods\", (global::PCL.ModLoader.LoaderFolderRunType)(Type))),
+                LoaderRun = new Func<global::System.Int32, global::System.Boolean>(Type => global::PCL.ModLoader.LoaderFolderRun(global::PCL.LocalResourceLoaders.LocalResourceLoader, global::PCL.LauncherInstanceContext.Instance.PathIndie + @"mods\", (global::PCL.ModLoader.LoaderFolderRunType)(Type))),
                 ForceFolderLoader = new Action<global::System.String>(Folder => global::PCL.ModLoader.LoaderFolderRun(global::PCL.LocalResourceLoaders.LocalResourceLoader, Folder, global::PCL.ModLoader.LoaderFolderRunType.ForceRun)),
                 LoaderState = new Func<global::System.Int32>(() => (global::System.Int32)global::PCL.LocalResourceLoaders.LocalResourceLoader.State),
                 ApplyMode = global::PCL.ModModpackMode.ApplyInstanceVisibility,
@@ -78,7 +78,7 @@ namespace PCL
                 InitializeLoader = new Action(() => Owner.InitializeNativeLoader()),
                 ClearProjectCache = new Action(() => global::PCL.ResourceProject.Cache.Clear()),
                 ClearVersionCache = new Action(() => global::PCL.ResourceVersion.ProjectFilesCache.Clear()),
-                SelectModPage = new Action(() => global::PCL.ModMain.FrmInstanceLeft.ItemMod.Checked = true),
+                SelectModPage = () => ModMain.FrmMain?.GlassInstanceNavigation.Select(FormMain.PageSubType.InstanceMod),
                 ReloadCurrent = new Action<global::System.Boolean>(Force => global::PCL.LocalModPageRuntime.ReloadCurrent(Force)),
                 TempPath = new Func<global::System.String>(() => global::PCL.ModBase.PathTemp),
                 Hint = global::PCL.LocalModPageRuntime.ShowHint,
@@ -96,31 +96,31 @@ namespace PCL
                 Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
                 DispatchWait = ModBase.RunInUiWait,
                 Background = new Action<global::System.Action, global::System.String, global::System.Threading.ThreadPriority>((Work, Name, Priority) => global::PCL.ModBase.RunInNewThread(Work, Name, Priority)),
-                NewItem = new Func<global::PCL.LocalResourceFile, global::System.Boolean, global::PCL.MyLocalModItem>((Entry, Selected) => Owner.CreateItem(Entry, Selected)),
+                NewItem = new Func<global::PCL.LocalResourceFile, global::System.Boolean, global::PCL.GlassLocalModRow>((Entry, Selected) => Owner.CreateItem(Entry, Selected)),
                 BindUpdate = global::PCL.LocalModPageRuntime.BindUpdate,
-                Entry = new Func<global::PCL.MyLocalModItem, global::PCL.LocalResourceFile>(Item => Item.Entry),
-                Checked = new Func<global::PCL.MyLocalModItem, global::System.Boolean>(Item => Item.Checked),
-                SetChecked = new Action<global::PCL.MyLocalModItem, global::System.Boolean>((Item, Value) => Item.Checked = Value),
-                BindRowEvents = new Action<global::PCL.MyLocalModItem>(Item => Owner.BindRowEvents(Item)),
+                Entry = new Func<global::PCL.GlassLocalModRow, global::PCL.LocalResourceFile>(Item => Item.Entry),
+                Checked = new Func<global::PCL.GlassLocalModRow, global::System.Boolean>(Item => Item.Checked),
+                SetChecked = new Action<global::PCL.GlassLocalModRow, global::System.Boolean>((Item, Value) => Item.Checked = Value),
+                BindRowEvents = new Action<global::PCL.GlassLocalModRow>(Item => Owner.BindRowEvents(Item)),
                 CreateButton = global::PCL.LocalModPageRuntime.CreateButton,
-                SetButtons = new Action<global::PCL.MyLocalModItem, global::System.Collections.Generic.IEnumerable<global::PCL.MyIconButton>>((Item, Buttons) => Item.Buttons = Buttons),
+                SetButtons = new Action<global::PCL.GlassLocalModRow, global::System.Collections.Generic.IEnumerable<global::System.Windows.Controls.Button>>((Item, Buttons) => Item.SetButtons(Buttons)),
                 OpenLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonOpen),
                 InfoLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonInfo),
                 DeleteLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonDelete),
                 StopLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonStop),
                 CheckLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonCheck),
                 ListLogo = new Func<global::System.String>(() => global::PCL.ModBase.Logo.IconButtonList),
-                ResolveItem = new Func<global::System.Object, global::PCL.MyLocalModItem>(Sender => ((global::PCL.MyLocalModItem)(((Sender is global::PCL.MyIconButton) ? (((global::PCL.MyIconButton)(Sender)).Tag) : (Sender))))),
+                ResolveItem = new Func<global::System.Object, global::PCL.GlassLocalModRow>(Sender => ((global::PCL.GlassLocalModRow)(((Sender is global::System.Windows.Controls.Button) ? (((global::System.Windows.Controls.Button)(Sender)).Tag) : (Sender))))),
                 NewMod = new Func<global::System.String, global::PCL.LocalResourceFile>(Address => new global::PCL.LocalResourceFile(Address)),
                 NavigateDownload = global::PCL.LocalModPageRuntime.NavigateDownload,
                 NavigateDetails = global::PCL.LocalModPageRuntime.NavigateDetails,
-                ToNetFile = new Func<global::PCL.ResourceVersion, global::System.String, global::PCL.ModNet.NetFile>((Value, Address) => Value.ToNetFile(Address, global::PCL.ResourceVersion.DownloadReason.Update, global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders)),
+                ToNetFile = new Func<global::PCL.ResourceVersion, global::System.String, global::PCL.ModNet.NetFile>((Value, Address) => Value.ToNetFile(Address, global::PCL.ResourceVersion.DownloadReason.Update, global::PCL.LauncherInstanceContext.Instance.Version.VanillaName, global::PCL.LauncherInstanceContext.Instance.Version.ModLoaders)),
                 CreateUpdateJob = global::PCL.LocalModPageRuntime.CreateUpdateJob,
                 CheckUpdateDependencies = (instance, replacements, token) => ModDependencyInspector.FindNewUpdateProblems(
                     Path.Combine(instance.PathIndie, "mods"), ModDependencyInspector.ContextForInstance(instance), replacements, token),
                 CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Caption, Token)),
-                RefreshDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
-                RibbleDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
+                RefreshDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
+                RibbleDownloadButton = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton(pulse: true)),
                 FormatSize = global::MeloongCore.StringUtils.FormatByteSize
             };
         }
@@ -139,15 +139,27 @@ namespace PCL
             if (global::PCL.ModMain.FrmInstanceMod is not null)
                 global::PCL.ModMain.FrmInstanceMod.ReloadModList(Force);
         }
-        private static void BindUpdate(global::PCL.LocalResourceFile Entry, global::PCL.MyLocalModItem Item)
+        private static void BindUpdate(global::PCL.LocalResourceFile Entry, global::PCL.GlassLocalModRow Item)
         {
-            Entry.OnUpdate += _ => global::PCL.ModBase.RunInUi(Item.Refresh);
+            bool listening = false;
+            void OnUpdate(LocalResourceFile _) => ModBase.RunInUi(() => { if (listening) Item.Refresh(); });
+            Item.Loaded += (_, _) => {
+                if (listening) return;
+                listening = true;
+                Entry.OnUpdate += OnUpdate;
+            };
+            Item.Unloaded += (_, _) => {
+                if (!listening) return;
+                listening = false;
+                Entry.OnUpdate -= OnUpdate;
+            };
         }
-        private static global::PCL.MyIconButton CreateButton(global::System.Double Scale, global::System.String Icon, global::System.String Description, global::PCL.MyLocalModItem Item, global::System.Action<global::System.Object> Work)
+        private static global::System.Windows.Controls.Button CreateButton(global::System.Double Scale, global::System.String Icon, global::System.String Description, global::PCL.GlassLocalModRow Item, global::System.Action<global::System.Object> Work)
         {
-            var Button = new global::PCL.MyIconButton() { LogoScale = Scale, Logo = Icon, Tag = Item, ToolTip = Description };
-            Button.Click += (Sender, Args) => Work(Sender);
-            return Button;
+            var button = GlassLocalModRow.CreateButton(Description, Icon, Scale);
+            button.Tag = Item;
+            button.Click += (_, _) => Work(button);
+            return button;
         }
         private static global::System.Collections.Generic.List<global::PCL.ModDependencyImpactView.Item> InspectImpacts(global::PCL.ModMinecraft.McInstance Target, global::System.String[] Candidates)
         {
@@ -157,25 +169,24 @@ namespace PCL
         private static global::PCLLF.Presentation.Mods.LegacyModDependencyDetails InspectDetails(global::PCL.ModMinecraft.McInstance Target, global::PCL.LocalResourceFile Entry)
         {
             var Report = global::PCL.ModDependencyOnline.InspectWithOnline(global::System.IO.Path.Combine(Target.PathIndie, "mods"), global::PCL.ModDependencyInspector.ContextForInstance(Target), Options: new global::PCL.ModDependencyOnline.LookupOptions() { TargetFile = Entry.File.FullName, ComparePlatformDependencies = true, MaxSearchFiles = 0 });
+            string caption = Report.DescribeFile(Entry.File.FullName);
             return new global::PCLLF.Presentation.Mods.LegacyModDependencyDetails()
             {
-                Caption = Report.DescribeFile(Entry.File.FullName),
+                Caption = caption,
                 HasMod = new Func<global::System.Boolean>(() => Report.Mods.Any(Item => global::PCL.ModDependencyInspector.SameFilePath(Item.RootPath, Entry.File.FullName))),
-                CreateView = new Func<global::System.Windows.FrameworkElement>(() => new global::PCL.ModDependencyGraphView(Report, Entry.File.FullName))
+                CreateView = new Func<global::System.Windows.FrameworkElement>(() => new global::PCL.ModDependencyGraphView(Report, Entry.File.FullName, caption))
             };
         }
         private static void NavigateDownload(global::PCL.ModMinecraft.McInstance Instance, global::System.String Search)
         {
-            global::PCL.PageResource.TargetInstance = Instance;
-            global::PCL.PageResource.TargetName = Search;
-            global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.Download, global::PCL.FormMain.PageSubType.DownloadMod);
+            ModMain.FrmMain.BrowseResources(FormMain.PageSubType.DownloadMod, Instance, Search);
         }
         private static void NavigateDetails(global::PCL.ResourceProject Project)
         {
             global::PCL.ModMain.FrmMain.PageChange(new global::PCL.FormMain.PageStackData()
             {
                 Page = global::PCL.FormMain.PageType.ResourceDetail,
-                Additional = new object[] { Project, new global::System.Collections.Generic.List<global::System.String>(), global::PCL.PageInstanceLeft.Instance.Version.VanillaName, global::PCL.PageInstanceLeft.Instance.Version.ModLoaders, global::PCLCS.ResourceTypes.Mod }
+                Additional = new object[] { Project, new global::System.Collections.Generic.List<global::System.String>(), global::PCL.LauncherInstanceContext.Instance.Version.VanillaName, global::PCL.LauncherInstanceContext.Instance.Version.ModLoaders, global::PCLCS.ResourceTypes.Mod }
             });
         }
         private static global::PCL.ModMinecraft.McInstance _cachedWarningTarget;
@@ -184,7 +195,7 @@ namespace PCL
         private static string _cachedWarningModsFolder;
         private static global::PCL.ModDependencyInspector.InspectionContext _cachedWarningContext;
 
-        private static void RefreshCachedLoaderWarning(global::PCL.MyLocalModItem Item, global::PCL.ModMinecraft.McInstance Target)
+        private static void RefreshCachedLoaderWarning(global::PCL.GlassLocalModRow Item, global::PCL.ModMinecraft.McInstance Target)
         {
             if (Item is null || Target is null) return;
             long now = Environment.TickCount64;

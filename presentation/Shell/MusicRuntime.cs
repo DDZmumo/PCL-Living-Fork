@@ -27,7 +27,6 @@ public sealed class MusicHost {
     public Func<int, int, int> RandomInteger = null!;
     public Action<Action> Ui = null!, Thread = null!;
     public Action<Action, string, ThreadPriority> StartThread = null!;
-    public Func<MyExtraButtonView> Button = null!;
     public Action RefreshSettings = null!;
     public Action<string, int, bool> Hint = null!;
 }
@@ -151,21 +150,6 @@ public sealed class MusicRuntime {
     }
     private void RefreshUi() => host.Ui(() => {
         try {
-            if (!All.Any()) host.Button().Show = false;
-            else {
-                host.Button().Show = true;
-                string tooltip;
-                if (State == MusicPlaybackState.Pause) {
-                    host.Button().Logo = LegacyBaseIcons.IconPlay; host.Button().LogoScale = .8;
-                    tooltip = "已暂停：" + PathUtils.GetFileNameWithoutExtension(current);
-                    tooltip += All.Count > 1 ? "\r\n左键恢复播放，右键播放下一曲。" : "\r\n左键恢复播放，右键重新从头播放。";
-                } else {
-                    host.Button().Logo = LegacyBaseIcons.IconMusic; host.Button().LogoScale = 1;
-                    tooltip = "正在播放：" + PathUtils.GetFileNameWithoutExtension(current);
-                    tooltip += All.Count > 1 ? "\r\n左键暂停，右键播放下一曲。" : "\r\n左键暂停，右键重新从头播放。";
-                }
-                host.Button().ToolTip = tooltip;
-            }
             host.RefreshSettings();
         } catch (Exception ex) { Logger.Error(ex, "刷新背景音乐 UI 失败"); }
     });
@@ -264,14 +248,19 @@ public sealed class MusicRuntime {
     private sealed class TapProvider : ISampleProvider {
         private readonly ISampleProvider source;
         private readonly MusicSampleTap tap;
-        public TapProvider(ISampleProvider source, MusicSampleTap tap) { this.source = source; this.tap = tap; }
+        private readonly int generation;
+        public TapProvider(ISampleProvider source, MusicSampleTap tap, int generation) { this.source = source; this.tap = tap; this.generation = generation; }
         public WaveFormat WaveFormat => source.WaveFormat;
         public int Read(float[] buffer, int offset, int count) {
             int read = source.Read(buffer, offset, count);
-            if (read > 0) tap.Write(buffer, offset, read, source.WaveFormat.Channels);
+            // A player that is shutting down may still pull a buffer; its generation keeps those samples out of the new track.
+            if (read > 0) tap.Write(generation, buffer, offset, read, source.WaveFormat.Channels);
             return read;
         }
     }
+    // Frames the device has actually played (its position counts bytes of the stream it was given).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long PlayedFrames(object playback, int blockAlign) => ((WaveOutEvent)playback).GetPosition() / Math.Max(1, blockAlign);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Loop(bool isFirstLoad = false) {
@@ -287,13 +276,17 @@ public sealed class MusicRuntime {
             activeReader = reader;
             // Same stream, passed through a tap that keeps the latest samples for the visualiser.
             ISampleProvider source = reader.ToSampleProvider();
-            Samples.Reset(source.WaveFormat.SampleRate);
-            wave.Init(new TapProvider(source, Samples), false); wave.Play();
+            int generation = Samples.Reset(source.WaveFormat.SampleRate);
+            wave.Init(new TapProvider(source, Samples, generation), false);
+            // The visualiser reads the samples at the device's playhead, not a guess of how far it lags behind.
+            WaveOutEvent device = wave;
+            int blockAlign = device.OutputWaveFormat.BlockAlign;
+            Samples.SetClock(generation, () => PlayedFrames(device, blockAlign));
+            wave.Play();
             if (isFirstLoad && !host.BooleanSetting("UiMusicAuto")) wave.Pause();
             else if (isFirstLoad) lock (startGate) { if (startHeld) { wave.Pause(); startPending = true; } }
             RefreshUi();
             int previousVolume = 0;
-            double lastButtonProgress = double.NaN;
             while (wave.Equals(host.Playback()) && wave.PlaybackState != PlaybackState.Stopped) {
                 if (host.IntegerSetting("UiMusicVolume") != previousVolume) {
                     previousVolume = host.IntegerSetting("UiMusicVolume");
@@ -304,10 +297,6 @@ public sealed class MusicRuntime {
                 double percent = reader.CurrentTime.TotalMilliseconds / reader.TotalTime.TotalMilliseconds;
                 double progress = double.IsFinite(percent) ? Math.Clamp(percent, 0, 1) : 0;
                 Progress = progress;
-                if (progress != lastButtonProgress) {
-                    lastButtonProgress = progress;
-                    host.Ui(() => host.Button().Progress = progress);
-                }
                 Thread.Sleep(100);
             }
             if (wave.PlaybackState == PlaybackState.Stopped && All.Any()) StartPlay(Dequeue());
@@ -338,13 +327,17 @@ public sealed class MusicRuntime {
 }
 
 /// <summary>
-/// A ring of the latest mono samples handed to the audio device. Written on the audio thread, read on the UI thread.
-/// Free of NAudio types so the UI can hold it before any playback starts.
+/// A ring of the latest mono samples handed to the audio device, read at the device's playhead. Written on the audio
+/// thread, read on the UI thread. Free of NAudio types so the UI can hold it before any playback starts.
 /// </summary>
 public sealed class MusicSampleTap {
-    private readonly float[] ring = new float[1 << 15];
+    private readonly float[] ring = new float[1 << 16]; // ~1.4 s at 44.1 kHz: device buffer plus the longest analysis window
     private readonly object gate = new();
-    private long written;
+    // Frames handed to the device since the track started; counted even while nobody captures, so it stays aligned
+    // with the device position. Ring contents are only valid from `capturedFrom` on.
+    private long handed, capturedFrom;
+    private int generation;
+    private Func<long>? clock;
     private volatile bool captureEnabled;
 
     public bool CaptureEnabled {
@@ -353,7 +346,7 @@ public sealed class MusicSampleTap {
             if (captureEnabled == value) return;
             lock (gate) {
                 captureEnabled = value;
-                written = 0;
+                capturedFrom = handed;
             }
         }
     }
@@ -361,34 +354,53 @@ public sealed class MusicSampleTap {
     /// <summary>Sample rate of the track in use.</summary>
     public int SampleRate { get; private set; } = 44100;
 
-    internal void Reset(int sampleRate) {
-        lock (gate) { Array.Clear(ring); written = 0; SampleRate = sampleRate > 0 ? sampleRate : 44100; }
+    /// <summary>Starts a new track; returns its generation, which tags its writes and clock.</summary>
+    internal int Reset(int sampleRate) {
+        lock (gate) {
+            Array.Clear(ring); handed = 0; capturedFrom = 0; clock = null; generation++;
+            SampleRate = sampleRate > 0 ? sampleRate : 44100;
+            return generation;
+        }
     }
 
-    internal void Write(float[] buffer, int offset, int count, int channels) {
-        if (!captureEnabled) return;
+    /// <summary>Gives the frames the device has played for the track of <paramref name="owner"/>.</summary>
+    internal void SetClock(int owner, Func<long> playedFrames) {
+        lock (gate) { if (owner == generation) clock = playedFrames; }
+    }
+
+    internal void Write(int owner, float[] buffer, int offset, int count, int channels) {
         channels = Math.Max(1, channels);
         lock (gate) {
-            if (!captureEnabled) return;
+            if (owner != generation) return;
+            int frames = count / channels;
+            if (!captureEnabled) { handed += frames; return; }
             int mask = ring.Length - 1;
             for (int index = offset; index + channels <= offset + count; index += channels) {
                 float sum = 0;
                 for (int channel = 0; channel < channels; channel++) sum += buffer[index + channel];
-                ring[(int)(written++ & mask)] = sum / channels;
+                ring[(int)(handed++ & mask)] = sum / channels;
             }
         }
     }
 
     /// <summary>
-    /// Copies the <paramref name="destination"/>.Length samples that end <paramref name="lagSeconds"/> before the newest
-    /// one (the device plays behind what it has been handed). False while there are not enough samples yet.
+    /// Copies the <paramref name="destination"/>.Length samples that end <paramref name="lead"/> samples after the
+    /// device's playhead (the sound being heard now), so a window can be centred on it. Without a device clock it falls
+    /// back to <paramref name="lagSeconds"/> behind the newest sample. False while those samples are not available.
     /// </summary>
-    public bool Snapshot(float[] destination, double lagSeconds) {
+    public bool Snapshot(float[] destination, double lagSeconds, int lead = 0) {
+        Func<long>? played;
+        lock (gate) { if (!captureEnabled) return false; played = clock; }
+        long playhead = -1;
+        if (played is not null) {
+            try { playhead = played(); } catch { playhead = -1; } // the device may be closing between tracks
+        }
         lock (gate) {
             if (!captureEnabled) return false;
-            long end = written - (long)(Math.Max(0, lagSeconds) * SampleRate);
+            long heard = playhead >= 0 ? playhead : handed - (long)(Math.Max(0, lagSeconds) * SampleRate);
+            long end = Math.Min(heard + Math.Max(0, lead), handed);
             int length = destination.Length;
-            if (length > ring.Length || end < length) return false;
+            if (length > ring.Length || end - length < capturedFrom || handed - (end - length) > ring.Length) return false;
             int mask = ring.Length - 1;
             for (int index = 0; index < length; index++) destination[index] = ring[(int)((end - length + index) & mask)];
             return true;

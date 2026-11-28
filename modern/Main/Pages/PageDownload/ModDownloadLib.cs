@@ -35,7 +35,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
 using InstallCore = global::PCLCS.MinecraftInstallEngine<global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetFile, global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ModMinecraft.McLibEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest>;
-using MenuCore = global::PCLCS.MinecraftInstallMenuController<global::PCL.MyListItem, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem.ClickEventHandler, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion>;
 using ThrottleDebounce;
 
 namespace PCL
@@ -48,8 +47,8 @@ namespace PCL
         {
         }
         private readonly static global::PCL.ModDownloadLib.InstallLoaderFactory NativeLoaders = new global::PCL.ModDownloadLib.InstallLoaderFactory();
+        internal static IMinecraftInstallLoaders<ModLoader.LoaderBase, ModNet.NetFile> SharedInstallLoaders => NativeLoaders;
         private readonly static global::PCLCS.MinecraftInstallEngine<global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetFile, global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ModMinecraft.McLibEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest> Service = new global::PCLCS.MinecraftInstallEngine<global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetFile, global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ModMinecraft.McLibEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest>(global::PCL.ModDownloadLib.CreateHost());
-        private readonly static global::PCLCS.MinecraftInstallMenuController<global::PCL.MyListItem, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem.ClickEventHandler, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion> Menus = new global::PCLCS.MinecraftInstallMenuController<global::PCL.MyListItem, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem.ClickEventHandler, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion>(global::PCL.ModDownloadLib.CreateMenuHost());
 
         private static global::PCLCS.MinecraftInstallHost<global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetFile, global::PCL.ModMinecraft.McInstance, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ResourceVersion, global::PCL.ModMinecraft.McLibEntry> CreateHost()
         {
@@ -93,8 +92,8 @@ namespace PCL
                 RunInUi = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
                 RunInUiWait = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUiWait(Work)),
                 RunInNewThread = new Action<global::System.Action, global::System.String>((Work, Name) => global::PCL.ModBase.RunInNewThread(Work, Name)),
-                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
-                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
+                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
+                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton(pulse: true)),
                 RefreshInstanceList = new Action(() => global::PCL.ModLoader.LoaderFolderRun(global::PCL.ModMinecraft.McInstanceListLoader, global::PCL.ModMinecraft.McFolderSelected, global::PCL.ModLoader.LoaderFolderRunType.ForceRun, MaxDepth: 1, ExtraPath: @"versions\")),
                 Hint = global::PCL.ModDownloadLib.InstallHint,
                 Message = new Func<global::PCLCS.ModpackMessage, global::System.Int32>(Message => global::PCL.ModMain.MyMsgBox(Message.Text, Message.Title, Message.Button1, Message.Button2, IsWarn: Message.IsWarn, ForceWait: Message.ForceWait)),
@@ -105,9 +104,9 @@ namespace PCL
                 NativesFolder = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => global::PCL.ModLaunch.GetNativesFolder(Instance)),
                 FileWorkload = new Func<global::PCL.ModLoader.LoaderBase, global::System.String, global::System.Action>((Loader, Input) => global::PCL.LoaderFileOperation.CreateWorkload((global::PCL.ModLoader.LoaderCombo<global::System.String>)Loader, Input)),
                 TryAcquire = global::PCL.ModMinecraft.McInstanceLock.TryAcquire,
-                InstancePage = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
+                InstancePage = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.LauncherInstanceContext.Instance),
                 SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
-                SetInstancePage = new Action<global::PCL.ModMinecraft.McInstance>(Instance => global::PCL.PageInstanceLeft.Instance = Instance),
+                SetInstancePage = new Action<global::PCL.ModMinecraft.McInstance>(Instance => global::PCL.LauncherInstanceContext.Instance = Instance),
                 SetSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Instance => global::PCL.ModMinecraft.McInstanceSelected = Instance),
                 BeforeMinecraftChange = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.String, global::System.Threading.CancellationToken>((Instance, Before, After, Token) => global::PCL.WorldBackups.BeforeMinecraftChange(Instance, Before, After, Token)),
                 CaptureEnvironment = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
@@ -219,81 +218,11 @@ namespace PCL
             }
         }
 
-        private static global::PCLCS.MinecraftInstallMenuHost<global::PCL.MyListItem, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem.ClickEventHandler, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlLiteLoaderListEntry> CreateMenuHost()
-        {
-            return new global::PCLCS.MinecraftInstallMenuHost<global::PCL.MyListItem, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem.ClickEventHandler, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlLiteLoaderListEntry>()
-            {
-                Virtualize = new Func<global::System.Func<global::PCL.MyListItem>, global::System.Double, global::PCL.MyVirtualizingElement<global::PCL.MyListItem>>((Work, Height) => new global::PCL.MyVirtualizingElement<global::PCL.MyListItem>(() => Work()) { Height = Height }),
-                CreateItem = global::PCL.ModDownloadLib.CreateMenuItem,
-                Initialize = new Func<global::PCL.MyVirtualizingElement<global::PCL.MyListItem>, global::PCL.MyListItem>(Item => Item.Init()),
-                Title = new Func<global::PCL.MyListItem, global::System.String>(Item => Item.Title),
-                Info = new Func<global::PCL.MyListItem, global::System.String>(Item => Item.Info),
-                SetInfo = new Action<global::PCL.MyListItem, global::System.String>((Item, Value) => Item.Info = Value),
-                SetButtons = global::PCL.ModDownloadLib.SetMenuButtons,
-                ImageRoot = new Func<global::System.String>(() => global::PCL.ModBase.PathImage),
-                DebugMode = new Func<global::System.Boolean>(() => global::PCL.ModBase.ModeDebug),
-                OpenWebsite = new Action<global::System.String>(Url => global::PCL.ModBase.OpenWebsite(Url)),
-                SaveOptiFine = global::PCL.ModDownloadLib.Service.McDownloadOptiFineSave,
-                SaveForgelike = global::PCL.ModDownloadLib.Service.McDownloadForgelikeSave,
-                SaveLiteLoader = global::PCL.ModDownloadLib.Service.McDownloadLiteLoaderSave,
-                SaveMinecraft = global::PCL.ModDownloadLib.Service.SaveMinecraft
-            };
-        }
-        private static global::PCL.MyListItem CreateMenuItem(global::PCLCS.MinecraftInstallListItem Model, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Action<global::System.Object, global::System.EventArgs> Content)
-        {
-            var Item = new global::PCL.MyListItem()
-            {
-                Logo = Model.Logo,
-                SnapsToDevicePixels = true,
-                Title = Model.Title,
-                Height = 42d,
-                Type = global::PCL.MyListItem.CheckType.Clickable,
-                Tag = Model.Tag,
-                Info = Model.Info
-            };
-            Item.Click += OnClick;
-            if (Content is not null)
-                Item.ContentHandler = new Action<global::PCL.MyListItem, global::System.EventArgs>((Sender, Args) => Content(Sender, Args));
-            return Item;
-        }
-        private static void SetMenuButtons(global::System.Object Sender, global::System.Collections.Generic.List<global::PCLCS.MinecraftInstallMenuButton> Entries)
-        {
-            var Buttons = new global::System.Collections.Generic.List<global::PCL.MyIconButton>();
-            foreach (var Entry in Entries)
-            {
-                var Current = Entry;
-                global::System.String Icon;
-                switch (Entry.Icon)
-                {
-                    case global::PCLCS.MinecraftInstallMenuIcon.Save:
-                        {
-                            Icon = global::PCL.ModBase.Logo.IconButtonSave;
-                            break;
-                        }
-                    case global::PCLCS.MinecraftInstallMenuIcon.Info:
-                        {
-                            Icon = global::PCL.ModBase.Logo.IconButtonInfo;
-                            break;
-                        }
-                    case global::PCLCS.MinecraftInstallMenuIcon.Server:
-                        {
-                            Icon = global::PCL.ModBase.Logo.IconButtonServer;
-                            break;
-                        }
-
-                    default:
-                        {
-                            Icon = global::PCL.ModBase.Logo.IconButtonList;
-                            break;
-                        }
-                }
-                var Button = new global::PCL.MyIconButton() { Logo = Icon, ToolTip = Entry.ToolTip, Tag = Entry.Tag };
-                if (Entry.LogoScale.HasValue)
-                    Button.LogoScale = Entry.LogoScale.Value;
-                Button.Click += (ButtonSender, Args) => Current.Click(ButtonSender, (global::System.Windows.RoutedEventArgs)Args);
-                Buttons.Add(Button);
-            } ((global::PCL.MyListItem)Sender).Buttons = (global::System.Collections.Generic.IEnumerable<global::PCL.MyIconButton>)Buttons;
-        }
+        internal static MinecraftInstallMenuController<GlassInstallRow, GlassInstallRow, Action<GlassInstallRow>,
+            ModDownload.DlOptiFineListEntry, ModDownload.DlForgelikeEntry, ModDownload.DlForgeVersionEntry,
+            ModDownload.DlNeoForgeListEntry, ModDownload.DlLiteLoaderListEntry, ResourceVersion> InstallRows { get; } =
+            GlassInstallRow.CreateMenus(Service.McDownloadOptiFineSave, Service.McDownloadForgelikeSave,
+                Service.McDownloadLiteLoaderSave, Service.SaveMinecraft);
 
         private const global::System.String McDownloadClientLibName = "下载原版支持库文件";
         private const global::System.String McDownloadClientJsonName = "下载原版 json 文件";
@@ -335,33 +264,9 @@ namespace PCL
         {
             return global::PCL.ModDownloadLib.Service.McDownloadClientLoader(Id, JsonUrl, VersionFolder);
         }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> McDownloadListItem(global::Newtonsoft.Json.Linq.JObject Entry, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            return global::PCL.ModDownloadLib.Menus.McDownloadListItem(Entry, OnClick, IsSaveOnly);
-        }
-        private static void McDownloadSaveMenuBuild(global::System.Object sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.McDownloadSaveMenuBuild(sender, e);
-        }
-        private static void McDownloadMenuBuild(global::System.Object sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.McDownloadMenuBuild(sender, e);
-        }
-        private static void McDownloadMenuLog(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.McDownloadMenuLog(sender, e);
-        }
-        private static void McDownloadMenuSaveServer(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.McDownloadMenuSaveServer(sender, e);
-        }
-        public static void McDownloadMenuSave(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.McDownloadMenuSave(sender, e);
-        }
         public static void McUpdateLogShow(global::Newtonsoft.Json.Linq.JToken InstanceJson)
         {
-            global::PCL.ModDownloadLib.Menus.McUpdateLogShow(InstanceJson);
+            InstallRows.McUpdateLogShow(InstanceJson);
         }
         private static void McDownloadOptiFineSave(global::PCL.ModDownload.DlOptiFineListEntry DownloadInfo)
         {
@@ -379,26 +284,6 @@ namespace PCL
         {
             return global::PCL.ModDownloadLib.Service.McDownloadOptiFineSaveLoader(DownloadInfo, TargetFolder);
         }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> OptiFineDownloadListItem(global::PCL.ModDownload.DlOptiFineListEntry Entry, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            return global::PCL.ModDownloadLib.Menus.OptiFineDownloadListItem(Entry, OnClick, IsSaveOnly);
-        }
-        private static void OptiFineSaveContMenuBuild(global::System.Object sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.OptiFineSaveContMenuBuild(sender, e);
-        }
-        private static void OptiFineContMenuBuild(global::System.Object sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.OptiFineContMenuBuild(sender, e);
-        }
-        private static void OptiFineLog_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.OptiFineLog_Click(sender, e);
-        }
-        public static void OptiFineSave_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.OptiFineSave_Click(sender, e);
-        }
         private static void McDownloadLiteLoaderSave(global::PCL.ModDownload.DlLiteLoaderListEntry DownloadInfo)
         {
             global::PCL.ModDownloadLib.Service.McDownloadLiteLoaderSave(DownloadInfo);
@@ -406,26 +291,6 @@ namespace PCL
         private static global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderBase> McDownloadLiteLoaderLoader(global::PCL.ModDownload.DlLiteLoaderListEntry DownloadInfo, global::System.String McFolder)
         {
             return global::PCL.ModDownloadLib.Service.McDownloadLiteLoaderLoader(DownloadInfo, McFolder);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> LiteLoaderDownloadListItem(global::PCL.ModDownload.DlLiteLoaderListEntry Entry, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            return global::PCL.ModDownloadLib.Menus.LiteLoaderDownloadListItem(Entry, OnClick, IsSaveOnly);
-        }
-        private static void LiteLoaderSaveContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.LiteLoaderSaveContMenuBuild(sender, e);
-        }
-        private static void LiteLoaderContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.LiteLoaderContMenuBuild(sender, e);
-        }
-        private static void LiteLoaderAll_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.LiteLoaderAll_Click(sender, e);
-        }
-        public static void LiteLoaderSave_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.LiteLoaderSave_Click(sender, e);
         }
         public static void McDownloadForgelikeSave(global::PCL.ModDownload.DlForgelikeEntry Info)
         {
@@ -443,30 +308,6 @@ namespace PCL
         {
             return global::PCL.ModDownloadLib.Service.McDownloadForgelikeLoader(IsNeoForge, LoaderVersion, NewInstanceName, Inherit, Info, McFolder, ClientDownloadLoader, ClientFolder);
         }
-        public static void ForgeDownloadListItemPreload(global::System.Windows.Controls.StackPanel Stack, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry> Entries, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            global::PCL.ModDownloadLib.Menus.ForgeDownloadListItemPreload(Stack, Entries, OnClick, IsSaveOnly);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> ForgeDownloadListItem(global::PCL.ModDownload.DlForgeVersionEntry Entry, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            return global::PCL.ModDownloadLib.Menus.ForgeDownloadListItem(Entry, OnClick, IsSaveOnly);
-        }
-        private static void ForgeContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.ForgeContMenuBuild(sender, e);
-        }
-        private static void ForgeSaveContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.ForgeSaveContMenuBuild(sender, e);
-        }
-        private static void ForgeLog_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.ForgeLog_Click(sender, e);
-        }
-        public static void ForgeSave_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.ForgeSave_Click(sender, e);
-        }
         public static void McDownloadForgeRecommendedRefresh()
         {
             global::PCL.ModDownloadLib.Service.McDownloadForgeRecommendedRefresh();
@@ -475,30 +316,6 @@ namespace PCL
         {
             return global::PCL.ModDownloadLib.Service.McDownloadForgeRecommendedGet(McVersionName);
         }
-        public static void NeoForgeDownloadListItemPreload(global::System.Windows.Controls.StackPanel Stack, global::System.Collections.Generic.List<global::PCL.ModDownload.DlNeoForgeListEntry> Entries, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            global::PCL.ModDownloadLib.Menus.NeoForgeDownloadListItemPreload(Stack, Entries, OnClick, IsSaveOnly);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> NeoForgeDownloadListItem(global::PCL.ModDownload.DlNeoForgeListEntry Info, global::PCL.MyListItem.ClickEventHandler OnClick, global::System.Boolean IsSaveOnly)
-        {
-            return global::PCL.ModDownloadLib.Menus.NeoForgeDownloadListItem(Info, OnClick, IsSaveOnly);
-        }
-        private static void NeoForgeContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.NeoForgeContMenuBuild(sender, e);
-        }
-        private static void NeoForgeSaveContMenuBuild(global::PCL.MyListItem sender, global::System.EventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.NeoForgeSaveContMenuBuild(sender, e);
-        }
-        private static void NeoForgeLog_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.NeoForgeLog_Click(sender, e);
-        }
-        public static void NeoForgeSave_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
-        {
-            global::PCL.ModDownloadLib.Menus.NeoForgeSave_Click(sender, e);
-        }
         public static void McDownloadFabricLoaderSave(global::Newtonsoft.Json.Linq.JObject DownloadInfo)
         {
             global::PCL.ModDownloadLib.Service.McDownloadFabricLoaderSave(DownloadInfo);
@@ -506,18 +323,6 @@ namespace PCL
         private static global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderBase> McDownloadFabricLoader(global::System.String FabricVersion, global::System.String MinecraftName, global::System.String McFolder)
         {
             return global::PCL.ModDownloadLib.Service.McDownloadFabricLoader(FabricVersion, MinecraftName, McFolder);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> FabricDownloadListItem(global::Newtonsoft.Json.Linq.JObject Entry, global::PCL.MyListItem.ClickEventHandler OnClick)
-        {
-            return global::PCL.ModDownloadLib.Menus.FabricDownloadListItem(Entry, OnClick);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> FabricApiDownloadListItem(global::PCL.ResourceVersion Entry, global::PCL.MyListItem.ClickEventHandler OnClick)
-        {
-            return global::PCL.ModDownloadLib.Menus.FabricApiDownloadListItem(Entry, OnClick);
-        }
-        public static global::PCL.MyVirtualizingElement<global::PCL.MyListItem> OptiFabricDownloadListItem(global::PCL.ResourceVersion Entry, global::PCL.MyListItem.ClickEventHandler OnClick)
-        {
-            return global::PCL.ModDownloadLib.Menus.OptiFabricDownloadListItem(Entry, OnClick);
         }
         public static global::System.Collections.Generic.List<global::PCL.ModLoader.LoaderBase> McInstallLoadersGet(global::PCL.ModDownloadLib.McInstallRequest Request)
         {

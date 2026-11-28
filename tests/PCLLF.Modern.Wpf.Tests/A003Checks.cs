@@ -132,11 +132,11 @@ internal static class A003Checks {
             var selected = new List<string>();
             mods[0].DeclaredModIds = new[] { "same_mod" }; mods[1].DeclaredModIds = new[] { "same_mod" };
             bool[] states = new bool[5]; string[] texts = new string[5];
-            Panel list = new StackPanel(); Border empty = new(); string search = ""; int loaderCalls = 0;
+            var list = new ItemsControl(); Border empty = new(); string search = ""; int loaderCalls = 0;
             var filters = Enumerable.Range(0, 5).Select(index => new ResourcePageFilter(new Border(), index,
                 () => states[index], value => states[index] = value, value => texts[index] = value)).ToArray();
             var view = new LegacyModPageView {
-                Root = () => new Border(), Back = () => new Border(), Empty = () => empty, ListBack = () => new Border(),
+                Root = () => new Border(), Back = () => new Border(), Empty = () => empty,
                 List = () => list, Search = () => search, SetSearch = value => search = value,
                 SetSelectionText = _ => { }, ScrollHome = () => { }, FocusBack = () => { }, EnableIndex = _ => { }, IndexText = _ => { },
                 Filters = () => filters, EnableDisable = _ => { }, EnableEnable = _ => { }, EnableUpdate = _ => { },
@@ -146,16 +146,16 @@ internal static class A003Checks {
                 Output = () => mods, Items = () => items, Selected = () => selected, SetSelected = value => selected = value,
                 Instance = () => null, AnimationControl = () => 0, ChangeAnimationControl = _ => { },
                 LoaderRun = type => { loaderCalls++; return true; }, NewItem = (entry, isSelected) => new Border { Tag = entry },
-                BindUpdate = (_, _) => { }, SetChecked = (_, _) => { }
+                BindRowEvents = _ => { }, BindUpdate = (_, _) => { }, SetChecked = (_, _) => { }
             };
             var page = new LegacyModPage<FakeMod, ResourceProjectModelData, ResourceVersionModelData, Border, object, object, Border, ModDependencyImpactItemData>(view, host);
             page.LoadUI(); int serial = page.ListRebuildSerial;
-            Check(items.Count == 3 && list.Children.Count == 3 && filters.Length == 5, "Local page must retain its original filters and add duplicate detection.");
-            page.FilterChanged(1); Check(list.Children.Count == 2, "Enabled scope changed.");
-            page.FilterChanged(2); Check(list.Children.Count == 1, "Disabled scope changed.");
-            page.FilterChanged(4); Check(page.Filter == LegacyModFilter.Duplicate && list.Children.Count == 2, "Root-ID duplicate filter missed active/disabled copies.");
-            page.FilterChanged(5); Check(page.Filter == LegacyModFilter.All && list.Children.Count == 3, "Unknown filters must fall back to All.");
-            search = "gamma"; page.SearchRun(); Check(list.Children.Count == 1, "Search changed.");
+            Check(items.Count == 3 && list.Items.Count == 3 && filters.Length == 5, "Local page must retain its original filters and add duplicate detection.");
+            page.FilterChanged(1); Check(list.Items.Count == 2, "Enabled scope changed.");
+            page.FilterChanged(2); Check(list.Items.Count == 1, "Disabled scope changed.");
+            page.FilterChanged(4); Check(page.Filter == LegacyModFilter.Duplicate && list.Items.Count == 2, "Root-ID duplicate filter missed active/disabled copies.");
+            page.FilterChanged(5); Check(page.Filter == LegacyModFilter.All && list.Items.Count == 3, "Unknown filters must fall back to All.");
+            search = "gamma"; page.SearchRun(); Check(list.Items.Count == 1, "Search changed.");
             page.SortOrder = LocalResourceSortOrder.AddedOldest;
             Check(page.ListRebuildSerial == serial && loaderCalls == 0, "Local filters/search/sort rebuilt the loader.");
         } finally { Directory.Delete(root, true); }

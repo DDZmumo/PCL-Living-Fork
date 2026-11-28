@@ -88,8 +88,8 @@ namespace PCL
                 AttachInstallState = new Action<global::PCL.ModLoader.LoaderBase>(Loader => Loader.OnStateChanged = global::PCL.ModDownloadLib.McInstallState),
                 AddTaskbar = new Action<global::PCL.ModLoader.LoaderBase>(Loader => global::PCL.ModLoader.LoaderTaskbarAdd((global::PCL.ModLoader.LoaderCombo<global::System.String>)Loader)),
                 Start = new Action<global::PCL.ModLoader.LoaderBase, global::System.String>((Loader, Folder) => Loader.Start(Folder)),
-                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
-                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
+                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
+                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton(pulse: true)),
                 RecordInstalled = global::PCL.ModpackUpdate.RecordInstalled,
                 OptiFineFinished = new Func<global::System.Boolean>(() => (global::PCL.ModDownload.DlOptiFineListBmclapiLoader.State == global::PCL.ModBase.LoadState.Finished)),
                 WaitOptiFine = new Action(() => global::PCL.ModDownload.DlOptiFineListBmclapiLoader.WaitForExit()),
@@ -97,7 +97,7 @@ namespace PCL
                 OpenExplorer = new Action<global::System.String>(Folder => global::PCL.ModBase.OpenExplorer(Folder)),
                 StartProcess = new Action<global::System.String, global::System.String>((Name, Arguments) => global::PCL.ModBase.StartProcess(Name, Arguments)),
                 EndProgram = new Action<global::System.Boolean>(Value => global::PCL.ModMain.FrmMain.EndProgram(Value)),
-                AddFolder = new Action<global::System.String, global::System.String, global::System.Boolean>((Folder, Name, ShowHint) => global::PCL.PageSelectLeft.AddFolder(Folder, Name, ShowHint)),
+                AddFolder = LauncherGameFolders.Add,
                 SelectInstancePage = new Action(() => global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSelect)),
                 Sleep = global::System.Threading.Thread.Sleep
             };

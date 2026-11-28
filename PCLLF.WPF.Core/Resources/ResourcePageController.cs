@@ -121,7 +121,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         CurrentRoot = root; CurrentFolder = folder; Entries = items.ToList();
         View.BackupSettings.Visibility = Kind == 0 ? Visibility.Visible : Visibility.Collapsed;
         View.BtnBackupAll.Visibility = View.BackupSettings.Visibility;
-        View.PanManageButtons.ColumnDefinitions[4].SharedSizeGroup = Kind == 0 ? "Button" : null;
+        if (!View.ToolbarWrapsContent) View.PanManageButtons.ColumnDefinitions[4].SharedSizeGroup = Kind == 0 ? "Button" : null;
         if (Kind == 0) View.BindBackupOwner(Owner);
         foreach (string key in Online.Keys.ToList()) {
             TEntry? current = Entries.FirstOrDefault(item => SamePath(item.FullPath, key));
@@ -137,7 +137,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         View.BtnDownload.ToolTip = schematic ? (needsLoader ? "当前版本尚未安装 Mod 加载器，点击前往此版本的修改页面。" : "前往 Mod 下载页面搜索 Litematica（投影），使用当前游戏版本及加载器筛选。") : null;
         View.BtnHintDownload.ToolTip = View.BtnDownload.ToolTip;
         View.BtnDownload.Visibility = needsLoader || ((Host.UpdatesSupported(Kind) || schematic) && !Host.ModpackEnabled()) ? Visibility.Visible : Visibility.Collapsed;
-        View.PanManageButtons.ColumnDefinitions[2].SharedSizeGroup = View.BtnDownload.Visibility == Visibility.Visible ? "Button" : null;
+        if (!View.ToolbarWrapsContent) View.PanManageButtons.ColumnDefinitions[2].SharedSizeGroup = View.BtnDownload.Visibility == Visibility.Visible ? "Button" : null;
         View.BtnUpdate.Visibility = Host.UpdatesSupported(Kind) ? Visibility.Visible : Visibility.Collapsed;
         View.BtnHintDownload.Visibility = View.BtnDownload.Visibility;
         View.LabEmptyTitle.Text = "暂无" + Title;
@@ -149,13 +149,16 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     }
     public void SearchChanged() => RenderList();
     public void SortChanged(int value) {
-        if (value < 0 || value > 4 || value >= 3 && Kind != 0) throw new ArgumentOutOfRangeException(nameof(value));
+        // 1/2 added time, 3/4 last played (saves only), 5/6 file name A→Z / Z→A.
+        if (value < 0 || value > 6 || value is 3 or 4 && Kind != 0) throw new ArgumentOutOfRangeException(nameof(value));
         if (SortMode == value) return;
         SortMode = value;
         RenderList();
     }
     private List<TEntry> SortVisible(List<TEntry> visible) {
         if (SortMode == 0) return visible;
+        if (SortMode is 5 or 6)
+            return LocalResourceSort.ByName(visible, SortMode == 5, entry => entry.Name ?? "", entry => entry.FullPath ?? "").ToList();
         bool newestFirst = SortMode == 1 || SortMode == 3;
         return LocalResourceSort.ByTime(visible, newestFirst,
             entry => SortMode >= 3 ? entry.LastPlayedUtc : entry.CreatedUtc > DateTime.FromFileTimeUtc(0) ? entry.CreatedUtc : (DateTime?)null,

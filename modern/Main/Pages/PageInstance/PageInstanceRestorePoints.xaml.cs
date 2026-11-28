@@ -4,6 +4,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
+using System.Windows.Automation;
+using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -18,6 +21,7 @@ namespace PCL
 {
     public partial class PageInstanceRestorePoints : IRefreshable
     {
+        private readonly Button BtnRestore, BtnDelete, BtnDeselect;
         private readonly HistoryController Controller;
         private readonly ModLoader.LoaderTask<HistoryPointsRequest, HistoryPointsResult> PointsLoader;
         private readonly EnvironmentHistoryUi.ChangedEventHandler HistoryChangedHandler;
@@ -31,10 +35,17 @@ namespace PCL
             IsMmcHistory = owner is not null;
             MmcRoot = owner is null ? "" : System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(owner.PathVersion));
             MmcInstanceId = owner is null ? Guid.Empty : CaptureMmcInstanceId(owner, expectedInstanceId);
-            __LfAttachOwnHandles();
             HistoryChangedHandler = Refresh;
             this.InitializeComponent();
-            GlassPresentationSession.RegisterProjectedEditor(TextRetention, RetentionLostFocus);
+            CardSelect.SetBackdropSource(PanBack);
+            RegisterName("LabSelect", CardSelect.Status);
+            BtnRestore = CardSelect.AddNamedCommand(this, "BtnRestore", "恢复", ModBase.Logo.IconButtonRefresh);
+            BtnDelete = CardSelect.AddNamedCommand(this, "BtnDelete", "删除", GlassSelectionDock.DeleteIcon, danger: true);
+            BtnDeselect = CardSelect.AddNamedCommand(this, "BtnDeselect", "取消选择", GlassSelectionDock.CancelIcon, dismiss: true);
+            foreach (var editor in new[] { ComboRetentionMode, ComboHistoryRetentionPolicy })
+                if (editor.Parent is Grid row) GlassPageLayout.SizeRowToEditor(row);
+            AttachScroll(PanBack);
+            AttachPlaceholder(SearchBox, IsMmcHistory ? "搜索环境记录 / 版本 / 时间" : "搜索还原点 / 版本 / 时间");
             Controller = new HistoryController(CreateView(), CreateHost());
             PointsLoader = new ModLoader.LoaderTask<HistoryPointsRequest, HistoryPointsResult>(IsMmcHistory ? "读取 MMC 环境记录" : "读取还原点", Task =>
             {
@@ -61,24 +72,24 @@ namespace PCL
                 RestoreButton = BtnRestore,
                 Entries = PanEntries,
                 Empty = LabEmpty,
-                Select = LabSelect,
+                Select = CardSelect.Status,
                 Search = new Func<string>(() => this.SearchBox.Text),
                 SetSearch = new Action<string>(Value => this.SearchBox.Text = Value),
                 RetentionText = new Func<string>(() => this.TextRetention.Text),
                 SetRetentionText = new Action<string>(Value => this.TextRetention.Text = Value),
-                SetAllText = new Action<string>(Value => this.FilterAll.Text = Value),
-                SetHealthyText = new Action<string>(Value => this.FilterHealthy.Text = Value),
+                SetAllText = new Action<string>(Value => this.FilterAll.Content = Value),
+                SetHealthyText = new Action<string>(Value => this.FilterHealthy.Content = Value),
                 AutoCleanup = new Func<bool>(() => this.ComboHistoryRetentionPolicy.SelectedIndex == 1),
                 SetAutoCleanup = new Action<bool>(Value => this.ComboHistoryRetentionPolicy.SelectedIndex = Value ? 1 : 0),
-                AutoCreate = () => CheckHistoryAutoCreate.Checked,
-                SetAutoCreate = value => CheckHistoryAutoCreate.Checked = value,
-                RetentionHasFocus = new Func<bool>(() => GlassPresentationSession.EditorHasFocus(TextRetention)),
+                AutoCreate = () => CheckHistoryAutoCreate.IsChecked == true,
+                SetAutoCreate = value => CheckHistoryAutoCreate.IsChecked = value,
+                RetentionHasFocus = new Func<bool>(() => TextRetention.IsKeyboardFocusWithin),
                 SearchHasFocus = new Func<bool>(() => this.SearchBox.IsKeyboardFocusWithin),
-                CheckAll = new Action(() => this.FilterAll.Checked = true),
-                ForceRetentionResize = new Action(() => this.CardRetention.TriggerForceResize()),
-                ScrollHome = new Action(() => this.PanBack.ScrollToHome()),
-                CreateRow = new Func<IEnvironmentHistoryPageRow>(() => new RowAdapter(new MyLocalModItem() { SelectionBar = CardSelect })),
-                AdaptRow = new Func<object, IEnvironmentHistoryPageRow>(Sender => new RowAdapter((MyLocalModItem)Sender)),
+                CheckAll = new Action(() => this.FilterAll.IsChecked = true),
+                ForceRetentionResize = new Action(() => this.CardRetention.InvalidateMeasure()),
+                ScrollHome = new Action(() => this.PanBack.ScrollToTop()),
+                CreateRow = new Func<IEnvironmentHistoryPageRow>(() => new GlassHistoryRow()),
+                AdaptRow = new Func<object, IEnvironmentHistoryPageRow>(Sender => (GlassHistoryRow)Sender),
                 CreateIcon = CreateIcon,
                 RestoreLogo = ModBase.Logo.IconButtonRefresh,
                 DetailsLogo = ModBase.Logo.IconButtonInfo,
@@ -86,8 +97,8 @@ namespace PCL
                 DeleteLogo = ModBase.Logo.IconButtonDelete,
                 RefreshSelectionBar = new Func<int, int, bool, int>((Count, Previous, Animate) =>
                 {
-                    LocalResourceUi.RefreshSelectionBar(this.CardSelect, this.TransSelect, Count, ref Previous, "Restore Point Selection " + this.PageUuid, Animate);
-                    return Previous;
+                    CardSelect.ShowSelection(Count, Animate);
+                    return Count;
                 })
             };
         }
@@ -97,7 +108,7 @@ namespace PCL
             if (IsMmcHistory) return CreateMmcHost();
             return new HistoryHost()
             {
-                CurrentInstance = new Func<ModMinecraft.McInstance>(() => PageInstanceLeft.Instance),
+                CurrentInstance = new Func<ModMinecraft.McInstance>(() => LauncherInstanceContext.Instance),
                 VersionPath = new Func<ModMinecraft.McInstance, string>(Instance => Instance.PathVersion),
                 AutoCleanup = new Func<ModMinecraft.McInstance, bool>(Instance => Settings.Get<bool>("VersionEnvironmentHistoryAutoCleanup", Instance: Instance)),
                 Retention = new Func<ModMinecraft.McInstance, int>(Instance => Settings.Get<int>("VersionEnvironmentHistoryRetention", Instance: Instance)),
@@ -138,68 +149,12 @@ namespace PCL
 
         private static EnvironmentHistoryPageIcon CreateIcon(string Logo, double? Scale, string Tip)
         {
-            var Button = new MyIconButton()
-            {
-                Logo = Logo
-            };
-            if (Scale.HasValue)
-                Button.LogoScale = Scale.Value;
-            Button.ToolTip = Tip;
-            return new EnvironmentHistoryPageIcon(Button, Clicked => Button.Click += (Sender, Args) => Clicked());
-        }
-
-        private sealed class RowAdapter : IEnvironmentHistoryPageRow
-        {
-            private readonly MyLocalModItem Row;
-            public RowAdapter(MyLocalModItem Row)
-            {
-                this.Row = Row;
-            }
-
-            public FrameworkElement Element
-            {
-                get
-                {
-                    return Row;
-                }
-            }
-
-            public JObject Point
-            {
-                get
-                {
-                    return Row.RestorePoint;
-                }
-            }
-
-            public bool Checked
-            {
-                get
-                {
-                    return Row.Checked;
-                }
-
-                set
-                {
-                    Row.Checked = value;
-                }
-            }
-
-            public void Bind(JObject Point)
-            {
-                Row.BindRestorePoint(Point);
-            }
-
-            public void SetButtons(List<EnvironmentHistoryPageIcon> Buttons)
-            {
-                Row.Buttons = Buttons.Select(Button => (MyIconButton)Button.Element).ToList();
-            }
-
-            public void Subscribe(Action Click, Action<object> Changed)
-            {
-                Row.Click += (Sender, Args) => Click();
-                Row.Changed += (Sender, e) => Changed(Sender);
-            }
+            double size = 16 * (Scale ?? 1);
+            var image = new System.Windows.Shapes.Path { Data = Geometry.Parse(Logo), Width = size, Height = size, Stretch = Stretch.Uniform };
+            image.SetResourceReference(Shape.FillProperty, "GlassPresentationText");
+            var button = new Button { Content = image, Style = GlassDialogControls.Style("GlassPresentationRowButton"), ToolTip = Tip, Width = 30, Height = 32, Padding = new Thickness(5) };
+            AutomationProperties.SetName(button, Tip);
+            return new EnvironmentHistoryPageIcon(button, click => button.Click += (_, _) => click());
         }
 
         // 同名状态入口仅转发到控制器，原条目与选择集合没有页面副本。
@@ -322,18 +277,36 @@ namespace PCL
 
         private void Init()
         {
-            this.DisabledPageAnimControls.Add(this.CardSelect);
-            LocalResourceUi.ApplySelectionIcons(this.BtnRestore, this.BtnDelete, this.BtnDeselect);
-            this.BtnRestore.Logo = ModBase.Logo.IconButtonRefresh;
-            this.FilterAll.LabText.Margin = new Thickness(-2, 0d, 8d, 0d);
-            this.FilterHealthy.LabText.Margin = new Thickness(-2, 0d, 8d, 0d);
-            this.PageLoaderInit(this.Load, this.PanLoad, this.PanBack, (FrameworkElement)null, PointsLoader, (_) => LoadedPoints(), AutoRun: false);
+            Loaded += (_, _) => PageLoaded();
+            Unloaded += (_, _) => { PageUnloaded(); Load.IsActive = false; };
+            PreviewKeyDown += SelectionKeys;
+            SearchBox.TextChanged += (_, _) => SearchChanged();
+            TextRetention.TextChanged += (_, _) => RetentionEdited();
+            TextRetention.LostKeyboardFocus += (_, _) => RetentionLostFocus();
+            TextRetention.PreviewKeyDown += RetentionKey;
+            FilterAll.Checked += (_, _) => FilterChanged(FilterAll, true);
+            FilterHealthy.Checked += (_, _) => FilterChanged(FilterHealthy, true);
+            CheckHistoryAutoCreate.Checked += (_, _) => HistoryAutoCreateChanged(CheckHistoryAutoCreate, true);
+            CheckHistoryAutoCreate.Unchecked += (_, _) => HistoryAutoCreateChanged(CheckHistoryAutoCreate, true);
+            BtnSelectAll.Click += (_, _) => SelectAll();
+            BtnDeselect.Click += (_, _) => Deselect();
+            BtnDelete.Click += (_, _) => DeleteSelected();
+            BtnCreate.Click += (_, _) => CreatePoint();
+            BtnRestore.Click += (_, _) => RestorePoint();
+            BtnFolder.Click += (_, _) => OpenFolder();
+            BtnRetry.Click += (_, _) => Retry();
+            PointsLoader.PreviewFinish += _ => ModBase.RunInUiWait(LoadedPoints);
+            PointsLoader.OnStateChangedUi += (_, state, _) => {
+                if (state != PointsLoader.State) return;
+                UpdateLoading();
+            };
         }
 
         private void PageLoaded()
         {
             if (IsMmcHistory) RefreshMmcState();
             Controller.PageLoaded();
+            UpdateLoading();
         }
 
         private void PageUnloaded()
@@ -353,6 +326,19 @@ namespace PCL
                 return;
             }
             Controller.Refresh();
+            UpdateLoading();
+        }
+
+        private void UpdateLoading()
+        {
+            bool reading = PointsLoader.State == ModBase.LoadState.Loading;
+            bool failed = PointsLoader.State == ModBase.LoadState.Failed;
+            PanBack.Visibility = reading || failed ? Visibility.Collapsed : Visibility.Visible;
+            PanLoad.Visibility = reading || failed ? Visibility.Visible : Visibility.Collapsed;
+            Load.IsActive = reading && IsLoaded;
+            Load.Visibility = reading ? Visibility.Visible : Visibility.Collapsed;
+            BtnRetry.Visibility = failed ? Visibility.Visible : Visibility.Collapsed;
+            LabLoad.Text = failed ? "读取记录失败，请重试。" : IsMmcHistory ? "正在读取环境记录…" : "正在读取还原点…";
         }
 
         private void BindRetention()
@@ -399,7 +385,7 @@ namespace PCL
             Controller?.RenderList();
         }
 
-        private void FilterChanged(MyRadioButton Sender, bool User)
+        private void FilterChanged(RadioButton Sender, bool User)
         {
             Controller?.FilterChanged(object.ReferenceEquals(Sender, this.FilterHealthy));
         }
@@ -409,9 +395,9 @@ namespace PCL
             Controller.RenderList();
         }
 
-        private List<MyIconButton> PointButtons(JObject Point)
+        private List<Button> PointButtons(JObject Point)
         {
-            return Controller.PointButtons(Point).Select(Button => (MyIconButton)Button.Element).ToList();
+            return Controller.PointButtons(Point).Select(Button => (Button)Button.Element).ToList();
         }
 
         private void SelectionChanged(object Sender, ModBase.RouteEventArgs e)

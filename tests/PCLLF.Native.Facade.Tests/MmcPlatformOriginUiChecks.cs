@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
 using PCL;
 using PCLCS;
 using PCLCS.Loaders;
@@ -18,11 +19,12 @@ internal static class MmcPlatformOriginUiChecks {
         var second = first with { VersionId = "VersionB", File = first.File with { FileName = "second.zip", DownloadUrl = "https://cdn.modrinth.com/second.zip" } };
         object selector = New("PCL.MmcPlatformReleaseSelectView", ImmutableArray.Create(first, second), "选择原包对应的发布文件", "");
         var controls = (IList)Native.Get(selector, "Selections")!;
-        Native.Check(controls.Count == 2 && controls.Cast<MyListItem>().All(item => !item.Checked) && Property(selector, "Selected") is null && !(bool)Property(selector, "CanConfirm")!,
+        static RadioButton Choice(object? row) => (RadioButton)((Border)((Panel)row!).Children[0]).Child;
+        Native.Check(controls.Count == 2 && controls.Cast<object>().All(item => Choice(item).IsChecked == false) && Property(selector, "Selected") is null && !(bool)Property(selector, "CanConfirm")!,
             "The real platform selector preselected an ambiguous/equal-digest release file.");
         var releasePort = Native.Static("PCL.MessageDialogPlatform", "VersionSelection", selector) ?? throw new IOException("Missing real release-dialog selection port.");
         Native.Check(!((Func<bool>)Native.Get(releasePort, "HasSelection")!)(), "The actual modal accepted an unselected release.");
-        ((MyListItem)controls[1]!).Checked = true;
+        Choice(controls[1]).IsChecked = true;
         Native.Check(Equals(Property(selector, "Selected"), second) && (bool)Property(selector, "CanConfirm")!, "An explicit complete release file did not enable confirmation.");
         Native.Check(((Func<bool>)Native.Get(releasePort, "HasSelection")!)(), "The actual modal ignored the explicit release selection.");
         object single = New("PCL.MmcPlatformReleaseSelectView", ImmutableArray.Create(first), "选择文件", "");
@@ -32,18 +34,18 @@ internal static class MmcPlatformOriginUiChecks {
         Native.Check(!(bool)Property(input, "CanConfirm")!, "The real origin form began with implicit platform/project/version authority.");
         var inputPort = Native.Static("PCL.MessageDialogPlatform", "VersionSelection", input) ?? throw new IOException("Missing real origin-form selection port.");
         Native.Check(!((Func<bool>)Native.Get(inputPort, "HasSelection")!)(), "The actual modal accepted an incomplete origin form.");
-        ((MyTextBox)Native.Get(input, "OriginalZip")!).Text = original;
-        ((MyComboBox)Native.Get(input, "Platform")!).SelectedIndex = 0;
-        ((MyTextBox)Native.Get(input, "ProjectId")!).Text = "ProjectA";
-        ((MyTextBox)Native.Get(input, "VersionId")!).Text = "VersionA";
+        ((TextBox)Native.Get(input, "OriginalZip")!).Text = original;
+        ((ComboBox)Native.Get(input, "Platform")!).SelectedIndex = 0;
+        ((TextBox)Native.Get(input, "ProjectId")!).Text = "ProjectA";
+        ((TextBox)Native.Get(input, "VersionId")!).Text = "VersionA";
         Native.Check((bool)Property(input, "CanConfirm")!, "Complete explicit original/project/version fields did not enable reading release files.");
         Native.Check(((Func<bool>)Native.Get(inputPort, "HasSelection")!)(), "The actual modal ignored the complete origin form.");
-        ((MyTextBox)Native.Get(input, "ProjectId")!).Text = "net.minecraftforge";
+        ((TextBox)Native.Get(input, "ProjectId")!).Text = "net.minecraftforge";
         Native.Check(!(bool)Property(input, "CanConfirm")!, "An MMC UID was accepted as a stable platform project ID.");
-        ((MyTextBox)Native.Get(input, "ProjectId")!).Text = "123"; ((MyComboBox)Native.Get(input, "Platform")!).SelectedIndex = 1;
-        ((MyTextBox)Native.Get(input, "VersionId")!).Text = "000456";
+        ((TextBox)Native.Get(input, "ProjectId")!).Text = "123"; ((ComboBox)Native.Get(input, "Platform")!).SelectedIndex = 1;
+        ((TextBox)Native.Get(input, "VersionId")!).Text = "000456";
         Native.Check(!(bool)Property(input, "CanConfirm")!, "A noncanonical CurseForge file ID was accepted.");
-        ((MyTextBox)Native.Get(input, "VersionId")!).Text = "456";
+        ((TextBox)Native.Get(input, "VersionId")!).Text = "456";
         Native.Check((bool)Property(input, "CanConfirm")!, "The explicit CurseForge project/file fields did not enable selection.");
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS mmc-platform-origin-views: genuine LF form and release controls require explicit project/version/file, including one or equal-digest candidates; no network or JVM.");
@@ -59,7 +61,7 @@ internal static class MmcPlatformOriginUiChecks {
         }, MmcPlatformApiPolicy.ForLoopbackFixtures(new("http://127.0.0.1:1/v2/"), new("http://127.0.0.1:1/v1/")));
         Type ui = Native.Type("PCL.MmcPlatformOriginUi"), updates = Native.Type("PCL.MmcPackageUpdateUi");
         var register = Native.Property(ui, "RegisterTask"); object? oldRegister = register.GetValue(null);
-        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action oldRefresh = scheduler.RefreshExtraDownload; ModLoader.LoaderCombo<string>? actual = null;
         try {
             scheduler.RefreshExtraDownload = () => { };

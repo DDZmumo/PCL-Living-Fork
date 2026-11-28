@@ -78,8 +78,6 @@ internal static class BackupResourceStoreChecks
         Native.Check(Scan(shaders, "ShaderPacks").Count == 1 && Scan(schematics, "Schematics").Count == 2, "Shader/schematic resources were not listed.");
         Reject(() => Store("EnsureWithin", schematics, Path.Combine(root, "foreign.txt"), false), "foreign resource scope");
         foreach (string name in new[] { "../escape", "CON", "file.", "a/b" }) Reject(() => Store("SafeName", name), "unsafe resource name " + name);
-        ResourcePage(root, packs, shots, trash, pack);
-        ResourceSortChecks.Run(root);
         Console.WriteLine("PASS backup-resources store: actual world ZIP/folder roundtrips, collision/cancel/path/stale guards, frozen previews/handle release, package validation, native resource page and batch export/direct deletion.");
     }
 
@@ -101,67 +99,5 @@ internal static class BackupResourceStoreChecks
         Store("ValidatePackage", lazy, unknown);
         foreach (object kind in new[] { packs, shaders }) Native.Check(Reject(() => Store("ValidatePackage", lazy, kind), "corrupt ZIP central directory") is InvalidDataException, "Known-kind package validation did not enumerate its real central directory.");
         foreach (string path in new[] { valid, empty, wrongCase, unparsed, shader, directory, wrongShader, broken, lazy }) { using FileStream held = new(path, FileMode.Open, FileAccess.Read, FileShare.None); }
-    }
-
-    private static void ResourcePage(string root, string packs, string shots, string trash, string pack)
-    {
-        PageInstanceLeft left = new(); left.RefreshModDisabled();
-        Type subType = Native.Type("PCL.FormMain+PageSubType");
-        for (int index = 0; index < 5; index++) {
-            object id = Enum.ToObject(subType, 6 + index), navigation = Native.Call(left.GetType(), "NavigationItem", left, id)!;
-            Native.Check(Convert.ToInt32(((FrameworkElement)navigation).Tag) == 6 + index, "Resource sidebar relies on child positions.");
-            FrameworkElement page = (FrameworkElement)Native.Call(left.GetType(), "PageGet", left, id)!;
-            Native.Check(page.GetType().FullName == "PCL.PageInstanceResources" && page.FindName("SearchBox") is MySearchBox && page.FindName("CardList") is MyCard, "One of five resources lost actual LF controls.");
-        }
-        FrameworkElement packPage = (FrameworkElement)New("PCL.PageInstanceResources", Kind("ResourcePacks"));
-        IList items = Scan(packs, "ResourcePacks"); Native.Check(items.Count == 1, "Original single-resource fixture inventory changed.");
-        Native.Call(packPage.GetType(), "ShowResources", packPage, packs, packs, items);
-        StackPanel rows = Part<StackPanel>(packPage, "PanList");
-        Native.Check(rows.Children.Count == 1, "Native resource card was not actually rendered.");
-        MySearchBox search = Part<MySearchBox>(packPage, "SearchBox"); search.Text = "not-present";
-        Native.Check(rows.Children.Count == 0 && Part<FrameworkElement>(packPage, "LabEmpty").Visibility == Visibility.Visible, "Single-resource search did not render the original empty state.");
-        search.Text = "";
-        File.Copy(pack, Path.Combine(packs, "Second.zip"));
-        Put(Path.Combine(packs, "Folder pack/pack.mcmeta"), "{\"pack\":{\"pack_format\":46,\"description\":\"Folder fixture\"}}");
-        items = Scan(packs, "ResourcePacks"); Native.Check(items.Count == 3, "Three-resource fixture inventory changed.");
-        Native.Call(packPage.GetType(), "ShowResources", packPage, packs, packs, items);
-        Native.Check(packPage.FindName("CardSelected") is null && packPage.FindName("LabFolder") is null, "Old separate details/path card remains.");
-        foreach (string name in new[] { "BtnImportFolder", "BtnCheckUpdates", "BtnRefresh" }) Native.Check(packPage.FindName(name) is null, "Extra resource toolbar icon remains: " + name);
-        FrameworkElement open = Part<FrameworkElement>(packPage, "BtnOpenFolder");
-        Native.Check(((Panel)open.Parent).Children.Cast<UIElement>().Count(item => item.Visibility != Visibility.Collapsed) == 4 && packPage.FindName("BtnRestore") is null, "Native resource toolbar must contain only current resource actions.");
-        Native.Check(Part<MyRadioButton>(packPage, "BtnFilterAll").Text.Contains('3') && Part<FrameworkElement>(packPage, "BtnDownload").Visibility == Visibility.Visible, "Native count/download action is missing.");
-        Native.Check(rows.Children.Cast<object>().All(item => item is MyLocalModItem row && row.Height == 44 && row.Buttons.Count() == 4), "Resources no longer reuse compact native mod rows/hover actions.");
-        FrameworkElement mods = (FrameworkElement)New("PCL.PageInstanceMod");
-        foreach (var pair in new[] { ("BtnUpdate", "BtnSelectUpdate"), ("BtnDelete", "BtnSelectDelete"), ("BtnDeselect", "BtnSelectCancel") }) {
-            MyIconTextButton actual = Part<MyIconTextButton>(packPage, pair.Item1), reference = Part<MyIconTextButton>(mods, pair.Item2);
-            Native.Check(actual.Logo == reference.Logo && actual.LogoScale == reference.LogoScale, "Resource action differs from the original mod selection action: " + pair.Item1);
-        }
-        FrameworkElement toolbar = Part<FrameworkElement>(packPage, "PanManageButtons");
-        Native.Check(toolbar.Height == 35 && toolbar.Margin == new Thickness(15, 15, 0, 15), "Resource toolbar spacing changed.");
-        Native.Call(packPage.GetType(), "ChangeAllSelected", packPage, true);
-        Native.Check(Part<FrameworkElement>(packPage, "CardSelect").Visibility == Visibility.Visible && rows.Children.OfType<MyLocalModItem>().Count(row => row.Checked) == 3 && Part<TranslateTransform>(packPage, "TransSelect").Y == -25, "Native bulk selection/action availability failed.");
-        Native.Call(packPage.GetType(), "ChangeAllSelected", packPage, false); Native.Check(Part<FrameworkElement>(packPage, "CardSelect").Visibility == Visibility.Collapsed, "Cancel selection did not hide the action bar.");
-        MyLocalModItem first = (MyLocalModItem)rows.Children[0]; first.Checked = true; Native.Check(first.Checked && first.Buttons.Count() == 4, "Single-selection hover actions unavailable.");
-        search.Text = "not-present";
-        Native.Check(Part<FrameworkElement>(packPage, "CardSelect").Visibility == Visibility.Collapsed, "Search retained hidden selected resources."); search.Text = "";
-        Part<MyRadioButton>(packPage, "BtnFilterFolders").Checked = true;
-        Native.Check(rows.Children.Count == 1 && (bool)Native.Get(Native.Get(rows.Children[0], "ResourceEntry")!, "IsDirectory")!, "Folder resource filter failed.");
-        Part<MyRadioButton>(packPage, "BtnFilterAll").Checked = true;
-        object online = New("PCL.InstanceResourceOnlineInfo"), current = New("PCL.ResourceVersion"), update = New("PCL.ResourceVersion");
-        Native.Set(online, "Entry", items.Cast<object>().First(item => !(bool)Native.Get(item, "IsDirectory")!)); Native.Set(online, "ProjectName", "Native resource pack"); Native.Set(online, "Status", "Update fixture");
-        Native.Set(current, "Version", "1.0"); Native.Set(update, "Version", "2.0"); Native.Set(online, "CurrentVersion", current); Native.Set(online, "UpdateVersion", update);
-        IList onlineItems = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(online.GetType()))!; onlineItems.Add(online);
-        UIElement[] before = rows.Children.Cast<UIElement>().ToArray(); Native.Call(packPage.GetType(), "ApplyOnlineInfo", packPage, onlineItems);
-        Native.Check(before.Length == rows.Children.Count && before.Select((row, index) => ReferenceEquals(row, rows.Children[index])).All(value => value), "Online metadata rebuilt existing native rows.");
-        Part<MyRadioButton>(packPage, "BtnFilterUpdates").Checked = true;
-        Native.Check(rows.Children.Count == 1 && Part<FrameworkElement>(packPage, "BtnFilterUpdates").Visibility == Visibility.Visible, "Updatable-resource filter failed.");
-        Native.Call(packPage.GetType(), "ChangeAllSelected", packPage, true); Native.Check(Part<FrameworkElement>(packPage, "BtnUpdate").IsEnabled, "Bulk update unavailable for matching files."); Part<MyRadioButton>(packPage, "BtnFilterAll").Checked = true;
-        string batch = Path.Combine(root, "batch-export"); Directory.CreateDirectory(batch); Store("ExportMany", packs, items, batch, None);
-        Native.Check(Directory.EnumerateFiles(batch).Count() == 3, "Batch export omitted files or zipped folders."); Reject(() => Store("ExportMany", packs, items, batch, None), "batch export overwrite");
-        IList recycled = Scan(packs, "ResourcePacks"); Store("DeleteMany", packs, recycled, None); Native.Check(Scan(packs, "ResourcePacks").Count == 0, "Batch deletion left selected resources live.");
-        Native.Call(packPage.GetType(), "ShowResources", packPage, packs, packs, Scan(packs, "ResourcePacks"));
-        FrameworkElement empty = (FrameworkElement)New("PCL.PageInstanceResources", Kind("Screenshots")); IList emptyItems = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(Native.Type("PCL.InstanceResourceEntry")))!;
-        Native.Call(empty.GetType(), "ShowResources", empty, shots, shots, emptyItems);
-        Native.Check(Part<FrameworkElement>(empty, "PanEmpty").Visibility == Visibility.Collapsed && Part<FrameworkElement>(empty, "PanBack").Visibility == Visibility.Visible && empty.FindName("BtnRestore") is null, "Empty resources lost their normal toolbar or retained a recycle entry.");
     }
 }

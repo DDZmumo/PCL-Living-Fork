@@ -86,41 +86,41 @@ internal static class FileTaskScenarios
 
 internal static class FileTaskShell
 {
-    // The original LF fixture deliberately does not run a launcher window. The
-    // migrated facade requires the REAL production controller, built with its
-    // actual private view/host factories; copying PageCurrent into a fake host
-    // would miss precisely the navigation forwarding this fixture must verify.
+    private static readonly List<(FormMain Window, FormMain? PreviousMain)> OwnedWindows = [];
+
     internal static FormMain Install()
     {
-        FormMain shell = (FormMain)RuntimeHelpers.GetUninitializedObject(typeof(FormMain));
-        ModMain.FrmMain = shell;
-        Set(shell, "PanTitleMain", new Grid());
-        Set(shell, "PanTitleInner", new Grid());
-        Set(shell, "LabTitleInner", new TextBlock());
-        Set(shell, "BtnExtraDownload", new MyExtraButton());
-        Set(shell, "BtnExtraApril", new MyExtraButton());
-        Set(shell, "BtnExtraBack", new MyExtraButton());
-        object view = Native.Call(typeof(FormMain), "CreateWindowView", shell)!;
-        object host = Native.Call(typeof(FormMain), "CreateWindowHost", shell)!;
-        FieldInfo controller = Native.Field(typeof(FormMain), "Controller");
-        object actual = Activator.CreateInstance(controller.FieldType, view, host)!;
-        Native.Check(actual.GetType().Assembly.GetName().Name == "PCLLF.Presentation", "Navigation fixture did not construct the actual Main window controller.");
-        controller.SetValue(shell, actual);
-        shell.PageCurrent = FormMain.PageType.Launch;
-        shell.PageLast = FormMain.PageType.Launch;
-        shell.PageStack = new List<FormMain.PageStackData>();
-        return shell;
+        var previousMain = ModMain.FrmMain;
+        var main = new FormMain(host => {
+            host.ReadInteger = key => key == "SystemLastVersionReg" ? ModBase.VersionCode : Settings.Get<int>(key);
+            host.HasSaved = _ => true;
+            host.ThemeRefresh = _ => { };
+            host.IsAdmin = () => false;
+            host.IsDebug = () => false;
+            host.ApplyPackVisibility = _ => { };
+            host.StartFolderLoader = () => { };
+            host.Hint = (_, _) => { };
+            host.WriteSetting = (key, _) => throw new InvalidOperationException("Unexpected startup setting write: " + key);
+        });
+        OwnedWindows.Add((main, previousMain));
+        return main;
     }
 
-    internal static void Set(object target, string name, object value)
+    internal static void CloseUnshownHosts()
     {
-        // Actual Main50 metadata (939061c...) retains these four generated
-        // controls as fields; the remaining controls are real WithEvents
-        // properties. Do not manufacture a property or mask a state adapter.
-        if (name is "PanTitleMain" or "PanTitleInner" or "LabTitleInner" or "PanMainRight")
-            Native.Field(target.GetType(), name).SetValue(target, value);
-        else
-            Native.Property(target.GetType(), name).SetValue(target, value);
+        for (int index = OwnedWindows.Count - 1; index >= 0; index--)
+        {
+            var (window, previousMain) = OwnedWindows[index];
+            if (System.Windows.Application.Current.Windows.Cast<Window>().Contains(window))
+            {
+                Native.Check(!window.IsVisible, "A headless facade host was unexpectedly shown.");
+                window.Closing -= (System.ComponentModel.CancelEventHandler)Delegate.CreateDelegate(
+                    typeof(System.ComponentModel.CancelEventHandler), window, Native.Method(typeof(FormMain), "FormMain_Closing"));
+                window.Close();
+            }
+            if (ReferenceEquals(ModMain.FrmMain, window)) ModMain.FrmMain = previousMain;
+        }
+        OwnedWindows.Clear();
     }
 }
 
@@ -160,7 +160,7 @@ internal sealed class FileTaskScope : IDisposable
             object? previous = field.GetValue(null);
             restore.Push(() => field.SetValue(null, previous));
         }
-        PreserveField(typeof(PageInstanceLeft), "Instance");
+        PreserveField(typeof(LauncherInstanceContext), "Instance");
         foreach (string name in new[] { "_McFolderSelected", "_McInstanceSelected", "McInstanceList", "McInstanceListForceRefresh", "IsFirstMcInstanceListLoad" })
             PreserveField(typeof(ModMinecraft), name);
         foreach (string name in new[] { "PCL.LocalGameData", "PCL.WorldBackups", "PCL.EnvironmentHistory" })
@@ -263,7 +263,7 @@ internal sealed class FileTaskScope : IDisposable
             Completion completion = new("Modpack.Worker.Stopped"); completions.Add(completion);
             flowStopped(worker, () => { release(); Volatile.Write(ref completion.Done, 1); });
         }));
-        var loaderHost = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var loaderHost = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action<Action> run = loaderHost.RunInThread;
         restore.Push(() => loaderHost.RunInThread = run);
         loaderHost.RunInThread = work =>

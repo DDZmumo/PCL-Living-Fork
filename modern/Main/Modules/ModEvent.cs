@@ -212,7 +212,7 @@ namespace PCL
                 Info = new Action<global::System.String>(Text => global::MeloongCore.Logger.Info(Text)),
                 OpenWebsite = new Action<global::System.String>(Url => global::PCL.ModBase.OpenWebsite(Url)),
                 Clipboard = new Action<global::System.String>(Text => global::PCL.ModBase.ClipboardSet(Text)),
-                EnterHelp = new Action<global::System.String>(Path => global::PCL.PageOtherHelp.EnterHelpPage(Path)),
+                EnterHelp = new Action<global::System.String>(Path => global::PCL.LauncherHelpCatalog.Open(Path)),
                 ErrorAlert = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text, global::MeloongCore.LogBehavior.Alert)),
                 WarnToast = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Warn(Err, Text, global::MeloongCore.LogBehavior.Toast)),
                 StartProcess = new Action<global::System.Diagnostics.ProcessStartInfo>(Info => global::PCL.ModBase.StartProcess(Info)),
@@ -220,10 +220,13 @@ namespace PCL
                 InstanceName = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Target => Target.Name),
                 CreateInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name)),
                 Launch = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Boolean>((Target, Server) => global::PCL.ModLaunch.McLaunchStart(new global::PCL.ModLaunch.McLaunchOptions() { ServerIp = Server, Instance = Target })),
-                RefreshHome = new Action(() => global::PCL.ModMain.FrmLaunchRight.ForceRefresh()),
-                RefreshCurrent = new Action(() => ((global::PCL.IRefreshable)(global::PCL.ModMain.FrmMain.PageRight)).Refresh()),
-                CanRefreshCurrent = new Func<global::System.Boolean>(() => global::PCL.ModMain.FrmMain.PageRight is global::PCL.IRefreshable),
-                RefreshHelp = new Action(() => global::PCL.PageOtherLeft.RefreshHelp()),
+                RefreshHome = FormMain.RefreshHomepage,
+                RefreshCurrent = () =>
+                {
+                    if (!ModMain.FrmMain.TryRefreshDirectPage()) (ModMain.FrmMain.PageRight as IRefreshable)?.Refresh();
+                },
+                CanRefreshCurrent = () => ModMain.FrmMain.CanRefreshDirectPage || ModMain.FrmMain.PageRight is IRefreshable,
+                RefreshHelp = new Action(() => ModMain.FrmMain?.ReloadGlassHelp()),
                 Jrrp = global::PCL.PageOtherTest.Jrrp,
                 MemoryOptimize = new Action(() => global::PCL.PageOtherTest.MemoryOptimize(true)),
                 RubbishClear = new Action(() => global::PCL.PageOtherTest.RubbishClear()),
@@ -232,7 +235,7 @@ namespace PCL
                 HintCustomCommand = new Func<global::System.Boolean>(() => global::PCL.Settings.Get<bool>("HintCustomCommand")),
                 RememberCustomCommand = new Action(() => global::PCL.Settings.Set("HintCustomCommand", true)),
                 Locked = global::PCL.ModMinecraft.McInstanceLock.BlocksNavigation,
-                SetEditedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Target => global::PCL.PageInstanceLeft.Instance = Target),
+                SetEditedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Target => global::PCL.LauncherInstanceContext.Instance = Target),
                 InstanceSetup = global::PCL.FormMain.PageType.InstanceSetup,
                 DefaultSubPage = global::PCL.FormMain.PageSubType.Default,
                 ChangePage = new Action<global::PCL.FormMain.PageType, global::PCL.FormMain.PageSubType>((Page, SubPage) => global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)Page, SubPage)),
@@ -256,6 +259,16 @@ namespace PCL
         }
         public static void Raise(global::PCL.CustomEvent.EventType Type, global::System.String Arg)
         {
+            if (Type == EventType.None) return;
+            if (!LauncherContentActions.Allows(Type, Arg ?? "")) {
+                ModMain.Hint("自定义页面的操作已被安全限制拦截。", ModMain.HintType.Red);
+                return;
+            }
+            if (Type == EventType.打开帮助) {
+                LauncherHelpCatalog.Open(Arg);
+                return;
+            }
+            if (Type == EventType.打开网页) Arg = new Uri(Arg, UriKind.Absolute).AbsoluteUri;
             global::PCL.CustomEvent.Controller.Raise(Type, Arg);
         }
         public static global::System.String[] GetAbsoluteUrls(global::System.String RelativeUrl, global::PCL.CustomEvent.EventType Type)

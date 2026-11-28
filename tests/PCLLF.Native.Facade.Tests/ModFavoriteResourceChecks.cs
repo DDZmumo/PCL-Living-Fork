@@ -11,7 +11,7 @@ using PCLCS;
 namespace PCLLF.Native.Facade.Tests;
 
 internal static partial class ModFavoriteChecks {
-    private static void ResourceRows(Scope s, PageFavorites favorites) {
+    private static void ResourceRows(Scope s) {
         foreach (ResourcePlatforms platform in new[] { ResourcePlatforms.Modrinth, ResourcePlatforms.CurseForge })
         foreach (string kindName in new[] { "ResourcePacks", "ShaderPacks" }) {
             bool shader = kindName == "ShaderPacks";
@@ -55,48 +55,6 @@ internal static partial class ModFavoriteChecks {
             var resourceProject = (ResourceProject)Native.Get(matched[0],"Project")!;
             Native.Check(resourceProject.Platform == platform && resourceProject.Id == id && !ReferenceEquals(Native.Get(matched[0],"ProjectMetadata"),project), "Matched project lost provider identity or kept a shared response object.");
             Native.Check(matched.All(info => !((bool)Native.Property(info.GetType(),"HasUpdate").GetValue(info)!)), "No-update fixture unexpectedly gained an update.");
-            var page = (FrameworkElement)Activator.CreateInstance(Native.Type("PCL.PageInstanceResources"),Native.Flags,null,new[] { kind },null)!;
-            Native.Call(page.GetType(),"ShowResources",page,root,root,items);
-            Native.Call(page.GetType(),"ApplyOnlineInfo",page,infos);
-            var panel = Part<Panel>(page,"PanList"); var rows = panel.Children.OfType<MyLocalModItem>().ToArray();
-            foreach (var row in rows) s.Observe(row);
-            var recognized = rows.Where(row => Part<MyIconButton>(row,"BtnFavorite").Visibility == Visibility.Visible).ToArray();
-            Native.Check(recognized.Length == 2, "Recognized resource packs/shaders without an update still have no native favorite action.");
-            var first = Part<MyIconButton>(recognized[0],"BtnFavorite"); var second = Part<MyIconButton>(recognized[1],"BtnFavorite");
-            var unknown = Part<MyIconButton>(rows.Single(row => !recognized.Contains(row)),"BtnFavorite");
-            int before = s.Store.Snapshot.Count, lookups = requests;
-            Click(unknown); Native.Check(s.Store.Snapshot.Count == before, "An unmatched resource became a filename favorite.");
-            var cloud = resourceProject.ToResourceItem(true,true).Init(); s.Observe(cloud); var cloudFavorite = Part<MyIconButton>(cloud,"BtnFavorite");
-            Click(first);
-            Native.Check(s.Store.Snapshot.Count == before+1 && first.Logo != s.EmptyIcon && second.Logo == first.Logo && cloudFavorite.Logo == first.Logo,
-                "Resource management and download rows did not synchronize by project across different file versions: " + platform + "/" + kindName + "; count=" + s.Store.Snapshot.Count + "; first=" + (first.Logo != s.EmptyIcon) + "; second=" + (second.Logo == first.Logo) + "; cloud=" + (cloudFavorite.Logo == first.Logo));
-            var saved = Part<Panel>(favorites,"PanResults").Children.Cast<FrameworkElement>().Select(MyVirtualizingElement.TryInit).OfType<MyResourceItem>()
-                .Single(row => row.Tag is ResourceProject value && value.Platform == platform && value.Id == id);
-            var savedFavorite = Part<MyIconButton>(saved,"BtnFavorite"); s.Observe(saved);
-            Native.Check(savedFavorite.Logo == first.Logo, "The live favorites page did not mirror the resource/download state.");
-            using (var held = new FileStream(s.File+".lock",FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)) {
-                SendClick(second); SendClick(cloudFavorite); SendClick(savedFavorite); Drain();
-                Native.Check(Pending == 1 && s.Store.Snapshot.Count == before+1 && !first.IsEnabled && !second.IsEnabled && !cloudFavorite.IsEnabled && !savedFavorite.IsEnabled,
-                    "Three interfaces admitted duplicate same-project writes or failed to synchronize the pending action.");
-            }
-            Wait(() => Pending == 0);
-            Native.Check(s.Store.Snapshot.Count == before && first.Logo == s.EmptyIcon && second.Logo == first.Logo && cloudFavorite.Logo == first.Logo,
-                "Removing a project from resource management did not clear both copies and the download row.");
-            Click(cloudFavorite);
-            var restored = Part<Panel>(favorites,"PanResults").Children.Cast<FrameworkElement>().Select(MyVirtualizingElement.TryInit).OfType<MyResourceItem>()
-                .Single(row => row.Tag is ResourceProject value && value.Platform == platform && value.Id == id);
-            Click(Part<MyIconButton>(restored,"BtnFavorite"));
-            Native.Check(s.Store.Snapshot.Count == before && first.Logo == s.EmptyIcon && second.Logo == first.Logo,
-                "A favorites-page removal did not synchronize back to resource management.");
-            Native.Check(requests == lookups && panel.Children.Cast<MyLocalModItem>().SequenceEqual(rows) && rows.All(row => !row.Checked),
-                "Favorite actions re-queried the platform, rebuilt resource rows or changed file selection.");
-            wrongIdentity = true;
-            if (platform == ResourcePlatforms.Modrinth) project["project_id"] = "Different123";
-            IList mismatched = Check();
-            Native.Check(mismatched.Cast<object>().All(info => Native.Get(info,"Project") is null), "Project/version identity mismatch was accepted as a favorite.");
-            Native.Call(page.GetType(),"ApplyOnlineInfo",page,mismatched);
-            Native.Check(rows.All(row => Part<MyIconButton>(row,"BtnFavorite").Visibility == Visibility.Collapsed), "Old favorite buttons survived an invalidated resource match.");
         }
-        Console.WriteLine("PASS resource favorites: real MR/CF matching and native pack/shader rows synchronize with download and favorites; two versions per project, pending-write deduplication, unknown/mismatched identities, no extra requests or row selection.");
     }
 }

@@ -5,87 +5,77 @@ This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-<local:MyPageRight x:Class="PCL.PageInstanceRestorePoints"
+<local:GlassWorkspacePage x:Class="PCL.PageInstanceRestorePoints"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- xmlns:local="clr-namespace:PCL" PanScroll="PanBack">
+ xmlns:local="clr-namespace:PCL" xmlns:glass="clr-namespace:PCLLF.Wpf.Glass;assembly=PCLLF.WPF.Core">
  <Grid>
-  <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <ScrollViewer x:Name="PanBack" Style="{DynamicResource GlassPresentationScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
    <StackPanel Margin="25,10">
-    <local:MySearchBox x:Name="SearchBox" Margin="0,15" HintText="搜索还原点 / 版本 / 时间" />
-    <local:MyHint x:Name="HintMmcHistory" Visibility="Collapsed" Margin="0,0,0,15" />
-    <local:MyCard Margin="0,0,0,15">
-     <Grid Margin="15,15,0,15" Height="35" Grid.IsSharedSizeScope="True">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/><ColumnDefinition Width="Auto" SharedSizeGroup="Button"/></Grid.ColumnDefinitions>
-      <local:MyButton x:Name="BtnFolder" Text="打开文件夹" ColorType="Highlight" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
-      <local:MyButton x:Name="BtnCreate" Text="创建还原点" Grid.Column="1" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
-      <local:MyButton x:Name="BtnSelectAll" Text="全选" Grid.Column="2" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" />
-      <local:MyButton x:Name="BtnMmcUndo" Text="撤回上次还原" Grid.Column="3" MinWidth="110" Padding="13,0" Margin="0,0,15,0" HorizontalAlignment="Left" Visibility="Collapsed" IsEnabled="False" />
- </Grid>
-    </local:MyCard>
-    <local:MyCard x:Name="CardRetention" Title="还原点设置" Margin="0,0,0,15" IsEnabled="False">
-     <StackPanel Grid.IsSharedSizeScope="True" Margin="25,40,25,20">
-      <Grid Margin="0,0,0,12">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-       <TextBlock x:Name="LabHistorySource" Text="配置来源" VerticalAlignment="Center" Margin="0,0,25,0" />
-       <local:MyComboBox x:Name="ComboRetentionMode" Grid.Column="1" Height="28" SelectionChanged="RetentionModeChanged" ToolTip="全局配置位于：设置 → 其他 → 世界备份与环境还原点。">
-       <local:MyComboBoxItem Content="跟随全局设置" />
-       <local:MyComboBoxItem Content="实例独立配置" />
-      </local:MyComboBox>
-      </Grid>
-      <StackPanel x:Name="PanIndependentRetention" Visibility="Collapsed">
-      <Grid Margin="0,0,0,12">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-       <TextBlock x:Name="LabHistoryAutoCreate" Text="自动创建" VerticalAlignment="Center" Margin="0,0,25,0" />
-       <local:MyCheckBox x:Name="CheckHistoryAutoCreate" Grid.Column="1" Text="启动游戏或修改环境前创建还原点" Change="HistoryAutoCreateChanged" />
-      </Grid>
-      <Grid Margin="0,0,0,12">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-       <TextBlock x:Name="LabHistoryPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
-       <local:MyComboBox x:Name="ComboHistoryRetentionPolicy" Grid.Column="1" Height="28" SelectionChanged="HistoryRetentionPolicyChanged">
-       <local:MyComboBoxItem Content="全部保留" />
-       <local:MyComboBoxItem Content="保留最近若干份" />
-      </local:MyComboBox>
-      </Grid>
-      <StackPanel x:Name="PanRetention" Margin="0,0,0,0" Visibility="Collapsed">
-       <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="HistorySettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-        <TextBlock x:Name="LabHistoryCount" Text="保留份数" VerticalAlignment="Center" Margin="0,0,25,0" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal">
-       <local:MyTextBox x:Name="TextRetention" Width="65" MaxLength="3" Text="10" ShowValidateResult="False" ToolTip="允许 1 到 100 个自动还原点，手动还原点不计入。">
-        <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>
-       </local:MyTextBox>
-       <TextBlock Text="个自动还原点" VerticalAlignment="Center" Margin="10,0,0,0" />
-
+    <TextBox x:Name="SearchBox" Style="{DynamicResource GlassPresentationTextBox}" Margin="0,15" />
+    <glass:GlassSurface Margin="0,0,0,15" Padding="18,14" CornerRadius="14" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+     <WrapPanel>
+      <Button Style="{DynamicResource GlassPresentationAccentButton}" x:Name="BtnFolder" Content="打开文件夹" />
+      <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnCreate" Content="创建还原点" />
+      <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnSelectAll" Content="全选" />
+      <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnMmcUndo" Content="撤回上次还原" Visibility="Collapsed" IsEnabled="False" />
+     </WrapPanel>
+    </glass:GlassSurface>
+    <Border x:Name="HintMmcHistory" Visibility="Collapsed" Margin="0,0,0,15" CornerRadius="8" BorderThickness="0.7" Padding="11,8">
+     <TextBlock TextWrapping="Wrap" />
+    </Border>
+    <local:GlassSettingGroup x:Name="CardRetention" Title="还原点设置" IsEnabled="False">
+     <local:GlassSettingItem Description="跟随“设置 → 其他”中的全局默认，或为这个实例单独设置。">
+      <local:GlassSettingItem.TitleContent><TextBlock x:Name="LabHistorySource" Text="配置来源" /></local:GlassSettingItem.TitleContent>
+      <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboRetentionMode" SelectionChanged="RetentionModeChanged">
+       <ComboBoxItem Content="跟随全局设置" />
+       <ComboBoxItem Content="实例独立配置" />
+      </ComboBox>
+     </local:GlassSettingItem>
+     <local:GlassSettingRowStack x:Name="PanIndependentRetention" Visibility="Collapsed">
+      <local:GlassSettingItem Description="启动游戏或修改环境前记录一个还原点。">
+       <local:GlassSettingItem.TitleContent><TextBlock x:Name="LabHistoryAutoCreate" Text="自动创建" /></local:GlassSettingItem.TitleContent>
+       <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckHistoryAutoCreate" />
+      </local:GlassSettingItem>
+      <local:GlassSettingItem Description="只限制自动还原点的数量，手动还原点不计入。">
+       <local:GlassSettingItem.TitleContent><TextBlock x:Name="LabHistoryPolicy" Text="保留策略" /></local:GlassSettingItem.TitleContent>
+       <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboHistoryRetentionPolicy" SelectionChanged="HistoryRetentionPolicyChanged">
+        <ComboBoxItem Content="全部保留" />
+        <ComboBoxItem Content="保留最近若干份" />
+       </ComboBox>
+      </local:GlassSettingItem>
+      <local:GlassSettingRowStack x:Name="PanRetention" Visibility="Collapsed">
+       <local:GlassSettingItem Description="保留的自动还原点数量，范围 1 到 100。">
+        <local:GlassSettingItem.TitleContent><TextBlock x:Name="LabHistoryCount" Text="保留份数" /></local:GlassSettingItem.TitleContent>
+        <StackPanel Orientation="Horizontal">
+         <glass:GlassValidatedTextBox Style="{DynamicResource GlassPresentationTextBox}" x:Name="TextRetention" Width="72" MaxLength="3" Text="10">
+          <glass:GlassValidatedTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></glass:GlassValidatedTextBox.ValidateRules>
+         </glass:GlassValidatedTextBox>
+         <TextBlock Text="个" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource GlassPresentationSecondary}" />
         </StackPanel>
-       </Grid>
-      </StackPanel>
-      </StackPanel>
-     </StackPanel>
-    </local:MyCard>
-    <local:MyCard x:Name="CardList" Title=" " Margin="0,0,0,14" MinHeight="55" VerticalAlignment="Top">
-     <StackPanel Orientation="Horizontal" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="15,13,0,0" Height="28">
-      <local:MyRadioButton x:Name="FilterAll" Text="全部" ColorType="Highlight" Checked="True" Margin="2,0" />
-      <local:MyRadioButton x:Name="FilterHealthy" Text="正常运行" ColorType="Highlight" Margin="2,0" />
-     </StackPanel>
-     <StackPanel Margin="20,48,18,22">
+       </local:GlassSettingItem>
+      </local:GlassSettingRowStack>
+     </local:GlassSettingRowStack>
+    </local:GlassSettingGroup>
+    <glass:GlassSurface x:Name="CardList" Margin="0,0,0,14" MinHeight="55" VerticalAlignment="Top" Padding="{DynamicResource GlassCardSettingsPadding}" CornerRadius="{DynamicResource GlassCardSettingsRadius}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+     <StackPanel>
+      <WrapPanel>
+      <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="FilterAll" Content="全部" IsChecked="True" Margin="2,0" />
+      <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="FilterHealthy" Content="正常运行" Margin="2,0" />
+      </WrapPanel>
       <TextBlock x:Name="LabEmpty" Text="暂无还原点。" Opacity="0.65" TextWrapping="Wrap" Margin="5,0,5,8" />
       <StackPanel x:Name="PanEntries" />
      </StackPanel>
-    </local:MyCard>
+    </glass:GlassSurface>
    </StackPanel>
-  </local:MyScrollViewer>
-  <local:MyCard x:Name="PanLoad" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,0" UseAnimation="False">
-   <local:MyLoading x:Name="Load" Text="正在读取还原点" Margin="20,20,20,17" />
-  </local:MyCard>
-  <local:MyCard x:Name="CardSelect" Visibility="Collapsed" Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="25,25,25,0" UseAnimation="False">
-   <local:MyCard.RenderTransform><TranslateTransform x:Name="TransSelect" Y="-10" /></local:MyCard.RenderTransform>
-   <TextBlock x:Name="LabSelect" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="9" Foreground="{DynamicResource ColorBrush2}" />
-   <StackPanel Orientation="Horizontal" Margin="5,28,5,5">
-    <local:MyIconTextButton x:Name="BtnRestore" Text="恢复" IsEnabled="False" />
-    <local:MyIconTextButton x:Name="BtnDelete" Text="删除" />
-    <local:MyIconTextButton x:Name="BtnDeselect" Text="取消选择" />
+  </ScrollViewer>
+  <glass:GlassSurface x:Name="PanLoad" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="18,14" CornerRadius="14" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+   <StackPanel>
+    <glass:BlockCurveLoader x:Name="Load" Width="38" Height="38" HorizontalAlignment="Center" Foreground="{DynamicResource GlassPresentationAccent}" />
+    <TextBlock x:Name="LabLoad" TextAlignment="Center" Margin="0,8" />
+    <Button x:Name="BtnRetry" Content="重试" Style="{DynamicResource GlassPresentationButton}" HorizontalAlignment="Center" Visibility="Collapsed" />
    </StackPanel>
-  </local:MyCard>
+  </glass:GlassSurface>
+  <local:GlassSelectionDock x:Name="CardSelect" />
  </Grid>
-</local:MyPageRight>
+</local:GlassWorkspacePage>

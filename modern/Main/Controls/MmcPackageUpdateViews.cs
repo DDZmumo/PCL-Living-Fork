@@ -18,7 +18,7 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
     private readonly Dictionary<string, bool> components = new(StringComparer.Ordinal);
     private readonly Dictionary<string, MmcPackageFileDecision> files = new(StringComparer.Ordinal);
     private readonly MmcPackageFileDifference[] orderedFiles;
-    private readonly MyCheckBox acknowledge;
+    private readonly CheckBox acknowledge;
     private bool allowUnverified;
     private int section, page;
 
@@ -35,14 +35,17 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
         }
         orderedFiles = preview.Files.OrderBy(value => value.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
         if (editable) {
-            acknowledge = new MyCheckBox { Text = "允许本次无法验证的模组依赖（明确错误仍会阻止更新）", Checked = allowUnverified,
+            acknowledge = new CheckBox { Content = "允许本次无法验证的模组依赖（明确错误仍会阻止更新）", IsChecked = allowUnverified,
+                Style = GlassDialogControls.Style("GlassPresentationCheckBox"),
                 Margin = new Thickness(0, 10, 0, 0), ToolTip = "默认关闭。请先查看兼容性提示，再决定是否接受无法验证的依赖。" };
-            acknowledge.Change += (_, _) => allowUnverified = acknowledge.Checked; Header.Children.Add(acknowledge);
+            acknowledge.Checked += (_, _) => allowUnverified = true;
+            acknowledge.Unchecked += (_, _) => allowUnverified = false;
+            Header.Children.Add(acknowledge);
         } else {
             var fixedSelection = Label("已固定本次选择 · " + preview.PreviewSha256[..12], 12, color: "ColorBrushGray2", margin: new Thickness(0, 8, 0, 0));
             fixedSelection.ToolTip = preview.PreviewSha256; Header.Children.Add(fixedSelection);
             if (!preview.Errors.IsEmpty || preview.RequiresChoices)
-                Header.Children.Add(StatusHint("此结果尚不能提交，请修改选择并重新核对。", (int)MyHint.Themes.Red));
+                Header.Children.Add(StatusHint("此结果尚不能提交，请修改选择并重新核对。", (int)DialogTone.Error));
         }
         AddFilter("组件 · " + preview.Components.Length, 0, true, Show);
         AddFilter("文件 · " + preview.Files.Length, 1, true, Show);
@@ -61,7 +64,7 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
     private void RefreshConfirmation() => SetCanConfirm(editable ? SelectionsComplete() : preview.Errors.IsEmpty && !preview.RequiresChoices);
     private void ChangedSelection() {
         allowUnverified = false;
-        if (acknowledge is not null) acknowledge.Checked = false;
+        if (acknowledge is not null) acknowledge.IsChecked = false;
         RefreshConfirmation();
     }
     private void Show(int value) { section = value; page = 0; Render(); }
@@ -69,11 +72,11 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
         BeginFilter(section);
         int count = section switch { 0 => preview.Components.Length, 1 => orderedFiles.Length, 2 => preview.RuntimeChanges.Length, _ => preview.Warnings.Length + preview.Errors.Length };
         if (section == 3) {
-            if (!editable) Rows.Children.Add(StatusHint(allowUnverified ? "已明确允许本次无法验证的模组依赖。" : "本次未允许无法验证的模组依赖。", (int)MyHint.Themes.Blue));
-            if (preview.ChangesMinecraftVersion) Rows.Children.Add(StatusHint("Minecraft 版本将变化。已有存档全部备份成功后才会发布更新。", (int)MyHint.Themes.Yellow));
-            foreach (string error in preview.Errors.Skip(page * PageSize).Take(PageSize)) Rows.Children.Add(StatusHint(error, (int)MyHint.Themes.Red));
+            if (!editable) Rows.Children.Add(StatusHint(allowUnverified ? "已明确允许本次无法验证的模组依赖。" : "本次未允许无法验证的模组依赖。", (int)DialogTone.Information));
+            if (preview.ChangesMinecraftVersion) Rows.Children.Add(StatusHint("Minecraft 版本将变化。已有存档全部备份成功后才会发布更新。", (int)DialogTone.Warning));
+            foreach (string error in preview.Errors.Skip(page * PageSize).Take(PageSize)) Rows.Children.Add(StatusHint(error, (int)DialogTone.Error));
             int warningStart = Math.Max(0, page * PageSize - preview.Errors.Length), available = Math.Max(0, PageSize - Math.Max(0, preview.Errors.Length - page * PageSize));
-            foreach (string warning in preview.Warnings.Skip(warningStart).Take(available)) Rows.Children.Add(StatusHint(warning, (int)MyHint.Themes.Yellow));
+            foreach (string warning in preview.Warnings.Skip(warningStart).Take(available)) Rows.Children.Add(StatusHint(warning, (int)DialogTone.Warning));
         } else if (section == 0) foreach (var value in preview.Components.Skip(page * PageSize).Take(PageSize)) AddComponent(value);
         else if (section == 1) foreach (var value in orderedFiles.Skip(page * PageSize).Take(PageSize)) AddFile(value);
         else foreach (var value in preview.RuntimeChanges.Skip(page * PageSize).Take(PageSize)) {
@@ -83,8 +86,8 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
         if (count == 0) Rows.Children.Add(Label("此项没有差异。", 13, margin: new Thickness(8, 12, 0, 0)));
         if (count > PageSize) {
             var navigation = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            var previous = new MyButton { Text = "上一页", IsEnabled = page > 0, Width = 90, Height = 30, Margin = new Thickness(8) };
-            var next = new MyButton { Text = "下一页", IsEnabled = (page + 1) * PageSize < count, Width = 90, Height = 30, Margin = new Thickness(8) };
+            var previous = new Button { Content = "上一页", IsEnabled = page > 0, Width = 90, Margin = new Thickness(8) };
+            var next = new Button { Content = "下一页", IsEnabled = (page + 1) * PageSize < count, Width = 90, Margin = new Thickness(8) };
             previous.Click += (_, _) => { page--; Render(); }; next.Click += (_, _) => { page++; Render(); };
             navigation.Children.Add(previous); navigation.Children.Add(Label((page + 1) + " / " + ((count + PageSize - 1) / PageSize), 12, margin: new Thickness(8, 15, 8, 0))); navigation.Children.Add(next); Rows.Children.Add(navigation);
         }
@@ -117,18 +120,25 @@ internal sealed class MmcPackageUpdatePreviewView : ModpackDialogView {
             files.TryGetValue(difference.ChangeId, out var selected);
             bool keepDisabled = selected?.KeepDisabled ?? difference.KeepDisabled;
             var options = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-            MyCheckBox disabled = null;
+            CheckBox disabled = null;
             void Select(PackUpdateChoice choice) {
-                files[difference.ChangeId] = new(difference.ChangeId, choice, disabled?.Checked ?? keepDisabled);
+                files[difference.ChangeId] = new(difference.ChangeId, choice, disabled?.IsChecked ?? keepDisabled);
                 if (disabled is not null) disabled.IsEnabled = choice == PackUpdateChoice.UseAuthor;
                 ChangedSelection();
             }
             options.Children.Add(RadioOption(personalText, selected?.Choice == PackUpdateChoice.PreservePersonal, () => Select(PackUpdateChoice.PreservePersonal)));
             options.Children.Add(RadioOption(authorText, selected?.Choice == PackUpdateChoice.UseAuthor, () => Select(PackUpdateChoice.UseAuthor)));
             if (difference.Ownership == PackUpdateOwnership.Disabled) {
-                disabled = new MyCheckBox { Text = "采用新包文件时仍保持禁用", Checked = keepDisabled,
+                disabled = new CheckBox { Content = "采用新包文件时仍保持禁用", IsChecked = keepDisabled,
+                    Style = GlassDialogControls.Style("GlassPresentationCheckBox"),
                     IsEnabled = selected?.Choice == PackUpdateChoice.UseAuthor, Margin = new Thickness(0, 8, 0, 0) };
-                disabled.Change += (_, _) => { if (files.TryGetValue(difference.ChangeId, out var choice)) files[difference.ChangeId] = choice with { KeepDisabled = disabled.Checked }; ChangedSelection(); };
+                void DisabledChanged(object sender, RoutedEventArgs e) {
+                    if (files.TryGetValue(difference.ChangeId, out var choice))
+                        files[difference.ChangeId] = choice with { KeepDisabled = disabled.IsChecked == true };
+                    ChangedSelection();
+                }
+                disabled.Checked += DisabledChanged;
+                disabled.Unchecked += DisabledChanged;
                 options.Children.Add(disabled);
             }
             body.Children.Add(options);

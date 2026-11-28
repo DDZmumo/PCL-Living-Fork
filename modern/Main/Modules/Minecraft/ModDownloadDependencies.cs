@@ -15,8 +15,8 @@ using PCLCS;
 namespace PCL;
 
 internal enum ModDependencyDownloadChoice { Cancel, PrimaryOnly, WithDependencies }
-internal sealed class ModDownloadDependencyView : StackPanel {
-    internal double PreferredWidth => 590;
+internal sealed class ModDownloadDependencyView : StackPanel, IGlassDialogContent {
+    public double PreferredWidth => 720;
 }
 
 internal static class ModDownloadDependencies {
@@ -71,47 +71,81 @@ internal static class ModDownloadDependencies {
     }
 
     internal static ModDownloadDependencyView CreateView(ModDownloadDependencyPlan<ResourceVersion> plan) {
-        var panel = new ModDownloadDependencyView { Width = 490, MaxWidth = 490 };
-        panel.Children.Add(Label(Summary(plan), 0, 10));
-        panel.Children.Add(Label(string.IsNullOrEmpty(plan.MinecraftVersion) ? "尚未确定目标游戏环境" :
-            "Minecraft " + plan.MinecraftVersion + " · " + plan.Loader, 0, 10));
+        var panel = new ModDownloadDependencyView();
+        // Lead: what will happen, for which game environment, and how many prerequisites fall in each state.
+        int install = plan.Dependencies.Count(item => item.Failure is null && !item.Installed);
+        int present = plan.Dependencies.Count(item => item.Failure is null && item.Installed);
+        int review = plan.Dependencies.Count(item => item.Failure is not null);
+        var chips = new List<Border> { PCLCS.ModDependencyVisuals.Chip(string.IsNullOrEmpty(plan.MinecraftVersion) ? "目标环境未确定" :
+            "Minecraft " + plan.MinecraftVersion + " · " + plan.Loader, PCLCS.ModDependencyTone.Neutral) };
+        if (install > 0) chips.Add(PCLCS.ModDependencyVisuals.Chip("将安装 " + install + " 个", PCLCS.ModDependencyTone.Accent));
+        if (present > 0) chips.Add(PCLCS.ModDependencyVisuals.Chip("已安装 " + present + " 个", PCLCS.ModDependencyTone.Neutral));
+        if (review > 0) chips.Add(PCLCS.ModDependencyVisuals.Chip("需手动核对 " + review + " 个", PCLCS.ModDependencyTone.Danger));
+        var tone = !plan.CanInstall ? PCLCS.ModDependencyTone.Danger : install > 0 ? PCLCS.ModDependencyTone.Accent : PCLCS.ModDependencyTone.Neutral;
+        var lead = PCLCS.ModDependencyVisuals.Lead(!plan.CanInstall ? "!" : install > 0 ? "+" : "✓", tone, Summary(plan), chips);
+        lead.Margin = new Thickness(0, 0, 0, 12);
+        panel.Children.Add(lead);
         var rows = new StackPanel();
         if (plan.PrimaryProject is not null) rows.Children.Add(Card(plan.PrimaryProject, plan.PrimaryProject.TranslatedName,
-            plan.PrimaryVersion?.Display ?? plan.PrimaryVersion?.FileName, "当前模组", false));
+            plan.PrimaryVersion?.Display ?? plan.PrimaryVersion?.FileName, "当前模组", PCLCS.ModDependencyTone.Accent));
+        if (plan.Dependencies.Count > 0) {
+            var heading = Label("需要的前置（" + plan.Dependencies.Count + "）", 6, 8);
+            heading.FontWeight = FontWeights.SemiBold;
+            heading.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationText");
+            rows.Children.Add(heading);
+        }
         foreach (var item in plan.Dependencies) {
             rows.Children.Add(Card(item.Project, item.Name, item.Failure ?? item.Version?.Display ?? item.Version?.FileName ?? "未找到兼容版本",
-                item.Failure is not null ? "需手动核对" : item.Installed ? "已安装" : "将安装", item.Failure is not null));
+                item.Failure is not null ? "需手动核对" : item.Installed ? "已安装" : "将安装",
+                item.Failure is not null ? PCLCS.ModDependencyTone.Danger : item.Installed ? PCLCS.ModDependencyTone.Neutral : PCLCS.ModDependencyTone.Accent));
         }
-        foreach (string problem in plan.Problems) rows.Children.Add(Label(problem, 0, 10));
-        panel.Children.Add(new MyScrollViewer { Content = rows, MaxHeight = 250, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
-        var prompt = new MyCheckBox { Text = "以后下载时检查必需前置", Margin = new Thickness(0, 12, 0, 0), Checked = Settings.Get<bool>("ToolDownloadModDependencies") };
-        prompt.Change += (_, user) => { if (user) Settings.Set("ToolDownloadModDependencies", prompt.Checked); };
+        foreach (string problem in plan.Problems) rows.Children.Add(GlassDialogControls.Notice(problem, DialogTone.Warning));
+        var scroll = GlassDialogControls.Scroll();
+        scroll.Content = rows;
+        scroll.MaxHeight = 400;
+        panel.Children.Add(scroll);
+        var prompt = GlassDialogControls.Check("以后下载时检查必需前置", Settings.Get<bool>("ToolDownloadModDependencies"));
+        prompt.Margin = new Thickness(0, 12, 0, 0);
+        prompt.Click += (_, _) => Settings.Set("ToolDownloadModDependencies", prompt.IsChecked == true);
         panel.Children.Add(prompt);
         return panel;
     }
-    private static Border Card(ResourceProjectModelData project, string title, string version, string status, bool warning) {
+    private static Border Card(ResourceProjectModelData project, string title, string version, string status, PCLCS.ModDependencyTone tone) {
         var content = new Grid();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition());
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var bar = new Border { CornerRadius = new CornerRadius(1.5), Margin = new Thickness(0, 2, 0, 2) };
+        bar.SetResourceReference(Border.BackgroundProperty, PCLCS.ModDependencyVisuals.BarKey(tone));
+        content.Children.Add(bar);
         string fallback = ModBase.PathImage + "Icons/NoIcon.png";
-        var icon = new MyImage { Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center,
-            LoadingSource = fallback, FallbackSource = fallback, Source = project?.LogoUrl ?? fallback,
-            Stretch = Stretch.Uniform, Clip = new RectangleGeometry(new Rect(0, 0, 40, 40), 5, 5) };
+        var icon = new Image { Width = 36, Height = 36, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(11, 0, 0, 0),
+            Source = (ImageSource)new MyBitmap(fallback),
+            Stretch = Stretch.Uniform, Clip = new RectangleGeometry(new Rect(0, 0, 36, 36), 7, 7) };
+        if (project is ResourceProject) icon.Loaded += LoadIcon;
+        async void LoadIcon(object sender, RoutedEventArgs args) {
+            icon.Loaded -= LoadIcon;
+            try {
+                if (await ResourceThumbnails.ReadAsync((ResourceProject)project) is { } image && icon.IsLoaded)
+                    icon.Source = image;
+            } catch (Exception error) { MeloongCore.Logger.Warn(error, "加载前置资源图标失败"); }
+        }
+        Grid.SetColumn(icon, 1);
         content.Children.Add(icon);
         var description = new StackPanel { Margin = new Thickness(12, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-        var name = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
-        name.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush1"); description.Children.Add(name);
-        var detail = Label(version, 4, 0); detail.FontSize = 12; description.Children.Add(detail);
-        Grid.SetColumn(description, 1); content.Children.Add(description);
-        var state = Label(status, 0, 0); state.VerticalAlignment = VerticalAlignment.Center;
-        state.SetResourceReference(TextBlock.ForegroundProperty, warning ? "ColorBrushRedLight" : "ColorBrush3");
-        Grid.SetColumn(state, 2); content.Children.Add(state);
-        var card = new Border { Child = content, Padding = new Thickness(12), Margin = new Thickness(0, 0, 4, 10),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6) };
-        card.SetResourceReference(Border.BackgroundProperty, "ColorBrushWhite");
-        card.SetResourceReference(Border.BorderBrushProperty, warning ? "ColorBrushRedLight" : "ColorBrush5");
+        var name = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, FontSize = 13.5 };
+        name.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationText"); description.Children.Add(name);
+        var detail = Label(version, 3, 0); detail.FontSize = 12; description.Children.Add(detail);
+        Grid.SetColumn(description, 2); content.Children.Add(description);
+        var state = PCLCS.ModDependencyVisuals.Chip(status, tone);
+        state.Margin = new Thickness(0);
+        state.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(state, 3); content.Children.Add(state);
+        var card = new Border { Child = content, Padding = new Thickness(8, 10, 12, 10), Margin = new Thickness(0, 0, 4, 8),
+            BorderThickness = new Thickness(.7), CornerRadius = new CornerRadius(10) };
+        card.SetResourceReference(Border.BackgroundProperty, "GlassPresentationField");
+        card.SetResourceReference(Border.BorderBrushProperty, "GlassPresentationControlStroke");
         return card;
     }
     private static string Summary(ModDownloadDependencyPlan<ResourceVersion> plan) => !plan.CanInstall
@@ -121,7 +155,7 @@ internal static class ModDownloadDependencies {
         : "此模组需要以下前置。确认后会补齐缺失项，已安装的前置会保留。";
     private static TextBlock Label(string text, double top, double bottom) {
         var label = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, top, 0, bottom) };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray3"); return label;
+        label.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary"); return label;
     }
 
     // Enabled files are identified by their bytes, including files renamed by

@@ -516,22 +516,23 @@ jobs:
           $baseline = [IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'modern/Main/Modules/Base/ModBase.cs'))
           $version = [regex]::Match($baseline, 'const string ReleaseBaselineVersion = "([^"]+)"').Groups[1].Value
           $preview = $baseline -cmatch 'const bool ReleaseBaselineIsPrerelease = true;'
-          $publishPreview = $preview -and $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
-          if ($preview -and $version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z') { throw 'The official preview version is invalid.' }
-          if ($publishPreview) {
+          $publishPackage = $env:GITHUB_REF -ceq 'refs/heads/main' -and $env:GITHUB_EVENT_NAME -ceq 'push'
+          $versionPattern = if ($preview) { '\A[0-9]+\.[0-9]+\.[0-9]+-pre-[0-9]+\z' } else { '\A[0-9]+\.[0-9]+\.[0-9]+\z' }
+          if ($version -cnotmatch $versionPattern) { throw 'The official package version is invalid.' }
+          if ($publishPackage) {
             $tag = "refs/tags/v$version"
             $matchingRefs = & git for-each-ref --format='%(refname)' $tag
-            if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the preview tag.' }
+            if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the release tag.' }
             if ($tag -cin $matchingRefs) {
               $tagCommit = & git rev-parse --verify "${tag}^{commit}"
-              if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the preview tag to a commit.' }
+              if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the release tag to a commit.' }
               if ($tagCommit -cne $env:GITHUB_SHA) {
-                Write-Output "Preview v$version is already tagged on $tagCommit."
-                $publishPreview = $false
+                Write-Output "Version v$version is already tagged on $tagCommit."
+                $publishPackage = $false
               }
             }
           }
-          if (-not $publishPreview -and $env:VALIDATE_PUBLIC_SLIM -ne 'true' -and $env:NATIVE_FULL_VALIDATION -ne 'true') { return }
+          if (-not $publishPackage -and $env:VALIDATE_PUBLIC_SLIM -ne 'true' -and $env:NATIVE_FULL_VALIDATION -ne 'true') { return }
           & ./scripts/Build-SlimRelease.ps1 -ProjectPath modern/Main/PCL-Living-Fork.Modern.csproj -OutputPath $output -Configuration Release -DotNetPath (Get-Command dotnet).Source -OfficialRelease
           $index = Get-Content -LiteralPath (Join-Path $output 'SlimRelease.Artifacts.json') -Raw | ConvertFrom-Json
           if ($index.productVersion -cne $version) { throw 'Official package identity does not match the source version.' }
@@ -572,23 +573,26 @@ jobs:
           & (Join-Path $validator 'LegacyBridgeValidation.exe') $legacyExe $exe (Join-Path $output 'publish/LivingPCL.exe')
           if ($LASTEXITCODE -ne 0) { throw 'The original legacy validator did not accept the public update bridge.' }
           [ordered]@{ kind = 'PCLLF.PublicSlimCompatibility'; productVersion = $index.productVersion; embeddedPayloadSha256 = $embeddedHash; legacyManagedIdentity = $true; zipPayloadIdentical = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:NATIVE_LOG_DIRECTORY 'public-slim-compatibility.json') -Encoding utf8
-          if ($publishPreview) {
-            $public = Join-Path $env:NATIVE_LOG_DIRECTORY 'public-prerelease'
+          if ($publishPackage) {
+            $packageName = if ($preview) { 'public-prerelease' } else { 'public-release' }
+            $receiptKind = if ($preview) { 'PCLLF.PublicPrerelease' } else { 'PCLLF.PublicRelease' }
+            $public = Join-Path $env:NATIVE_LOG_DIRECTORY $packageName
             New-Item -ItemType Directory -Path $public | Out-Null
             Copy-Item -LiteralPath @($exe, $zipPath, (Join-Path $output 'SHA256SUMS.txt')) -Destination $public
-            [ordered]@{ kind = 'PCLLF.PublicPrerelease'; version = $version; sourceSha = $env:GITHUB_SHA; selfContained = $false;
+            [ordered]@{ kind = $receiptKind; version = $version; sourceSha = $env:GITHUB_SHA; selfContained = $false;
               runtime = $index.runtime; nativePayloadSha256 = $embeddedHash; legacyValidatorPassed = $true;
               artifacts = $index.artifacts } | ConvertTo-Json -Depth 5 |
               Set-Content -LiteralPath (Join-Path $public 'release-receipt.json') -Encoding utf8
             'ready=true' >> $env:GITHUB_OUTPUT
+            "package_name=$packageName" >> $env:GITHUB_OUTPUT
           }
 
-      - name: Upload the three public prerelease files and their build receipt
+      - name: Upload the three public package files and their build receipt
         if: steps.public_slim.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: public-prerelease-${{ github.run_attempt }}
-          path: artifacts/native-main/Release/public-prerelease/
+          name: ${{ steps.public_slim.outputs.package_name }}-${{ github.run_attempt }}
+          path: artifacts/native-main/Release/${{ steps.public_slim.outputs.package_name }}/
           if-no-files-found: error
           retention-days: 7
 
@@ -600,6 +604,7 @@ jobs:
           path: |
             artifacts/native-main/${{ matrix.configuration }}/
             !artifacts/native-main/${{ matrix.configuration }}/public-prerelease/**
+            !artifacts/native-main/${{ matrix.configuration }}/public-release/**
             !artifacts/native-main/${{ matrix.configuration }}/interaction/**/Install with spaces/*.exe
             !artifacts/native-main/${{ matrix.configuration }}/interaction/**/BundleExtract/**
           if-no-files-found: warn

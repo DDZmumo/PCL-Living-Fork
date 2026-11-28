@@ -145,22 +145,22 @@ internal static class ModDownloadDependencyChecks {
             var plan = (ModDownloadDependencyPlan<ResourceVersion>)Native.Call(host, "Prepare", null, Project("root"), primary, Path.Combine(mods, "root.jar"), null, CancellationToken.None)!;
             Native.Check(plan.CanInstall && plan.Dependencies.Single().Version == dependency, "Actual Main preparation did not resolve the required version.");
             var panel = (StackPanel)Native.Call(host, "CreateView", null, plan)!;
-            var cards = ((StackPanel)panel.Children.OfType<MyScrollViewer>().Single().Content).Children.OfType<Border>().ToArray();
+            var cards = ((StackPanel)panel.Children.OfType<ScrollViewer>().Single().Content).Children.OfType<Border>().ToArray();
             Native.Check(cards.Length == 2 && cards.All(card => card.BorderThickness.Left == 1 && card.CornerRadius.TopLeft > 0),
                 "The selected mod and required dependency are not displayed in bordered cards.");
-            Native.Check(((Grid)cards[0].Child).Children.OfType<MyImage>().Single().Source == plan.PrimaryProject!.LogoUrl &&
-                ((Grid)cards[1].Child).Children.OfType<MyImage>().Single().Source == plan.Dependencies.Single().Project!.LogoUrl,
+            Native.Check(((Grid)cards[0].Child).Children.OfType<Image>().Single().Source?.ToString() == plan.PrimaryProject!.LogoUrl &&
+                ((Grid)cards[1].Child).Children.OfType<Image>().Single().Source?.ToString() == plan.Dependencies.Single().Project!.LogoUrl,
                 "Download cards do not use each mod's own project icon.");
-            var prompt = panel.Children.OfType<MyCheckBox>().Single();
-            prompt.Checked = false; Native.Call(typeof(MyCheckBox), "OnChange", prompt, true);
+            var prompt = panel.Children.OfType<CheckBox>().Single();
+            prompt.IsChecked = false; Native.Call(typeof(CheckBox), "OnChange", prompt, true);
             Native.Check(!Settings.Get<bool>("ToolDownloadModDependencies"), "Native modal prompt switch did not persist.");
-            prompt.Checked = true; Native.Call(typeof(MyCheckBox), "OnChange", prompt, true);
+            prompt.IsChecked = true; Native.Call(typeof(CheckBox), "OnChange", prompt, true);
             Native.Check(Settings.Get<bool>("ToolDownloadModDependencies"), "Native modal prompt switch could not be re-enabled.");
             if (Environment.GetEnvironmentVariable("PCLLF_DEPENDENCY_PREVIEW_DIR") is { Length: > 0 } preview) {
                 Directory.CreateDirectory(preview); panel.Measure(new Size(490, 500)); panel.Arrange(new Rect(0, 0, 490, panel.DesiredSize.Height)); panel.UpdateLayout();
                 var image = new RenderTargetBitmap(490, (int)Math.Ceiling(panel.ActualHeight), 96, 96, PixelFormats.Pbgra32); image.Render(panel);
                 var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image)); using var file = File.Create(Path.Combine(preview, "dependency-content.png")); png.Save(file);
-                var modal = new MyMsgText(new ModMain.MyMsgBoxConverter { Title = "下载 Mod 与必需前置", Text = "此模组需要以下前置。确认后会补齐缺失项，已安装的前置会保留。",
+                var modal = Native.Dialog(new ModMain.MyMsgBoxConverter { Title = "下载 Mod 与必需前置", Text = "此模组需要以下前置。确认后会补齐缺失项，已安装的前置会保留。",
                     Button1 = "安装并补全", Button2 = "取消", Button3 = "仅下载此模组", ContentFactory = () => (FrameworkElement)Native.Call(host, "CreateView", null, plan)! });
                 Native.Check(modal.Width == 590, "Dependency modal did not retain its bounded native width.");
                 modal.Opacity = 1; modal.RenderTransform = Transform.Identity;

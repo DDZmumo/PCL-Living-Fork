@@ -7,7 +7,6 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Controls;
 using MeloongCore;
 using MeloongCore.Wpf;
@@ -52,7 +51,7 @@ public partial class PageSetupSystem {
         LabBackupStorageStatus.Text = changing ? "正在迁移，请在任务列表中查看进度。" : "";
         LabBackupStorageStatus.Visibility = changing ? Visibility.Visible : Visibility.Collapsed;
     }
-    private void BtnBackupStorageChoose_Click(object sender, MouseButtonEventArgs e) {
+    private void BtnBackupStorageChoose_Click(object sender, RoutedEventArgs e) {
         try {
             if (BackupStorage.IsChanging) { ModMain.Hint("备份数据正在迁移，请稍候。"); return; }
             string selected = SelectBackupFolder();
@@ -72,7 +71,7 @@ public partial class PageSetupSystem {
             RefreshBackupStorage();
         } catch (Exception error) { Logger.Warn(error, "更改备份存储位置失败"); ReportBackupStorageError(error.Message); RefreshBackupStorage(); }
     }
-    private void BtnBackupStorageOpen_Click(object sender, MouseButtonEventArgs e) {
+    private void BtnBackupStorageOpen_Click(object sender, RoutedEventArgs e) {
         try {
             string root = BackupStorage.Root;
             if (!Directory.Exists(root)) { ModMain.Hint("当前备份目录尚未创建。"); return; }

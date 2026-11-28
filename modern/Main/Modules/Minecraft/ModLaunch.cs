@@ -515,19 +515,19 @@ namespace PCL
                 Dispatch = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(Work)),
                 DispatchWait = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUiWait(Work)),
                 NewThread = new Action<global::System.Action, global::System.String>((Work, Name) => global::PCL.ModBase.RunInNewThread(Work, Name)),
-                RefreshButtons = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshButtonsUI()),
-                RefreshPageAfterSwitch = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(false, false)),
+                RefreshButtons = FormMain.RefreshRecentWorldVisibility,
+                RefreshPageAfterSwitch = () => FormMain.RefreshLaunchAccount(false, false),
                 AprilGiveup = new Action(() => global::PCL.ModMain.FrmMain.AprilGiveup()),
                 RemoveInstanceSelectionPage = global::PCL.ModLaunch.RemoveInstanceSelectionPage,
-                LoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLogin()),
-                ClearLaunchLog = new Action(() => global::PCL.ModMain.FrmLaunchRight.LabLog.Text = ""),
-                LaunchingPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.PageChangeToLaunching()),
-                RefreshLaunching = new Action(() => global::PCL.ModMain.FrmLaunchLeft.Dispatcher.Invoke(global::PCL.ModMain.FrmLaunchLeft.LaunchingRefresh)),
-                RefreshRecentVisibility = new Action(() => global::PCL.ModMain.FrmLaunchRight?.UpdateRecentWorldVisibility()),
-                RefreshLoginPage = new Action(() => global::PCL.ModMain.FrmLaunchLeft.RefreshPage(true, false)),
-                RefreshRecentWorlds = new Action(() => global::PCL.ModMain.FrmLaunchRight?.RefreshRecentWorlds()),
+                LoginPage = FormMain.RefreshRecentWorldVisibility,
+                ClearLaunchLog = FormMain.ClearLaunchLog,
+                LaunchingPage = FormMain.RefreshRecentWorldVisibility,
+                RefreshLaunching = FormMain.RefreshRecentWorldVisibility,
+                RefreshRecentVisibility = FormMain.RefreshRecentWorldVisibility,
+                RefreshLoginPage = () => FormMain.RefreshLaunchAccount(true, false),
+                RefreshRecentWorlds = FormMain.RefreshRecentWorlds,
                 RefreshKeybindings = global::PCL.ModLaunch.RefreshVisibleKeybindings,
-                AppendLog = new Action<global::System.String>(Text => global::PCL.ModMain.FrmLaunchRight.LabLog.AppendText(Text)),
+                AppendLog = FormMain.AppendLaunchLog,
                 Hint = global::PCL.ModLaunch.PublishLaunchHint,
                 Message = global::PCL.ModLaunch.ShowLaunchMessage,
                 OpenWebsite = global::PCL.ModBase.OpenWebsite,
@@ -550,7 +550,7 @@ namespace PCL
                 Dpi = new Func<global::System.Double>(() => global::PCL.ModBase.DPI),
                 LauncherSize = global::PCL.ModLaunch.LauncherPixelSize,
                 AvailablePhysicalMemory = new Func<global::System.UInt64>(() => global::PCL.My.MyWpfExtension.Computer.Info.AvailablePhysicalMemory),
-                RamGb = new Func<global::PCL.ModMinecraft.McInstance, global::System.Double>(Instance => global::PCL.PageInstanceSetup.GetRam(Instance)),
+                RamGb = new Func<global::PCL.ModMinecraft.McInstance, global::System.Double>(Instance => global::PCL.LauncherMemory.ForInstance(Instance)),
                 IsAdmin = new Func<global::System.Boolean>(() => global::MeloongCore.WindowsUtils.HasAdminRole()),
                 SetGpuPreference = global::PCL.ModMain.SetGPUPreference,
                 RunAdminTaskDone = new Func<global::System.String, global::System.Boolean>(Arguments => ((global::PCL.ModBase.RunAsAdmin(Arguments)) == (global::System.Int32)(global::PCL.ModBase.ProcessReturnValues.TaskDone))),
@@ -744,8 +744,7 @@ namespace PCL
         }
         private static void RefreshVisibleKeybindings()
         {
-            if (global::PCL.ModMain.FrmMain?.PageRight is global::PCL.PageInstanceKeybindings)
-                ((global::PCL.PageInstanceKeybindings)global::PCL.ModMain.FrmMain.PageRight).RefreshBindings();
+            global::PCL.ModMain.FrmMain?.RefreshInstanceKeybindings();
         }
         private static void PublishLaunchHint(global::System.String Text, global::PCLCS.LegacyLaunchHint Kind)
         {
@@ -778,117 +777,43 @@ namespace PCL
         {
             return global::PCL.ModMain.MyMsgBox(Message.Text, Message.Title, Message.Button1, Message.Button2, Message.Button3, IsWarn: Message.IsWarn, HighLight: Message.HighLight, ForceWait: Message.ForceWait, Button1Action: Message.Button1Action, Button2Action: Message.Button2Action, Button3Action: Message.Button3Action);
         }
-        private static global::System.String CurrentLoginValidation(global::System.Int32 Kind)
-        {
-            switch (((global::PCL.ModLaunch.McLoginType)(Kind)))
-            {
-                case global::PCL.ModLaunch.McLoginType.Ms:
-                    {
-                        return global::PCL.ModMain.FrmLoginMs.IsVaild();
-                    }
-                case global::PCL.ModLaunch.McLoginType.Legacy:
-                    {
-                        return global::PCL.ModMain.FrmLoginLegacy.IsVaild();
-                    }
-                case global::PCL.ModLaunch.McLoginType.Nide:
-                    {
-                        return global::PCL.ModMain.FrmLoginNide.IsVaild();
-                    }
-                case global::PCL.ModLaunch.McLoginType.Auth:
-                    {
-                        return GlassSkinSites.CurrentForLaunch() is not null ? "" : "请先在账号页选择外置登录角色。";
-                    }
+        private static string CurrentLoginValidation(int kind) =>
+            (McLoginType)kind == McLoginType.Nide ? "请在账号页重新选择登录方式。" : ValidateLoginData(kind, ReadLoginInput(kind, false));
 
-                default:
-                    {
-                        return "未知的登录方式";
-                    }
-            }
-        }
-        private static global::System.String ValidateLoginData(global::System.Int32 Kind, global::PCL.ModLaunch.McLoginData Data)
-        {
-            switch (((global::PCL.ModLaunch.McLoginType)(Kind)))
-            {
-                case global::PCL.ModLaunch.McLoginType.Ms:
-                    {
-                        return global::PCL.PageLoginMs.IsVaild((global::PCL.ModLaunch.McLoginMs)Data);
-                    }
-                case global::PCL.ModLaunch.McLoginType.Legacy:
-                    {
-                        return global::PCL.PageLoginLegacy.IsVaild((global::PCL.ModLaunch.McLoginLegacy)Data);
-                    }
-                case global::PCL.ModLaunch.McLoginType.Nide:
-                    {
-                        return global::PCL.PageLoginNide.IsVaild((global::PCL.ModLaunch.McLoginServer)Data);
-                    }
-                case global::PCL.ModLaunch.McLoginType.Auth:
-                    {
-                        var login = (McLoginServer)Data;
-                        return login.SkinSite is not null ? "" : "请先在账号页选择外置登录角色。";
-                    }
+        private static string ValidateLoginData(int kind, McLoginData data) => (McLoginType)kind switch {
+            McLoginType.Ms => LauncherAccountSession.ValidateMicrosoft((McLoginMs)data),
+            McLoginType.Legacy => LauncherAccountSession.ValidateOffline((McLoginLegacy)data),
+            McLoginType.Auth => ((McLoginServer)data).SkinSite is not null ? "" : "请先在账号页选择外置登录角色。",
+            McLoginType.Nide => "请在账号页重新选择登录方式。",
+            _ => "未知的登录方式"
+        };
 
-                default:
-                    {
-                        return "未知的登录方式";
-                    }
-            }
-        }
-        private static global::PCL.ModLaunch.McLoginData ReadLoginInput(global::System.Int32 Kind, global::System.Boolean Skin)
-        {
-            switch (((global::PCL.ModLaunch.McLoginType)(Kind)))
-            {
-                case global::PCL.ModLaunch.McLoginType.Legacy:
-                    {
-                        return global::PCL.PageLoginLegacy.GetLoginData();
-                    }
-                case global::PCL.ModLaunch.McLoginType.Ms:
-                    {
-                        return (Skin) ? (global::PCL.PageLoginMsSkin.GetLoginData()) : (global::PCL.PageLoginMs.GetLoginData());
-                    }
-                case global::PCL.ModLaunch.McLoginType.Nide:
-                    {
-                        return (Skin) ? (global::PCL.PageLoginNideSkin.GetLoginData()) : (global::PCL.PageLoginNide.GetLoginData());
-                    }
-                case global::PCL.ModLaunch.McLoginType.Auth:
-                    {
-                        if (GlassSkinSites.CurrentForLaunch() is { } character) {
-                            return new McLoginServer(McLoginType.Auth) {
-                                SkinSite = character, Token = "Auth", UserName = character.Account.Username,
-                                BaseUrl = global::PCLCS.AuthlibEndpoint.ForServer(character.Site.Server), Description = "外置登录"
-                            };
-                        }
-                        return new McLoginServer(McLoginType.Auth) { Token = "Auth", Description = "外置登录" };
-                    }
+        private static McLoginData ReadLoginInput(int kind, bool skin) => (McLoginType)kind switch {
+            McLoginType.Legacy => LauncherAccountSession.OfflineLaunchInput(),
+            McLoginType.Ms => LauncherAccountSession.MicrosoftLaunchInput(),
+            McLoginType.Auth when GlassSkinSites.CurrentForLaunch() is { } character => new McLoginServer(McLoginType.Auth) {
+                SkinSite = character, Token = "Auth", UserName = character.Account.Username,
+                BaseUrl = global::PCLCS.AuthlibEndpoint.ForServer(character.Site.Server), Description = "外置登录"
+            },
+            McLoginType.Auth => new McLoginServer(McLoginType.Auth) { Token = "Auth", Description = "外置登录" },
+            McLoginType.Nide => new McLoginServer(McLoginType.Nide) { Token = "Nide" },
+            _ => null
+        };
 
-                default:
-                    {
-                        return (global::PCL.ModLaunch.McLoginData)null;
-                    }
-            }
-        }
-        private static void ExitServerLogin(global::System.Int32 Kind)
+        private static void ExitServerLogin(int kind)
         {
-            switch (((global::PCL.ModLaunch.McLoginType)(Kind)))
-            {
-                case global::PCL.ModLaunch.McLoginType.Auth:
-                    {
-                        global::PCL.PageLoginAuthSkin.ExitLogin();
-                        break;
-                    }
-                case global::PCL.ModLaunch.McLoginType.Nide:
-                    {
-                        global::PCL.PageLoginNideSkin.ExitLogin();
-                        break;
-                    }
+            if ((McLoginType)kind == McLoginType.Auth && GlassSkinSites.IsActive) {
+                McLoginLoader.Cancel();
+                McLoginAuthLoader.Cancel();
+                GlassSkinSites.Deactivate();
+                LauncherAccountSession.ApplyExternalSelection();
             }
+            else LauncherApplicationServices.Accounts.SignOut((PCLCS.Applications.AccountProvider)kind);
+            FormMain.RefreshLaunchAccount(false, true);
         }
         private static global::System.Int32 SelectLoginProfile(global::Newtonsoft.Json.Linq.JArray Profiles)
         {
-            var Controls = new global::System.Collections.Generic.List<global::PCL.IMyRadio>();
-            foreach (var Profile in Profiles)
-                Controls.Add(new global::PCL.MyRadioBox() { Text = Profile["name"].ToString() });
-            global::System.Int32 Selected = (global::System.Int32)global::PCL.ModMain.MyMsgBoxSelect((global::System.Collections.Generic.IEnumerable<global::PCL.IMyRadio>)Controls, "选择使用的角色");
-            return Selected;
+            return (int)ModMain.SelectChoice(Profiles.Select(profile => new DialogChoice(profile["name"].ToString())), "选择使用的角色");
         }
         private static global::System.Func<global::PCLCS.LegacyLaunchDeviceResult> CreateDevicePrompt(global::Newtonsoft.Json.Linq.JObject Prepared)
         {
@@ -917,7 +842,7 @@ namespace PCL
         }
         private static global::PCLCS.LegacyLaunchSize LauncherPixelSize()
         {
-            return new global::PCLCS.LegacyLaunchSize(global::PCL.ModBase.GetPixelSize(global::PCL.ModMain.FrmMain.PanForm.ActualWidth), global::PCL.ModBase.GetPixelSize(global::PCL.ModMain.FrmMain.PanForm.ActualHeight));
+            return new global::PCLCS.LegacyLaunchSize(global::PCL.ModBase.GetPixelSize(global::PCL.ModMain.FrmMain.GlassView.BodyFrame.ActualWidth), global::PCL.ModBase.GetPixelSize(global::PCL.ModMain.FrmMain.GlassView.BodyFrame.ActualHeight));
         }
         private static global::PCLCS.LegacyLaunchImage LoadLaunchImage(global::System.String Address)
         {
@@ -982,15 +907,17 @@ namespace PCL
         }
         private static global::System.Int32 ConfirmDependencies(global::PCLCS.LegacyLaunchDependencyReport Report, global::PCLCS.LegacyLaunchDependencyPlan Plan, global::System.Boolean AfterRepair)
         {
-            global::PCL.ModDependencyInspector.InspectionReport Original = (global::PCL.ModDependencyInspector.InspectionReport)Report.Source;
-            if (AfterRepair)
-                return global::PCL.ModMain.MyMsgBoxConfirmContent("前置已处理，仍有模组问题或整合包来源需要核对。", "启动前模组检查", "返回 Mod 管理", () => new global::PCL.ModDependencyCheckView(Original), "取消启动", "仍然启动", WarningButton: 3);
-            global::PCL.ModDependencyAutoFill.Plan OriginalPlan = (global::PCL.ModDependencyAutoFill.Plan)Plan.Source;
-            return global::PCL.ModMain.MyMsgBoxConfirmContent("请检查以下模组问题。", "启动前模组检查", OriginalPlan.ActionText, () => new global::PCL.ModDependencyCheckView(Original, OriginalPlan), "取消启动", "仍然启动", WarningButton: 3);
+            var report = (ModDependencyInspector.InspectionReport)Report.Source;
+            var plan = AfterRepair ? null : (ModDependencyAutoFill.Plan)Plan.Source;
+            string caption = AfterRepair ? "前置已处理，仍有模组问题或整合包来源需要核对。" : "请检查以下模组问题。";
+            string action = AfterRepair ? "返回 Mod 管理" : plan.ActionText;
+            const string title = "启动前模组检查";
+            return ModMain.MyMsgBoxConfirmContent(caption, title, action, () => new GlassModDependencyCheckView(caption, report, plan),
+                "取消启动", "仍然启动", WarningButton: 3);
         }
         private static void OpenDependencyMods(global::PCL.ModMinecraft.McInstance Instance)
         {
-            global::PCL.PageInstanceLeft.Instance = Instance;
+            global::PCL.LauncherInstanceContext.Instance = Instance;
             global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup, global::PCL.FormMain.PageSubType.InstanceMod);
         }
 

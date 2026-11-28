@@ -92,6 +92,7 @@ public sealed class ResourcePageView<TInstance, TEntry, TOnline>
     public Panel PanList = null!, PanWorlds = null!;
     public UniformGrid PanScreenshots = null!;
     public Grid PanManageButtons = null!;
+    public bool ToolbarWrapsContent;
     public IResourcePageCard CardList = null!;
     public FrameworkElement CardSelect = null!;
     public TranslateTransform TransSelect = null!;

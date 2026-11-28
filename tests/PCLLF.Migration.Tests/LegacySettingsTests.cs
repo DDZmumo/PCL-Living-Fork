@@ -14,6 +14,7 @@ internal static class LegacySettingsTests {
         yield return ("settings schema keeps all LF keys and old default types", Definitions);
         yield return ("settings DES retains independently computed LF wire-format vectors", DesWireFormat);
         yield return ("settings saves before callbacks and caches only ordinary values", CacheAndCallbackOrder);
+        yield return ("unreadable account settings warn once per failure and recover external writes", DecryptionWarning);
         yield return ("settings instance scopes remain exact path keys", InstanceScopes);
         yield return ("settings account writes preserve snapshots after deletion failure", AccountRollback);
         yield return ("settings account cancellation precedes all persistence", AccountCancellation);
@@ -146,6 +147,24 @@ internal static class LegacySettingsTests {
         Throws<InvalidOperationException>(() => fixture.Engine.SetSafe("LoginLegacyName", "Name"));
         Throws<KeyNotFoundException>(() => fixture.Engine.SetSafe("missing", "Name"));
         Equal(true, fixture.Engine.Get("UiHiddenPageLink"));
+    }
+    private static void DecryptionWarning() {
+        var warnings = new List<string>();
+        var fixture = new Fixture((_, message, level, toast) => {
+            if (level == LegacySettingsLogLevel.WarningLogOnly && !toast) warnings.Add(message);
+        });
+        const string key = "CacheMsV2OAuthRefresh";
+        string stored = "bad-ciphertext";
+        object? Read() => fixture.Engine.GetCore(key, null, _ => stored);
+        for (int i = 0; i < 12; i++) Equal("", Read());
+        Equal(1, warnings.Count);
+        Equal("解密设置失败，保留原始密文：" + key, warnings[0]);
+        Equal(0, fixture.Pcl.Values.Count);
+        stored = LegacySettingsCrypto.Encrypt("fixture-only", "PCLsynthetic-device");
+        Equal("fixture-only", Read());
+        stored = "another-invalid-value";
+        Equal("", Read());
+        Equal(2, warnings.Count);
     }
     private static void InstanceScopes() {
         var fixture = new Fixture();
@@ -355,7 +374,7 @@ internal static class LegacySettingsTests {
         public readonly Store Pcl = new();
         public int OpenCount;
         public readonly LegacySettingsEngine<Instance, Entry, Plan> Engine;
-        public Fixture() {
+        public Fixture(Action<Exception?, string, LegacySettingsLogLevel, bool>? log = null) {
             Entries = LegacySettingsDefinitions.Create((key, value, source, encrypted, changed) => new Entry(key, value, source, encrypted, changed),
                 key => key switch {
                     "LoginType" => LoginKind.Legacy, "UiLauncherHue" => 225, "UiLauncherSat" => 100,
@@ -372,7 +391,7 @@ internal static class LegacySettingsTests {
                 WriteRegistry = (_, key, value) => Pcl.SetValue(key, value!, RegistryValueKind.String),
                 HasRegistry = (_, key) => Pcl.Values.ContainsKey(key), OpenRegistry = (_, _, _) => { OpenCount++; return Pcl; },
 #pragma warning restore CA1416
-                IdentifyCandidates = _ => new List<string>(), Log = (_, _, _, _) => { }
+                IdentifyCandidates = _ => new List<string>(), Log = log ?? ((_, _, _, _) => { })
             });
             foreach (Entry entry in Entries.Values) entry.Saver = (value, instance) => Engine.SaveEntry(value, instance);
         }

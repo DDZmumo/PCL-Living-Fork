@@ -10,7 +10,7 @@ using PCL;
 using PCLCS;
 using PCLCS.Loaders;
 using PCLLF.MMCC.Core;
-using Overall = PCLCS.InstanceOverallPageController<PCL.ModMinecraft.McInstance, PCL.ModMinecraft.McInstance.McInstanceState, PCL.ModMinecraft.McInstanceCardType, PCL.MyListItem, PCL.ModLoader.LoaderCombo<string>>;
+using Overall = PCLCS.InstanceOverallPageController<PCL.ModMinecraft.McInstance, PCL.ModMinecraft.McInstance.McInstanceState, PCL.ModMinecraft.McInstanceCardType, PCL.GlassInstanceHeader, PCL.ModLoader.LoaderCombo<string>>;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -56,7 +56,7 @@ internal static class MmcRepairUiChecks {
         private readonly Type ui = Native.Type("PCL.MmcRepairUi");
         private readonly PropertyInfo factory;
         private readonly object? oldFactory;
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private readonly ConcurrentQueue<MmcInstanceBackendResult> published = new();
         private readonly List<ModLoader.LoaderCombo<string>> allTasks = [];
@@ -77,7 +77,7 @@ internal static class MmcRepairUiChecks {
             Put("minecraft/saves/world/level.dat", world); Put("minecraft/config/owned.cfg", personal);
             owner.Config.Set("UnknownRepairPreference", "keep", false); owner.Config.Save();
             factory = Native.Property(ui, "ServicesFactory"); oldFactory = factory.GetValue(null);
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { }; // Only absent offscreen button presentation.
             factory.SetValue(null, new Func<ModMinecraft.McInstance, MmcRepairServices>(_ => new() {
                 Metadata = new MmcMetadataStore(Path.Combine(root, "repair-metadata"), new Uri("https://fixture.invalid/meta/"), client),
@@ -90,8 +90,8 @@ internal static class MmcRepairUiChecks {
             }));
         }
         private bool Busy => (bool)Native.Property(ui, "HasActiveOperation").GetValue(null)!;
-        private InstanceOverallPageHost<ModMinecraft.McInstance, MyListItem, ModLoader.LoaderCombo<string>> Host(ModMinecraft.McInstance instance) {
-            var host = (InstanceOverallPageHost<ModMinecraft.McInstance, MyListItem, ModLoader.LoaderCombo<string>>)Native.Call(typeof(PageInstanceOverall), "CreateHost", RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall)))!;
+        private InstanceOverallPageHost<ModMinecraft.McInstance, GlassInstanceHeader, ModLoader.LoaderCombo<string>> Host(ModMinecraft.McInstance instance) {
+            var host = (InstanceOverallPageHost<ModMinecraft.McInstance, GlassInstanceHeader, ModLoader.LoaderCombo<string>>)Native.Call(typeof(PageInstanceOverall), "CreateHost", RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall)))!;
             Native.Check(host.BeginManagedRepair?.Method.DeclaringType == ui && host.BeginManagedRepair.Method.Name == "Prompt", "Genuine overall host did not bind managed repair.");
             host.Instance = () => instance;
             host.IgnoreFileCheck = _ => { legacyCalls++; throw new IOException("MMC reached legacy IgnoreFileCheck."); };

@@ -14,7 +14,7 @@ namespace PCL
         }
         internal static Action CreateWorkloadWithProgress(ModLoader.LoaderCombo<string> Loader, string Input, ProgressProvider Progress)
         {
-            return LegacyLoaderFileOperation.CreateWorkload<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>(Loader, Input, Progress);
+            return LegacyLoaderFileOperation.CreateWorkload<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>(Loader, Input, Progress);
         }
     }
 }

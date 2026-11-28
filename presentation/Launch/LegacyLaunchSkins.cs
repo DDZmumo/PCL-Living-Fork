@@ -19,18 +19,12 @@ public sealed class LegacyLaunchSkinHost<TTask> {
     public Func<string, string> ReadString = null!;
     public Func<string, int> ReadInteger = null!;
     public Action<string, object> WriteSetting = null!;
-    public Func<bool> OfflinePageReloaded = null!;
-    public Func<string> OfflineName = null!;
     public Func<string, string?>? OfflineLibrarySkin;
     public Func<string, LegacySkinRequest> AccountInput = null!;
     public Func<TTask, LegacySkinRequest> Input = null!;
-    public Action<TTask> ResetInput = null!;
     public Action<TTask, string> Output = null!;
     public Func<TTask, Thread, bool> Canceled = null!;
-    public Action<Action> Dispatch = null!;
-    public Action<string> ClearSkin = null!;
-    public Func<string, bool> PageExists = null!;
-    public Action<string, LegacySkinRequest, string, bool> RenderSkin = null!;
+    public Func<string, LegacySkinRequest, string, bool, Func<bool>, bool>? PublishAvatar;
     public Func<string> ImagePath = null!, AppDataPath = null!;
     public Func<string, string> OfflineUuid = null!, SkinSex = null!, DownloadSkin = null!;
     public Func<string, LegacySkinRequest, string> SkinAddress = null!;
@@ -41,7 +35,7 @@ public sealed class LegacyLaunchSkins<TTask> {
     private readonly LegacyLaunchSkinHost<TTask> host;
     public LegacyLaunchSkins(LegacyLaunchSkinHost<TTask> host) => this.host = host;
     public LegacySkinRequest Input(string Kind) => Kind == "Legacy" ? OfflineInput() : host.AccountInput(Kind);
-    public string OfflineAccountName() => (host.OfflinePageReloaded() ? host.OfflineName() : host.ReadString("LoginLegacyName").BeforeFirst("¨")).Replace("¨", "").Trim();
+    public string OfflineAccountName() => host.ReadString("LoginLegacyName").BeforeFirst("¨").Replace("¨", "").Trim();
     private LegacySkinRequest OfflineInput() {
         string player = OfflineAccountName();
         if (host.OfflineLibrarySkin?.Invoke(player) is { } file) return new("4", file);
@@ -60,7 +54,6 @@ public sealed class LegacyLaunchSkins<TTask> {
     public void Official(TTask Data, string Kind) {
         Thread worker = Thread.CurrentThread;
         LegacySkinRequest request = host.Input(Data);
-        ClearWhileCurrent(Data, Kind, request, worker);
         string user = request.Name;
         string fallback = Kind == "Auth" ? host.ImagePath() + "Skins/Steve.png" : DefaultSkin(user);
         string path;
@@ -90,23 +83,14 @@ public sealed class LegacyLaunchSkins<TTask> {
 
     private bool IsCurrent(TTask task, LegacySkinRequest request, Thread worker) => !host.Canceled(task, worker) && host.Input(task) == request;
 
-    private void ClearWhileCurrent(TTask task, string kind, LegacySkinRequest request, Thread worker) => host.Dispatch(() => {
-        if (IsCurrent(task, request, worker)) host.ClearSkin(kind);
-    });
-
     private void Finish(TTask task, string kind, LegacySkinRequest request, string path, Thread worker, bool fetched = false) {
         if (!IsCurrent(task, request, worker)) return;
         host.Output(task, path);
-        host.Dispatch(() => {
-            if (!IsCurrent(task, request, worker)) return;
-            if (host.PageExists(kind)) host.RenderSkin(kind, request, path, fetched);
-            else host.ResetInput(task);
-        });
+        host.PublishAvatar?.Invoke(kind, request, path, fetched, () => IsCurrent(task, request, worker));
     }
     public void Offline(TTask Data) {
         Thread worker = Thread.CurrentThread;
         LegacySkinRequest request = host.Input(Data);
-        ClearWhileCurrent(Data, "Legacy", request, worker);
         string path;
         bool fetched = false;
         switch (Conversions.ToInteger(request.Name)) {

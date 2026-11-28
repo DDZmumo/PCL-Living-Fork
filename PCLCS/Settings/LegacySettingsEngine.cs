@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Microsoft.VisualBasic;
 using Microsoft.VisualBasic.CompilerServices;
@@ -14,6 +15,7 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
     private readonly Func<object> accountSync;
     private readonly Func<TPlan> createPlan;
     private readonly LegacySettingsHost<TInstance> host;
+    private readonly ConcurrentDictionary<string, byte> unreadableSettings = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, object> forcedSettings = new() {
         { "UiHiddenPageLink", true }, { "UiHiddenSetupLink", true }
     };
@@ -47,6 +49,8 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
             entry.Key.StartsWith("CacheMs", StringComparison.Ordinal) || entry.Key.StartsWith("CacheNide", StringComparison.Ordinal) ||
             entry.Key.StartsWith("CacheAuth", StringComparison.Ordinal));
     }
+    private static bool UsesAccountStore(TEntry entry) => IsAccountSetting(entry) ||
+        entry.Encrypted && entry.GetSourceCode() == LegacySettingSource.Registry && entry.Key == "LfSkinSites";
     // LF main50 isolates Microsoft-client credentials while preserving logical setting names.
     public static bool IsMicrosoftAccountSetting(TEntry entry) => entry.GetSourceCode() == LegacySettingSource.Registry &&
         (entry.Key == "LoginMsJson" || entry.Key.StartsWith("CacheMs", StringComparison.Ordinal));
@@ -72,8 +76,8 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         string? value = VbString(entry.GetCache(instance));
         Log(null, $"保存设置：{entry.Key} {(entry.Encrypted || entry.Key == "Identify" ? "" : "= " + value)}{(instance is null ? "" : $"（实例：{host.InstancePath(instance)}）")}", LegacySettingsLogLevel.Trace);
         if (entry.Encrypted) {
-            try { value = LegacySettingsCrypto.Encrypt(value ?? "", "PCL" + host.Identify()); }
-            catch (Exception error) { Log(error, "加密设置失败：" + entry.Key, LegacySettingsLogLevel.Warning); }
+            try { value = LegacySettingsCrypto.Encrypt(value ?? "", EncryptionKey(host.Identify())); }
+            catch { throw new InvalidOperationException("加密设置失败：" + entry.Key); }
         }
         switch (entry.GetSourceCode()) {
             case LegacySettingSource.Normal:
@@ -81,6 +85,7 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
                 break;
             case LegacySettingSource.Registry:
                 try { host.WriteRegistry("HKEY_CURRENT_USER\\Software\\" + RegistryFolderFor(entry), RegistryValueName(entry), value); }
+                catch when (entry.Encrypted) { throw new InvalidOperationException("写入加密设置失败：" + entry.Key); }
                 catch (Exception error) { Log(error, $"写入注册表失败（{entry.Key} → {value}）", LegacySettingsLogLevel.Warning, true); }
                 break;
             case LegacySettingSource.Instance:
@@ -91,8 +96,11 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         }
     }
 
+    private static string EncryptionKey(string? identify) => string.IsNullOrWhiteSpace(identify)
+        ? throw new InvalidOperationException("无法获取加密所需的设备标识。") : "PCL" + identify;
+
     public void Set(string key, object? value, TInstance? instance = null) {
-        if (entries().TryGetValue(key, out TEntry? entry) && IsAccountSetting(entry)) {
+        if (entries().TryGetValue(key, out TEntry? entry) && UsesAccountStore(entry)) {
             try { WriteAccountValues(new Dictionary<string, object?> { { key, value } }); }
             catch { Log(null, "保存账号设置失败，原有数据已保留。", LegacySettingsLogLevel.Error, true); }
             return;
@@ -115,9 +123,10 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
             // Persist before callbacks: VersionServerLogin and its peers read back here.
             entry.OnChanged?.Invoke(value);
         } catch (Exception error) {
-            if (changedCache && entry.GetSourceCode() == LegacySettingSource.Instance && instance is not null && host.InstanceCacheKey is not null)
+            if (changedCache && entry.Encrypted) entry.ValueCache.Clear();
+            else if (changedCache && entry.GetSourceCode() == LegacySettingSource.Instance && instance is not null && host.InstanceCacheKey is not null)
                 entry.ValueCache.TryRemove(entry.GetInstanceCacheKey(instance), out _);
-            Log(error, $"设置设置项时出错（{key}）", LegacySettingsLogLevel.Error);
+            Log(entry.Encrypted ? null : error, $"设置设置项时出错（{key}）", LegacySettingsLogLevel.Error);
         }
     }
     public void SetSafe(string key, object? value, TInstance? instance = null) {
@@ -126,7 +135,7 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         Set(key, value, instance);
     }
     public object? Get(string key, TInstance? instance = null) {
-        if (entries().TryGetValue(key, out TEntry? entry) && IsAccountSetting(entry)) {
+        if (entries().TryGetValue(key, out TEntry? entry) && UsesAccountStore(entry)) {
             lock (accountSync()) return GetCore(key, instance);
         }
         return GetCore(key, instance);
@@ -157,13 +166,15 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
                 }
             }
             if (entry.Encrypted) {
-                if (VbStringEqual(gotValue, defaultValue)) gotValue = VbString(entry.DefaultValue);
-                else {
-                    try { gotValue = LegacySettingsCrypto.Decrypt(gotValue!, "PCL" + encryptionIdentify); }
-                    catch {
-                        Log(null, "解密设置失败，保留原始密文：" + key, LegacySettingsLogLevel.Warning);
-                        gotValue = VbString(entry.DefaultValue);
-                    }
+                try {
+                    gotValue = VbStringEqual(gotValue, defaultValue) ? VbString(entry.DefaultValue)
+                        : LegacySettingsCrypto.Decrypt(gotValue!, "PCL" + encryptionIdentify);
+                    unreadableSettings.TryRemove(key, out _);
+                } catch {
+                    // Account reads poll the backing store. Report each failure once until a read succeeds.
+                    if (unreadableSettings.TryAdd(key, 0))
+                        Log(null, "解密设置失败，保留原始密文：" + key, LegacySettingsLogLevel.WarningLogOnly);
+                    gotValue = VbString(entry.DefaultValue);
                 }
             }
             object converted;
@@ -191,7 +202,7 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         return Get(key, instance);
     }
     public void Reset(string key, TInstance? instance = null) {
-        if (entries().TryGetValue(key, out TEntry? entry) && IsAccountSetting(entry)) {
+        if (entries().TryGetValue(key, out TEntry? entry) && UsesAccountStore(entry)) {
             WriteAccountValues(new Dictionary<string, object?> { { key, entry.DefaultValue } });
             return;
         }

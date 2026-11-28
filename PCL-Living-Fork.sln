@@ -20,6 +20,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.WPF.Core", "PCLLF.WPF
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PCLLF.MMCC.Core", "PCLLF.MMCC.Core\PCLLF.MMCC.Core.csproj", "{4EF4EAED-0624-4795-BFA3-1A5F2EAF49A9}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SchematicKit", "SchematicKit\SchematicKit.csproj", "{048A5892-E857-41F1-9986-255E76DC43A2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,12 @@ Global
 		Snapshot|Any CPU = Snapshot|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Snapshot|Any CPU.ActiveCfg = Snapshot|Any CPU
+		{048A5892-E857-41F1-9986-255E76DC43A2}.Snapshot|Any CPU.Build.0 = Snapshot|Any CPU
 		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BDE9A58C-7E48-49B5-9C8F-013D7219D9C2}.Release|Any CPU.ActiveCfg = Release|Any CPU

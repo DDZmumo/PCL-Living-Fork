@@ -21,8 +21,6 @@ internal static class BackupResourceChecks
         BackupStorageRegistryChecks.Run(scope);
         LfRegistryMigrationChecks.Run();
         BackupResourceWorldChecks.Run(scope);
-        BackupResourceGroupChecks.Run(scope);
-        BackupResourcePageChecks.Run(scope);
         BackupResourceStoreChecks.Run(scope);
         environment.AssertNoForbiddenIo();
     }

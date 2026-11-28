@@ -87,8 +87,9 @@ internal sealed class FixtureEnvironment : IDisposable
         actual.CopyTo(resolved);
         Native.Check(expected is { Length: > 0 } && resolved.ToArray().SequenceEqual(expected), "The qualified Main BAML differs from the actual Main embedded component.");
         Native.Check(application.Resources["ColorBrush1"] is SolidColorBrush role && role.Color == Color.FromRgb(52, 61, 74), "The real Main BAML role resources were not loaded.");
-        Type menu = Native.Type("PCL.MyMenuItem");
-        Native.Check(application.Resources[menu] is Style style && style.TargetType == menu, "The real Main BAML implicit control style was not loaded.");
+        // The legacy control library is retired; the real Main BAML still owns implicit styles for framework controls.
+        Type tip = typeof(System.Windows.Controls.ToolTip);
+        Native.Check(application.Resources[tip] is Style style && style.TargetType == tip, "The real Main BAML implicit control style was not loaded.");
     }
 
     private void Remove(string eventName, string methodName)

@@ -25,7 +25,7 @@ internal static class TooltipThemeChecks
         };
         ToolTipService.SetShowOnDisabled(owner, true);
         ToolTipService.SetInitialShowDelay(owner, 0);
-        var slider = new MySlider { Width = 160 };
+        var slider = new Slider { Width = 160 };
         var content = new StackPanel(); content.Children.Add(owner); content.Children.Add(slider);
         var window = new Window
         {

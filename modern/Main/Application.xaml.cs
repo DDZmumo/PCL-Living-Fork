@@ -39,7 +39,7 @@ namespace PCL
                     Settings.ImportLegacyPclPreferences();
                 // 核心初始化
                 MeloongCore.Main.Init("PCL");
-                MeloongCore.Wpf.Main.Init();
+                GlassCommandChrome.InitializeToolTips();
                 if (!(e.Args.Contains("--update") || e.Args.Contains("--gpu") || e.Args.Contains("--memory"))) // 若是通过命令行调用，则不检查单例、不轮换日志（#9137）
                 {
                     Logger.Instance = new PclLogger() { logFolder = Paths.BaseThenName, MinLevel = ModBase.ModeDebug ? LogLevel.Trace : LogLevel.Info };
@@ -72,7 +72,7 @@ namespace PCL
                             {
                                 Logger.Warn(ex, "恢复最近存档记录失败");
                             }
-                            ModBase.RunInUi(() => ModMain.FrmLaunchRight?.RefreshRecentWorlds());
+                            ModBase.RunInUi(FormMain.RefreshRecentWorlds);
                         }, "Recover Local Game Data", ThreadPriority.BelowNormal);
                 }
                 // 提升主线程优先级
@@ -290,11 +290,11 @@ namespace PCL
                     {
                         case 0:
                             next = 1;
-                            if (!(ModMain.FrmMain?.PageLeft is not null && ModMain.FrmMain.PageLeft is IDispatcherUnhandledException)) next = 3;
+                            next = 3;
                             break;
                         case 1:
                             next = 2;
-                            ((IDispatcherUnhandledException)ModMain.FrmMain.PageLeft).DispatcherUnhandledException(sender, e);
+                            
                             break;
                         case 2:
                             next = 13;
@@ -303,6 +303,7 @@ namespace PCL
                             break;
                         case 3:
                             next = 4;
+                            if (ModMain.FrmMain?.TryHandleHomepageException(e.Exception) == true) { e.Handled = true; return; }
                             if (!(ModMain.FrmMain?.PageRight is not null && ModMain.FrmMain.PageRight is IDispatcherUnhandledException)) next = 6;
                             break;
                         case 4:
@@ -400,63 +401,7 @@ namespace PCL
         }, LazyThreadSafetyMode.ExecutionAndPublication);
         internal static void PrepareWebP() => _ = WebPReady.Value;
 
-        // 控件模板事件
-        private void MyIconButton_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                switch (Settings.Get<ModLaunch.McLoginType>("LoginType"))
-                {
-                    case ModLaunch.McLoginType.Ms:
-                        {
-                            // 微软
-                            Settings.UpdateMicrosoftAccounts(Accounts => Accounts.Property(Conversions.ToString(((dynamic)sender).Tag), StringComparison.OrdinalIgnoreCase)?.Remove());
-                            if (object.ReferenceEquals(ModMain.FrmLoginMs.ComboAccounts.SelectedItem, ((dynamic)sender).Parent))
-                                ModMain.FrmLoginMs.ComboAccounts.SelectedIndex = 0;
-                            ModMain.FrmLoginMs.ComboAccounts.Items.Remove(((dynamic)sender).Parent);
-                            break;
-                        }
-                    case ModLaunch.McLoginType.Legacy:
-                        {
-                            // 离线
-                            var Names = Settings.UpdateLegacyNames(Items => Items.RemoveAll(Name => Name.Equals(Conversions.ToString(((dynamic)sender).Tag), StringComparison.OrdinalIgnoreCase)));
-                            ModMain.FrmLoginLegacy.ComboName.ItemsSource = Names;
-                            ModMain.FrmLoginLegacy.ComboName.Text = Names.Any() ? Names[0] : "";
-                            break;
-                        }
 
-                    default:
-                        {
-                            // 第三方
-                            string Token = Settings.Get<ModLaunch.McLoginType>("LoginType").ToString();
-                            var Dict = Settings.UpdateServerAccounts(Token, Conversions.ToString(((dynamic)sender).Tag), "", true);
-                            switch (Token ?? "")
-                            {
-                                case "Nide":
-                                    {
-                                        ModMain.FrmLoginNide.ComboName.ItemsSource = Dict.Keys;
-                                        ModMain.FrmLoginNide.ComboName.Text = Dict.Keys.Any() ? Dict.Keys.ElementAtOrDefault(0) : "";
-                                        ModMain.FrmLoginNide.TextPass.Password = Dict.Values.Any() ? Dict.Values.ElementAtOrDefault(0) : "";
-                                        break;
-                                    }
-                                case "Auth":
-                                    {
-                                        ModMain.FrmLoginAuth.ComboName.ItemsSource = Dict.Keys;
-                                        ModMain.FrmLoginAuth.ComboName.Text = Dict.Keys.Any() ? Dict.Keys.ElementAtOrDefault(0) : "";
-                                        ModMain.FrmLoginAuth.TextPass.Password = Dict.Values.Any() ? Dict.Values.ElementAtOrDefault(0) : "";
-                                        break;
-                                    }
-                            }
-
-                            break;
-                        }
-                }
-            }
-            catch
-            {
-                Logger.Error("账号记录未能保存，原有记录已保留。请稍后重试。", LogBehavior.Toast);
-            }
-        }
 
     }
 }

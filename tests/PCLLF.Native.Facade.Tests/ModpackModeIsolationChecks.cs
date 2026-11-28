@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Windows;
+using System.Windows.Controls;
 using PCL;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -9,7 +10,7 @@ internal static partial class ModpackModeChecks {
     private static string ReadSetting(string path, string key) => (string)Native.Static("PCL.ModBase","ReadIni",path,key,"")!;
     private static bool ChoiceEnabled(object? choice) => choice is not null && choice.GetType().Assembly == Native.Main && (bool)Native.Get(choice,"Enabled")!;
     private static void CheckIsolation(Scope scope, PageInstanceExport export) {
-        E(31,Part<MyCheckBox>(export,"CheckAdvancedVersionIsolation").Checked);
+        E(31,Part<CheckBox>(export,"CheckAdvancedVersionIsolation").IsChecked == true);
         string root = Path.Combine(scope.Root,"isolation"), original = Path.Combine(root,"original","PCL","Setup.ini"); Put(original,"VersionArgumentIndieV2:False\r\nUnrelated:preserve-source\r\n"); byte[] originalBytes = File.ReadAllBytes(original);
         foreach (bool enabled in new[] { true,false }) {
             string pack = Path.Combine(root,"pack-" + enabled), overrides = Path.Combine(pack,"overrides"), settings = Path.Combine(overrides,"PCL","Setup.ini"); Directory.CreateDirectory(Path.GetDirectoryName(settings)!); File.Copy(original,settings);

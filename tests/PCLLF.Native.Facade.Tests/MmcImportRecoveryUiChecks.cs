@@ -10,7 +10,7 @@ internal static partial class MmcImportRecoveryUiChecks {
     internal static void RunRecovery(FixtureEnvironment environment) {
         using FileTaskScope files = new(environment);
         using var data = new MmcPlatformOriginUiTaskChecks.Data(files, "automatic-import-completion", null);
-        var select = new PageSelectRight(); ModMinecraft.McInstanceList = [];
+        var select = new GlassInstanceSelectionPage(FileTaskShell.Install()); ModMinecraft.McInstanceList = [];
         var controller = Native.Property(select.GetType(), "Service").GetValue(select)!; Native.Call(controller.GetType(), "Render", controller);
         Native.Check(select.FindName("BtnMmcImportRecovery") is null && select.FindName("BtnMmcLegacyRecovery") is null && select.FindName("BtnMmcRecovery") is null &&
             ((FrameworkElement)select.FindName("PanEmpty")).Visibility == Visibility.Visible, "The actual empty-list BAML retained manual MMC recovery controls.");

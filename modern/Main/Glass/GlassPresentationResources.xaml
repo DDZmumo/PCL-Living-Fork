@@ -9,7 +9,7 @@
     <SolidColorBrush x:Key="GlassPresentationFill" Color="#DFF5F6F8" />
     <SolidColorBrush x:Key="GlassPresentationField" Color="#EFFFFFFF" />
     <SolidColorBrush x:Key="GlassPresentationHover" Color="#F7FFFFFF" />
-    <SolidColorBrush x:Key="GlassPresentationSelected" Color="#26007AFF" />
+    <SolidColorBrush x:Key="GlassPresentationSelected" Color="#16000000" />
     <SolidColorBrush x:Key="GlassPresentationEdge" Color="#2635475B" />
     <SolidColorBrush x:Key="GlassPresentationInputEdge" Color="Transparent" />
     <SolidColorBrush x:Key="GlassPresentationFocusEdge" Color="#5A000000" />
@@ -17,16 +17,16 @@
     <SolidColorBrush x:Key="GlassPresentationDanger" Color="#FFC65251" />
     <SolidColorBrush x:Key="GlassPresentationTrack" Color="#4059687B" />
     <SolidColorBrush x:Key="GlassPresentationThumbFill" Color="#F4FFFFFF" />
-    <SolidColorBrush x:Key="GlassPresentationAccent" Color="#FF007AFF" />
+    <SolidColorBrush x:Key="GlassPresentationAccent" Color="#FF2B2B2B" />
     <SolidColorBrush x:Key="GlassPresentationOnAccent" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="GlassPresentationPopup" Color="#FFF5F6F8" />
     <SolidColorBrush x:Key="GlassPresentationSeparator" Color="#1635475B" />
     <SolidColorBrush x:Key="GlassPresentationFieldFocused" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="GlassPresentationControlStroke" Color="#1A000000" />
     <SolidColorBrush x:Key="GlassPresentationAccentStroke" Color="#24FFFFFF" />
-    <SolidColorBrush x:Key="GlassPresentationDockFill" Color="#EBFCFDFF" />
+    <SolidColorBrush x:Key="GlassPresentationDockFill" Color="#9AFAFAFB" />
     <SolidColorBrush x:Key="GlassPresentationDockEdge" Color="#2635475B" />
-    <SolidColorBrush x:Key="GlassPresentationDockBadgeFill" Color="#18007AFF" />
+    <SolidColorBrush x:Key="GlassPresentationDockBadgeFill" Color="#12000000" />
     <SolidColorBrush x:Key="GlassPresentationDialogFill" Color="#D6FAFAFB" />
     <SolidColorBrush x:Key="GlassPresentationDialogEdge" Color="#2635475B" />
     <SolidColorBrush x:Key="GlassPresentationWarnFill" Color="#DEFDEDED" />
@@ -34,6 +34,15 @@
     <SolidColorBrush x:Key="GlassPresentationWarnText" Color="#FFC4302E" />
     <FontFamily x:Key="GlassPresentationFont">Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI</FontFamily>
     <FontFamily x:Key="GlassPresentationDisplayFont">Segoe UI Variable Display, Microsoft YaHei UI, Segoe UI</FontFamily>
+    <!-- Shared by native page builders and XAML page cards. Values are device-independent units. -->
+    <Thickness x:Key="GlassCardContentPadding">20</Thickness>
+    <Thickness x:Key="GlassCardSettingsPadding">16,14,16,14</Thickness>
+    <Thickness x:Key="GlassCardExpanderPadding">18,10,18,10</Thickness>
+    <Thickness x:Key="GlassCardToolbarPadding">10,10,10,2</Thickness>
+    <Thickness x:Key="GlassCardJavaPadding">20,16,20,16</Thickness>
+    <CornerRadius x:Key="GlassCardSettingsRadius">10</CornerRadius>
+    <CornerRadius x:Key="GlassCardToolbarRadius">12</CornerRadius>
+    <CornerRadius x:Key="GlassCardJavaRadius">16</CornerRadius>
     <CornerRadius x:Key="GlassPresentationCardRadius">14</CornerRadius>
     <CornerRadius x:Key="GlassPresentationFieldRadius">10</CornerRadius>
     <Style x:Key="GlassPresentationFocus">
@@ -97,6 +106,15 @@
             <Setter Property="BorderBrush" Value="{DynamicResource GlassPresentationControlStroke}" />
         </Trigger></Style.Triggers>
     </Style>
+    <DataTemplate x:Key="GlassResourceSelectionCommand">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Path Width="13.5" Height="13.5" Margin="0,0,5.5,0" Stretch="Uniform" VerticalAlignment="Center"
+                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                  Data="{Binding Tag, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <TextBlock Text="{Binding}" Style="{StaticResource GlassPresentationTextStyle}" FontSize="12.5" FontWeight="Medium" VerticalAlignment="Center"
+                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+        </StackPanel>
+    </DataTemplate>
     <Style x:Key="GlassPresentationDockButton" TargetType="Button">
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" />
         <Setter Property="Background" Value="Transparent" />
@@ -300,6 +318,12 @@
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="MinHeight" Value="38" /><Setter Property="Padding" Value="12,8" /><Setter Property="Cursor" Value="Hand" /><Setter Property="FocusVisualStyle" Value="{StaticResource GlassPresentationFocus}" /><Setter Property="motion:PressFeedback.IsEnabled" Value="True" />
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton"><Border x:Name="RadioSurface" CornerRadius="10" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center" /></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="RadioSurface" Property="Background" Value="{DynamicResource GlassPresentationSelected}" /></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RadioSurface" Property="BorderBrush" Value="{DynamicResource GlassPresentationEdge}" /><Setter TargetName="RadioSurface" Property="BorderThickness" Value="0.7" /></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
+    <Style x:Key="GlassResourceFilter" TargetType="RadioButton" BasedOn="{StaticResource GlassPresentationRadioButton}">
+        <Setter Property="Margin" Value="2,0" />
+        <Setter Property="ContentTemplate"><Setter.Value><DataTemplate>
+            <TextBlock Text="{Binding}" VerticalAlignment="Center" Style="{StaticResource GlassPresentationTextStyle}" />
+        </DataTemplate></Setter.Value></Setter>
+    </Style>
     <!-- Exclusive option (MyRadioBox): a ring indicator rather than a filled pill, so selected and unselected options stay comparable. -->
     <Style x:Key="GlassPresentationRadioBox" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="MinHeight" Value="36" /><Setter Property="Padding" Value="0,6,14,6" /><Setter Property="Cursor" Value="Hand" /><Setter Property="FocusVisualStyle" Value="{StaticResource GlassPresentationFocus}" />
@@ -363,6 +387,7 @@
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
     </Style>
     <Style x:Key="GlassPresentationComboBox" TargetType="ComboBox">
+        <Setter Property="local:GlassComboDropDown.Enabled" Value="True" />
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="Background" Value="{DynamicResource GlassPresentationField}" />
         <Setter Property="MinHeight" Value="34" /><Setter Property="Height" Value="34" /><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="Normal" />
         <Setter Property="FontFamily" Value="{StaticResource GlassPresentationFont}" />
@@ -421,6 +446,8 @@
     <Style x:Key="GlassPresentationSlider" TargetType="Slider"><Setter Property="MinHeight" Value="38" /><Setter Property="IsMoveToPointEnabled" Value="True" /><Setter Property="IsSnapToTickEnabled" Value="True" /><Setter Property="TickFrequency" Value="1" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider"><Grid Background="Transparent" Margin="0,0,0,0"><Track x:Name="PART_Track"><Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Background="{DynamicResource GlassPresentationAccent}" Style="{StaticResource GlassPresentationTrackButton}" /></Track.DecreaseRepeatButton><Track.Thumb><Thumb Style="{StaticResource GlassPresentationThumb}" /></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Background="{DynamicResource GlassPresentationTrack}" Style="{StaticResource GlassPresentationTrackButton}" /></Track.IncreaseRepeatButton></Track></Grid><ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
     <!-- Disclosure section: the header is plain text with a round chevron badge on the right instead of PCL's filled title bar.
          Hover only lifts the badge and text; expanding turns the chevron with a slight overshoot and fades in a hairline under the header. -->
+    <!-- Use the pre-migration chevron gap for every adjacent header action. -->
+    <Thickness x:Key="GlassPresentationExpanderActionMargin">12,0,0,0</Thickness>
     <Style x:Key="GlassPresentationExpander" TargetType="Expander">
         <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" /><Setter Property="local:GlassExpandMotion.Enabled" Value="True" />
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Expander"><StackPanel>
@@ -429,7 +456,7 @@
                     <Grid Background="Transparent">
                         <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <ContentPresenter x:Name="HeaderText" Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" Opacity="0.92" RenderTransformOrigin="0,0.5"></ContentPresenter>
-                        <Grid Grid.Column="1" Width="26" Height="26" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <Grid Grid.Column="1" Width="26" Height="26" Margin="{StaticResource GlassPresentationExpanderActionMargin}" VerticalAlignment="Center">
                             <Ellipse x:Name="ChevronBadge" Fill="{DynamicResource GlassPresentationTrack}" Opacity="0.55" />
                             <Path x:Name="Chevron" Data="M1,1 L5,5 9,1" Stroke="{DynamicResource GlassPresentationText}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="10" Height="5.5" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,1,0,0" RenderTransformOrigin="0.5,0.5"><Path.RenderTransform><RotateTransform x:Name="ChevronTurn" Angle="-90" /></Path.RenderTransform></Path>
                         </Grid>
@@ -456,6 +483,38 @@
             </Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.42" /></Trigger>
         </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <!-- Authored MyCard children already reserve their own header space inside a single grid. -->
+    <Style x:Key="GlassAuthoredCardExpander" TargetType="Expander">
+        <Setter Property="local:GlassExpandMotion.Enabled" Value="True" />
+        <Setter Property="Template"><Setter.Value>
+            <ControlTemplate TargetType="Expander">
+                <Grid MinHeight="40">
+                    <Border x:Name="PART_BodyViewport" Panel.ZIndex="1" ClipToBounds="True">
+                        <ContentPresenter x:Name="PART_BodyContent" Content="{TemplateBinding Content}" />
+                    </Border>
+                    <ToggleButton x:Name="HeaderToggle" VerticalAlignment="Top" Height="34" Cursor="Hand"
+                            IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                            Content="{TemplateBinding Header}" FocusVisualStyle="{StaticResource GlassPresentationFocus}">
+                        <ToggleButton.Template><ControlTemplate TargetType="ToggleButton">
+                            <Grid Background="Transparent">
+                                <TextBlock Text="{TemplateBinding Content}" FontSize="13" FontWeight="Bold"
+                                    Foreground="{DynamicResource GlassPresentationText}" Margin="15,12,36,0" VerticalAlignment="Top"
+                                    TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                <Path x:Name="Chevron" Data="M0,0 L5,4 10,0" StrokeThickness="1.6" Stroke="{DynamicResource GlassPresentationText}"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,17,16,0" RenderTransformOrigin=".5,.5" />
+                            </Grid>
+                            <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chevron" Property="RenderTransform"><Setter.Value><RotateTransform Angle="180" /></Setter.Value></Setter>
+                            </Trigger></ControlTemplate.Triggers>
+                        </ControlTemplate></ToggleButton.Template>
+                    </ToggleButton>
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsExpanded" Value="False"><Setter TargetName="HeaderToggle" Property="Height" Value="40" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value></Setter>
     </Style>
     <Style x:Key="GlassJavaVendorExpander" TargetType="Expander">
         <Setter Property="Focusable" Value="False" />
@@ -524,10 +583,67 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBox">
+                    <!-- Give nested virtualized version lists wheel priority within the page scroller. -->
                     <ScrollViewer Style="{StaticResource GlassPresentationScrollViewer}" Focusable="False"
+                        motion:SmoothScroll.IsEnabled="True"
                         CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ItemsPresenter />
                     </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <DataTemplate x:Key="GlassSchematicBlockRow">
+        <Grid MinHeight="28" Margin="4,1,5,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Image Source="{Binding Icon}" Width="24" Height="24" Margin="0,0,8,0" VerticalAlignment="Center"
+                RenderOptions.BitmapScalingMode="NearestNeighbor" IsHitTestVisible="False" />
+            <TextBlock x:Name="BlockName" Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                Foreground="{DynamicResource GlassPresentationText}" ToolTip="{Binding Name}" />
+            <TextBlock x:Name="BlockCount" Grid.Column="2" Text="{Binding Count, StringFormat={}{0:N0}}" Margin="8,0,0,0"
+                VerticalAlignment="Center" Foreground="{DynamicResource GlassPresentationSecondary}" />
+        </Grid>
+        <DataTemplate.Triggers>
+            <!-- No resources for this block: it is left out of the 3D model, so the row says so in red. -->
+            <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                <Setter TargetName="BlockName" Property="Foreground" Value="{DynamicResource GlassPresentationDangerText}" />
+                <Setter TargetName="BlockCount" Property="Foreground" Value="{DynamicResource GlassPresentationDangerText}" />
+                <Setter TargetName="BlockName" Property="ToolTip" Value="{Binding MissingReason}" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+    <DataTemplate x:Key="GlassSchematicBlockPair">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition />
+            </Grid.ColumnDefinitions>
+            <ContentPresenter Content="{Binding First}" ContentTemplate="{StaticResource GlassSchematicBlockRow}" Margin="0,0,8,0" />
+            <ContentPresenter x:Name="SecondBlock" Grid.Column="1" Content="{Binding Second}" ContentTemplate="{StaticResource GlassSchematicBlockRow}" />
+        </Grid>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Second}" Value="{x:Null}">
+                <Setter TargetName="SecondBlock" Property="Visibility" Value="Collapsed" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+    <Style x:Key="GlassInstallVersionListItem" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource GlassPresentationText}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Row" Background="Transparent">
+                        <ContentPresenter HorizontalAlignment="Stretch" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource GlassPresentationSelected}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

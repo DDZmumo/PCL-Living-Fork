@@ -1,98 +1,92 @@
-<local:MyPageRight
+<local:GlassWorkspacePage
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
     xmlns:System="clr-namespace:System;assembly=mscorlib" 
     mc:Ignorable="d" x:Class="PCL.PageInstanceOverall"
-    PanScroll="PanBack" Grid.IsSharedSizeScope="True">
+    xmlns:glass="clr-namespace:PCLLF.Wpf.Glass;assembly=PCLLF.WPF.Core" Grid.IsSharedSizeScope="True">
     <Grid>
-    <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack" Style="{DynamicResource GlassPresentationScrollViewer}">
         <StackPanel x:Name="PanMain" Margin="25,10">
-            <local:MyCard Margin="0,15" Title="">
-                <Grid Margin="10,7" Name="PanDisplayItem" />
-            </local:MyCard>
+            <!-- Lead: the instance's identity and what it contains, each count opening its page. -->
+            <glass:GlassSurface x:Name="PanHero" Margin="0,0,0,22" Padding="22,20" CornerRadius="16" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+                <StackPanel>
+                    <Grid Name="PanDisplayItem" />
+                    <UniformGrid x:Name="PanStats" Rows="1" Margin="0,20,-10,0" />
+                </StackPanel>
+            </glass:GlassSurface>
             <StackPanel x:Name="PanInstalledComponents" Visibility="Collapsed" />
-            <local:MyCard Margin="0,0,0,15" Title="个性化" x:Name="PanDisplay">
-                <StackPanel Margin="25,40,25,15">
-                    <Grid x:Name="PanDisplayIcon" HorizontalAlignment="Stretch">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="9" />
-                            <RowDefinition Height="28" />
-                        </Grid.RowDefinitions>
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="图标" Margin="0,0,25,0" />
-                        <local:MyComboBox Grid.Column="1" x:Name="ComboDisplayLogo">
-                            <local:MyComboBoxItem Content="自动" IsSelected="True" Tag="" />
-                            <local:MyComboBoxItem Content="自定义..." x:Name="ItemDisplayLogoCustom" Tag="PCL\Logo.png" />
-                            <local:MyComboBoxItem Content="圆石" Tag="pack://application:,,,/images/Blocks/CobbleStone.png" />
-                            <local:MyComboBoxItem Content="命令方块" Tag="pack://application:,,,/images/Blocks/CommandBlock.png" />
-                            <local:MyComboBoxItem Content="金块" Tag="pack://application:,,,/images/Blocks/GoldBlock.png" />
-                            <local:MyComboBoxItem Content="草方块" Tag="pack://application:,,,/images/Blocks/Grass.png" />
-                            <local:MyComboBoxItem Content="土径" Tag="pack://application:,,,/images/Blocks/GrassPath.png" />
-                            <local:MyComboBoxItem Content="铁砧" Tag="pack://application:,,,/images/Blocks/Anvil.png" />
-                            <local:MyComboBoxItem Content="红石块" Tag="pack://application:,,,/images/Blocks/RedstoneBlock.png" />
-                            <local:MyComboBoxItem Content="红石灯（开）" Tag="pack://application:,,,/images/Blocks/RedstoneLampOn.png" />
-                            <local:MyComboBoxItem Content="红石灯（关）" Tag="pack://application:,,,/images/Blocks/RedstoneLampOff.png" />
-                            <local:MyComboBoxItem Content="鸡蛋" Tag="pack://application:,,,/images/Blocks/Egg.png" />
-                            <local:MyComboBoxItem Content="布料（Fabric）" Tag="pack://application:,,,/images/Blocks/Fabric.png" />
-                            <local:MyComboBoxItem Content="狐狸（NeoForge）" Tag="pack://application:,,,/images/Blocks/NeoForge.png" />
-                        </local:MyComboBox>
-                        <TextBlock VerticalAlignment="Center" Grid.Row="2" HorizontalAlignment="Left" Text="分类" Margin="0,0,25,0" />
-                        <local:MyComboBox Grid.Column="1" Grid.Row="2" x:Name="ComboDisplayType">
-                            <local:MyComboBoxItem Content="自动" IsSelected="True" />
-                            <local:MyComboBoxItem Content="从版本列表中隐藏" ToolTip="该版本默认将不会在版本列表中显示。&#xa;在版本列表页面按下 F11，即可查看所有隐藏的版本。" />
-                            <local:MyComboBoxItem Content="可安装 Mod 的版本" />
-                            <local:MyComboBoxItem Content="常规版本" />
-                            <local:MyComboBoxItem Content="不常用版本" />
-                            <local:MyComboBoxItem Content="愚人节版本" />
-                        </local:MyComboBox>
-                    </Grid>
-                    <Grid Margin="0,15,0,7" Height="35">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                        </Grid.ColumnDefinitions>
-                        <local:MyButton x:Name="BtnDisplayRename" Text="修改版本名" MinWidth="140" Padding="13,0" Margin="0,0,20,0" />
-                        <local:MyButton x:Name="BtnDisplayDesc" Text="修改版本描述" MinWidth="140" Padding="13,0" Margin="0,0,20,0" Grid.Column="1" />
-                        <local:MyButton x:Name="BtnDisplayStar" Text="加入收藏夹" MinWidth="140" Padding="13,0" Margin="0,0,20,0" Grid.Column="2" />
-                    </Grid>
-                </StackPanel>
-            </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="快捷方式" x:Name="PanFolder">
-                <WrapPanel Margin="25,30,25,20">
-                    <local:MyButton x:Name="BtnFolderVersion" Text="版本文件夹" MinWidth="140" Padding="13,0" Margin="0,13,20,0" Height="35" />
-                    <local:MyButton x:Name="BtnFolderSaves" Text="存档文件夹" MinWidth="140" Padding="13,0" Margin="0,13,20,0" Height="35"/>
-                    <local:MyButton x:Name="BtnFolderMods" Text="Mod 文件夹" MinWidth="140" Padding="13,0" Margin="0,13,20,0" Height="35"/>
-                    <local:MyButton x:Name="BtnFolderScreen" Text="截图文件夹" MinWidth="140" Padding="13,0" Margin="0,13,20,0" Height="35" />
-                </WrapPanel>
-            </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="高级管理" x:Name="PanManage">
-                <StackPanel Margin="25,40,25,15">
-                    <Grid Margin="0,2,0,7" Height="35">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
-                        </Grid.ColumnDefinitions>
-                        <local:MyButton x:Name="BtnManageScript" Text="导出启动脚本" MinWidth="140" Padding="13,0" Margin="0,0,20,0" />
-                        <local:MyButton x:Name="BtnManageCheck" Text="补全文件" MinWidth="140" Padding="13,0" Margin="0,0,20,0" Grid.Column="1" ToolTip="校验版本依赖文件是否完整，并重新下载 Assets 索引与缺失、校验失败的文件。&#xa;若游戏缺失音效，请尝试此项。" />
-                        <local:MyButton x:Name="BtnManageDelete" Text="删除版本" MinWidth="140" Padding="13,0" Margin="0,0,20,0" Grid.Column="2" ColorType="Red" />
-                    </Grid>
-                    <WrapPanel>
-                        <local:MyButton x:Name="BtnMmcLegacyAdoption" Text="从原 MMC 包创建副本" MinWidth="140" Height="35" Padding="13,0" Margin="0,6,20,7"
-                                        Visibility="Collapsed" ToolTip="主动选择对应的原始 MMC ZIP，核对差异后创建管理副本。当前普通实例及其存档、设置会保留。" Click="BtnMmcLegacyAdoption_Click" />
-                    </WrapPanel>
-                </StackPanel>
-            </local:MyCard>
+            <glass:GlassSurface HorizontalAlignment="Left" Margin="0,0,0,8" Padding="10,3,10,4" CornerRadius="8" Background="{DynamicResource GlassPresentationField}" BorderThickness="0" BlurRadius="20" TintOpacity="1" HighlightOpacity="0">
+                <TextBlock Text="快捷方式" FontSize="15" FontWeight="SemiBold" />
+            </glass:GlassSurface>
+            <UniformGrid x:Name="PanFolder" Rows="1" Margin="0,0,-10,22">
+                <Button x:Name="BtnFolderVersion" Content="版本文件夹" />
+                <Button x:Name="BtnFolderSaves" Content="存档文件夹" />
+                <Button x:Name="BtnFolderMods" Content="Mod 文件夹" />
+                <Button x:Name="BtnFolderScreen" Content="截图文件夹" />
+            </UniformGrid>
+            <local:GlassSettingGroup x:Name="PanDisplay" Title="个性化">
+                <local:GlassSettingItem Title="图标" Description="在版本列表和主页上显示的图标。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDisplayLogo">
+                                <ComboBoxItem Content="自动" IsSelected="True" Tag="" />
+                                <ComboBoxItem Content="自定义..." x:Name="ItemDisplayLogoCustom" Tag="PCL\Logo.png" />
+                                <ComboBoxItem Content="圆石" Tag="pack://application:,,,/images/Blocks/CobbleStone.png" />
+                                <ComboBoxItem Content="命令方块" Tag="pack://application:,,,/images/Blocks/CommandBlock.png" />
+                                <ComboBoxItem Content="金块" Tag="pack://application:,,,/images/Blocks/GoldBlock.png" />
+                                <ComboBoxItem Content="草方块" Tag="pack://application:,,,/images/Blocks/Grass.png" />
+                                <ComboBoxItem Content="土径" Tag="pack://application:,,,/images/Blocks/GrassPath.png" />
+                                <ComboBoxItem Content="铁砧" Tag="pack://application:,,,/images/Blocks/Anvil.png" />
+                                <ComboBoxItem Content="红石块" Tag="pack://application:,,,/images/Blocks/RedstoneBlock.png" />
+                                <ComboBoxItem Content="红石灯（开）" Tag="pack://application:,,,/images/Blocks/RedstoneLampOn.png" />
+                                <ComboBoxItem Content="红石灯（关）" Tag="pack://application:,,,/images/Blocks/RedstoneLampOff.png" />
+                                <ComboBoxItem Content="鸡蛋" Tag="pack://application:,,,/images/Blocks/Egg.png" />
+                                <ComboBoxItem Content="布料（Fabric）" Tag="pack://application:,,,/images/Blocks/Fabric.png" />
+                                <ComboBoxItem Content="狐狸（NeoForge）" Tag="pack://application:,,,/images/Blocks/NeoForge.png" />
+                            </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="分类" Description="版本在列表中归入哪一组，也可以隐藏它。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDisplayType">
+                                <ComboBoxItem Content="自动" IsSelected="True" />
+                                <ComboBoxItem Content="从版本列表中隐藏" ToolTip="该版本默认将不会在版本列表中显示。&#xa;在版本列表页面按下 F11，即可查看所有隐藏的版本。" />
+                                <ComboBoxItem Content="可安装 Mod 的版本" />
+                                <ComboBoxItem Content="常规版本" />
+                                <ComboBoxItem Content="不常用版本" />
+                                <ComboBoxItem Content="愚人节版本" />
+                            </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="名称与描述" Description="修改版本名会重命名版本文件夹。">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnDisplayRename" Content="重命名" Margin="0,0,8,0" />
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnDisplayDesc" Content="修改描述" Margin="0,0,8,0" />
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnDisplayStar" Content="加入收藏夹" />
+                    </StackPanel>
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
+            <local:GlassSettingGroup x:Name="PanManage" Title="管理">
+                <local:GlassSettingItem Title="补全文件" Description="校验依赖文件，重新下载缺失或损坏的文件和资源索引。游戏缺少音效时可以试试。">
+                    <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnManageCheck" Content="开始补全" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="导出启动脚本" Description="生成一个批处理文件，不打开启动器也能启动这个版本。">
+                    <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnManageScript" Content="导出" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="从原 MMC 包创建副本" Description="选择对应的原始 MMC ZIP，核对差异后创建管理副本。当前实例及其存档、设置会保留。">
+                    <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnMmcLegacyAdoption" Content="选择文件" Visibility="Collapsed" Click="BtnMmcLegacyAdoption_Click" />
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
+            <!-- Destructive actions sit apart, at the end, in their own tinted group. -->
+            <local:GlassSettingGroup x:Name="PanDanger" Title="危险操作" IsDanger="True">
+                <local:GlassSettingItem Title="删除版本" Description="删除版本文件夹，其中的存档、Mod 和设置会一并移除。">
+                    <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnManageDelete" Content="删除" Foreground="{DynamicResource GlassPresentationDangerText}" />
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
         </StackPanel>
-    </local:MyScrollViewer>
-        <local:MyCard HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,0" x:Name="PanComponentsLoad" UseAnimation="False">
-            <local:MyLoading Text="正在读取已安装组件" Margin="20,20,20,17" x:Name="LoadComponents" HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </local:MyCard>
+    </ScrollViewer>
+        <glass:GlassSurface x:Name="PanComponentsLoad" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" Padding="{DynamicResource GlassCardSettingsPadding}" CornerRadius="{DynamicResource GlassCardSettingsRadius}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+            <StackPanel>
+                <glass:BlockCurveLoader x:Name="LoadComponents" Width="36" Height="36" HorizontalAlignment="Center" Foreground="{DynamicResource GlassPresentationAccent}" />
+                <TextBlock x:Name="LabComponentsLoad" Text="正在读取已安装组件" TextAlignment="Center" Margin="0,10,0,0" />
+                <Button x:Name="BtnComponentsRetry" Content="重试" Style="{DynamicResource GlassPresentationButton}" Visibility="Collapsed" Margin="0,10,0,0" />
+            </StackPanel>
+        </glass:GlassSurface>
     </Grid>
-</local:MyPageRight>
+</local:GlassWorkspacePage>

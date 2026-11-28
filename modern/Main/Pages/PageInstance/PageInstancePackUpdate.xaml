@@ -5,47 +5,58 @@ This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-<local:MyPageRight xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<local:GlassWorkspacePage xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCL"
-    x:Class="PCL.PageInstancePackUpdate" PanScroll="PanBack">
-    <local:MyScrollViewer x:Name="PanBack" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    xmlns:glass="clr-namespace:PCLLF.Wpf.Glass;assembly=PCLLF.WPF.Core"
+    x:Class="PCL.PageInstancePackUpdate">
+    <ScrollViewer x:Name="PanBack" Style="{DynamicResource GlassPresentationScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="25,25,25,10">
-            <local:MyCard Title="整合包更新" Margin="0,0,0,15">
-                <StackPanel Margin="25,40,25,20">
+            <glass:GlassSurface Margin="0,0,0,15" Padding="{DynamicResource GlassCardSettingsPadding}" CornerRadius="{DynamicResource GlassCardSettingsRadius}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+                <StackPanel>
+                    <TextBlock Text="整合包更新" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <Image x:Name="ImgPack" Width="72" Height="72" Margin="0,0,20,0" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                             <TextBlock x:Name="LabName" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" Text="整合包"/>
                             <TextBlock x:Name="LabVersion" FontSize="26" FontWeight="SemiBold" Margin="0,3,0,5" Text="正在读取…" TextWrapping="Wrap"/>
-                            <TextBlock x:Name="LabSource" Foreground="{DynamicResource ColorBrushGray3}" TextWrapping="Wrap"/>
+                            <TextBlock FontSize="13" x:Name="LabSource" Foreground="{DynamicResource GlassPresentationSecondary}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
-                    <WrapPanel Margin="0,20,-15,0">
-                        <local:MyButton x:Name="BtnOnline" Text="检查更新" Width="140" Height="35" Margin="0,0,15,0" ColorType="Highlight"/>
-                        <local:MyButton x:Name="BtnLocal" Text="从文件更新" Width="140" Height="35" Margin="0,0,15,0"/>
-                        <local:MyButton x:Name="BtnBackups" Text="更新备份" Width="140" Height="35" Margin="0,0,15,0"/>
-                        <local:MyButton x:Name="BtnOrigin" Text="核实平台来源" Width="140" Height="35" Margin="0,0,15,0" Visibility="Collapsed"/>
+                    <WrapPanel Margin="0,20,0,0">
+                        <Button Style="{DynamicResource GlassPresentationAccentButton}" x:Name="BtnOnline" Content="检查更新" Width="140" Height="35" Margin="0,4,15,4"/>
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnLocal" Content="从文件更新" Width="140" Height="35" Margin="0,4,15,4"/>
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnBackups" Content="更新备份" Width="140" Height="35" Margin="0,4,15,4"/>
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnOrigin" Content="核实平台来源" Width="140" Height="35" Margin="0,4,15,4" Visibility="Collapsed"/>
                     </WrapPanel>
                 </StackPanel>
-            </local:MyCard>
-            <local:MyHint x:Name="HintState" Margin="0,0,0,15" Text="选择新版本后，可以预览文件变更并检查模组兼容性。"/>
-            <local:MyCard Title="搜索版本" Margin="0,0,0,15">
-                <local:MySearchBox x:Name="TextSearchVersion" Margin="20,40,20,18" HintText="搜索版本名称或 Minecraft 版本" />
-            </local:MyCard>
-            <local:MyCard Title="版本列表" Margin="0,0,0,15">
-                <StackPanel Margin="15,40,15,15">
+            </glass:GlassSurface>
+            <glass:GlassSurface x:Name="HintState" CornerRadius="10" BorderThickness="0.7" BlurRadius="24" Padding="14,10,12,10" Margin="0,0,0,15">
+                <TextBlock TextWrapping="Wrap" />
+            </glass:GlassSurface>
+            <glass:GlassSurface Margin="0,0,0,15" Padding="{DynamicResource GlassCardSettingsPadding}" CornerRadius="{DynamicResource GlassCardSettingsRadius}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+                <StackPanel>
+                    <TextBlock Text="搜索版本" FontSize="16" FontWeight="SemiBold" />
+                    <Grid x:Name="SearchHost"><TextBox x:Name="TextSearchVersion" Style="{DynamicResource GlassPresentationTextBox}" /></Grid>
+                </StackPanel>
+            </glass:GlassSurface>
+            <glass:GlassSurface Margin="0,0,0,15" Padding="{DynamicResource GlassCardSettingsPadding}" CornerRadius="{DynamicResource GlassCardSettingsRadius}" Background="{DynamicResource GlassPresentationFill}" BorderBrush="{DynamicResource GlassPresentationEdge}" BorderThickness="0.7" BlurRadius="24" TintOpacity="1" HighlightOpacity="0">
+                <StackPanel>
+                    <TextBlock Text="版本列表" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <WrapPanel x:Name="PanReleaseTypes" Margin="3,0,3,4">
-                        <local:MyRadioButton x:Name="RadioRelease" Text="正式版（0）" Tag="1" ColorType="Highlight" Checked="True" Margin="2,0,2,6" />
-                        <local:MyRadioButton x:Name="RadioBeta" Text="测试版（0）" Tag="2" ColorType="Highlight" Margin="2,0,2,6" />
-                        <local:MyRadioButton x:Name="RadioAlpha" Text="早期测试版（0）" Tag="3" ColorType="Highlight" Margin="2,0,2,6" />
-                        <local:MyRadioButton x:Name="RadioAll" Text="全部（0）" Tag="0" ColorType="Highlight" Margin="2,0,2,6" />
+                        <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="RadioRelease" Content="正式版（0）" Tag="1" IsChecked="True" Margin="2,0,2,6" />
+                        <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="RadioBeta" Content="测试版（0）" Tag="2" Margin="2,0,2,6" />
+                        <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="RadioAlpha" Content="早期测试版（0）" Tag="3" Margin="2,0,2,6" />
+                        <RadioButton Style="{DynamicResource GlassResourceFilter}" x:Name="RadioAll" Content="全部（0）" Tag="0" Margin="2,0,2,6" />
                     </WrapPanel>
-                    <TextBlock x:Name="LabListStatus" Margin="5,0,5,10" Foreground="{DynamicResource ColorBrushGray3}" TextWrapping="Wrap" />
-                    <TextBlock x:Name="LabListEmpty" Margin="5,4,5,10" Foreground="{DynamicResource ColorBrushGray3}" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock x:Name="LabListStatus" Margin="5,0,5,10" FontSize="13" Foreground="{DynamicResource GlassPresentationSecondary}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="1" x:Name="LabListEmpty" Margin="5,4,5,0" FontSize="13" Foreground="{DynamicResource GlassPresentationSecondary}" TextWrapping="Wrap" Visibility="Collapsed" />
+                    </Grid>
                     <StackPanel x:Name="PanVersions" />
                 </StackPanel>
-            </local:MyCard>
+            </glass:GlassSurface>
         </StackPanel>
-    </local:MyScrollViewer>
-</local:MyPageRight>
+    </ScrollViewer>
+</local:GlassWorkspacePage>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 using System.Reflection;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,7 @@ using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using PCL;
 using PCLLF.Wpf.Glass;
+using PCLLF.Presentation.Shell;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -15,25 +17,55 @@ internal static class GlassModalLifecycleChecks {
     internal static void Run(FixtureEnvironment environment) {
         using var scope = new VisualAssetChecks.Scope(environment, "modal-lifecycle");
         StateOnly();
+        DismissalDoesNotChooseAnAction();
+        PresentationFailureDoesNotChooseAnAction();
         Effects();
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS modal lifecycle: login/text/input/select logical exit state, unknown visible fallback, immediate scrim input ownership, resized DPI-aware frozen snapshot, independent projected input and reversible blur/close cleanup; no authentication work.");
     }
+
+    private static void DismissalDoesNotChooseAnAction() {
+        foreach (bool escape in new[] { true, false }) {
+            int actions = 0;
+            var request = new ModMain.MyMsgBoxConverter {
+                Type = ModMain.MyMsgBoxType.Text, Button1 = "取消", Button2 = "保存",
+                Button2Action = () => actions++
+            };
+            using var dialog = new GlassMessageDialog(request, () => { }, _ => { });
+            if (escape) dialog.HandleKey(System.Windows.Input.Key.Escape);
+            else dialog.Dispose();
+            Native.Check(request.IsExited && request.Result is null && !request.WaitFrame.Continue && actions == 0,
+                "Dismissing a dialog selected an action without an explicit choice.");
+        }
+    }
+
+    private static void PresentationFailureDoesNotChooseAnAction() {
+        var window = new Window();
+        var queue = new ConcurrentQueue<ModMain.MyMsgBoxConverter>();
+        var host = new MainMessageHost<ModMain.MyMsgBoxConverter, ModMain.MyMsgBoxType> {
+            Window = () => window, CanPresent = () => true, IsDirectMessageActive = () => false,
+            PresentDirectMessage = _ => false, DragStop = () => { }, IsUiThread = () => true,
+            Queue = () => queue, Create = () => new ModMain.MyMsgBoxConverter(),
+            Text = ModMain.MyMsgBoxType.Text, Login = ModMain.MyMsgBoxType.Login
+        };
+        var messages = new MainMessageRuntime<ModMain.MyMsgBoxConverter, ModMain.MyMsgBoxType, PCL.Validate>(host);
+        int result = messages.Show("Fixture", button1: "取消", button2: "保存");
+        Native.Check(result == 0 && queue.IsEmpty, "A missing presenter reported a selected button.");
+        host.PresentDirectMessage = request => {
+            request.ContentFactory?.Invoke();
+            return true;
+        };
+        result = messages.ConfirmContent("Fixture", "Fixture", "保存", () => throw new InvalidOperationException("Fixture presentation error"));
+        Native.Check(result == 0 && queue.IsEmpty, "A presentation error reported a selected button or left the caller waiting.");
+        window.Close();
+    }
     private static void StateOnly() {
         Type state = Native.Type("PCL.GlassModalState");
-        foreach (var (type, field) in new[] {
-            (typeof(MyMsgText), "MyConverter"), (typeof(MyMsgInput), "MyConverter"),
-            (typeof(MyMsgSelect), "MyConverter"), (typeof(MyMsgLogin), "_modalConverter")
-        }) {
-            // Deliberately evaluate only the bool seam. No WPF base property, constructor,
-            // native login initialization, worker, clipboard, browser or request is invoked.
-            object dialog = RuntimeHelpers.GetUninitializedObject(type);
-            var converter = new ModMain.MyMsgBoxConverter();
-            Native.Field(type, field).SetValue(dialog, converter);
-            Native.Check((bool)Native.Call(state, "IsOpen", null, dialog)!, "Open modal type was omitted: " + type.Name);
-            converter.IsExited = true;
-            Native.Check(!(bool)Native.Call(state, "IsOpen", null, dialog)!, "Exited modal still owns focus: " + type.Name);
-        }
+        var request = new ModMain.MyMsgBoxConverter();
+        using var dialog = new GlassMessageDialog(request, () => { }, _ => { });
+        Native.Check((bool)Native.Call(state, "IsOpen", null, dialog)!, "An open dialog does not own modal state.");
+        request.IsExited = true;
+        Native.Check(!(bool)Native.Call(state, "IsOpen", null, dialog)!, "An exited dialog still owns modal state.");
         var panel = new Grid(); var unknown = new Grid(); panel.Children.Add(unknown);
         Native.Check(ReferenceEquals(Native.Call(state, "FindActive", null, panel), unknown), "Unknown visible modal became invisible.");
         unknown.Visibility = Visibility.Collapsed;
@@ -59,9 +91,7 @@ internal static class GlassModalLifecycleChecks {
         var videoOverlay = new Border { Background = videoBrush, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
         Panel.SetZIndex(videoOverlay, 24);
         var input = new TextBox { Text = "before" };
-        background.Children.Add(new Grid { Visibility = Visibility.Hidden, Children = { input } });
-        using var presentation = GlassPresentation.Create(input);
-        var modalCard = new GlassSurface { BlurRadius = 22, Child = presentation.View };
+        var modalCard = new GlassSurface { BlurRadius = 22, Child = input };
         var dialog = new Border { Width = 280, Height = 160, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Child = modalCard };
         Panel.SetZIndex(dialog, 30);
         root.Children.Add(background); root.Children.Add(crashSnapshot); root.Children.Add(resize); root.Children.Add(videoOverlay); root.Children.Add(scrim); root.Children.Add(dialog);
@@ -69,7 +99,7 @@ internal static class GlassModalLifecycleChecks {
         object? effects = null;
         try {
             window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
-            var projectedInput = VisualDescendants(presentation.View).OfType<TextBox>().Single();
+            var projectedInput = input;
             int windowKeys = 0;
             root.KeyDown += (_, _) => windowKeys++;
             foreach (var key in new[] { System.Windows.Input.Key.F5, System.Windows.Input.Key.Escape })
@@ -122,7 +152,7 @@ internal static class GlassModalLifecycleChecks {
             Native.Check(buildsAfterClose == buildsBeforeClose, $"Modal close spring triggered {buildsAfterClose - buildsBeforeClose} redundant wallpaper blur rebuilds.");
             Native.Check(GlassMaterial.GetWallpaperSource(dialog) is null, "Closed modal retained its focus snapshot.");
 
-            var report = new MyMsgText(new ModMain.MyMsgBoxConverter { Title = "Minecraft 出现错误", Text = "fixture", Button1 = "确定" });
+            using var report = new GlassMessageDialog(new ModMain.MyMsgBoxConverter { Title = "Minecraft 出现错误", Text = "fixture", Button1 = "确定" }, () => { }, _ => { });
             Native.Call(type, "SetMessage", effects, report);
             VisualAssetChecks.Pump(() => (double)Native.Property(type, "Progress").GetValue(effects)! > .999, "static crash report opens");
             var still = crashSnapshot.Source as BitmapSource;

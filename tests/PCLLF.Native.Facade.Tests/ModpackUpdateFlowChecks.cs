@@ -84,7 +84,6 @@ internal static class ModpackUpdateFlowChecks
         string minecraft = Path.Combine(root, "minecraft"); Directory.CreateDirectory(minecraft); scope.SelectMinecraft(minecraft);
         _ = FileTaskShell.Install();
         // Match the second real update: TaskManager already exists before Add.
-        ModMain.FrmSpeedLeft = new PageSpeedLeft(); ModMain.FrmSpeedRight = new PageSpeedRight();
         using LiveFlow flow = new(root);
         TraceStage("fixtures-installed");
         scenarios(flow,root,minecraft);
@@ -236,7 +235,7 @@ internal static class ModpackUpdateFlowChecks
         ModMinecraft.McInstance accepted = Instance(minecraft, "accepted-1.20.1");
         SeedOrigin(accepted, old, root, "accept-origin");
         LegacyPrunedOrigin(accepted);
-        PageInstanceLeft.Instance = accepted;
+        LauncherInstanceContext.Instance = accepted;
         Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, accepted);
         flow.Messages.Clear(); flow.Archives.Enqueue(next); flow.Archives.Enqueue(old);
         int previews = 0;
@@ -260,7 +259,7 @@ internal static class ModpackUpdateFlowChecks
         Check(!string.IsNullOrEmpty(backup) && Native.Full(backup).StartsWith(Native.Full(accepted.PathVersion) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(Path.Combine(backup, "transaction.json")), "FLOW-07-backup", "real step did not publish owned durable backup");
         Check(JObject.Parse(File.ReadAllText(Path.Combine(backup, "transaction.json")))["complete"]?.Value<bool>() == true, "FLOW-07-journal", "successful flow did not publish completed journal");
         Check(((IEnumerable<JObject>)Native.Static("PCL.EnvironmentHistory", "Points", accepted.PathVersion)!).Any(point => point["label"]?.ToString() == "整合包更新前"), "FLOW-08-history", "real pre-update environment snapshot missing");
-        Check(PageInstanceLeft.Instance is not null && !ReferenceEquals(PageInstanceLeft.Instance, accepted) && Native.Full(PageInstanceLeft.Instance.PathVersion) == Native.Full(accepted.PathVersion) && ReferenceEquals(PageInstanceLeft.Instance, ModMinecraft.McInstanceSelected), "FLOW-08-reload", "actual selected/page instance was not reloaded together");
+        Check(LauncherInstanceContext.Instance is not null && !ReferenceEquals(LauncherInstanceContext.Instance, accepted) && Native.Full(LauncherInstanceContext.Instance.PathVersion) == Native.Full(accepted.PathVersion) && ReferenceEquals(LauncherInstanceContext.Instance, ModMinecraft.McInstanceSelected), "FLOW-08-reload", "actual selected/page instance was not reloaded together");
         Check(!((IEnumerable<string>)Update("Pending", accepted.PathVersion)!).Any() && !flow.Updating && !ModMinecraft.McInstanceLock.IsLocked(accepted), "FLOW-08-release", "successful actual workload left pending state/Active/lease");
         JObject committedOrigin = JObject.Parse(File.ReadAllText(Path.Combine(accepted.PathVersion, "PCL", "ModpackOrigin.json")));
         string expectedPersonalHash = "sha1:" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes("new-default"))).ToLowerInvariant();
@@ -270,7 +269,7 @@ internal static class ModpackUpdateFlowChecks
             "FLOW-11-retained", "new author expectation and retained personal observation were not recorded separately");
         var finishedStep = flow.Step;
         flow.Preview = _ => { Check(Stages(flow.Step!).Length == 12, "FLOW-retry-completed-preview", "Stages disappeared when updating a previously completed instance."); return 2; };
-        flow.Archives.Enqueue(next); flow.Start(PageInstanceLeft.Instance!); flow.WaitStopped();
+        flow.Archives.Enqueue(next); flow.Start(LauncherInstanceContext.Instance!); flow.WaitStopped();
         Check(!ReferenceEquals(finishedStep, flow.Step) && Stages(flow.Step!).Single(stage => stage.Stage == PackUpdateStage.ConfirmPreview).State == PackUpdateStageState.Canceled,
             "FLOW-retry-completed", "Retry after success failed to retain its independent presentation stages.");
         Console.WriteLine("PASS native modpack-update workflow: FLOW-01..11, queued confirmation cancellation, personal preservation, actual selected/page profile reload and transactional schema-2 commit.");
@@ -356,7 +355,7 @@ internal static class ModpackUpdateFlowChecks
             if (selectedProfile) {
                 // This independently scheduled group must exercise the same real selected/page
                 // setter and encrypted account-read contract instead of borrowing prior group state.
-                PageInstanceLeft.Instance = instance;
+                LauncherInstanceContext.Instance = instance;
                 Native.State(typeof(ModMinecraft),"_McInstanceSelected").SetValue(null,instance);
             }
             TraceStage(label + "-start"); flow.Start(instance); flow.WaitStopped(); TraceStage(label + "-stopped");
@@ -369,8 +368,8 @@ internal static class ModpackUpdateFlowChecks
                     label, "automatic baseline did not reach the genuine schema-2 update transaction: state=" + flow.Step!.State + "; success=" + flow.Worker.LastSucceeded + "; previews=" + previews + "; messages=" + string.Join(",", flow.Messages) + "; info=" + string.Join(" / ", flow.Infos.TakeLast(2)) + "; error=" + flow.Step.Error +
                     "; versionRoot=" + versionRoot + " (length=" + versionRoot.Length + ", exists=" + Directory.Exists(versionRoot) + ", context=" + attached + "); gameRoot=" + gameRoot + " (length=" + gameRoot.Length + ", exists=" + Directory.Exists(gameRoot) + ")");
                 Check(File.ReadAllText(Path.Combine(instance.PathIndie, "config/author.txt")) == "new-author", label, "author update was not applied");
-                if (selectedProfile) Check(PageInstanceLeft.Instance is not null && !ReferenceEquals(PageInstanceLeft.Instance,instance) &&
-                    Native.Full(PageInstanceLeft.Instance.PathVersion)==Native.Full(instance.PathVersion) && ReferenceEquals(PageInstanceLeft.Instance,ModMinecraft.McInstanceSelected),
+                if (selectedProfile) Check(LauncherInstanceContext.Instance is not null && !ReferenceEquals(LauncherInstanceContext.Instance,instance) &&
+                    Native.Full(LauncherInstanceContext.Instance.PathVersion)==Native.Full(instance.PathVersion) && ReferenceEquals(LauncherInstanceContext.Instance,ModMinecraft.McInstanceSelected),
                     label+"-profile","Actual selected/page profile reload was skipped in the independent source group.");
             } else {
                 Check(!flow.Worker!.LastSucceeded && previews == (scenario == "preview-cancel" ? 1 : 0), label, "rejected/canceled origin reached an update preview or commit");

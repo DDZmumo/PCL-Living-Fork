@@ -32,7 +32,7 @@ internal static class MmcPermanentDeleteChecks {
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceLifecycleResult> results = new();
         private readonly ConcurrentQueue<Exception> errors = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly string root, game, source, sibling, shared;
         private readonly ModMinecraft.McInstance owner;
         private readonly MmcInstanceInspection initial;
@@ -44,7 +44,7 @@ internal static class MmcPermanentDeleteChecks {
 
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             Action refresh = scheduler.RefreshExtraDownload; restore.Push(() => scheduler.RefreshExtraDownload = refresh); scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); registered?.Invoke(task); }));
             Set("Published", new Action<MmcInstanceLifecycleResult>(result => results.Enqueue(result)));
@@ -127,6 +127,8 @@ internal static class MmcPermanentDeleteChecks {
         internal void Ui() {
             string before = Tree(source); confirmation = _ => 1; Prompt(); Until(() => confirmationCount == 1, "default cancellation");
             Native.Check(tasks.IsEmpty && results.IsEmpty && errors.IsEmpty && Tree(source) == before, "Default cancellation wrote or queued a deletion.");
+            confirmation = _ => 0; Prompt(); Until(() => confirmationCount == 2, "dismissed confirmation");
+            Native.Check(tasks.IsEmpty && results.IsEmpty && errors.IsEmpty && Tree(source) == before, "A dismissed confirmation wrote or queued a deletion.");
             confirmation = _ => 2; Prompt(); Wait(1, ModBase.LoadState.Finished);
             var result = results.Single();
             Native.Check(result.Status == MmcInstanceBackendStatus.Succeeded && result.Purged && result.PurgeDecided && !result.Quarantined &&

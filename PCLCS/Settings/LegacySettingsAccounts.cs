@@ -15,6 +15,9 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
     where TPlan : LegacyAccountMigrationPlan {
     private static readonly string[] accountGroups = { "CacheMsV2", "CacheMs", "CacheNide", "CacheAuth", "LoginNide", "LoginAuth" };
 
+    private static bool IsAccountMigrationValue(TEntry entry) => UsesAccountStore(entry) ||
+        (entry.GetSourceCode() == LegacySettingSource.Registry && entry.Key == "LfSkinSiteSelection");
+
     public string? DecodeAccountValue(TEntry entry, string rawValue, string? deviceIdentify) {
         try {
             string value = entry.Encrypted ? LegacySettingsCrypto.Decrypt(rawValue, "PCL" + deviceIdentify) : rawValue;
@@ -24,7 +27,10 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
             if (entry.Key == "LoginMsJson") {
                 JObject accounts = JObject.Parse(value);
                 if (accounts.Properties().Any(item => item.Value.Type != JTokenType.String)) return null;
-            } else if (entry.Key.EndsWith("ProfileJson", StringComparison.Ordinal) && !VbStringEqual(value, "")) {
+            } else if (entry.Key == "LfSkinSites" && !VbStringEqual(value, "")) {
+                if (JArray.Parse(value).Any(site => site is not JObject)) return null;
+            } else if ((entry.Key == "LfSkinSiteSelection" || entry.Key.EndsWith("ProfileJson", StringComparison.Ordinal)) &&
+                !VbStringEqual(value, "")) {
                 JObject.Parse(value);
             }
             return value;
@@ -49,12 +55,13 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         var nativePlain = new Dictionary<string, string>(StringComparer.Ordinal);
         var legacyPlain = new Dictionary<string, string>(StringComparer.Ordinal);
         bool hasMicrosoft = official.Keys.Any(key => entries().ContainsKey(key) && IsMicrosoftAccountSetting(entries()[key]));
-        foreach (TEntry entry in entries().Values.Where(IsAccountSetting)) {
+        foreach (TEntry entry in entries().Values.Where(IsAccountMigrationValue)) {
             if (official.ContainsKey(entry.Key)) {
                 string? value = DecodeAccountWithKeys(entry, official[entry.Key], officialKeys);
                 if (value is not null) nativePlain[entry.Key] = value;
             }
-            if (legacy.ContainsKey(entry.Key) && !(hasMicrosoft && IsMicrosoftAccountSetting(entry))) {
+            if (legacy.ContainsKey(entry.Key) && !LfRegistryStorage.IsOwned(entry.Key) &&
+                !(hasMicrosoft && IsMicrosoftAccountSetting(entry))) {
                 string? value = DecodeAccountWithKeys(entry, legacy[entry.Key], legacyKeys);
                 if (value is not null) legacyPlain[entry.Key] = value;
             }
@@ -157,13 +164,13 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
         }
     }
 
-    // Only the LF physical namespace is read. Old private MS caches have no client-origin
-    // proof and are left untouched; other account/Identify migration keeps LF's rules.
+    // The routed store already places LF-owned values in their canonical namespace. Reading the
+    // legacy view must not snapshot that same physical value for the legacy cleanup step.
     public Dictionary<string, string> ReadAccountRegistrySnapshot(ILegacySettingsStore? store, bool legacy = false) {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         if (store is null) return result;
-        foreach (TEntry entry in entries().Values.Where(item => IsAccountSetting(item) || item.Key == "Identify")) {
-            if (legacy && IsMicrosoftAccountSetting(entry)) continue;
+        foreach (TEntry entry in entries().Values.Where(item => IsAccountMigrationValue(item) || item.Key == "Identify")) {
+            if (legacy && (IsMicrosoftAccountSetting(entry) || LfRegistryStorage.IsOwned(entry.Key))) continue;
             object? value = store.GetValue(legacy ? entry.Key : RegistryValueName(entry), null);
             if (value is not null) result[entry.Key] = Convert.ToString(value, CultureInfo.InvariantCulture)!;
         }
@@ -245,11 +252,11 @@ public sealed partial class LegacySettingsEngine<TInstance, TEntry, TPlan>
             TPlan plan = createPlan();
             plan.CurrentIdentify = host.Identify();
             foreach (KeyValuePair<string, object?> item in values) {
-                if (!entries().TryGetValue(item.Key, out TEntry? entry) || !IsAccountSetting(entry)) throw new ArgumentException("不支持的账号设置项");
+                if (!entries().TryGetValue(item.Key, out TEntry? entry) || !UsesAccountStore(entry)) throw new ArgumentException("不支持的账号设置项");
                 object typed = Coerce(item.Value, entry.Type);
                 string plain = entry.Type.IsEnum ? Convert.ToInt32(typed, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) : Convert.ToString(typed, CultureInfo.InvariantCulture)!;
-                string raw = entry.Encrypted ? LegacySettingsCrypto.Encrypt(plain, "PCL" + host.Identify()) : plain;
-                if (DecodeAccountValue(entry, raw, host.Identify()) is null) throw new ArgumentException("账号设置格式不正确");
+                string raw = entry.Encrypted ? LegacySettingsCrypto.Encrypt(plain, EncryptionKey(plan.CurrentIdentify)) : plain;
+                if (DecodeAccountValue(entry, raw, plan.CurrentIdentify) is null) throw new ArgumentException("账号设置格式不正确");
                 plan.Values[item.Key] = raw;
             }
             using ILegacySettingsStore? store = host.OpenRegistry("PCL", true, true);

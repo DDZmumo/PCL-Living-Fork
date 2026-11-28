@@ -29,17 +29,24 @@ internal sealed class GlassAudioVisualizer : FrameworkElement
 
     public Brush Foreground { get => (Brush)GetValue(ForegroundProperty); set => SetValue(ForegroundProperty, value); }
 
-    private const int Size = 2048;           // FFT window (~46 ms at 44.1 kHz)
-    private const double Lag = .25;          // the device plays about this far behind what it has been handed
+    // Two resolutions: a short window keeps the mids and treble quick, a long one separates the notes of the bass
+    // (2048 samples resolve ~21 Hz, too coarse below ~200 Hz; 8192 resolve ~5 Hz). Both are centred on the playhead.
+    private const int ShortSize = 2048, LongSize = 8192;
+    private const double CrossLowHz = 180, CrossHighHz = 360; // long window below, short above, blended in between
+    private const double Lag = .25;          // fallback only: the tap reads at the device playhead when it can
     private const double LowHz = 40, HighHz = 16000;
     private const double FloorDb = -60, RangeDb = 44;
     private const double BarWidth = 5, BarGap = 5, MaxHeightShare = .38;
     private const double LineSpacing = 40; // horizontal distance between the wave's control points
 
-    private readonly float[] _samples = new float[Size];
-    private readonly double[] _re = new double[Size], _im = new double[Size], _window = new double[Size];
-    private readonly int[] _reverse = new int[Size];
+    private readonly float[] _samples = new float[LongSize];
+    private readonly Spectrum _short = new(ShortSize), _long = new(LongSize);
     private double[] _levels = Array.Empty<double>();
+    private Band[] _bands = Array.Empty<Band>();
+    private int _bandRate;
+    private bool _longDue = true;
+    private double[] _wave = Array.Empty<double>();
+    private Point[] _points = Array.Empty<Point>();
     internal enum SpectrumStyle { Bars, Line }
 
     private SpectrumStyle _style;
@@ -54,13 +61,6 @@ internal sealed class GlassAudioVisualizer : FrameworkElement
     {
         IsHitTestVisible = false;
         SnapsToDevicePixels = false;
-        for (int index = 0; index < Size; index++)
-        {
-            _window[index] = .5 - .5 * Math.Cos(2 * Math.PI * index / (Size - 1));
-            int reversed = 0;
-            for (int bit = 0, value = index; bit < 11; bit++, value >>= 1) reversed = (reversed << 1) | (value & 1);
-            _reverse[index] = reversed;
-        }
         SetResourceReference(ForegroundProperty, "GlassTextBrush");
         IsVisibleChanged += (_, _) => UpdateHook();
         Unloaded += (_, _) => Unhook();
@@ -113,54 +113,135 @@ internal sealed class GlassAudioVisualizer : FrameworkElement
         int count = BarCount(ActualWidth); // one band per bar (the line samples the same bands)
         if (_levels.Length != count) _levels = new double[count];
         _presence += ((_active ? 1 : 0) - _presence) * (1 - Math.Exp(-dt / (_active ? .35 : .5)));
-        bool fresh = _active && ModMusic.MusicSamples.Snapshot(_samples, Lag);
+        bool fresh = _active && ModMusic.MusicSamples.Snapshot(_samples, Lag, LongSize / 2);
         if (fresh) Analyse(ModMusic.MusicSamples.SampleRate, dt);
-        else for (int index = 0; index < count; index++) _levels[index] = Math.Max(0, _levels[index] - dt * 1.2);
+        else {
+            double fall = Math.Exp(-dt / .18);
+            for (int index = 0; index < count; index++) _levels[index] *= fall;
+        }
         InvalidateVisual();
         if (!_active && _presence < .002) { _presence = 0; Array.Clear(_levels); Unhook(); }
     }
 
     private static int BarCount(double width) => Math.Clamp((int)((width + BarGap) / (BarWidth + BarGap)), 0, 200);
 
-    // Hann-windowed FFT, then the strongest bin within each bar's logarithmic band, in decibels.
+    // One band per bar on a logarithmic (pitch) scale, with its window blend and treble tilt worked out once.
+    private readonly record struct Band(double FromHz, double ToHz, double LongShare, double TiltDb);
+
+    private void PrepareBands(int sampleRate)
+    {
+        int count = _levels.Length;
+        if (_bands.Length == count && _bandRate == sampleRate) return;
+        _bandRate = sampleRate;
+        _bands = new Band[count];
+        double top = Math.Min(HighHz, sampleRate / 2d);
+        for (int bar = 0; bar < count; bar++)
+        {
+            double fromHz = LowHz * Math.Pow(top / LowHz, (double)bar / count), toHz = LowHz * Math.Pow(top / LowHz, (bar + 1d) / count);
+            double centre = Math.Sqrt(fromHz * toHz);
+            double share = Math.Clamp((CrossHighHz - centre) / (CrossHighHz - CrossLowHz), 0, 1);
+            _bands[bar] = new Band(fromHz, toHz, share, 3 * Math.Log2(centre / 1000)); // treble tilt: music falls off upwards
+        }
+    }
+
     private void Analyse(int sampleRate, double dt)
     {
-        for (int index = 0; index < Size; index++) { _re[_reverse[index]] = _samples[index] * _window[index]; _im[_reverse[index]] = 0; }
-        for (int span = 2; span <= Size; span <<= 1)
+        PrepareBands(sampleRate);
+        // The short window is the middle of the snapshot, so both windows sit on the playhead.
+        _short.Transform(_samples, (LongSize - ShortSize) / 2, ShortSize / 2);
+        // Bass moves slowly: the long transform runs every other frame and keeps only the bins below the crossover.
+        if (_longDue) _long.Transform(_samples, 0, (int)(CrossHighHz * 1.5 * LongSize / sampleRate) + 2);
+        _longDue = !_longDue;
+
+        // Fast rise to follow onsets, a quick exponential fall so beats separate instead of smearing together.
+        double attack = 1 - Math.Exp(-dt / .018), release = 1 - Math.Exp(-dt / .12);
+        for (int bar = 0; bar < _levels.Length; bar++)
         {
-            double angle = -2 * Math.PI / span;
-            double stepRe = Math.Cos(angle), stepIm = Math.Sin(angle);
-            for (int start = 0; start < Size; start += span)
+            Band band = _bands[bar];
+            double amplitude = band.LongShare >= 1 ? _long.Amplitude(band.FromHz, band.ToHz, sampleRate)
+                : band.LongShare <= 0 ? _short.Amplitude(band.FromHz, band.ToHz, sampleRate)
+                : band.LongShare * _long.Amplitude(band.FromHz, band.ToHz, sampleRate)
+                    + (1 - band.LongShare) * _short.Amplitude(band.FromHz, band.ToHz, sampleRate);
+            double db = 20 * Math.Log10(amplitude + 1e-9) + band.TiltDb;
+            double target = Math.Clamp((db - FloorDb) / RangeDb, 0, 1);
+            target = Math.Pow(target, 1.15); // keep quiet bands low, let loud ones reach high
+            _levels[bar] += (target - _levels[bar]) * (target > _levels[bar] ? attack : release);
+        }
+    }
+
+    /// <summary>A Hann-windowed radix-2 FFT of one size, keeping the power of each bin it was asked to resolve.</summary>
+    private sealed class Spectrum
+    {
+        private readonly double[] _re, _im, _window, _power, _cos, _sin;
+        private readonly int[] _reverse;
+        private int _resolved;
+        private readonly int _size;
+
+        internal Spectrum(int size)
+        {
+            _size = size;
+            _re = new double[size]; _im = new double[size]; _window = new double[size]; _power = new double[size / 2];
+            _reverse = new int[size];
+            // Twiddle factors looked up instead of rotated per butterfly.
+            _cos = new double[size / 2]; _sin = new double[size / 2];
+            for (int k = 0; k < size / 2; k++) { _cos[k] = Math.Cos(-2 * Math.PI * k / size); _sin[k] = Math.Sin(-2 * Math.PI * k / size); }
+            int bits = (int)Math.Round(Math.Log2(size));
+            for (int index = 0; index < size; index++)
             {
-                double wRe = 1, wIm = 0;
-                for (int k = 0; k < span / 2; k++)
-                {
-                    int even = start + k, odd = even + span / 2;
-                    double tRe = wRe * _re[odd] - wIm * _im[odd], tIm = wRe * _im[odd] + wIm * _re[odd];
-                    _re[odd] = _re[even] - tRe; _im[odd] = _im[even] - tIm;
-                    _re[even] += tRe; _im[even] += tIm;
-                    double nextRe = wRe * stepRe - wIm * stepIm;
-                    wIm = wRe * stepIm + wIm * stepRe; wRe = nextRe;
-                }
+                _window[index] = .5 - .5 * Math.Cos(2 * Math.PI * index / (size - 1));
+                int reversed = 0;
+                for (int bit = 0, value = index; bit < bits; bit++, value >>= 1) reversed = (reversed << 1) | (value & 1);
+                _reverse[index] = reversed;
             }
         }
 
-        int count = _levels.Length;
-        double binHz = (double)sampleRate / Size, top = Math.Min(HighHz, sampleRate / 2d);
-        double attack = 1 - Math.Exp(-dt / .045), release = dt * 1.1;
-        for (int bar = 0; bar < count; bar++)
+        // Transforms samples[offset .. offset + size) and stores the power of the first `bins` bins.
+        internal void Transform(float[] samples, int offset, int bins)
         {
-            double fromHz = LowHz * Math.Pow(top / LowHz, (double)bar / count);
-            double toHz = LowHz * Math.Pow(top / LowHz, (bar + 1d) / count);
-            int from = Math.Max(1, (int)Math.Floor(fromHz / binHz)), to = Math.Max(from, (int)Math.Ceiling(toHz / binHz));
-            double peak = 0;
-            for (int bin = from; bin <= to && bin < Size / 2; bin++) peak = Math.Max(peak, _re[bin] * _re[bin] + _im[bin] * _im[bin]);
-            double amplitude = Math.Sqrt(peak) * 4 / Size; // a full-scale sine reads 1
-            double centre = Math.Sqrt(fromHz * toHz);
-            double db = 20 * Math.Log10(amplitude + 1e-9) + 3 * Math.Log2(centre / 1000); // treble tilt: music falls off upwards
-            double target = Math.Clamp((db - FloorDb) / RangeDb, 0, 1);
-            target = Math.Pow(target, 1.15); // keep quiet bands low, let loud ones reach high
-            _levels[bar] = target > _levels[bar] ? _levels[bar] + (target - _levels[bar]) * attack : Math.Max(target, _levels[bar] - release);
+            for (int index = 0; index < _size; index++) { _re[_reverse[index]] = samples[offset + index] * _window[index]; _im[_reverse[index]] = 0; }
+            for (int span = 2; span <= _size; span <<= 1)
+            {
+                int half = span / 2, stride = _size / span;
+                for (int start = 0; start < _size; start += span)
+                {
+                    for (int k = 0; k < half; k++)
+                    {
+                        double wRe = _cos[k * stride], wIm = _sin[k * stride];
+                        int even = start + k, odd = even + half;
+                        double tRe = wRe * _re[odd] - wIm * _im[odd], tIm = wRe * _im[odd] + wIm * _re[odd];
+                        _re[odd] = _re[even] - tRe; _im[odd] = _im[even] - tIm;
+                        _re[even] += tRe; _im[even] += tIm;
+                    }
+                }
+            }
+            _resolved = Math.Clamp(bins, 3, _power.Length);
+            for (int bin = 0; bin < _resolved; bin++) _power[bin] = _re[bin] * _re[bin] + _im[bin] * _im[bin];
+        }
+
+        // Amplitude of the band (a full-scale sine reads 1). A band narrower than a bin reads the spectrum interpolated
+        // at its centre, so neighbouring bass notes differ smoothly instead of sharing one bin.
+        internal double Amplitude(double fromHz, double toHz, int sampleRate)
+        {
+            double binHz = (double)sampleRate / _size;
+            double fromBin = fromHz / binHz, toBin = toHz / binHz;
+            int last = _resolved - 1;
+            double power;
+            if (toBin - fromBin < 1)
+            {
+                double centre = Math.Sqrt(fromHz * toHz) / binHz;
+                int low = Math.Clamp((int)centre, 1, last - 1);
+                double t = Math.Clamp(centre - low, 0, 1);
+                power = _power[low] * (1 - t) + _power[low + 1] * t;
+            }
+            else
+            {
+                // Blend the band's strongest bin with its mean power: peaks keep tones visible, the mean steadies noise.
+                int from = Math.Clamp((int)fromBin, 1, last), to = Math.Clamp((int)Math.Ceiling(toBin), from, last);
+                double peak = 0, sum = 0;
+                for (int bin = from; bin <= to; bin++) { peak = Math.Max(peak, _power[bin]); sum += _power[bin]; }
+                power = .6 * peak + .4 * sum / (to - from + 1);
+            }
+            return Math.Sqrt(power) * 4 / _size;
         }
     }
 
@@ -229,12 +310,19 @@ internal sealed class GlassAudioVisualizer : FrameworkElement
     {
         int points = Math.Max(8, (int)Math.Round(width / LineSpacing) + 1);
         double step = width / (points - 1), baseline = height - 2;
-        var samples = new Point[points];
+        if (_points.Length != points) { _points = new Point[points]; _wave = new double[points]; }
+        Point[] samples = _points;
+        double[] raw = _wave;
         bool any = false;
         for (int index = 0; index < points; index++)
         {
             double from = Math.Max(0, (index - .5) / (points - 1)), to = Math.Min(1, (index + .5) / (points - 1));
-            double level = LevelAtFraction(from, to);
+            raw[index] = LevelAtFraction(from, to);
+        }
+        for (int index = 0; index < points; index++)
+        {
+            double left = raw[Math.Max(0, index - 1)], right = raw[Math.Min(points - 1, index + 1)];
+            double level = .25 * left + .5 * raw[index] + .25 * right;
             any |= level >= .01;
             samples[index] = new Point(index * step, baseline - level * Math.Max(0, maxHeight - 2));
         }

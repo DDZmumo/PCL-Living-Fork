@@ -38,14 +38,13 @@ internal sealed class GlassShellRuntime : IDisposable {
     private readonly HashSet<McInstance> _loadingInstances = new(ReferenceEqualityComparer.Instance);
     private McInstance? _pendingInstanceSettings;
     private ImageSource? _instanceIcon;
-    private double _nextMetadataRefresh, _nextRecentRefresh, _nextRecentPresentationRefresh;
-    private int _emptyRecentRetries;
-    private RecentWorld? _recentWorld, _observedRecentTag;
-    private ImageSource? _recentIcon, _observedRecentIcon;
+    private double _nextMetadataRefresh, _nextRecentRefresh;
+    private RecentWorld? _recentWorld;
+    private ImageSource? _recentIcon;
     private string _recentName = string.Empty, _recentDetail = string.Empty;
     private string? _recentImagePath;
     private DateTime _recentImageStamp;
-    private bool _recentRefreshPending, _disposed;
+    private bool _recentRefreshPending, _discoverWorlds = true, _recentWorldSessionActive, _disposed;
     private int _recentRevision;
 
     internal GlassShellRuntime(FormMain owner, GlassLauncherView view, Action requestWorkspaceRefresh) {
@@ -70,7 +69,6 @@ internal sealed class GlassShellRuntime : IDisposable {
 
     internal event EventHandler? AccountRequested;
     internal bool UseDarkText { get; set; }
-    internal bool ShowLegacyHome { get; set; }
 
     /// <summary>Reads current application/UI state. Call on the window's Dispatcher, including after page changes.</summary>
     public void Refresh() {
@@ -99,6 +97,7 @@ internal sealed class GlassShellRuntime : IDisposable {
             RefreshInstanceMetadata(instance);
         }
         bool waitingForRole = GlassSkinSites.RoleSelectionPending;
+        bool verifyingCharacter = LauncherAccountSession.ExternalCharacterSwitchPending;
         var (accountName, accountAvatar) = ReadAccountAppearance(waitingForRole);
 
         // Read the real current session every refresh, rather than keeping a second launch state machine.
@@ -108,20 +107,15 @@ internal sealed class GlassShellRuntime : IDisposable {
         bool loadingInstances = ModMinecraft.McInstanceListLoader.State == ModBase.LoadState.Loading ||
                                 ModMinecraft.McFolderListLoader.State == ModBase.LoadState.Loading;
         bool downloadRequired = !hasInstance && CanOfferInstall();
-        bool canLaunch = !loadingInstances && !waitingForRole &&
+        bool canLaunch = !loadingInstances && !waitingForRole && !verifyingCharacter &&
             (downloadRequired || (hasInstance && !ModMinecraft.McInstanceLock.BlocksNavigation(instance!)));
         int page = _owner.GlassPageCode;
         string title = _owner.GlassPageTitle ?? string.Empty;
-        string? resourceTitle = page == (int)FormMain.PageType.Download ? ResourcePageTitle(_owner.PageRight) : null;
+        string? resourceTitle = page == (int)FormMain.PageType.Download ? ResourceBrowserCatalog.Find(_owner.GlassDownloadsSubPage)?.Title : null;
         bool recentEnabled = Settings.Get<bool>("LaunchRecentWorlds");
-        if (page == (int)FormMain.PageType.Launch && recentEnabled && instance is not null && !launching && !launch.HasRunningGame) {
-            if (now >= _nextRecentPresentationRefresh) {
-                _nextRecentPresentationRefresh = now + 1;
-                ReuseRecentPresentation(instance);
-            }
-            if (!_recentRefreshPending && now >= _nextRecentRefresh && !string.IsNullOrEmpty(_gameFolder))
-                BeginRecentRefresh(instance.PathVersion, _gameFolder);
-        }
+        if (page == (int)FormMain.PageType.Launch && recentEnabled && instance is not null && !launching && !launch.HasRunningGame &&
+            !_recentRefreshPending && now >= _nextRecentRefresh && !string.IsNullOrEmpty(_gameFolder))
+            BeginRecentRefresh(instance, _gameFolder);
 
         var operation = ModLaunch.McLaunchLoaderReal;
         double? progress = null;
@@ -133,15 +127,15 @@ internal sealed class GlassShellRuntime : IDisposable {
             launchStatus = OneLine(operation?.GetLoaderList(false)
                 .FirstOrDefault(task => task.State == ModBase.LoadState.Loading)?.Name ?? launch.Task.Name, 160);
         }
-        bool recentAvailable = recentEnabled && _recentWorld is not null && instance is not null &&
+        bool recentAvailable = recentEnabled && !_recentWorldSessionActive && _recentWorld is not null && instance is not null &&
             SamePath(_recentWorld.VersionPath, instance.PathVersion) && SamePath(_recentWorld.GameFolder, _gameFolder);
         _view.SetState(new GlassLauncherViewState {
-            IsHome = page == (int)FormMain.PageType.Launch && !ShowLegacyHome,
+            IsHome = page == (int)FormMain.PageType.Launch,
             // Detail pages keep the rail selection and secondary title of the page they were opened from.
             SelectedNavigationId = _owner.GlassContextOrigin is { } origin ? (int)origin : page,
-            PageTitle = ShowLegacyHome && page == (int)FormMain.PageType.Launch ? "主页内容与启动日志" : resourceTitle ?? title,
+            PageTitle = resourceTitle ?? title,
             IsResourceList = resourceTitle is not null,
-            CanGoBack = ShowLegacyHome || !string.IsNullOrEmpty(title),
+            CanGoBack = !string.IsNullOrEmpty(title),
             AccountName = accountName,
             AccountAvatar = accountAvatar,
             HasInstance = hasInstance,
@@ -150,7 +144,7 @@ internal sealed class GlassShellRuntime : IDisposable {
             InstanceIcon = _instanceIcon,
             CanLaunch = canLaunch,
             IsLaunching = launching,
-            LaunchText = waitingForRole ? "请先选择角色" : loadingInstances ? "正在加载" : downloadRequired ? "下载游戏" : "启动游戏",
+            LaunchText = verifyingCharacter ? "正在验证角色" : waitingForRole ? "请先选择角色" : loadingInstances ? "正在加载" : downloadRequired ? "下载游戏" : "启动游戏",
             LaunchStatus = launchStatus,
             LaunchProgress = progress,
             DependencyCheckEnabled = Settings.Get<bool>("LaunchModDependencyCheck"),
@@ -165,16 +159,6 @@ internal sealed class GlassShellRuntime : IDisposable {
         });
     }
 
-    // Resolve the displayed page, rather than a queued navigation selection during page transitions.
-    private static string? ResourcePageTitle(MyPageRight? page) => page switch {
-        PageDownloadMod => "模组",
-        PageDownloadResourcePack => "资源包",
-        PageDownloadDataPack => "数据包",
-        PageDownloadShader => "光影包",
-        PageDownloadMap => "地图",
-        PageDownloadPack => "整合包",
-        _ => null
-    };
 
     public void Dispose() {
         _owner.Dispatcher.VerifyAccess();
@@ -214,9 +198,9 @@ internal sealed class GlassShellRuntime : IDisposable {
         string kind = account.Provider switch {
             AccountProvider.Microsoft => "Ms", AccountProvider.Nide => "Nide", AccountProvider.Auth => "Auth", _ => "Legacy"
         };
-        var request = LaunchPageRuntime.Skins.Input(kind);
-        string name = kind == "Legacy" ? LaunchPageRuntime.Skins.OfflineAccountName() : account.Authenticated ? request.Name : "";
-        return string.IsNullOrWhiteSpace(name) ? ("未登录", null) : (OneLine(name, 100), LaunchPageRuntime.Avatar(kind, request));
+        var request = LauncherSkinSessions.Skins.Input(kind);
+        string name = kind == "Legacy" ? LauncherSkinSessions.Skins.OfflineAccountName() : account.Authenticated ? request.Name : "";
+        return string.IsNullOrWhiteSpace(name) ? ("未登录", null) : (OneLine(name, 100), LauncherSkinSessions.Avatar(kind, request));
     }
 
     internal static DrawingImage ComposeAccountAvatar(ImageSource back, ImageSource? fore) {
@@ -230,32 +214,35 @@ internal sealed class GlassShellRuntime : IDisposable {
         return image;
     }
 
-    private void ReuseRecentPresentation(McInstance instance) {
-        var oldItem = ModMain.FrmLaunchRight?.ItemRecentWorld;
-        RecentWorld? world = oldItem?.Tag as RecentWorld;
-        ImageSource? icon = oldItem?.Children.OfType<Canvas>()
-            .Select(canvas => (canvas.Background as ImageBrush)?.ImageSource).FirstOrDefault(source => source is not null);
-        if (ReferenceEquals(world, _observedRecentTag) && ReferenceEquals(icon, _observedRecentIcon)) return;
-        _observedRecentTag = world; _observedRecentIcon = icon;
-        if (world is null || !SamePath(world.VersionPath, instance.PathVersion) || !SamePath(world.GameFolder, _gameFolder)) return;
-        SetRecentPresentation(world, icon);
-        _recentImagePath = null;
+    internal void RequestRecentWorldRefresh() {
+        _recentRevision++;
+        _discoverWorlds = true;
+        _nextRecentRefresh = 0;
+        _requestWorkspaceRefresh();
     }
 
-    private void BeginRecentRefresh(string versionPath, string gameFolder) {
+    private void BeginRecentRefresh(McInstance instance, string gameFolder) {
         _nextRecentRefresh = Timestamp() + 5;
         _recentRefreshPending = true;
+        bool discover = _discoverWorlds;
+        _discoverWorlds = false;
         int revision = _recentRevision;
+        string versionPath = instance.PathVersion;
         string? previousImagePath = _recentImagePath;
         DateTime previousImageStamp = _recentImageStamp;
         ImageSource? previousIcon = _recentIcon;
-        // Discovery/recovery remains in PageLaunchRight's existing controller. This reads its established history only.
         _ = Task.Run(() => {
             RecentWorld? world = null;
             ImageSource? icon = null;
             string? imagePath = null;
             DateTime imageStamp = default;
+            bool running = false;
             try {
+                if (discover) {
+                    QuickPlayWorlds.RecoverExitedSessions();
+                    QuickPlayWorlds.DiscoverExistingWorlds(instance);
+                }
+                running = QuickPlayWorlds.HasRunningSessions();
                 world = QuickPlayWorlds.Recent().FirstOrDefault(item =>
                     SamePath(item.VersionPath, versionPath) && SamePath(item.GameFolder, gameFolder));
                 if (world is not null) {
@@ -272,14 +259,8 @@ internal sealed class GlassShellRuntime : IDisposable {
                 _owner.Dispatcher.BeginInvoke(new Action(() => {
                     _recentRefreshPending = false;
                     if (_disposed || revision != _recentRevision) return;
+                    _recentWorldSessionActive = running;
                     SetRecentPresentation(world, icon);
-                    // At startup the original launch page discovers existing worlds a moment after the first read, so
-                    // an empty result is retried quickly instead of waiting the normal five seconds.
-                    if (world is null && _emptyRecentRetries < 3)
-                    {
-                        _emptyRecentRetries++;
-                        _nextRecentRefresh = Math.Min(_nextRecentRefresh, Timestamp() + .8);
-                    }
                     _recentImagePath = imagePath;
                     _recentImageStamp = imageStamp;
                     _requestWorkspaceRefresh();
@@ -298,24 +279,24 @@ internal sealed class GlassShellRuntime : IDisposable {
     }
 
     private void InvalidateRecent() {
-        _recentRevision++;
-        _recentWorld = _observedRecentTag = null;
-        _recentIcon = _observedRecentIcon = null;
+        _recentWorld = null;
+        _recentIcon = null;
+        _recentWorldSessionActive = false;
         _recentName = _recentDetail = string.Empty;
         _recentImagePath = null;
         _recentImageStamp = default;
-        _nextRecentRefresh = 0;
-        _nextRecentPresentationRefresh = 0;
-        _emptyRecentRetries = 0;
+        RequestRecentWorldRefresh();
     }
 
     private static bool CanOfferInstall() => !ModModpackMode.Enabled &&
-        (!Settings.Get<bool>("UiHiddenPageDownload") || PageSetupUI.HiddenForceShow);
+        (!Settings.Get<bool>("UiHiddenPageDownload") || LauncherAppearanceSettings.HiddenForceShow);
+
+    internal void StartFromHome() => OnStartRequested(this, EventArgs.Empty);
 
     private void OnStartRequested(object? sender, EventArgs arguments) {
         VerifyUsable();
         CancelPendingInstanceSettings();
-        if (!LauncherApplicationServices.IsLaunchActive() && !GlassSkinSites.RoleSelectionPending &&
+        if (!LauncherApplicationServices.IsLaunchActive() && !LauncherApplicationServices.IsLaunchAccountPending &&
             (ModMinecraft.McInstanceSelected is not { } selected || !ModModpackMode.AllowsInstance(selected.PathVersion)) &&
             CanOfferInstall() && ModMinecraft.McInstanceListLoader.State != ModBase.LoadState.Loading &&
             ModMinecraft.McFolderListLoader.State != ModBase.LoadState.Loading)
@@ -381,7 +362,7 @@ internal sealed class GlassShellRuntime : IDisposable {
             return;
         }
         CancelPendingInstanceSettings();
-        PageInstanceLeft.Instance = instance;
+        LauncherInstanceContext.Instance = instance;
         _owner.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceOverall);
         _requestWorkspaceRefresh();
     }
@@ -395,7 +376,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         VerifyUsable();
         McInstance? instance = LauncherApplicationServices.Instances.ReadSnapshot().Instance;
         RecentWorld? world = _recentWorld;
-        if (instance is null || world is null || !Settings.Get<bool>("LaunchRecentWorlds") ||
+        if (instance is null || world is null || _recentWorldSessionActive || !Settings.Get<bool>("LaunchRecentWorlds") ||
             LauncherApplicationServices.IsLaunchActive() || LauncherApplicationServices.Launch.ReadSnapshot().HasRunningGame) return;
         if (!SamePath(instance.PathVersion, world.VersionPath) || !SamePath(instance.PathIndie, world.GameFolder)) {
             InvalidateRecent();
@@ -405,9 +386,8 @@ internal sealed class GlassShellRuntime : IDisposable {
         }
         _requestWorkspaceRefresh();
     }
-    private void OnBackRequested(object? sender, EventArgs arguments) { VerifyUsable(); if (ShowLegacyHome) ShowLegacyHome = false; else _owner.PageBack(); _requestWorkspaceRefresh(); }
+    private void OnBackRequested(object? sender, EventArgs arguments) { VerifyUsable(); _owner.PageBack(); _requestWorkspaceRefresh(); }
     private void OnNavigationRequested(int page) {
-        ShowLegacyHome = false;
         VerifyUsable();
         if (page is not (0 or 1 or 10 or 2 or 3 or 4)) return;
         _owner.PageChange((FormMain.PageType)page);
@@ -419,7 +399,6 @@ internal sealed class GlassShellRuntime : IDisposable {
         VerifyUsable();
         // Settings.Set invokes the original LaunchDependencyCheck.SettingsChanged callback exactly once.
         if (Settings.Get<bool>(name) != value) Settings.Set(name, value);
-        ModMain.FrmLaunchRight?.RefreshDependencyOptions();
         _requestWorkspaceRefresh();
     }
 
@@ -440,7 +419,7 @@ internal sealed class GlassShellRuntime : IDisposable {
         DateTime played = world.PlayedUtc.ToLocalTime();
         return (played.Date == DateTime.Today ? played.ToString("HH:mm") : played.ToString("MM/dd")) + " · " + instanceName;
     }
-    private static ImageSource? LoadInstanceIcon(string? address, string? versionFolder = null) {
+    internal static ImageSource? LoadInstanceIcon(string? address, string? versionFolder = null) {
         if (string.IsNullOrWhiteSpace(address)) return null;
         try {
             // A modpack's own icon or a custom one is stored relative to the instance folder (e.g. "PCL\Logo.png").

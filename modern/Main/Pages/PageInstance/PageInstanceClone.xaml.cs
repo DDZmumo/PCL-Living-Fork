@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 using System;
 using System.Collections.Generic;
+using System.Windows;
 using PCLCS;
 using ClonePageController = PCLCS.InstanceClonePageController<PCL.ModMinecraft.McInstance, PCL.InstanceCloneOptions>;
 using ClonePageHost = PCLCS.InstanceClonePageHost<PCL.ModMinecraft.McInstance, PCL.InstanceCloneOptions>;
@@ -14,12 +15,19 @@ namespace PCL
     public partial class PageInstanceClone : IRefreshable
     {
         private readonly ClonePageController Controller;
+        private readonly List<Validate> nameRules = new();
         private readonly InstanceClonerUi.ChangedEventHandler ChangedHandler;
         public PageInstanceClone()
         {
-            __LfAttachOwnHandles();
             ChangedHandler = Refresh;
-            this.InitializeComponent();
+            InitializeComponent();
+            AttachScroll(PanBack);
+            var placeholder = Theme.Note("输入新的版本名称", 13);
+            placeholder.VerticalAlignment = VerticalAlignment.Center;
+            placeholder.IsHitTestVisible = false;
+            placeholder.Margin = new Thickness(12, 0, 12, 0);
+            GlassPageResources.BindTextPlaceholder(TextName, placeholder);
+            NameEditor.Children.Add(placeholder);
             var View = new InstanceClonePageView()
             {
                 NameControl = TextName,
@@ -31,17 +39,17 @@ namespace PCL
                 Validation = LabValidation,
                 NameText = new Func<string>(() => this.TextName.Text),
                 SetNameText = new Action<string>(Value => this.TextName.Text = Value),
-                ClearValidationRules = new Action(() => this.TextName.ValidateRules.Clear()),
-                AddFolderRule = new Action<string>(Folder => this.TextName.ValidateRules.Add(new ValidateFolderName(Folder))),
-                ValidateNativeName = new Func<string, string>(Value => ModValidate.Validate(Value, (IEnumerable<Validate>)this.TextName.ValidateRules)),
-                CopySaves = new Func<bool>(() => this.CheckSaves.Checked),
-                CopyScreenshots = new Func<bool>(() => this.CheckScreenshots.Checked),
-                CopyServers = new Func<bool>(() => this.CheckServers.Checked),
-                ScrollHome = new Action(() => this.PanBack.ScrollToHome())
+                ClearValidationRules = new Action(() => nameRules.Clear()),
+                AddFolderRule = new Action<string>(Folder => nameRules.Add(new ValidateFolderName(Folder))),
+                ValidateNativeName = new Func<string, string>(Value => ModValidate.Validate(Value, nameRules)),
+                CopySaves = new Func<bool>(() => this.CheckSaves.IsChecked == true),
+                CopyScreenshots = new Func<bool>(() => this.CheckScreenshots.IsChecked == true),
+                CopyServers = new Func<bool>(() => this.CheckServers.IsChecked == true),
+                ScrollHome = PanBack.ScrollToTop
             };
             var Host = new ClonePageHost()
             {
-                CurrentInstance = new Func<ModMinecraft.McInstance>(() => PageInstanceLeft.Instance),
+                CurrentInstance = new Func<ModMinecraft.McInstance>(() => LauncherInstanceContext.Instance),
                 Name = new Func<ModMinecraft.McInstance, string>(Instance => Instance.Name),
                 VersionPath = new Func<ModMinecraft.McInstance, string>(Instance => Instance.PathVersion),
                 SourceVersionFolder = InstanceCloner.SourceVersionFolder,
@@ -53,6 +61,11 @@ namespace PCL
                 Migrate = InstanceClonerUi.Migrate
             };
             Controller = new ClonePageController(View, Host);
+            Loaded += (_, _) => PageLoaded();
+            Unloaded += (_, _) => PageUnloaded();
+            TextName.TextChanged += (_, _) => NameChanged();
+            BtnClone.Click += (_, _) => CloneVersion();
+            BtnMigrate.Click += (_, _) => MigrateVersion();
         }
 
         private void BindChanged(bool Attach)

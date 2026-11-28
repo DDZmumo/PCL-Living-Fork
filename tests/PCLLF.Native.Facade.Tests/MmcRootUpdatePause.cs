@@ -6,13 +6,13 @@ namespace PCLLF.Native.Facade.Tests;
 // Pause only the existing shared scheduling boundary. The genuine Update and its producer
 // observer are preserved and run after cancellation; this does not replace worker algorithms.
 internal sealed class MmcRootUpdatePause:IDisposable {
-    private readonly LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,MyLoading.MyLoadingState> host;
+    private readonly LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,LauncherLoadingState> host;
     private readonly Action<Action> original;
     private readonly ManualResetEventSlim returned=new();
     private Action? captured;
     internal bool Captured=>captured is not null;
     internal MmcRootUpdatePause(Func<ModLoader.LoaderCombo<string>?> selected){
-        host=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
+        host=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,LauncherLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
         original=host.RunInThread;
         host.RunInThread=work=>{
             Type? type=work.Target?.GetType();

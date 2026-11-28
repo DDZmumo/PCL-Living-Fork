@@ -59,7 +59,8 @@ public sealed class DownloadInstallPageView {
     public TextBox Name = null!;
     public TextBlock MinecraftVersion = null!;
     public FrameworkElement HintFabricApi = null!, HintOptiFabric = null!, HintOptiFabricOld = null!, HintModOptiFine = null!;
-    public Action<string?> Logo = null!, MinecraftLogo = null!, NameHintText = null!;
+    public Action<string?> Logo = null!, NameHintText = null!;
+    public Action<string?>? MinecraftLogo;
     public Func<bool> NameValidated = null!;
     public Func<string?> NameValidationResult = null!;
     public Action ValidateName = null!, ScrollHome = null!;
@@ -77,8 +78,8 @@ public sealed class DownloadInstallPageHost<TOptiFine, TForge, TNeo, TLite, TRes
     public DownloadInstallSource<JObject> Fabric = null!;
     public DownloadInstallSource<List<TResource>> FabricApi = null!, OptiFabric = null!;
     public Func<DownloadInstallForgeSource<TForge>> Forge = null!;
-    public Action BindLoaders = null!, RefreshRecommended = null!, InitializeLoader = null!, InitializeNameValidation = null!;
-    public Action<bool> SuppressStartAnimation = null!, StartShow = null!;
+    public Action RefreshRecommended = null!, InitializeLoader = null!, InitializeNameValidation = null!;
+    public Action<bool> StartShow = null!;
     public Func<FrameworkElement, IEnumerable<FrameworkElement>> AnimationControls = null!;
     public Action<string> StartForge = null!;
     public Func<bool> ClientFinished = null!;
@@ -96,8 +97,6 @@ public sealed class DownloadInstallPageHost<TOptiFine, TForge, TNeo, TLite, TRes
     public Func<TResource, Action<FrameworkElement, EventArgs>, FrameworkElement> FabricApiRow = null!, OptiFabricRow = null!;
     public Action<Panel, List<TForge>, Action<FrameworkElement, EventArgs>> ForgePreload = null!;
     public Action<Panel, List<TNeo>, Action<FrameworkElement, EventArgs>> NeoForgePreload = null!;
-    public Action<IEnumerable<JObject>, Action<FrameworkElement, EventArgs>> FabricBuilder = null!;
-    public Action BuildFabric = null!;
     public Func<FrameworkElement, FrameworkElement> Materialize = null!;
     public Func<FrameworkElement, string?> RowTitle = null!, RowLogo = null!;
     public Func<string, Panel, List<JObject>, Action<FrameworkElement, MouseButtonEventArgs>, bool, FrameworkElement> MinecraftCard = null!;

@@ -1,888 +1,345 @@
+// SPDX-License-Identifier: MPL-2.0
+#nullable enable
 using System;
-using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Xml.Linq;
 using MeloongCore;
-using MeloongCore.Extensions;
-using MeloongCore.Wpf;
-using MeloongCore.Wpf.Extensions;
-using Microsoft.VisualBasic;
 using Microsoft.VisualBasic.CompilerServices;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
-using InstallKind = global::PCLCS.DownloadInstallComponent;
-using ModifyCore = global::PCLCS.DownloadModifyPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading, global::PCL.ModAnimation.AniData>;
-using ThrottleDebounce;
+using PCLLF.Wpf.Glass;
+using static PCL.ModDownload;
+using Instance = PCL.ModMinecraft.McInstance;
+using LoadState = PCL.ModBase.LoadState;
+using InstallKind = PCLCS.DownloadInstallComponent;
+using ForgeLoader = PCL.ModLoader.LoaderTask<string, System.Collections.Generic.List<PCL.ModDownload.DlForgeVersionEntry>>;
+using ModifyLoader = PCL.ModLoader.LoaderTask<PCL.ModMinecraft.McInstance, object>;
+using ModifyCore = PCLCS.DownloadModifyPageController<PCL.ModMinecraft.McInstance, PCL.ModMinecraft.McInstance.McInstanceState, PCL.ModMinecraft.McInstanceCardType, PCL.ModDownload.DlOptiFineListEntry, PCL.ModDownload.DlForgelikeEntry, PCL.ModDownload.DlForgeVersionEntry, PCL.ModDownload.DlNeoForgeListEntry, PCL.ModDownload.DlLiteLoaderListEntry, PCL.ResourceVersion, PCL.ModDownloadLib.McInstallRequest, PCL.ModLoader.LoaderBase, PCLCS.DownloadInstallComponent, PCL.ModAnimation.AniData>;
+using ModifyHost = PCLCS.DownloadModifyPageHost<PCL.ModDownload.DlOptiFineListEntry, PCL.ModDownload.DlForgeVersionEntry, PCL.ModDownload.DlNeoForgeListEntry, PCL.ModDownload.DlLiteLoaderListEntry, PCL.ResourceVersion, PCL.ModDownloadLib.McInstallRequest, PCL.ModMinecraft.McInstance, PCL.ModLoader.LoaderBase, PCLCS.DownloadInstallComponent>;
 
-namespace PCL
+namespace PCL;
+
+public sealed class PageDownloadModify : PageDownloadInstall
 {
-    // LF's original XAML, virtual dispatch, loaders and fields. All workflows and comparison decisions are C#.
-    public partial class PageDownloadModify : global::PCL.PageDownloadInstall
+    private readonly Instance? _owner;
+    private readonly ModifyLoader InitLoader;
+    private readonly Dictionary<int, DownloadModifyComparison> _comparisons = new();
+    private readonly Grid _minecraftChange;
+    private readonly Expander _minecraftPicker;
+    private readonly TextBox _minecraftSearch;
+    private readonly ListBox _minecraftOptions;
+    private readonly TextBlock _noVersions;
+    private readonly GlassSurface _packCard;
+    private readonly TextBlock _packInfo;
+    private JArray? _displayedCatalog;
+    private MinecraftChoice[] _choices = [];
+    private bool _applied;
+    private readonly ModifyState _state = new();
+    private McComponents? InitialTarget { get => _state.InitialTarget; set => _state.InitialTarget = value; }
+    private ModifyCore ModifyService { get; }
+
+    public PageDownloadModify() : this(null) { }
+
+    internal PageDownloadModify(Instance? owner) : base(true)
     {
-        private global::PCL.ModLoader.LoaderTask<global::PCL.ModMinecraft.McInstance, global::System.Object> InitLoader;
-        private global::PCL.ModLoader.LoaderTask<global::System.String, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>> ForgeVersionLoader;
-        private global::PCLCS.McComponents InitialTarget;
-        private global::System.Boolean IsVanillaVersionReliable;
-        private global::System.String OriginalName;
-        private global::System.String CustomLogo;
-        private readonly global::System.Collections.Generic.Dictionary<global::PCL.MyLoading, global::System.String> PendingComponents;
-        private global::System.Boolean IsRestoringComponents;
-        internal global::System.Windows.Controls.WrapPanel PackUpdateButtons;
-        internal global::System.Windows.Controls.TextBlock PackUpdateName;
-        internal global::System.Windows.Controls.TextBlock PackUpdateInfo;
-        private global::PCLCS.DownloadModifyPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading, global::PCL.ModAnimation.AniData> ModifyController;
-        private global::PCLCS.DownloadModifyPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading, global::PCL.ModAnimation.AniData> ModifyService
-        {
-            get
-            {
-                if (this.ModifyController is null)
-                    this.ModifyController = new global::PCLCS.DownloadModifyPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgelikeEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading, global::PCL.ModAnimation.AniData>(this.CreateModifyHost(), this.CreateModifyAnimations());
-                return this.ModifyController;
-            }
-        }
-
-        public PageDownloadModify()
-        {
-            __LfAttachOwnHandles();
-            this.PendingComponents = new global::System.Collections.Generic.Dictionary<global::PCL.MyLoading, global::System.String>();
-        }
-
-        private global::PCLCS.DownloadModifyPageHost<global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModMinecraft.McInstance, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading> CreateModifyHost()
-        {
-            return new global::PCLCS.DownloadModifyPageHost<global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion, global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModMinecraft.McInstance, global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading>()
-            {
-                Selection = new global::PCL.PageDownloadModify.SelectionAdapter(this),
-                State = new global::PCL.PageDownloadModify.StateAdapter(this),
-                View = this.CreateModifyView,
-                Comparison = this.CreateComparison,
-                ComparisonCard = new Func<global::System.Windows.Controls.Grid, global::PCLCS.DownloadModifyComparison>(Panel => global::PCL.PageDownloadModify.NativeCard((global::PCL.MyCard)Panel.Parent)),
-                PackButtons = new Func<global::System.Windows.Controls.WrapPanel>(() => this.PackUpdateButtons),
-                PackName = new Func<global::System.Windows.Controls.TextBlock>(() => this.PackUpdateName),
-                PackInfo = new Func<global::System.Windows.Controls.TextBlock>(() => this.PackUpdateInfo),
-                SetPackButtons = new Action<global::System.Windows.Controls.WrapPanel>(Value => this.PackUpdateButtons = Value),
-                SetPackName = new Action<global::System.Windows.Controls.TextBlock>(Value => this.PackUpdateName = Value),
-                SetPackInfo = new Action<global::System.Windows.Controls.TextBlock>(Value => this.PackUpdateInfo = Value),
-                Card = new Func<global::System.String, global::System.Windows.Thickness, global::System.Windows.Controls.Panel>((Title, Margin) => new global::PCL.MyCard() { Title = Title, Margin = Margin }),
-                UpdateButton = global::PCL.PageDownloadModify.CreateUpdateButton,
-                StartPackUpdate = new Action<global::System.Boolean>(Online => global::PCL.ModpackUpdateFlow.Start(global::PCL.PageInstanceLeft.Instance, Online)),
-                OpenPackBackups = new Action(() => global::PCL.ModpackUpdateFlow.OpenBackups(global::PCL.PageInstanceLeft.Instance)),
-                BaseControlInit = this.ControlInit,
-                InitializeLoader = this.InitializeNativeLoader,
-                Restart = new Action(() => this.PageLoaderRestart()),
-                Cancel = new Action(() => this.InitLoader.Cancel()),
-                BaseClearSelected = this.ClearSelected,
-                BaseReloadSelected = this.InvokeBaseReload,
-                BaseShowMinecraftList = this.InvokeBaseShowMinecraft,
-                ChangeMinecraftInPlace = this.ChangeNativeMinecraftInPlace,
-                BasePrepareSelection = this.PrepareSelectPage,
-                BaseReloadLists = this.ReloadComponentLists,
-                BaseLogo = this.InvokeBaseLogo,
-                SelectName = this.GetSelectName,
-                Components = this.GetSelectedComponents,
-                SelectMinecraft = new Action<global::Newtonsoft.Json.Linq.JObject>(Version => this.MinecraftSelected(global::PCL.ModDownloadLib.McDownloadListItem(Version, (global::PCL.MyListItem.ClickEventHandler)null, false).Init(), (global::System.Windows.Input.MouseButtonEventArgs)null)),
-                MinecraftRow = new Func<global::Newtonsoft.Json.Linq.JObject, global::System.Windows.FrameworkElement>(Version => global::PCL.ModDownloadLib.McDownloadListItem(Version, (global::PCL.MyListItem.ClickEventHandler)null, false).Init()),
-                RowTitle = new Func<global::System.Windows.FrameworkElement, global::System.String>(Row => ((global::PCL.MyListItem)Row).Title),
-                RowLogo = new Func<global::System.Windows.FrameworkElement, global::System.String>(Row => ((global::PCL.MyListItem)Row).Logo),
-                InitInput = new Func<global::PCL.ModMinecraft.McInstance>(() => this.InitLoader.Input),
-                UiWait = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUiWait(() => Work())),
-                DetectPack = new Func<global::System.String, global::Newtonsoft.Json.Linq.JObject>(Path => global::PCL.ModpackUpdate.Detect(Path)),
-                NewInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Path => new global::PCL.ModMinecraft.McInstance(Path)),
-                CatalogLoaders = new Func<global::System.Collections.Generic.Dictionary<global::System.String, global::PCL.ModLoader.LoaderBase>>(() => new global::System.Collections.Generic.Dictionary<global::System.String, global::PCL.ModLoader.LoaderBase>() { { "Minecraft", global::PCL.ModDownload.DlClientListLoader }, { "OptiFine", global::PCL.ModDownload.DlOptiFineListLoader }, { "LiteLoader", global::PCL.ModDownload.DlLiteLoaderListLoader }, { "NeoForge", global::PCL.ModDownload.DlNeoForgeListLoader }, { "Fabric", global::PCL.ModDownload.DlFabricListLoader }, { "Fabric API", global::PCL.ModDownload.DlFabricApiLoader }, { "OptiFabric", global::PCL.ModDownload.DlOptiFabricLoader } }),
-                CreateForgeLoader = new Func<global::System.String, global::PCL.ModLoader.LoaderBase>(Version => new global::PCL.ModLoader.LoaderTask<global::System.String, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>>("DlForgeVersion " + Version, global::PCL.ModDownload.DlForgeVersionMain)),
-                States = new global::PCLCS.MinecraftInstallStates()
-                {
-                    Waiting = (global::System.Int32)global::PCL.ModBase.LoadState.Waiting,
-                    Loading = (global::System.Int32)global::PCL.ModBase.LoadState.Loading,
-                    Finished = (global::System.Int32)global::PCL.ModBase.LoadState.Finished,
-                    Failed = (global::System.Int32)global::PCL.ModBase.LoadState.Failed,
-                    Canceled = (global::System.Int32)global::PCL.ModBase.LoadState.Canceled
-                },
-                StartLoader = new Action<global::PCL.ModLoader.LoaderBase, global::System.Object, global::System.Boolean>((Loader, Input, Force) => Loader.Start(Input, Force)),
-                LoaderState = new Func<global::PCL.ModLoader.LoaderBase, global::System.Int32>(Loader => (global::System.Int32)Loader.State),
-                LoaderError = new Func<global::PCL.ModLoader.LoaderBase, global::System.Exception>(Loader => Loader.Error),
-                LoaderProgress = new Func<global::PCL.ModLoader.LoaderBase, global::System.Double>(Loader => Loader.Progress),
-                ForgeInput = new Func<global::PCL.ModLoader.LoaderBase, global::System.String>(Loader => ((global::PCL.ModLoader.LoaderTask<global::System.String, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>>)Loader).Input),
-                ForgeOutput = new Func<global::PCL.ModLoader.LoaderBase, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>>(Loader => ((global::PCL.ModLoader.LoaderTask<global::System.String, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>>)Loader).Output),
-                BindForge = new Action<global::PCL.ModLoader.LoaderBase>(Loader => this.LoadForge.State = Loader),
-                SwapRestoreParent = new Action<global::System.Windows.FrameworkElement, global::System.Boolean>((Button, Swapped) => ((global::PCL.MyCard)Button.Parent).IsSwapped = Swapped),
-                LoadingControl = this.ReadLoading,
-                IsLoader = new Func<global::PCL.MyLoading, global::System.Boolean>(Loading => Loading.State.IsLoader),
-                ReadLoader = new Func<global::PCL.MyLoading, global::PCL.ModLoader.LoaderBase>(Loading => (global::PCL.ModLoader.LoaderBase)Loading.State),
-                ComponentError = this.ReadComponentError,
-                ClientOutput = new Func<global::Newtonsoft.Json.Linq.JObject>(() => global::PCL.ModDownload.DlClientListLoader.Output.Value),
-                FabricOutput = new Func<global::Newtonsoft.Json.Linq.JObject>(() => global::PCL.ModDownload.DlFabricListLoader.Output.Value),
-                OptiFineHashes = this.ReadOptiFineHashes,
-                OptiFineOutput = new Func<global::System.Collections.Generic.List<global::PCL.ModDownload.DlOptiFineListEntry>>(() => global::PCL.ModDownload.DlOptiFineListLoader.Output.Value),
-                NeoForgeOutput = new Func<global::System.Collections.Generic.List<global::PCL.ModDownload.DlNeoForgeListEntry>>(() => global::PCL.ModDownload.DlNeoForgeListLoader.Output.Value),
-                LiteLoaderOutput = new Func<global::System.Collections.Generic.List<global::PCL.ModDownload.DlLiteLoaderListEntry>>(() => global::PCL.ModDownload.DlLiteLoaderListLoader.Output.Value),
-                FabricApiOutput = new Func<global::System.Collections.Generic.List<global::PCL.ResourceVersion>>(() => global::PCL.ModDownload.DlFabricApiLoader.Output),
-                OptiFabricOutput = new Func<global::System.Collections.Generic.List<global::PCL.ResourceVersion>>(() => global::PCL.ModDownload.DlOptiFabricLoader.Output),
-                OptiFineMirrorFinished = new Func<global::System.Boolean>(() => (global::PCL.ModDownload.DlOptiFineListBmclapiLoader.State == global::PCL.ModBase.LoadState.Finished)),
-                WaitOptiFineMirror = new Action(() => global::PCL.ModDownload.DlOptiFineListBmclapiLoader.WaitForExit()),
-                CopyOptiFineMirror = new Action(() => global::PCL.ModDownload.DlOptiFineListLoader.Output = global::PCL.ModDownload.DlOptiFineListBmclapiLoader.Output),
-                LocalSha1 = new Func<global::System.IO.FileInfo, global::System.String>(File => new global::PCL.LocalResourceFile(File).ModrinthHash),
-                ChooseMod = new Func<global::System.Collections.Generic.IEnumerable<global::System.String>, global::System.String, global::System.Int32?>((Names, Title) => global::PCL.ModMain.MyMsgBoxSelect(Names.Select(Name => ((global::PCL.IMyRadio)(new global::PCL.MyRadioBox() { Text = Name }))), Title)),
-                ReadIniBoolean = new Func<global::System.String, global::System.String, global::System.Boolean>((File, Key) => Conversions.ToBoolean(global::PCL.ModBase.ReadIni(File, Key, Conversions.ToString(false)))),
-                ModpackEnabled = new Func<global::System.Boolean>(() => global::PCL.ModModpackMode.Enabled),
-                CanChangeMinecraft = global::PCL.ModModpackMode.CanChangeMinecraft,
-                MinecraftFolder = new Func<global::System.String>(() => global::PCL.ModMinecraft.McFolderSelected),
-                Gray4 = new Func<global::System.Windows.Media.Brush>(() => global::PCL.ModSecret.ColorGray4),
-                Hint = global::PCL.PageDownloadModify.NativeHint,
-                Message = new Func<global::PCLCS.SelectionPageMessage, global::System.Int32>(Request => global::PCL.ModMain.MyMsgBox(Request.Text, Request.Title, Request.Button1, Request.Button2, Request.Button3, Request.IsWarn)),
-                Modify = new Func<global::PCL.ModDownloadLib.McInstallRequest, global::PCL.ModMinecraft.McInstance, global::System.Boolean>((Request, Instance) => global::PCL.ModDownloadLib.McModificationStart(Request, Instance)),
-                InstancePage = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
-                SetInstancePage = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.PageInstanceLeft.Instance = Value),
-                SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
-                SetSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value),
-                ReloadJava = global::PCL.PageInstanceLeft.ReloadCurrentJava,
-                RefreshInstances = new Action(() => global::PCL.ModLoader.LoaderFolderRun(global::PCL.ModMinecraft.McInstanceListLoader, global::PCL.ModMinecraft.McFolderSelected, global::PCL.ModLoader.LoaderFolderRunType.ForceRun, MaxDepth: 1, ExtraPath: @"versions\")),
-                PageBack = new Action(() => global::PCL.ModMain.FrmMain.PageBack())
-            };
-        }
-
-        private global::PCLCS.DownloadModifyPageView CreateModifyView()
-        {
-            return new global::PCLCS.DownloadModifyPageView()
-            {
-                Select = PanSelect,
-                SelectNameCard = CardSelectName,
-                AllBack = PanAllBack,
-                Back = PanBack,
-                Minecraft = PanMinecraft,
-                BackButton = BtnBack,
-                Logo = ImgLogo,
-                ChangeMinecraft = PanMinecraftChange,
-                Start = BtnStart,
-                NameRestore = BtnOriginalNameRestore,
-                Name = TextSelectName,
-                NameLabel = LabSelectName,
-                MinecraftVersion = LabMinecraftVersion,
-                ScrollHome = new Action(() => this.PanBack.ScrollToHome()),
-                MinecraftOldLogo = new Action<global::System.String>(Value => this.ImgMinecraftOld.Source = Value),
-                MinecraftNewLogo = new Action<global::System.String>(Value => this.ImgMinecraftNew.Source = Value),
-                NameValidated = new Func<global::System.Boolean>(() => this.TextSelectName.IsValidated),
-                ValidateName = new Action<global::System.String>(Ignore => this.TextSelectName.ValidateRules = new global::System.Collections.ObjectModel.Collection<global::PCL.Validate>() { new global::PCL.ValidateFolderName(global::PCL.ModMinecraft.McFolderSelected + "versions", IgnoreList: new global::System.Collections.Generic.List<global::System.String>() { Ignore }) }),
-                StartText = new Action<global::System.String>(Value => this.BtnStart.Text = Value),
-                SetStartLogo = new Action(() => this.BtnStart.Logo = global::PCL.ModMain.FrmInstanceLeft.ItemModify.Logo)
-            };
-        }
-
-        private global::PCLCS.DownloadModifyComparison CreateComparison(global::System.Int32 Kind)
-        {
-            switch (Kind)
-            {
-                case -(1):
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardMinecraft, this.PanMinecraftCompare, this.PanMinecraftInfo, this.BtnMinecraftRestore, this.LabMinecraftVersion, this.LabMinecraftOld);
-                }
-
-                case 0:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardOptiFine, this.PanOptiFineCompare, this.PanOptiFineInfo, this.BtnOptiFineRestore, this.LabOptiFine, this.LabOptiFineOld, this.BtnOptiFineClear);
-                }
-
-                case 1:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardLiteLoader, this.PanLiteLoaderCompare, this.PanLiteLoaderInfo, this.BtnLiteLoaderRestore, this.LabLiteLoader, this.LabLiteLoaderOld, this.BtnLiteLoaderClear);
-                }
-
-                case 2:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardForge, this.PanForgeCompare, this.PanForgeInfo, this.BtnForgeRestore, this.LabForge, this.LabForgeOld, this.BtnForgeClear);
-                }
-
-                case 3:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardNeoForge, this.PanNeoForgeCompare, this.PanNeoForgeInfo, this.BtnNeoForgeRestore, this.LabNeoForge, this.LabNeoForgeOld, this.BtnNeoForgeClear);
-                }
-
-                case 4:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardFabric, this.PanFabricCompare, this.PanFabricInfo, this.BtnFabricRestore, this.LabFabric, this.LabFabricOld, this.BtnFabricClear);
-                }
-
-                case 5:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardFabricApi, this.PanFabricApiCompare, this.PanFabricApiInfo, this.BtnFabricApiRestore, this.LabFabricApi, this.LabFabricApiOld, this.BtnFabricApiClear);
-                }
-
-                case 6:
-                {
-                    return global::PCL.PageDownloadModify.NativeComparison(this.CardOptiFabric, this.PanOptiFabricCompare, this.PanOptiFabricInfo, this.BtnOptiFabricRestore, this.LabOptiFabric, this.LabOptiFabricOld, this.BtnOptiFabricClear);
-                }
-
-                default:
-                {
-                    throw new global::System.ArgumentOutOfRangeException(nameof(Kind));
-                }
-            }
-        }
-
-        private static global::PCLCS.DownloadModifyComparison NativeCard(global::PCL.MyCard Card)
-        {
-            return new global::PCLCS.DownloadModifyComparison()
-            {
-                Card = Card,
-                MainSwap = new Func<global::System.Windows.FrameworkElement>(() => Card.MainSwap),
-                SetSwapped = new Action<global::System.Boolean>(Value => Card.IsSwapped = Value)
-            };
-        }
-
-        private static global::PCLCS.DownloadModifyComparison NativeComparison(global::PCL.MyCard Card, global::System.Windows.Controls.Grid Compare, global::System.Windows.FrameworkElement Current, global::PCL.MyIconButton Restore, global::System.Windows.Controls.TextBlock Label, global::System.Windows.Controls.TextBlock OldLabel, global::System.Windows.FrameworkElement Clear = null)
-        {
-            var View = global::PCL.PageDownloadModify.NativeCard(Card);
-            View.Compare = Compare;
-            View.Current = Current;
-            View.Restore = Restore;
-            View.Label = Label;
-            View.OldLabel = OldLabel;
-            View.Clear = Clear;
-            return View;
-        }
-
-        private static global::System.Windows.FrameworkElement CreateUpdateButton(global::System.String Text, global::System.Action Click)
-        {
-            var Button = new global::PCL.MyButton()
-            {
-                Text = Text,
-                MinWidth = 140d,
-                Height = 35d,
-                Margin = new global::System.Windows.Thickness(0d, 13d, 20d, 0d),
-                Padding = new global::System.Windows.Thickness(13d, 0d, 13d, 0d)
-            };
-            Button.Click += (_, __) => Click();
-            return Button;
-        }
-
-        private void InitializeNativeLoader()
-        {
-            this.InitLoader = new global::PCL.ModLoader.LoaderTask<global::PCL.ModMinecraft.McInstance, global::System.Object>("初始化版本修改", this.LoadInstance);
-            this.PageLoaderInit(this.LoadMinecraft, this.PanLoad, this.PanAllBack, (global::System.Windows.FrameworkElement)null, this.InitLoader, this.LoadInstanceFinished, () => global::PCL.PageInstanceLeft.Instance);
-        }
-
-        private static global::PCLCS.DownloadModifyTask<global::PCL.ModMinecraft.McInstance> WrapTask(global::PCL.ModLoader.LoaderTask<global::PCL.ModMinecraft.McInstance, global::System.Object> Task)
-        {
-            return new global::PCLCS.DownloadModifyTask<global::PCL.ModMinecraft.McInstance>()
-            {
-                Input = new Func<global::PCL.ModMinecraft.McInstance>(() => Task.Input),
-                Output = new Func<global::System.Object>(() => Task.Output),
-                SetOutput = new Action<global::System.Object>(Value => Task.Output = Value),
-                Canceled = new Func<global::System.Boolean>(() => Task.IsCanceled),
-                ForceRestart = new Func<global::System.Boolean>(() => Task.IsForceRestarting),
-                Progress = new Action<global::System.Double>(Value => Task.Progress = Value)
-            };
-        }
-
-        private global::PCL.MyLoading ReadLoading(global::PCLCS.DownloadInstallComponent Kind)
-        {
-            switch (Kind)
-            {
-                case global::PCLCS.DownloadInstallComponent.OptiFine:
-                {
-                    return this.LoadOptiFine;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.LiteLoader:
-                {
-                    return this.LoadLiteLoader;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.Forge:
-                {
-                    return this.LoadForge;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.NeoForge:
-                {
-                    return this.LoadNeoForge;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.Fabric:
-                {
-                    return this.LoadFabric;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.FabricApi:
-                {
-                    return this.LoadFabricApi;
-                }
-
-                case global::PCLCS.DownloadInstallComponent.OptiFabric:
-                {
-                    return this.LoadOptiFabric;
-                }
-
-                default:
-                {
-                    throw new global::System.ArgumentOutOfRangeException(nameof(Kind));
-                }
-            }
-        }
-
-        private global::System.String ReadComponentError(global::PCLCS.DownloadInstallComponent Kind)
-        {
-            switch (Kind)
-            {
-                case global::PCLCS.DownloadInstallComponent.OptiFine:
-                {
-                    return this.LoadOptiFineGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.LiteLoader:
-                {
-                    return this.LoadLiteLoaderGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.Forge:
-                {
-                    return this.LoadForgeGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.NeoForge:
-                {
-                    return this.LoadNeoForgeGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.Fabric:
-                {
-                    return this.LoadFabricGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.FabricApi:
-                {
-                    return this.LoadFabricApiGetError();
-                }
-
-                case global::PCLCS.DownloadInstallComponent.OptiFabric:
-                {
-                    return this.LoadOptiFabricGetError();
-                }
-
-                default:
-                {
-                    throw new global::System.ArgumentOutOfRangeException(nameof(Kind));
-                }
-            }
-        }
-
-        private global::Newtonsoft.Json.Linq.JObject _ReadOptiFineHashes_Hashes = (global::Newtonsoft.Json.Linq.JObject)global::MeloongCore.FileUtils.ReadAsJson(@"Minecraft\OptiFineHashes.json", @type: typeof(global::PCLCS.Resource));
-        private global::Newtonsoft.Json.Linq.JObject ReadOptiFineHashes()
-        {
-            return _ReadOptiFineHashes_Hashes;
-        }
-
-        private void InvokeBaseReload()
-        {
-            base.ReloadSelected();
-        }
-
-        private void InvokeBaseShowMinecraft()
-        {
-            base.ShowMinecraftVersionList();
-        }
-
-        private global::System.String InvokeBaseLogo()
-        {
-            return base.GetSelectLogo();
-        }
-
-        private static void NativeHint(global::System.String Text, global::PCLCS.SelectionPageHint Kind)
-        {
-            switch (Kind)
-            {
-                case global::PCLCS.SelectionPageHint.Red:
-                {
-                    global::PCL.ModMain.Hint(Text, global::PCL.ModMain.HintType.Red);
-                    break;
-                }
-
-                case global::PCLCS.SelectionPageHint.Blue:
-                {
-                    global::PCL.ModMain.Hint(Text, global::PCL.ModMain.HintType.Blue);
-                    break;
-                }
-
-                default:
-                {
-                    global::PCL.ModMain.Hint(Text, global::PCL.ModMain.HintType.Green);
-                    break;
-                }
-            }
-        }
-
-        public override void LoaderInit() // 父级 Handles Me.Initialized
-        {
-            this.ModifyService.LoaderInit();
-        }
-
-        public override void Init() // 父级 Handles Me.Loaded
-        {
-            this.ModifyService.Init();
-        }
-
-        private void PageUnloaded()
-        {
-            this.ModifyService.Unloaded();
-        }
-
-        private void LoadInstance(global::PCL.ModLoader.LoaderTask<global::PCL.ModMinecraft.McInstance, global::System.Object> Task)
-        {
-            this.ModifyService.LoadInstance(global::PCL.PageDownloadModify.WrapTask(Task));
-        }
-
-        private (global::System.IO.FileInfo File, global::System.String Sha1, T Version)? SelectMod<T>(global::System.String ComponentName, global::System.Collections.Generic.List<(global::System.IO.FileInfo File, global::System.String Sha1, T Version)> Matches)
-        {
-            return this.ModifyService.SelectMod(ComponentName, Matches);
-        }
-
-        private void LoadInstanceFinished(global::PCL.ModLoader.LoaderTask<global::PCL.ModMinecraft.McInstance, global::System.Object> Task)
-        {
-            this.ModifyService.LoadInstanceFinished(global::PCL.PageDownloadModify.WrapTask(Task));
-        }
-
-        public override global::System.String GetSelectLogo()
-        {
-            return this.ModifyService.GetSelectLogo();
-        }
-
-        internal bool ChooseMinecraftInPlace(JObject version) => ModifyService.ChooseMinecraftInPlace(version);
-
-        public override void ShowMinecraftVersionList()
-        {
-            this.ModifyService.ShowMinecraftVersionList();
-        }
-
-        public override void ReloadSelected()
-        {
-            this.ModifyService.ReloadSelected();
-        }
-
-        internal void RefreshModpackRestrictions()
-        {
-            this.ModifyService.RefreshModpackRestrictions();
-        }
-
-        private void RefreshComparisons()
-        {
-            this.ModifyService.RefreshComparisons();
-        }
-
-        private void ShowComparison(global::System.Windows.Controls.Grid ComparePanel, global::System.Windows.FrameworkElement CurrentPanel, global::System.String OldVersion, global::System.String NewVersion, global::System.String NewText, global::PCL.MyIconButton RestoreButton, global::System.Boolean CanRestore, global::System.Windows.FrameworkElement ClearButton = null)
-        {
-            this.ModifyService.ShowComparison(ComparePanel, CurrentPanel, OldVersion, NewVersion, NewText, RestoreButton, CanRestore, ClearButton);
-        }
-
-        private void RestoreComponent(global::System.Object sender, global::System.EventArgs e)
-        {
-            this.ModifyService.RestoreComponent((global::PCL.MyIconButton)sender);
-        }
-
-        private void CardMinecraft_MouseLeftButtonUp(global::System.Object sender, global::System.Windows.Input.MouseButtonEventArgs e)
-        {
-            this.ModifyService.MinecraftClick(() => e.Handled = true);
-        }
-
-        private void UpdateStartButton()
-        {
-            this.ModifyService.UpdateStartButton();
-        }
-
-        private void UpdateOriginalNameVisibility()
-        {
-            this.ModifyService.UpdateOriginalNameVisibility();
-        }
-
-        private void BtnOriginalNameRestore_Click(global::System.Object sender, global::System.EventArgs e)
-        {
-            this.ModifyService.RestoreOriginalName();
-        }
-
-        public override void StartInstall(global::PCL.ModDownloadLib.McInstallRequest Request)
-        {
-            this.ModifyService.StartInstall(Request);
-        }
-
-        internal void ShowPackInfo(global::Newtonsoft.Json.Linq.JObject Data)
-        {
-            this.ModifyService.ShowPackInfo(Data);
-        }
-
-        private global::PCLCS.DownloadModifyAnimation<global::PCL.ModAnimation.AniData> CreateModifyAnimations()
-        {
-            return new global::PCLCS.DownloadModifyAnimation<global::PCL.ModAnimation.AniData>()
-            {
-                Native = global::PCL.PageDownloadModify.CreateAnimations(),
-                Double = new Func<global::System.Action<global::System.Double>, global::System.Double, global::System.Double, global::System.Int32, global::PCLCS.DownloadPageEase, global::PCL.ModAnimation.AniData>((Setter, Delta, Duration, Delay, Ease) => global::PCL.ModAnimation.AaDouble(Value => Setter(Conversions.ToDouble(Value)), Delta, (global::System.Int32)Math.Round(Duration), Delay, global::PCL.PageDownloadModify.ReadEase(Ease)))
-            };
-        }
-
-        private static global::PCLCS.DownloadPageAnimationHost<global::PCL.ModAnimation.AniData> CreateAnimations()
-        {
-            return new global::PCLCS.DownloadPageAnimationHost<global::PCL.ModAnimation.AniData>()
-            {
-                Disabled = new Func<global::System.Int32>(() => global::PCL.ModAnimation.AniControlEnabled),
-                SetDisabled = new Action<global::System.Int32>(Value => global::PCL.ModAnimation.AniControlEnabled = Value),
-                Opacity = new Func<global::System.Windows.FrameworkElement, global::System.Double, global::System.Double, global::System.Int32, global::PCLCS.DownloadPageEase, global::PCL.ModAnimation.AniData>((Target, Delta, Duration, Delay, Ease) => global::PCL.ModAnimation.AaOpacity(Target, Delta, (global::System.Int32)Math.Round(Duration), Delay, global::PCL.PageDownloadModify.ReadEase(Ease))),
-                TranslateX = new Func<global::System.Windows.FrameworkElement, global::System.Double, global::System.Double, global::System.Int32, global::PCLCS.DownloadPageEase, global::PCL.ModAnimation.AniData>((Target, Delta, Duration, Delay, Ease) => global::PCL.ModAnimation.AaTranslateX(Target, Delta, (global::System.Int32)Math.Round(Duration), Delay, global::PCL.PageDownloadModify.ReadEase(Ease))),
-                TranslateY = new Func<global::System.Windows.FrameworkElement, global::System.Double, global::System.Double, global::System.Int32, global::PCLCS.DownloadPageEase, global::PCL.ModAnimation.AniData>((Target, Delta, Duration, Delay, Ease) => global::PCL.ModAnimation.AaTranslateY(Target, Delta, (global::System.Int32)Math.Round(Duration), Delay, global::PCL.PageDownloadModify.ReadEase(Ease))),
-                Scale = new Func<global::System.Windows.FrameworkElement, global::System.Double, global::System.Double, global::System.Int32, global::PCLCS.DownloadPageEase, global::System.Boolean, global::PCL.ModAnimation.AniData>((Target, Delta, Duration, Delay, Ease, After) => global::PCL.ModAnimation.AaScaleTransform(Target, Delta, (global::System.Int32)Math.Round(Duration), Delay, global::PCL.PageDownloadModify.ReadEase(Ease), After)),
-                Color = new Func<global::System.Windows.FrameworkElement, global::System.Windows.DependencyProperty, global::System.String, global::System.Int32, global::System.Int32, global::PCLCS.DownloadPageEase, global::PCL.ModAnimation.AniData>((Target, Property, Color, Duration, Delay, Ease) => global::PCL.ModAnimation.AaColor(Target, Property, Color, Duration, Delay, global::PCL.PageDownloadModify.ReadEase(Ease))),
-                Code = new Func<global::System.Action, global::System.Int32, global::System.Boolean, global::PCL.ModAnimation.AniData>((Work, Delay, After) => global::PCL.ModAnimation.AaCode(() => Work(), Delay, After)),
-                Start = new Action<global::System.Collections.Generic.IEnumerable<global::PCL.ModAnimation.AniData>, global::System.String, global::System.Boolean>((Plan, Name, Refresh) => global::PCL.ModAnimation.AniStart(Plan.ToList(), Name, Refresh)),
-                Stop = global::PCL.ModAnimation.AniStop
-            };
-        }
-
-        private static global::PCL.ModAnimation.AniEase ReadEase(global::PCLCS.DownloadPageEase Value)
-        {
-            switch (Value)
-            {
-                case global::PCLCS.DownloadPageEase.OutFluent:
-                {
-                    return new global::PCL.ModAnimation.AniEaseOutFluent();
-                }
-
-                case global::PCLCS.DownloadPageEase.OutFluentExtraStrong:
-                {
-                    return new global::PCL.ModAnimation.AniEaseOutFluent(global::PCL.ModAnimation.AniEasePower.ExtraStrong);
-                }
-
-                default:
-                {
-                    return (global::PCL.ModAnimation.AniEase)null;
-                }
-            }
-        }
-
-        private sealed class StateAdapter : global::PCLCS.DownloadModifyPageState<global::PCL.ModLoader.LoaderBase, global::PCL.MyLoading>
-        {
-            private readonly global::PCL.PageDownloadModify Owner;
-            public StateAdapter(global::PCL.PageDownloadModify Owner)
-            {
-                this.Owner = Owner;
-            }
-
-            public override global::PCL.ModLoader.LoaderBase ForgeVersionLoader
-            {
-                get
-                {
-                    return this.Owner.ForgeVersionLoader;
-                }
-
-                set
-                {
-                    this.Owner.ForgeVersionLoader = (global::PCL.ModLoader.LoaderTask<global::System.String, global::System.Collections.Generic.List<global::PCL.ModDownload.DlForgeVersionEntry>>)value;
-                }
-            }
-
-            public override global::PCLCS.McComponents InitialTarget
-            {
-                get
-                {
-                    return this.Owner.InitialTarget;
-                }
-
-                set
-                {
-                    this.Owner.InitialTarget = value;
-                }
-            }
-
-            public override bool IsVanillaVersionReliable
-            {
-                get
-                {
-                    return this.Owner.IsVanillaVersionReliable;
-                }
-
-                set
-                {
-                    this.Owner.IsVanillaVersionReliable = value;
-                }
-            }
-
-            public override string OriginalName
-            {
-                get
-                {
-                    return this.Owner.OriginalName;
-                }
-
-                set
-                {
-                    this.Owner.OriginalName = value;
-                }
-            }
-
-            public override string CustomLogo
-            {
-                get
-                {
-                    return this.Owner.CustomLogo;
-                }
-
-                set
-                {
-                    this.Owner.CustomLogo = value;
-                }
-            }
-
-            public override bool IsRestoringComponents
-            {
-                get
-                {
-                    return this.Owner.IsRestoringComponents;
-                }
-
-                set
-                {
-                    this.Owner.IsRestoringComponents = value;
-                }
-            }
-
-            public override global::System.Collections.Generic.Dictionary<global::PCL.MyLoading, global::System.String> PendingComponents
-            {
-                get
-                {
-                    return this.Owner.PendingComponents;
-                }
-            }
-        }
-
-        private sealed class SelectionAdapter : global::PCLCS.DownloadInstallSelection<global::PCL.ModDownload.DlOptiFineListEntry, global::PCL.ModDownload.DlForgeVersionEntry, global::PCL.ModDownload.DlNeoForgeListEntry, global::PCL.ModDownload.DlLiteLoaderListEntry, global::PCL.ResourceVersion>
-        {
-            private readonly global::PCL.PageDownloadModify Owner;
-            public SelectionAdapter(global::PCL.PageDownloadModify Owner)
-            {
-                this.Owner = Owner;
-            }
-
-            public override bool IsInSelectPage
-            {
-                get
-                {
-                    return this.Owner.IsInSelectPage;
-                }
-
-                set
-                {
-                    this.Owner.IsInSelectPage = value;
-                }
-            }
-
-            public override string VanillaName
-            {
-                get
-                {
-                    return this.Owner.VanillaName;
-                }
-
-                set
-                {
-                    this.Owner.VanillaName = value;
-                }
-            }
-
-            public override global::Newtonsoft.Json.Linq.JObject VanillaData
-            {
-                get
-                {
-                    return this.Owner.VanillaData;
-                }
-
-                set
-                {
-                    this.Owner.VanillaData = value;
-                }
-            }
-
-            public override string VanillaIcon
-            {
-                get
-                {
-                    return this.Owner.VanillaIcon;
-                }
-
-                set
-                {
-                    this.Owner.VanillaIcon = value;
-                }
-            }
-
-            public override global::PCL.ModDownload.DlOptiFineListEntry SelectedOptiFine
-            {
-                get
-                {
-                    return this.Owner.SelectedOptiFine;
-                }
-
-                set
-                {
-                    this.Owner.SelectedOptiFine = value;
-                }
-            }
-
-            public override global::PCL.ModDownload.DlLiteLoaderListEntry SelectedLiteLoader
-            {
-                get
-                {
-                    return this.Owner.SelectedLiteLoader;
-                }
-
-                set
-                {
-                    this.Owner.SelectedLiteLoader = value;
-                }
-            }
-
-            public override global::PCL.ModDownload.DlForgeVersionEntry SelectedForge
-            {
-                get
-                {
-                    return this.Owner.SelectedForge;
-                }
-
-                set
-                {
-                    this.Owner.SelectedForge = value;
-                }
-            }
-
-            public override global::PCL.ModDownload.DlNeoForgeListEntry SelectedNeoForge
-            {
-                get
-                {
-                    return this.Owner.SelectedNeoForge;
-                }
-
-                set
-                {
-                    this.Owner.SelectedNeoForge = value;
-                }
-            }
-
-            public override string SelectedFabric
-            {
-                get
-                {
-                    return this.Owner.SelectedFabric;
-                }
-
-                set
-                {
-                    this.Owner.SelectedFabric = value;
-                }
-            }
-
-            public override global::PCL.ResourceVersion SelectedFabricApi
-            {
-                get
-                {
-                    return this.Owner.SelectedFabricApi;
-                }
-
-                set
-                {
-                    this.Owner.SelectedFabricApi = value;
-                }
-            }
-
-            public override global::PCL.ResourceVersion SelectedOptiFabric
-            {
-                get
-                {
-                    return this.Owner.SelectedOptiFabric;
-                }
-
-                set
-                {
-                    this.Owner.SelectedOptiFabric = value;
-                }
-            }
-
-            public override bool IsSelectNameEdited
-            {
-                get
-                {
-                    return this.Owner.IsSelectNameEdited;
-                }
-
-                set
-                {
-                    this.Owner.IsSelectNameEdited = value;
-                }
-            }
-
-            public override global::Newtonsoft.Json.Linq.JArray MinecraftVersions
-            {
-                get
-                {
-                    return this.Owner.MinecraftVersions;
-                }
-
-                set
-                {
-                    this.Owner.MinecraftVersions = value;
-                }
-            }
-
-            public override string VersionWaitingSelect
-            {
-                get
-                {
-                    return global::PCL.PageDownloadInstall.VersionWaitingSelect;
-                }
-
-                set
-                {
-                    global::PCL.PageDownloadInstall.VersionWaitingSelect = value;
-                }
-            }
-
-            public override bool AutoSelectedFabricApi
-            {
-                get
-                {
-                    return this.Owner.AutoSelectedFabricApi;
-                }
-
-                set
-                {
-                    this.Owner.AutoSelectedFabricApi = value;
-                }
-            }
-
-            public override bool AutoSelectedOptiFabric
-            {
-                get
-                {
-                    return this.Owner.AutoSelectedOptiFabric;
-                }
-
-                set
-                {
-                    this.Owner.AutoSelectedOptiFabric = value;
-                }
-            }
-        }
+        _owner = owner;
+        InitLoader = new ModifyLoader("初始化版本修改", task => ModifyService.LoadInstance(WrapTask(task)));
+
+        _packInfo = Theme.Note("", 13);
+        _packCard = GlassPageResources.Plate(_packInfo, new Thickness(0, 0, 0, 12));
+        _packCard.Visibility = Visibility.Collapsed;
+        PanSelect.Children.Insert(1, _packCard);
+
+        LabMinecraftVersion.FontSize = 12.5;
+        LabMinecraftVersion.VerticalAlignment = VerticalAlignment.Center;
+        LabMinecraftVersion.TextTrimming = TextTrimming.CharacterEllipsis;
+        LabMinecraftVersion.TextWrapping = TextWrapping.NoWrap;
+        var current = new Grid { VerticalAlignment = VerticalAlignment.Center, Children = { LabMinecraftVersion } };
+        var details = new Grid { Children = { current } };
+        var badge = new Border { Child = details, MaxWidth = 260, Margin = new Thickness(10, 0, 12, 0),
+            Padding = new Thickness(10, 3, 10, 3), CornerRadius = new CornerRadius(11),
+            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+        badge.SetResourceReference(Border.BackgroundProperty, "GlassPresentationSelected");
+        var restore = Part("BtnMinecraftRestore", GlassLocalModRow.CreateButton("恢复原有 Minecraft 版本", ModBase.Logo.IconButtonRefresh));
+        restore.Visibility = Visibility.Collapsed;
+        var title = Theme.Text("Minecraft");
+        title.FontWeight = FontWeights.SemiBold;
+        title.FontSize = 15;
+        title.VerticalAlignment = VerticalAlignment.Center;
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(title);
+        Grid.SetColumn(badge, 1);
+        header.Children.Add(badge);
+        Grid.SetColumn(restore, 2);
+        header.Children.Add(restore);
+
+        _minecraftSearch = Part("MinecraftVersionSearch", GlassDialogControls.TextBox());
+        AutomationProperties.SetName(_minecraftSearch, "搜索 Minecraft 版本");
+        var search = GlassDialogControls.WithPlaceholder(_minecraftSearch, "搜索版本");
+        search.Margin = new Thickness(0, 0, 0, 8);
+        _minecraftOptions = Part("MinecraftVersionOptions", new ListBox {
+            Style = Theme.Style("GlassPresentationPickerList"), MaxHeight = 270,
+            BorderThickness = new Thickness(), Background = Brushes.Transparent
+        });
+        ScrollViewer.SetCanContentScroll(_minecraftOptions, true);
+        ScrollViewer.SetVerticalScrollBarVisibility(_minecraftOptions, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(_minecraftOptions, ScrollBarVisibility.Disabled);
+        VirtualizingPanel.SetIsVirtualizing(_minecraftOptions, true);
+        VirtualizingPanel.SetVirtualizationMode(_minecraftOptions, VirtualizationMode.Recycling);
+        AutomationProperties.SetName(_minecraftOptions, "可选 Minecraft 版本");
+        var option = new FrameworkElementFactory(typeof(Button));
+        option.SetValue(FrameworkElement.StyleProperty, Theme.Style("GlassPresentationRowButton"));
+        option.SetValue(FrameworkElement.MinHeightProperty, 34d);
+        option.SetValue(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left);
+        option.SetValue(Control.PaddingProperty, new Thickness(10, 0, 10, 0));
+        option.SetBinding(ContentControl.ContentProperty, new Binding(nameof(MinecraftChoice.Name)));
+        option.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((sender, _) => {
+            if (sender is Button { DataContext: MinecraftChoice choice }) ChooseVersion(choice);
+        }));
+        _minecraftOptions.ItemTemplate = new DataTemplate { VisualTree = option };
+        _minecraftOptions.PreviewKeyDown += (_, args) => {
+            if (args.Key != Key.Enter || args.OriginalSource is Button || _minecraftOptions.SelectedItem is not MinecraftChoice choice) return;
+            args.Handled = true;
+            ChooseVersion(choice);
+        };
+
+        _noVersions = Theme.Note("", 13);
+        _noVersions.Margin = new Thickness(6, 6, 0, 6);
+        _minecraftPicker = Part("MinecraftVersionPicker", new Expander {
+            Header = header, Style = Theme.Style("GlassPresentationExpander"),
+            Content = new StackPanel { Children = { search, _minecraftOptions, _noVersions } }
+        });
+        AutomationProperties.SetName(_minecraftPicker, "更换 Minecraft 版本");
+        _minecraftPicker.Expanded += (_, args) => {
+            if (ReferenceEquals(args.OriginalSource, _minecraftPicker)) FillVersionChoices();
+        };
+        _minecraftSearch.TextChanged += (_, _) => { if (_minecraftPicker.IsExpanded) FillVersionChoices(); };
+        _minecraftChange = Part("PanMinecraftChange", new Grid());
+        var searchBody = (UIElement)_minecraftPicker.Content;
+        _minecraftPicker.Content = null;
+        _minecraftChange.Children.Add(searchBody);
+        _minecraftPicker.Content = _minecraftChange;
+        var card = GlassPageResources.Plate(_minecraftPicker, new Thickness(0, 0, 0, 16));
+        card.Padding = new Thickness(18, 10, 18, 10);
+        Part("CardMinecraft", card);
+        PanSelect.Children.Insert(2, card);
+        var minecraft = GlassInstallComponentCard.CreateComparison(Theme, ModBase.PathImage + "Blocks/Grass.png",
+            card, details, current, LabMinecraftVersion, restore, () => _minecraftChange, value => _minecraftPicker.IsExpanded = !value);
+        _comparisons.Add(-1, minecraft);
+        foreach (InstallKind kind in Enum.GetValues<InstallKind>())
+            _comparisons.Add((int)kind, GetCard(kind).Comparison!);
+        foreach (var comparison in _comparisons.Values)
+            ((Button)comparison.Restore).Click += (_, _) => ModifyService.RestoreComponent(comparison.Restore);
+
+        ModifyService = new ModifyCore(CreateModifyHost(), CreateAnimations());
+        OriginalNameRestore!.Click += (_, _) => ModifyService.RestoreOriginalName();
     }
+
+    private void FillVersionChoices()
+    {
+        if (!ReferenceEquals(_displayedCatalog, MinecraftVersions)) {
+            _displayedCatalog = MinecraftVersions;
+            _choices = MinecraftVersions?.OfType<JObject>()
+                .Where(entry => !string.IsNullOrWhiteSpace((string?)entry["id"]) && !string.IsNullOrWhiteSpace((string?)entry["url"]))
+                .Select(entry => new MinecraftChoice((string)entry["id"]!, entry)).ToArray() ?? [];
+        }
+        string query = _minecraftSearch.Text.Trim();
+        MinecraftChoice[] visible = query.Length == 0 ? _choices :
+            _choices.Where(choice => choice.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+        _minecraftOptions.ItemsSource = visible;
+        _minecraftOptions.Visibility = visible.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _noVersions.Text = _choices.Length == 0 ? "版本列表暂不可用" : "没有符合条件的版本";
+        _noVersions.Visibility = visible.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ChooseVersion(MinecraftChoice choice)
+    {
+        if (!_minecraftPicker.IsExpanded || _minecraftChange.Visibility != Visibility.Visible ||
+            !ReferenceEquals(_displayedCatalog, MinecraftVersions)) return;
+        if (ChooseMinecraftInPlace(choice.Entry)) _minecraftPicker.IsExpanded = false;
+    }
+
+    internal bool ChooseMinecraftInPlace(JObject version) => ModifyService.ChooseMinecraftInPlace(version);
+
+    private ModifyHost CreateModifyHost() => new() {
+        Selection = Selection, State = _state,
+        View = () => new() {
+            Select = PanSelect, AllBack = PanAllBack, Back = Scroll!,
+            Minecraft = PanMinecraft, BackButton = BtnBack, ChangeMinecraft = _minecraftChange,
+            Start = BtnStart, NameRestore = OriginalNameRestore!, Name = TextSelectName,
+            NameLabel = OriginalNameLabel!, MinecraftVersion = LabMinecraftVersion,
+            ScrollHome = ScrollHome,
+            MinecraftOldLogo = address => SetCompareIcon(0, address),
+            MinecraftNewLogo = address => SetCompareIcon(2, address),
+            NameValidated = () => TextSelectName.IsValidated,
+            ValidateName = original => ConfigureNameValidation(original,
+                Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(InitLoader.Input.PathVersion))),
+            StartText = text => GlassPageLayout.Frost(BtnStart, text, ModBase.Logo.IconButtonEdit)
+        },
+        Comparison = kind => _comparisons[kind],
+        ComparisonCard = panel => _comparisons.Values.Single(part => ReferenceEquals(part.Compare, panel)),
+        ShowPackInfo = ShowPackInfo,
+        BaseControlInit = ControlInit,
+        InitializeLoader = () => { ObservePrimary(InitLoader); ReloadInstance(false); },
+        Restart = () => ReloadInstance(true), Cancel = InitLoader.Cancel,
+        BaseClearSelected = ClearSelected,
+        BaseReloadSelected = () => base.ReloadSelected(),
+        BaseShowMinecraftList = () => base.ShowMinecraftVersionList(),
+        ChangeMinecraftInPlace = ChangeNativeMinecraftInPlace,
+        BasePrepareSelection = PrepareSelectPage,
+        BaseReloadLists = ReloadComponentLists,
+        BaseLogo = () => base.GetSelectLogo(),
+        SelectName = GetSelectName,
+        Components = GetSelectedComponents,
+        SelectMinecraft = version => MinecraftSelected(CreateMinecraftRow(version), null),
+        MinecraftRow = version => CreateMinecraftRow(version),
+        RowTitle = row => ((GlassInstallRow)row).Title, RowLogo = row => ((GlassInstallRow)row).Logo,
+        InitInput = () => InitLoader.Input,
+        UiWait = work => ModBase.RunInUiWait(work),
+        DetectPack = ModpackUpdate.Detect,
+        NewInstance = path => new Instance(path),
+        CatalogLoaders = () => new() {
+            ["Minecraft"] = DlClientListLoader, ["OptiFine"] = DlOptiFineListLoader,
+            ["LiteLoader"] = DlLiteLoaderListLoader, ["NeoForge"] = DlNeoForgeListLoader,
+            ["Fabric"] = DlFabricListLoader, ["Fabric API"] = DlFabricApiLoader, ["OptiFabric"] = DlOptiFabricLoader
+        },
+        CreateForgeLoader = version => new ForgeLoader("DlForgeVersion " + version, DlForgeVersionMain),
+        States = new() {
+            Waiting = (int)LoadState.Waiting, Loading = (int)LoadState.Loading, Finished = (int)LoadState.Finished,
+            Failed = (int)LoadState.Failed, Canceled = (int)LoadState.Canceled
+        },
+        StartLoader = (loader, input, force) => loader.Start(input, force),
+        LoaderState = loader => (int)loader.State,
+        LoaderError = loader => loader.Error,
+        LoaderProgress = loader => loader.Progress,
+        ForgeInput = loader => ((ForgeLoader)loader).Input,
+        ForgeOutput = loader => ((ForgeLoader)loader).Output,
+        BindForge = loader => BindForge((ForgeLoader)loader),
+        SwapRestoreParent = (button, swapped) => _comparisons.Values.Single(part => ReferenceEquals(part.Restore, button)).SetSwapped(swapped),
+        LoadingKey = kind => kind,
+        IsLoader = kind => GetComponentLoader(kind) is not null,
+        ReadLoader = kind => GetComponentLoader(kind)!,
+        ComponentError = ComponentError,
+        ClientOutput = () => DlClientListLoader.Output.Value,
+        FabricOutput = () => DlFabricListLoader.Output.Value,
+        OptiFineHashes = () => (JObject)FileUtils.ReadAsJson(@"Minecraft\OptiFineHashes.json", type: typeof(Resource)),
+        OptiFineOutput = () => DlOptiFineListLoader.Output.Value,
+        NeoForgeOutput = () => DlNeoForgeListLoader.Output.Value,
+        LiteLoaderOutput = () => DlLiteLoaderListLoader.Output.Value,
+        FabricApiOutput = () => DlFabricApiLoader.Output,
+        OptiFabricOutput = () => DlOptiFabricLoader.Output,
+        OptiFineMirrorFinished = () => DlOptiFineListBmclapiLoader.State == LoadState.Finished,
+        WaitOptiFineMirror = () => DlOptiFineListBmclapiLoader.WaitForExit(),
+        CopyOptiFineMirror = () => DlOptiFineListLoader.Output = DlOptiFineListBmclapiLoader.Output,
+        LocalSha1 = file => new LocalResourceFile(file).ModrinthHash,
+        ChooseMod = (names, title) => ModMain.SelectChoice(names.Select(name => new DialogChoice(name)), title),
+        ReadIniBoolean = (file, key) => Conversions.ToBoolean(ModBase.ReadIni(file, key, "False")),
+        ModpackEnabled = () => ModModpackMode.Enabled, CanChangeMinecraft = ModModpackMode.CanChangeMinecraft,
+        MinecraftFolder = () => ModMinecraft.McFolderSelected,
+        Gray4 = () => (Brush)FindResource("GlassPresentationSecondary"),
+        Hint = (message, kind) => ModMain.Hint(message, kind switch {
+            SelectionPageHint.Red => ModMain.HintType.Red,
+            SelectionPageHint.Blue => ModMain.HintType.Blue,
+            _ => ModMain.HintType.Green
+        }),
+        Message = request => ModMain.MyMsgBox(request.Text, request.Title, request.Button1, request.Button2, request.Button3, request.IsWarn),
+        Modify = ModDownloadLib.McModificationStart,
+        InstancePage = () => LauncherInstanceContext.Instance, SetInstancePage = value => LauncherInstanceContext.Instance = value,
+        SelectedInstance = () => ModMinecraft.McInstanceSelected, SetSelectedInstance = value => ModMinecraft.McInstanceSelected = value,
+        ReloadJava = LauncherInstanceContext.ReloadCurrentJava,
+        RefreshInstances = () => ModLoader.LoaderFolderRun(ModMinecraft.McInstanceListLoader, ModMinecraft.McFolderSelected,
+            ModLoader.LoaderFolderRunType.ForceRun, MaxDepth: 1, ExtraPath: @"versions\"),
+        PageBack = () => ModMain.FrmMain?.PageBack()
+    };
+
+    private void SetCompareIcon(int position, string? address)
+    {
+        var side = (DockPanel)_comparisons[-1].Compare.Children[position];
+        ((Image)side.Children[0]).Source = GlassInstallRow.Icon(address);
+    }
+
+    private void ShowPackInfo(JObject? data)
+    {
+        bool recognized = data is not null && data["error"] is null;
+        _packCard.Visibility = recognized ? Visibility.Visible : Visibility.Collapsed;
+        if (!recognized) return;
+        string name = (string?)data!["name"] ?? "整合包";
+        string? version = (string?)data["version"];
+        string source = (string?)data["source"]?["platform"] ?? "本地整合包";
+        _packInfo.Text = string.IsNullOrWhiteSpace(version) ? $"{name} · {source}" : $"{name} {version} · {source}";
+    }
+
+    private static DownloadModifyTask<Instance> WrapTask(ModifyLoader task) => new() {
+        Input = () => task.Input, Output = () => task.Output, SetOutput = value => task.Output = value,
+        Canceled = () => task.IsCanceled, ForceRestart = () => task.IsForceRestarting, Progress = value => task.Progress = value
+    };
+
+    private void ReloadInstance(bool force)
+    {
+        var target = _owner ?? LauncherInstanceContext.Instance;
+        if (target is null || !ReferenceEquals(target, LauncherInstanceContext.Instance)) return;
+        _applied = false;
+        _minecraftPicker.IsExpanded = false;
+        BtnStart.IsEnabled = false;
+        InitLoader.Start(target, force);
+        RefreshPrimary();
+    }
+
+    private protected override bool PresentLoadedData()
+    {
+        if (InitLoader.Input is null || !ReferenceEquals(InitLoader.Input, LauncherInstanceContext.Instance)) return false;
+        if (!_applied) {
+            _applied = true;
+            ModifyService.LoadInstanceFinished(WrapTask(InitLoader));
+        }
+        return true;
+    }
+
+    public override void LoaderInit() => ModifyService.LoaderInit();
+    public override void Init() => ModifyService.Init();
+    private protected override void OnClosed() => ModifyService.Unloaded();
+    private protected override void RetryLoading() => ReloadInstance(true);
+
+    public override string? GetSelectLogo() => ModifyService.GetSelectLogo();
+    public override void ReloadSelected() => ModifyService.ReloadSelected();
+    public override void ShowMinecraftVersionList() => ModifyService.ShowMinecraftVersionList();
+
+    private protected override void UpdateNameState()
+    {
+        base.UpdateNameState();
+        ModifyService.UpdateOriginalNameVisibility();
+        ModifyService.UpdateStartButton();
+    }
+
+    public override void StartInstall(ModDownloadLib.McInstallRequest request)
+    {
+        if (InitLoader.State == LoadState.Finished && InitLoader.Input is { } target && ReferenceEquals(target, LauncherInstanceContext.Instance))
+            ModifyService.StartInstall(request);
+    }
+
+    internal void RefreshModpackRestrictions() => ModifyService.RefreshModpackRestrictions();
+
+    private sealed class ModifyState : DownloadModifyPageState<ModLoader.LoaderBase, InstallKind>
+    {
+        public override ModLoader.LoaderBase? ForgeVersionLoader { get; set; }
+        public override McComponents? InitialTarget { get; set; }
+        public override bool IsVanillaVersionReliable { get; set; }
+        public override string? OriginalName { get; set; }
+        public override string? CustomLogo { get; set; }
+        public override Dictionary<InstallKind, string> PendingComponents { get; } = new();
+        public override bool IsRestoringComponents { get; set; }
+    }
+
+    private sealed record MinecraftChoice(string Name, JObject Entry);
 }

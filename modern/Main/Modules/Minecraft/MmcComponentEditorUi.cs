@@ -170,7 +170,7 @@ internal static class MmcComponentEditorUi {
         var combo = new MmcOperationCombo<string>(fence, "修改 MMC 组件：" + instance.Name, [worker]);
         try {
             if (services.RegisterTask is not null) services.RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(selected.VersionRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

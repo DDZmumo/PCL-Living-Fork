@@ -4,12 +4,14 @@
 using System;
 using System.Collections.Generic;
 using PCLLF.Presentation.Controls;
+using PCLLF.Wpf.Glass;
+using System.Windows.Controls;
 
 namespace PCLCS;
 public sealed class LegacyToolboxPageView
 {
-    public Func<MyTextBoxView> Url = null!, Folder = null!, Name = null!;
-    public Func<MyButtonView> Start = null!, Open = null!, Clear = null!;
+    public Func<GlassValidatedTextBox> Url = null!, Folder = null!, Name = null!;
+    public Func<Button> Start = null!, Open = null!, Clear = null!;
     public Func<bool> Loaded = null!;
     public Action<bool> SetLoaded = null!;
 }
@@ -23,7 +25,7 @@ public sealed class LegacyToolboxPageHost<TFile, TDownload, TSave, TCombo>
     public Func<bool> LuckTimeChanged = () => false;
     public Func<LegacyToolboxPageController<TFile, TDownload, TSave, TCombo>?> CurrentPage = null!;
     public Func<bool> HasMain = null!, HasRunningGame = null!, LaunchLoading = null!, HasDownloadingTask = null!, HasGameFolders = null!, HasAdminRole = null!;
-    public Func<MyExtraButtonView> ExtraDownload = null!;
+    public Action<bool> RefreshTaskButton = null!;
     public Action StartFolderLoader = null!, WaitFolderLoader = null!, OptimizeNative = null!;
     public Func<IEnumerable<string>> GameFolders = null!;
     public Func<long> AvailableMemory = null!;
@@ -36,8 +38,8 @@ public sealed class LegacyToolboxPageHost<TFile, TDownload, TSave, TCombo>
     public Func<string?> SelectFolder = null!;
     public Action<string> StartProcess = null!;
     public Func<string, string> ValidateFolder = null!;
-    public Action<MyTextBoxView, Func<string, string>> AddValidation = null!;
-    public Action<MyTextBoxView> AddFolderValidation = null!;
+    public Action<GlassValidatedTextBox, Func<string, string>> AddValidation = null!;
+    public Action<GlassValidatedTextBox> AddFolderValidation = null!;
     public Func<string, string, LegacyToolboxDownloadSession> CreateSession = null!;
     public Func<string, string, long, bool, TFile> NewFile = null!;
     public Action<TFile, bool> SetCredentialHeaders = null!;

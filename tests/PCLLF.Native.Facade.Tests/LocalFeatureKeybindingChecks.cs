@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Windows;
 using System.Windows.Controls;
+using PCLLF.Wpf.Glass;
 using PCL;
 using static PCLLF.Native.Facade.Tests.LocalFeatureChecks;
 
@@ -20,17 +21,19 @@ internal static class LocalFeatureKeybindingChecks
         }
         entries.SetValue(page, items); Native.Call(page.GetType(), "RenderList", page);
         StackPanel all = Part<StackPanel>(page, "PanBindings");
-        K(93, all.Children.Count == 6 && !all.Children.OfType<MyCard>().Any());
-        for (int i = 0; i < items.Count; i++) K(94, ((TextBlock)((StackPanel)((Panel)all.Children[i]).Children[0]).Children[0]).Text == (string)Native.Get(items[i]!, "Name")!, "index=" + i);
-        Part<MyRadioButton>(page, "BtnFilterConflicts").Checked = true;
-        MyCard[] groups = all.Children.OfType<MyCard>().ToArray(); K(97, groups.Length == 2 && all.Children.Count == 2);
-        MyCard c = groups.Single(group => group.Title.StartsWith('C')); K(99, c.Title.Contains("与 2 项共用", StringComparison.Ordinal));
-        StackPanel rows = c.Children.OfType<StackPanel>().First();
+        K(93, all.Children.Count == 6 && !all.Children.OfType<GlassSurface>().Any());
+        static Grid Columns(Panel row) => (Grid)((Border)row.Children[0]).Child;
+        for (int i = 0; i < items.Count; i++) K(94, ((TextBlock)Columns((Panel)all.Children[i]).Children.OfType<StackPanel>().Single().Children[0]).Text == (string)Native.Get(items[i]!, "Name")!, "index=" + i);
+        Part<RadioButton>(page, "BtnFilterConflicts").IsChecked = true;
+        StackPanel[] groups = all.Children.OfType<StackPanel>().ToArray(); K(97, groups.Length == 2 && all.Children.Count == 2);
+        static string Title(StackPanel group) => ((TextBlock)group.Children[0]).Text;
+        StackPanel c = groups.Single(group => Title(group).StartsWith('C')); K(99, Title(c).Contains("与 2 项共用", StringComparison.Ordinal));
+        var rows = (StackPanel)c.Children[1];
         K(101, rows.Children.Count == 3 && ((IDictionary)Native.Property(page.GetType(), "KeyButtons").GetValue(page)!).Count == 5);
-        foreach (Panel row in rows.Children) K(102, row.Children[1].GetType() == typeof(MyButton));
-        Part<MySearchBox>(page, "SearchBox").Text = "复制位置"; groups = all.Children.OfType<MyCard>().ToArray();
-        K(105, groups.Length == 1 && groups[0].Title.Contains("与 2 项共用", StringComparison.Ordinal));
-        Part<MySearchBox>(page, "SearchBox").Text = ""; Part<MyRadioButton>(page, "BtnFilterConflicts").Checked = true;
+        foreach (Panel row in rows.Children) K(102, Columns(row).Children.OfType<Button>().Count(button => Grid.GetColumn(button) == 3) == 1);
+        Part<TextBox>(page, "SearchBox").Text = "复制位置"; groups = all.Children.OfType<StackPanel>().ToArray();
+        K(105, groups.Length == 1 && Title(groups[0]).Contains("与 2 项共用", StringComparison.Ordinal));
+        Part<TextBox>(page, "SearchBox").Text = ""; Part<RadioButton>(page, "BtnFilterConflicts").IsChecked = true;
         K(107, all.Children.Count == 2);
         try { LocalFeatureControllerChecks.Run(Path.Combine(scope.Root, "controller")); K(114, true); }
         finally { Native.Call(page.GetType(), "PageUnloaded", page); }

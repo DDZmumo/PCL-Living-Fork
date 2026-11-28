@@ -91,8 +91,7 @@ internal static class JavaRuntimeDownloads
         {
             task.Start(1);
             ModLoader.LoaderTaskbarAdd(task);
-            ModMain.FrmMain?.BtnExtraDownload?.ShowRefresh();
-            ModMain.FrmMain?.BtnExtraDownload?.Ribble();
+            ModMain.FrmMain?.RefreshTaskButton(pulse: true);
         }
         catch
         {

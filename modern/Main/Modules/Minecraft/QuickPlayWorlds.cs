@@ -92,7 +92,7 @@ namespace PCL
         }
         internal static void OnEnabledChanged(object Value)
         {
-            ModBase.RunInUi(() => ModMain.FrmLaunchRight?.RefreshRecentWorlds());
+            ModBase.RunInUi(FormMain.RefreshRecentWorlds);
         }
         internal static bool HasRunningSessions()
         {

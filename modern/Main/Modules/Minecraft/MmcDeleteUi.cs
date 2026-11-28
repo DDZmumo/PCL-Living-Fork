@@ -93,7 +93,7 @@ internal static class MmcDeleteUi {
         var combo = new MmcOperationCombo<string>(fence, "永久删除 MMC 实例：" + Path.GetFileName(preview.SourceRoot), [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(preview.SourceRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

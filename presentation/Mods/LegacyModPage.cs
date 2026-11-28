@@ -57,7 +57,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
             Filter=LegacyModFilter.All;view.SetSearch("");RefreshUI();ListRebuildSerial++;
         }catch(Exception error){Logger.Error(error,"加载 Mod 列表 UI 失败");}
     }
-    private TItem MakeItem(TMod entry){host.ChangeAnimationControl(1);TItem item=host.NewItem(entry,host.Selected().Contains(entry.StorageKey));host.BindUpdate(entry,item);TInstance? target=host.Instance();if(target is not null)host.RefreshLoaderWarning(item,target);host.ChangeAnimationControl(-1);return item;}
+    private TItem MakeItem(TMod entry){host.ChangeAnimationControl(1);TItem item=host.NewItem(entry,host.Selected().Contains(entry.StorageKey));host.BindRowEvents(item);host.BindUpdate(entry,item);TInstance? target=host.Instance();if(target is not null)host.RefreshLoaderWarning(item,target);host.ChangeAnimationControl(-1);return item;}
     public void ApplyLoaderWarnings(){TInstance? target=host.Instance();if(target is null)return;foreach(TItem item in host.Items().Values)host.RefreshLoaderWarning(item,target);}
     public void RebuildDependencyIndex(){
         TInstance? target=host.Instance();if(target is null)return;
@@ -106,7 +106,6 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         host.Background(()=>{try{LegacyModDependencyDetails result=host.InspectDetails(target,entry);host.Dispatch(()=>{if(!ReferenceEquals(host.Instance(),target))return;ApplyLoaderWarnings();if(result.HasMod())host.ContentMessage(result.Caption,"模组依赖关系",result.CreateView);else host.Message(result.Caption,"模组依赖关系","确定","",false);});}catch(Exception error){Logger.Error(error,"读取模组依赖关系失败",LogBehavior.Toast);}},"Mod Dependency Details",ThreadPriority.Normal);
     }
     public void ItemContent(TItem item){
-        host.BindRowEvents(item);
         TButton open=host.CreateButton(1.05,host.OpenLogo(),"打开文件位置",item,sender=>OpenSender(sender));
         TButton info=host.CreateButton(1,host.InfoLogo(),"详情",item,sender=>Info(sender));
         TButton delete=host.CreateButton(1,host.DeleteLogo(),"删除",item,sender=>DeleteItem(host.ResolveItem(sender)));
@@ -127,7 +126,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
     public void SortChanged(int value){if(value>=0)SortOrder=(LocalResourceSortOrder)value;}
     public void RefreshUI(){
         if(view.List() is null)return;RefreshDuplicates();IReadOnlyList<TMod> showing=LocalResourceSort.Order(Current.Where(mod=>CanPassFilter(mod)),sortOrder,mod=>mod.File);host.ChangeAnimationControl(1);
-        if(showing.Any()){view.List()!.Visibility=Visibility.Visible;view.List()!.Children.Clear();foreach(TMod mod in showing){if(!host.Items().TryGetValue(mod.StorageKey,out TItem? item))continue;host.SetChecked(item,host.Selected().Contains(mod.StorageKey));view.List()!.Children.Add(item);}view.Empty().Visibility=Visibility.Collapsed;}
+        if(showing.Any()){view.List()!.Visibility=Visibility.Visible;view.List()!.Items.Clear();foreach(TMod mod in showing){if(!host.Items().TryGetValue(mod.StorageKey,out TItem? item))continue;host.SetChecked(item,host.Selected().Contains(mod.StorageKey));view.List()!.Items.Add(item);}view.Empty().Visibility=Visibility.Collapsed;}
         else{view.List()!.Visibility=Visibility.Collapsed;if(!(host.Output()?.Any()??false)){view.Empty().Visibility=Visibility.Visible;view.SetEmptyTitle(EmptyTitleDefault);view.SetEmptyHint(EmptyHintDefault);}else view.Empty().Visibility=Visibility.Collapsed;}
         host.ChangeAnimationControl(-1);host.SetSelected(host.Selected().Where(name=>showing.Any(mod=>Same(mod.StorageKey,name))).ToList());RefreshBars();
     }
@@ -139,10 +138,10 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         if(filters.Length>4){int duplicates=Current.Count(mod=>duplicateFiles.Contains(mod.StorageKey));filters[4].Text=$"重复 ({duplicates})";filters[4].Visibility=Filter==LegacyModFilter.Duplicate||duplicates>0?Visibility.Visible:Visibility.Collapsed;}
         int count=host.Selected().Count;bool selected=count>0;if(selected)view.SetSelectionText($"已选择 {count} 个文件");
         if(selected){bool hasUpdate=false,hasEnabled=false,hasDisabled=false;foreach(TMod mod in host.Output()!){if(!host.Selected().Contains(mod.StorageKey))continue;if(mod.HasUpdate)hasUpdate=true;if(mod.IsEnabled)hasEnabled=true;if(!mod.IsEnabled)hasDisabled=true;}view.EnableDisable(hasEnabled);view.EnableEnable(hasDisabled);view.EnableUpdate(hasUpdate);}
-        view.ListBack().Margin=new Thickness(0,0,0,selected?95:15);view.SelectionBar(count,ref bottomCount,view.Root().IsLoaded&&host.AnimationControl()==0);
+        view.SelectionBar(count,ref bottomCount,view.Root().IsLoaded&&host.AnimationControl()==0);
     }
     public void OpenFolder(){try{DirectoryUtils.Create(host.GameFolder(host.Instance()!)+@"mods\");host.Explorer(host.GameFolder(host.Instance()!)+@"mods\");}catch(Exception error){Logger.Error(error,"打开 Mods 文件夹失败",LogBehavior.Alert);}}
-    public void SelectAll()=>ChangeAllSelected(host.Selected().Count<view.List()!.Children.Count);
+    public void SelectAll()=>ChangeAllSelected(host.Selected().Count<view.List()!.Items.Count);
     public void InstallClick(){if(!host.ConfirmMode("从文件安装 Mod"))return;IEnumerable<string> files=host.SelectInstallFiles();if(!files.Any())return;Install(host,files,true);}
     public static bool Install(LegacyModPageHost<TMod,TProject,TVersion,TItem,TInstance,TDownload,TButton,TImpact> host,
         IEnumerable<string> files, bool modeConfirmed) {
@@ -199,7 +198,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
     }
     public void Download(){if(host.ModpackMode())return;host.NavigateDownload(host.Instance()!,view.Search());}
     public void CheckChanged(TItem item){if(host.AnimationControl()!=0)return;string key=host.Entry(item).StorageKey;if(host.Checked(item)){if(!host.Selected().Contains(key))host.Selected().Add(key);}else host.Selected().Remove(key);RefreshBars();}
-    private void ChangeAllSelected(bool value){host.ChangeAnimationControl(1);host.Selected().Clear();foreach(TItem item in host.Items().Values){bool selected=value&&view.List()!.Children.Contains(item);host.SetChecked(item,selected);if(selected)host.Selected().Add(host.Entry(item).StorageKey);}host.ChangeAnimationControl(-1);RefreshBars();}
+    private void ChangeAllSelected(bool value){host.ChangeAnimationControl(1);host.Selected().Clear();foreach(TItem item in host.Items().Values){bool selected=value&&view.List()!.Items.Contains(item);host.SetChecked(item,selected);if(selected)host.Selected().Add(host.Entry(item).StorageKey);}host.ChangeAnimationControl(-1);RefreshBars();}
     public void UnselectAnimated(){int old=host.AnimationControl();host.SetAnimationControl(0);ChangeAllSelected(false);host.ChangeAnimationControl(old);}
     public void MainKey(KeyEventArgs e){if(!host.IsCurrentPage())return;if(host.CtrlDown()&&e.Key==Key.A)ChangeAllSelected(true);}
     public void SearchKey(KeyEventArgs e){if(view.Search().Any())return;if(host.CtrlDown()&&e.Key==Key.A)view.FocusBack();}
@@ -220,7 +219,7 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
             if(host.Output()!.Contains(mod)){int index=host.Output()!.IndexOf(mod);host.Output()!.RemoveAt(index);host.Output()!.Insert(index,replacement);}
             if(searchResult is not null&&searchResult.Contains(mod)){int index=searchResult.IndexOf(mod);searchResult.Remove(mod);searchResult.Insert(index,replacement);}
             replacement.DeclaredModIds=mod.DeclaredModIds;if(host.Selected().Remove(mod.StorageKey))host.Selected().Add(replacement.StorageKey);host.Items().TryRemove(mod.StorageKey,out _);TItem newItem=MakeItem(replacement);host.Items()[replacement.StorageKey]=newItem;
-            int ui=view.List()!.Children.IndexOf(view.List()!.Children.OfType<TItem>().FirstOrDefault(item=>ReferenceEquals(host.Entry(item),mod)));if(ui==-1)continue;view.List()!.Children.RemoveAt(ui);view.List()!.Children.Insert(ui,newItem);if(view.List()!.IsVisible)newItem.UpdateLayout();
+            int ui=view.List()!.Items.IndexOf(view.List()!.Items.OfType<TItem>().FirstOrDefault(item=>ReferenceEquals(host.Entry(item),mod)));if(ui==-1)continue;view.List()!.Items.RemoveAt(ui);view.List()!.Items.Insert(ui,newItem);if(view.List()!.IsVisible)newItem.UpdateLayout();
         }
         if(success)RefreshBars();else{host.Hint("由于文件被占用，Mod 的状态切换失败，请尝试关闭正在运行的游戏后再试！",1,true);ReloadModList(true);}host.LoaderRun(2);
     }

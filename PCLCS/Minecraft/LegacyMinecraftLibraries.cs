@@ -71,6 +71,10 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
     public List<TLibrary> McLibListGet(TInstance instance, bool includeMainJar, bool x86 = false) {
         Logger.Info($"获取支持库列表：{instance.Name}");
         List<TLibrary> result = McLibListGetWithJson(instance.JsonObject, x86: x86);
+        if (!instance.UsesMmcBackend && LegacyFreeTypeSecurityPatch.Find(result) is { } freeTypePatch &&
+            LegacyFreeTypeSecurityPatch.AppliesToGame(instance.Version.VanillaName) &&
+            instance.Config.ContextStamp.Kind == MmcConfigurationContextKind.Unmanaged)
+            freeTypePatch.Apply(result, McFolderSelected, instance.Version.VanillaName, x86);
         if (includeMainJar) {
             TInstance realInstance;
             string? requiredJar = instance.JsonObject["jar"]?.ToString();
@@ -188,7 +192,8 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
             TNetFile? mainJar = host.ClientJar(instance, true);
             if (mainJar != null) result.Add(mainJar);
         } catch (Exception ex) { Logger.Warn(ex, "版本缺失主 jar 文件所必须的信息"); }
-        result.AddRange(McLibNetFilesFromTokens(McLibListGet(instance, false)));
+        List<TLibrary> libraries = McLibListGet(instance, false);
+        result.AddRange(McLibNetFilesFromTokens(libraries));
         if (ReadInteger("VersionServerLogin", instance) == 3) {
             string targetFile = host.PureFolder() + "nide8auth.jar";
             try {
@@ -216,9 +221,12 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         }
         if (ShouldIgnoreFileCheck(instance)) {
             Logger.Warn("设置要求尽量忽略文件检查，这可能会保留有误的文件");
+            var securityFiles = libraries.Where(library => library.RequiredSecuritySha256 is not null)
+                .Select(library => library.LocalPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
             result = result.Where(file => {
-                if (!FileUtils.Exists(host.DownloadPath(file))) return true;
-                Logger.Warn($"跳过下载的支持库文件：{host.DownloadPath(file)}");
+                string path = host.DownloadPath(file);
+                if (securityFiles.Contains(path) || !FileUtils.Exists(path)) return true;
+                Logger.Warn($"跳过下载的支持库文件：{path}");
                 return false;
             }).ToList();
         }
@@ -230,7 +238,7 @@ public sealed partial class LegacyMinecraftService<TInstance, TFolder, TLibrary,
         List<TNetFile> result = [];
         foreach (TLibrary token in libs) {
             FileChecker checker = token.Name!.ContainsIgnoreCase("labymod") ? new FileChecker()
-                : new FileChecker { ActualSize = token.Size == 0 ? -1 : token.Size, Hash = token.SHA1 };
+                : new FileChecker { ActualSize = token.Size == 0 ? -1 : token.Size, Hash = token.RequiredSecuritySha256 ?? token.SHA1 };
             List<string> urls = [];
             if (token.Url == null && token.Name == "net.minecraftforge:forge:universal")
                 token.Url = "https://maven.minecraftforge.net" + token.LocalPath.Replace(customMcFolder + "libraries", "").Replace("\\", "/");

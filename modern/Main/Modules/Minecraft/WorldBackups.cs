@@ -257,7 +257,7 @@ namespace PCL
             Worker.Stopped += () => Work.Stopped();
             Worker.Start();
             ModLoader.LoaderTaskbarAdd(Loader);
-            ModMain.FrmMain.BtnExtraDownload.ShowRefresh();
+            ModMain.FrmMain.RefreshTaskButton();
             return true;
         }
     }

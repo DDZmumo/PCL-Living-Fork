@@ -27,7 +27,7 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         // LF50 Combo.Cancel synchronously marks its parent but queues child
         // cancellation. Preserve actual inline/new-thread behavior and observe
         // queued actions, their tails and real producer threads, not State alone.
-        var host = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)
+        var host = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)
             Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action<Action> run = host.RunInThread;
         var threads = new System.Collections.Concurrent.ConcurrentDictionary<Thread, byte>();
@@ -153,10 +153,10 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
             AD(36, (string)Native.Property(plan.GetType(), "ActionText").GetValue(plan)! == "启用并启动");
             AD(37, !report.Mods.Any(mod => mod.RootPath == disabled && mod.Enabled));
             Native.Static("PCL.ModSecret", "ThemeRefresh", 0);
-            FrameworkElement view = (FrameworkElement)LaunchConstruct("PCL.ModDependencyCheckView", report, plan);
-            Panel groups = (Panel)Native.Get(view, "Groups")!;
-            AD(41, !groups.Children.OfType<MyCard>().Any(card => card.Title.StartsWith("缺少依赖", StringComparison.Ordinal)) &&
-                groups.Children.OfType<MyCard>().Any(card => card.Title.StartsWith("可启用", StringComparison.Ordinal) && card.Title.Contains("1 个文件", StringComparison.Ordinal)));
+            var view = LaunchCheckView(report, plan);
+            string[] captions = LaunchViewText(view).ToArray();
+            AD(41, !captions.Any(text => text.StartsWith("缺少依赖", StringComparison.Ordinal)) &&
+                captions.Any(text => text.StartsWith("可启用", StringComparison.Ordinal) && text.Contains("1 个文件", StringComparison.Ordinal)));
             string sourceHash = Hash(disabled, "SHA256"), destination = (string)Native.Get(PlanList(plan, "Enables")[0]!, "Destination")!;
             using (CancellationTokenSource cancel = new())
             {

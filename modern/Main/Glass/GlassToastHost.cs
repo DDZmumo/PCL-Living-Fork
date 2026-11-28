@@ -18,43 +18,34 @@ using PCLLF.Wpf.Motion;
 
 namespace PCL;
 
-/// <summary>Severity of a mirrored hint, read from the original hint's colour.</summary>
 internal enum GlassToastKind { Info, Success, Error }
 
-/// <summary>
-/// Mirrors the original hint panel as toast cards in the bottom-right corner of the main body. The original
-/// runtime keeps ownership of queueing, duplicate handling and timing: a toast appears while its source hint is
-/// alive (Tag[0] == true) and leaves when the source expires or is removed.
-/// </summary>
+/// <summary>Displays launcher notifications and owns their lifetime in the glass window.</summary>
 internal sealed class GlassToastHost : StackPanel, IDisposable {
     private const int MaxToasts = 4;
+    private const int MaxPendingHints = 20;
     private const double InsetRight = 34, InsetBottom = 24, ToastWidth = 380, OverlayGap = 12;
-    private readonly Panel _source;
-    private readonly Dictionary<Border, Toast> _toasts = new(ReferenceEqualityComparer.Instance);
-    private readonly EventHandler _sourceLayoutUpdated;
+    private const double MaxMessageHeight = 144;
+    private const double CardHeightOverhead = 30;
+    private readonly Dictionary<string, Hint> _hints = new(StringComparer.Ordinal);
     private readonly TranslateTransform _placement = new();
-    private long _lastRefreshMs;
+    private double _messageHeight = MaxMessageHeight;
     private bool _dark = true;
     private bool _disposed;
 
-    internal GlassToastHost(Panel source) {
-        _source = source;
+    private sealed class Hint(GlassToastKind kind, long expiresAt) {
+        internal GlassToastKind Kind { get; } = kind;
+        internal long ExpiresAt { get; set; } = expiresAt;
+        internal Toast? Current { get; set; }
+    }
+
+    internal GlassToastHost() {
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Bottom;
-        IsHitTestVisible = false;
         MaxWidth = ToastWidth;
         Margin = new Thickness(0, 0, InsetRight, InsetBottom);
         RenderTransform = _placement;
         AutomationProperties.SetLiveSetting(this, AutomationLiveSetting.Polite);
-        // Hints are added by the original runtime on the UI thread; throttle layout bursts while keeping entrance immediate.
-        _sourceLayoutUpdated = (_, _) => {
-            if (_source.Children.Count == 0 && _toasts.Count == 0) return;
-            long now = Environment.TickCount64;
-            if (_toasts.Count > 0 && now - _lastRefreshMs < 32 && _toasts.Count == _source.Children.Count) return;
-            _lastRefreshMs = now;
-            Refresh();
-        };
-        _source.LayoutUpdated += _sourceLayoutUpdated;
     }
 
     internal void AvoidOverlays(Size viewport, Rect overlays) {
@@ -72,29 +63,62 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
         _placement.X = InsetRight - right;
         _placement.Y = InsetBottom - bottom;
         if (MaxWidth != width) MaxWidth = width;
+        double messageHeight = Math.Clamp(Math.Floor((viewport.Height - InsetBottom - OverlayGap) / MaxToasts) -
+            CardHeightOverhead, 38, MaxMessageHeight);
+        if (_messageHeight == messageHeight) return;
+        _messageHeight = messageHeight;
+        foreach (Hint hint in _hints.Values)
+            if (hint.Current is { } toast) toast.MessageHeight = messageHeight;
     }
 
     internal void SetTheme(bool dark) {
         if (_dark == dark) return;
         _dark = dark;
-        foreach (Toast toast in _toasts.Values) toast.ApplyTheme(dark);
+        foreach (Hint hint in _hints.Values) hint.Current?.ApplyTheme(dark);
+    }
+
+    internal void Show(string text, GlassToastKind kind) {
+        if (_disposed || string.IsNullOrEmpty(text)) return;
+        long now = Environment.TickCount64;
+        long expiresAt = now + 800 + Math.Clamp(text.Length, 5, 60) * 180;
+        if (_hints.TryGetValue(text, out Hint? duplicate)) duplicate.ExpiresAt = expiresAt;
+        else if (_hints.Count < MaxPendingHints) _hints.Add(text, new Hint(kind, expiresAt));
+        Refresh();
     }
 
     internal void Refresh() {
-        if (_disposed || _source.Children.Count == 0 && _toasts.Count == 0) return;
-        var alive = new HashSet<Border>(ReferenceEqualityComparer.Instance);
-        foreach (Border hint in _source.Children.OfType<Border>()) {
-            if (hint.Tag is not object[] { Length: > 0 } tag || tag[0] is not true || hint.Child is not TextBlock { Text: { Length: > 0 } text }) continue;
-            alive.Add(hint);
-            if (_toasts.TryGetValue(hint, out Toast? existing)) { existing.SetText(text); continue; }
-            if (_toasts.Values.Count(toast => !toast.Leaving) >= MaxToasts) continue;
-            var toast = new Toast(text, KindOf(hint), _dark, Remove);
-            _toasts.Add(hint, toast);
-            Children.Add(toast.View);
-            toast.Enter();
+        if (_disposed || _hints.Count == 0) return;
+        long now = Environment.TickCount64;
+        int shown = 0;
+        foreach ((string text, Hint hint) in _hints.ToArray()) {
+            if (hint.Current?.IsReading == true) hint.ExpiresAt = Math.Max(hint.ExpiresAt, now + 1500);
+            if (hint.ExpiresAt <= now) {
+                _hints.Remove(text);
+                hint.Current?.Leave();
+            } else if (hint.Current is not null) {
+                shown++;
+            }
         }
-        foreach ((Border hint, Toast toast) in _toasts.ToArray())
-            if (!alive.Contains(hint)) { _toasts.Remove(hint); toast.Leave(); }
+        foreach ((string text, Hint hint) in _hints) {
+            if (shown >= MaxToasts) break;
+            if (hint.Current is not null) continue;
+            hint.Current = new Toast(text, hint.Kind, _dark, _messageHeight, Remove, () => Dismiss(text, hint));
+            Children.Add(hint.Current.View);
+            hint.Current.Enter();
+            shown++;
+        }
+    }
+
+    internal void DismissAll() {
+        foreach (Hint hint in _hints.Values) hint.Current?.Leave();
+        _hints.Clear();
+    }
+
+    private void Dismiss(string text, Hint hint) {
+        if (!_hints.TryGetValue(text, out Hint? current) || !ReferenceEquals(current, hint)) return;
+        _hints.Remove(text);
+        hint.Current?.Leave();
+        Refresh();
     }
 
     private void Remove(FrameworkElement view) => Children.Remove(view);
@@ -102,26 +126,19 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
-        _source.LayoutUpdated -= _sourceLayoutUpdated;
-        _toasts.Clear();
+        _hints.Clear();
         Children.Clear();
-    }
-
-    // The original hint paints a blend of its type colour and white, so the dominant channel identifies the type.
-    private static GlassToastKind KindOf(Border hint) {
-        if (hint.Background is not GradientBrush { GradientStops.Count: > 0 } brush) return GlassToastKind.Info;
-        Color color = brush.GradientStops[^1].Color;
-        if (color.G > color.R && color.G > color.B) return GlassToastKind.Success;
-        if (color.R > color.G && color.R > color.B) return GlassToastKind.Error;
-        return GlassToastKind.Info;
     }
 
     private sealed class Toast {
         private static readonly Geometry InfoGlyph = Frozen(Geometry.Parse("M10,8.5 V14 M10,5.6 V6"));
         private static readonly Geometry SuccessGlyph = Frozen(Geometry.Parse("M6,10.2 L8.8,13 14,7.4"));
         private static readonly Geometry ErrorGlyph = Frozen(Geometry.Parse("M10,5.6 V11 M10,13.8 V14.2"));
+        private static readonly Geometry CloseGlyph = Frozen(Geometry.Parse("M1,1 L9,9 M9,1 L1,9"));
         private readonly Border _card;
         private readonly TextBlock _text;
+        private readonly ScrollViewer _scroll;
+        private readonly Button _close;
         private readonly TranslateTransform _offset = new();
         private readonly ScaleTransform _scale = new(1, 1);
         private readonly ScaleTransform _collapse = new(1, 1);
@@ -129,8 +146,10 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
         private readonly Action<FrameworkElement> _removed;
         internal bool Leaving { get; private set; }
         internal FrameworkElement View => _card;
+        internal bool IsReading => _card.IsMouseOver || _card.IsKeyboardFocusWithin;
+        internal double MessageHeight { set => _scroll.MaxHeight = value; }
 
-        internal Toast(string text, GlassToastKind kind, bool dark, Action<FrameworkElement> removed) {
+        internal Toast(string text, GlassToastKind kind, bool dark, double messageHeight, Action<FrameworkElement> removed, Action dismiss) {
             _removed = removed;
             Color tone = kind switch {
                 GlassToastKind.Success => Color.FromRgb(48, 209, 88),
@@ -144,18 +163,35 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
                 Stroke = Brushes.White, StrokeThickness = 1.8, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
             });
             _text = new TextBlock {
-                Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxHeight = 38, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.None,
                 FontFamily = new FontFamily("Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI"), VerticalAlignment = VerticalAlignment.Center,
             };
+            _scroll = GlassDialogControls.Scroll();
+            _scroll.Content = _text;
+            _scroll.MaxHeight = messageHeight;
+            _scroll.VerticalAlignment = VerticalAlignment.Center;
+            _close = new Button {
+                Style = GlassDialogControls.Style("GlassPresentationButton"), Width = 24, Height = 24, MinWidth = 24, MinHeight = 24,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0), Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top, Content = new Path {
+                    Data = CloseGlyph, Stretch = Stretch.Uniform, Width = 10, Height = 10, StrokeThickness = 1.4,
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round
+                },
+                ToolTip = "关闭提示"
+            };
+            AutomationProperties.SetName(_close, "关闭提示");
+            _close.Click += (_, _) => dismiss();
             var row = new DockPanel();
             DockPanel.SetDock(badge, Dock.Left);
             row.Children.Add(badge);
-            row.Children.Add(_text);
+            DockPanel.SetDock(_close, Dock.Right);
+            row.Children.Add(_close);
+            row.Children.Add(_scroll);
             _card = new Border {
                 CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Padding = new Thickness(12, 10, 14, 10),
                 Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Right, Child = row, Opacity = 0,
                 RenderTransform = new TransformGroup { Children = { _scale, _offset } }, RenderTransformOrigin = new Point(1, 1),
-                LayoutTransform = _collapse, ToolTip = text,
+                LayoutTransform = _collapse,
                 Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Direction = 270, Opacity = .28, Color = Colors.Black, RenderingBias = RenderingBias.Performance },
             };
             AutomationProperties.SetName(_card, text);
@@ -167,11 +203,8 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
             _card.Background = new SolidColorBrush(dark ? Color.FromArgb(245, 43, 43, 43) : Color.FromArgb(250, 255, 255, 255));
             _card.BorderBrush = new SolidColorBrush(dark ? Color.FromArgb(34, 255, 255, 255) : Color.FromArgb(24, 0, 0, 0));
             _text.Foreground = new SolidColorBrush(dark ? Color.FromRgb(242, 242, 242) : Color.FromRgb(31, 31, 31));
-        }
-
-        internal void SetText(string text) {
-            if (_text.Text == text) return;
-            _text.Text = text; _card.ToolTip = text; AutomationProperties.SetName(_card, text);
+            _scroll.Foreground = _close.Foreground = _text.Foreground;
+            ((Path)_close.Content).Stroke = _close.Foreground;
         }
 
         // A spring snaps while its owner is not yet loaded, so the entrance starts once the card is in the tree.
@@ -181,6 +214,8 @@ internal sealed class GlassToastHost : StackPanel, IDisposable {
         internal void Leave() {
             if (Leaving) return;
             Leaving = true;
+            _card.IsHitTestVisible = false;
+            _close.IsEnabled = false;
             _motion.Retarget(0);
             if (_motion.Value <= MotionTokens.VisibilityThreshold) _removed(_card);
         }

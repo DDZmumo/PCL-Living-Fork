@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -107,6 +108,21 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public event EventHandler AccountRequested;
     public event EventHandler ThemeToggleRequested;
     public event EventHandler MinimizeRequested;
+    private TranslateTransform _aprilPosition;
+    private ScaleTransform _aprilScale;
+    internal Button AprilLaunchButton => LaunchButton;
+    internal TranslateTransform AprilPosition { get { EnsureAprilTransform(); return _aprilPosition; } }
+    internal ScaleTransform AprilScale { get { EnsureAprilTransform(); return _aprilScale; } }
+
+    private void EnsureAprilTransform()
+    {
+        if (_aprilPosition is not null) return;
+        _aprilPosition = new TranslateTransform();
+        _aprilScale = new ScaleTransform(1, 1);
+        LaunchButton.RenderTransformOrigin = new Point(.5, .5);
+        LaunchButton.RenderTransform = new TransformGroup { Children = { _aprilScale, _aprilPosition } };
+    }
+
     public event EventHandler CloseRequested;
     public event EventHandler RecentWorldRequested;
     public event EventHandler BackRequested;
@@ -121,7 +137,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public bool IsRailExpanded => _railExpanded;
     public bool IsRailAnimating => _railExpandMotion.IsRunning;
     public double LeftExpansionAllowance => _leftExpansionAllowance;
-    private bool IsCompactViewport => ActualWidth - _leftExpansionAllowance < 960;
+    private const double CompactWorkspaceWidth = 900, StandardWorkspaceWidth = 960;
+    private bool IsCompactViewport => ActualWidth - _leftExpansionAllowance < StandardWorkspaceWidth;
+    private double WorkspaceWidthProgress => ActualWidth <= 0 ? 1 : Math.Clamp(
+        (ActualWidth - _leftExpansionAllowance - CompactWorkspaceWidth) / (StandardWorkspaceWidth - CompactWorkspaceWidth), 0, 1);
+    private double WorkspaceInset => 16 + 8 * WorkspaceWidthProgress;
     /// <summary>True while a page transition, rail expansion or entrance cascade is playing; owners can defer heavy refreshes.</summary>
     public bool IsTransitioning => _pageMotion.IsRunning || _homeMotion.IsRunning || _railExpandMotion.IsRunning ||
         _sidebarLeaving || _sidebarFlipMotion?.IsRunning == true || _columnMotion?.IsRunning == true ||
@@ -139,6 +159,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _leftExpansionAllowance = clamped;
         NavigationColumn.Width = clamped > 0 ? new GridLength(RailCollapsedWidth + clamped) : GridLength.Auto;
         AccountPopover.Margin = new Thickness(84 + clamped, 0, 0, 16);
+        UpdateWorkspaceSize();
         SyncSurfaceRegions();
         ScheduleLayout();
     }
@@ -192,12 +213,22 @@ public partial class GlassLauncherView : UserControl, IDisposable
     public GlassLauncherView()
     {
         InitializeComponent();
+#if !OFFICIAL_RELEASE
+        DevelopmentBaseline.Text = "基线版本 " + global::PCL.ModBase.ReleaseBaselineVersion;
+        var stamp = typeof(GlassLauncherView).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "PCL.DevelopmentBuildUtc")?.Value;
+        if (DateTimeOffset.TryParseExact(stamp, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var built))
+            DevelopmentBuildTime.Text = "构建于 " + built.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        DevelopmentMark.Visibility = Visibility.Visible;
+#endif
         SecondarySurface.RenderTransform = new TransformGroup { Children = { _secondaryWidthScale, _sidebarFlipOffset, _secondaryShift } };
         SecondaryContent.RenderTransformOrigin = new Point(.5, .42);
-        SecondaryContent.RenderTransform = _sidebarFlipScale;
+        SecondaryContent.RenderTransform = new TransformGroup { Children = { _secondaryContentUnstretch, _sidebarFlipScale } };
         AccountSideSurface.RenderTransform = new TransformGroup { Children = { _secondaryWidthScale, AccountSideTranslation } };
+        AccountSideHost.RenderTransform = _accountContentUnstretch;
         MainColumn.RenderTransform = _mainColumnWidthOffset;
-        SidebarScroller.Style = global::PCL.GlassPresentationSession.ShellScrollStyle;
+        SidebarScroller.Style = (Style)global::PCL.GlassPageResources.GetSharedResources()["GlassPresentationScrollViewer"];
         SidebarScroller.SetResourceReference(Control.ForegroundProperty, "GlassSecondaryTextBrush");
         _surfaceMaskHost = MainSurface;
         _expansionMotion = new SpringMotion(this, 0, ApplyExpansion, MotionTokens.Spatial);
@@ -268,9 +299,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _state = state;
         if (homeChanged && ActualWidth > 0)
         {
-            bool compact = IsCompactViewport;
-            double columnWidth = SecondaryWidth(state.IsHome || _workspaceOpen, compact);
-            SetSecondaryColumnWidth(columnWidth, animate: !ShouldSnapMotion);
+            SetSecondaryColumnWidth(SecondaryWidth(state.IsHome || _workspaceOpen), animate: !ShouldSnapMotion);
         }
         _updatingState = true;
         try
@@ -384,6 +413,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         PrimaryCard.Visibility = SelectInstanceButton.Visibility = InstanceSettingsButton.Visibility = ExpandButtonContainer.Visibility = homeVisibility;
         PrimaryCard.IsHitTestVisible = home;
         SecondaryContent.RowDefinitions[2].Height = new GridLength(home ? 52 : 12);
+        ApplyExpansion(_expansionMotion.Value);
         ApplyRail(_railMotion.Value);
         WorkspaceHint.Visibility = home || _hasSidebar ? Visibility.Hidden : Visibility.Visible;
         SideRail.IsHitTestVisible = _hasSidebar && !home;
@@ -479,6 +509,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     public void SetPageContent(UIElement content)
     {
+        if (content is FrameworkElement page) PCL.GlassPageLayout.Attach(page);
         bool restoring = ReferenceEquals(PageContentHost.Content, content);
         if (restoring && !_awaitingPageContent) return;
         double remainingDelay = _awaitingPageContent ? Math.Max(0, PageEntryDelay - _pageMotion.Value) : PageEntryDelay;
@@ -783,7 +814,10 @@ public partial class GlassLauncherView : UserControl, IDisposable
             {
                 var accessory = new Button { Style = (Style)Resources["GlassCircleButton"], Width = 28, Height = 28, MinHeight = 28, Padding = new Thickness(6), ToolTip = action.ToolTip, Content = SidebarGlyph(action.IconData, 14) };
                 AutomationProperties.SetName(accessory, $"{item.Label}：{action.ToolTip}");
-                accessory.Click += (_, _) => action.Invoked?.Invoke();
+                accessory.Click += (_, _) => {
+                    if (action.TargetInvoked is { } invoke) invoke(accessory);
+                    else action.Invoked?.Invoke();
+                };
                 actions.Children.Add(accessory);
             }
             row.Children.Add(actions);
@@ -1153,7 +1187,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         SetBrush("GlassOutlineBrush", darkText ? Color.FromArgb(32, 128, 148, 168) : Color.FromArgb(32, 255, 255, 255));
         // Neutral accent in the interface's own grey family: near-white on dark, charcoal on light.
         // Labels on the accent use the opposite tone (contrast > 12:1 in both themes).
-        SetBrush("GlassAccentBrush", darkText ? Color.FromRgb(43, 43, 43) : Color.FromRgb(230, 230, 230));
+        SetBrush("GlassAccentBrush", global::PCL.GlassPageResources.DefaultAccent(!darkText));
         SetBrush("GlassAccentTextBrush", darkText ? Colors.White : Color.FromRgb(26, 26, 26));
         SetBrush("HomeTextBrush", darkText ? Color.FromRgb(32, 43, 58) : Color.FromRgb(248, 250, 253));
         SetBrush("HomeSecondaryTextBrush", darkText ? global::PCL.GlassCommandChrome.LightSecondaryTextColor : Color.FromRgb(221, 221, 221));
@@ -1222,13 +1256,14 @@ public partial class GlassLauncherView : UserControl, IDisposable
         // Drops down from the panel header.
         AuxiliaryTranslation.X = 0;
         AuxiliaryTranslation.Y = -MotionTokens.AuxiliaryTravel * (1 - p);
-        // The options live inside the home panel, so they leave with the home content when another page is opened.
-        double home = PrimaryCard.Opacity;
-        AuxiliaryCards.Opacity = p * home;
+        // The outgoing sidebar owns the card until it finishes fading and swaps to the destination.
+        bool home = _shownSidebar.Home;
+        bool available = _expanded && _state.LaunchOptionsAvailable;
+        AuxiliaryCards.Opacity = home ? p : 0;
         ExpandRotation.Angle = p * 45;
-        AuxiliaryCards.IsHitTestVisible = _state.IsHome && _expanded && _state.LaunchOptionsAvailable && p > MotionTokens.VisibilityThreshold;
-        AuxiliaryCards.Visibility = (p < MotionTokens.VisibilityThreshold && (!_expanded || !_state.LaunchOptionsAvailable)) || home < MotionTokens.VisibilityThreshold ? Visibility.Hidden : Visibility.Visible;
-        MakeRoomForOptions(p);
+        AuxiliaryCards.IsHitTestVisible = home && _state.IsHome && available && p > MotionTokens.VisibilityThreshold;
+        AuxiliaryCards.Visibility = home && (available || p >= MotionTokens.VisibilityThreshold) ? Visibility.Visible : Visibility.Hidden;
+        MakeRoomForOptions(home ? p : 0);
     }
 
     /// <summary>
@@ -1485,9 +1520,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         {
             _layoutPending = false;
             if (_disposed) return;
-            bool compact = IsCompactViewport;
-            double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
-            SetSecondaryColumnWidth(columnWidth, animate: false);
+            UpdateWorkspaceSize();
             ArrangeHomeDeck();
             SetSelectedNavigation(ShouldSnapMotion);
             SyncSurfaceRegions();
@@ -1571,6 +1604,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         _byeBody = new SpringMotion(this, 0, _ => QueueFarewellDraw(), new SpringParameters(.46, 1));
         _byeRail = new SpringMotion(this, 0, _ => QueueFarewellDraw(), new SpringParameters(.3, 1));
         _byeControls.Retarget(1);
+        RollFarewellGlitch();
         return true;
     }
 
@@ -1622,6 +1656,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         if (!_farewellActive) return;
         _farewellActive = false;
+        _glitch?.Stop();
         if (_farewellDraw?.Status == DispatcherOperationStatus.Pending) _farewellDraw.Abort();
         _farewellDraw = null;
         _farewellDone = null;
@@ -1732,6 +1767,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         ApplySplash();
         Opacity = 1;
         SplashStarted?.Invoke(this, EventArgs.Empty);
+        RollStartupGlitch();
         CompositionTarget.Rendering += OnSplashFrame;
     }
 
@@ -1785,6 +1821,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
                 NavigationSurface.Background = _splashRailTone = new SolidColorBrush(tone.Color);
             _splashExit.Retarget(1);
         }
+        // Halfway through loading (the rail's percentage), the startup glitch (when rolled) breaks in over the splash.
+        if (_splashTideShown >= .5) PlayStartupGlitch();
         if (_splashExiting && _splashExit.Value > .995) { FinishSplash(); return; }
         ApplySplash();
     }
@@ -1912,6 +1950,63 @@ public partial class GlassLauncherView : UserControl, IDisposable
             RegionsChanged?.Invoke(this, EventArgs.Empty);
         } finally {
             SplashFinished?.Invoke(this, EventArgs.Empty);
+            PlayStartupGlitch();
+        }
+    }
+
+    // Easter egg: now and then the window glitches halfway through the loading splash, or during the closing animation. A window
+    // that glitched on the way in is a little more likely to glitch on the way out. Never with reduced motion.
+    // It only draws over the interface: loading and closing go on underneath at their usual pace.
+    private const double StartupGlitchChance = .03, CloseGlitchChance = .03, CloseGlitchChanceAfterStartup = .10;
+    private static bool s_glitchedAtStartup;
+    private PCL.GlassWindowGlitch _glitch;
+    private PCL.GlassWindowGlitch Glitch => _glitch ??= new PCL.GlassWindowGlitch(ShellRoot, WorkspaceGrid);
+    private bool GlitchAllowed => MotionPreferences.AllowsAnimation && !_state.ReduceMotion && IsLoaded && IsVisible;
+
+    private static bool RollGlitch(double chance, string moment)
+    {
+#if DEBUG
+        // PCL_GLITCH=start|close|both forces the effect in development builds.
+        string forced = Environment.GetEnvironmentVariable("PCL_GLITCH");
+        if (!string.IsNullOrEmpty(forced)) return forced == "both" || forced == moment;
+#endif
+        return Random.Shared.NextDouble() < chance;
+    }
+
+    private void RollStartupGlitch()
+    {
+        try
+        {
+            if (!GlitchAllowed || !RollGlitch(StartupGlitchChance, "start")) return;
+            s_glitchedAtStartup = true;
+            // Decided now, played when loading reaches 50 % (see SplashFrame).
+            _startupGlitchPending = true;
+        }
+        catch (Exception) { }
+    }
+
+    private bool _startupGlitchPending;
+
+    private void PlayStartupGlitch()
+    {
+        if (!_startupGlitchPending) return;
+        _startupGlitchPending = false;
+        try { if (GlitchAllowed && !IsClosing) Glitch.Play(TimeSpan.FromMilliseconds(700)); }
+        catch (Exception) { }
+    }
+
+    // The window tears while it folds away; the closing animation itself keeps its timing.
+    private void RollFarewellGlitch()
+    {
+        try
+        {
+            if (!GlitchAllowed || !RollGlitch(s_glitchedAtStartup ? CloseGlitchChanceAfterStartup : CloseGlitchChance, "close")) return;
+            _glitch?.Stop();
+            Glitch.Play(TimeSpan.FromMilliseconds(560));
+        }
+        catch (Exception)
+        {
+            _glitch?.Stop();
         }
     }
 
@@ -2013,9 +2108,11 @@ public partial class GlassLauncherView : UserControl, IDisposable
         else WindowControlsBodyBrush.Visual = null;
     }
 
-    private static double SecondaryWidth(bool wide, bool compact) => wide ? (compact ? 284 : 304) : (compact ? 230 : 254);
+    private double SecondaryWidth(bool wide) => wide ? 284 + 20 * WorkspaceWidthProgress : 230 + 24 * WorkspaceWidthProgress;
 
     private readonly ScaleTransform _secondaryWidthScale = new();
+    // Undo the width stretch for what the glass holds, so text and icons keep their shape while the edge moves.
+    private readonly ScaleTransform _secondaryContentUnstretch = new(), _accountContentUnstretch = new();
     private readonly TranslateTransform _mainColumnWidthOffset = new();
     private SpringMotion _columnMotion;
     private double _columnTarget = double.NaN;
@@ -2042,18 +2139,42 @@ public partial class GlassLauncherView : UserControl, IDisposable
     {
         double offset = width - _columnTarget;
         double surfaceWidth = _columnTarget - SecondarySurface.Margin.Left - SecondarySurface.Margin.Right;
-        _secondaryWidthScale.ScaleX = 1 + offset / Math.Max(1, surfaceWidth);
+        double scale = 1 + offset / Math.Max(1, surfaceWidth);
+        _secondaryWidthScale.ScaleX = scale;
         _mainColumnWidthOffset.X = AccountSceneTranslation.X = offset;
+        // Only the glass stretches. Its contents are scaled back about their left edge, and their layout width follows
+        // the moving edge (a negative right margin lets them grow past the target slot), so nothing jumps to its final
+        // position on the first frame. Only the sidebar re-lays out; the page column keeps its one layout pass.
+        double unstretch = 1 / Math.Max(.05, scale);
+        _secondaryContentUnstretch.ScaleX = _accountContentUnstretch.ScaleX = unstretch;
+        // SecondaryContent scales about its RenderTransformOrigin (.5): shift the centre back to its left edge.
+        _secondaryContentUnstretch.CenterX = -SecondaryContent.RenderTransformOrigin.X * SecondaryContent.ActualWidth;
+        double extra = Math.Abs(offset) < .5 ? 0 : Math.Round(offset);
+        SetRightMargin(SecondaryContent, SecondaryContentInset - extra);
+        SetRightMargin(AccountSideHost, -extra);
+    }
+
+    private const double SecondaryContentInset = 12;
+
+    private static void SetRightMargin(FrameworkElement element, double right)
+    {
+        Thickness margin = element.Margin;
+        if (Math.Abs(margin.Right - right) < .5) return;
+        element.Margin = new Thickness(margin.Left, margin.Top, right, margin.Bottom);
+    }
+
+    private void UpdateWorkspaceSize()
+    {
+        double inset = WorkspaceInset;
+        MainContentGrid.Margin = new Thickness(inset, 0, inset, 24);
+        SetSecondaryColumnWidth(SecondaryWidth(_state.IsHome || _workspaceOpen), animate: false);
+        UpdateHeaderLayout();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        bool compact = IsCompactViewport;
         UpdateNavigationRows();
-        MainContentGrid.Margin = new Thickness(compact ? 16 : 24, 0, compact ? 16 : 24, 24);
-        UpdateHeaderLayout();
-        double columnWidth = SecondaryWidth(_state.IsHome || _workspaceOpen, compact);
-        SetSecondaryColumnWidth(columnWidth, animate: false);
+        UpdateWorkspaceSize();
         AccountPopover.HorizontalAlignment = HorizontalAlignment.Left;
         AccountPopover.VerticalAlignment = VerticalAlignment.Bottom;
         AccountPopover.Margin = new Thickness(84 + _leftExpansionAllowance, 0, 0, 16);
@@ -2079,7 +2200,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
     private void UpdateHeaderLayout()
     {
         bool hasPageHeading = !_state.IsHome;
-        double inset = IsCompactViewport ? 16 : 24;
+        double inset = WorkspaceInset;
         PageHeaderRow.Height = new GridLength(hasPageHeading ? 88 : 60);
         PageHeading.VerticalAlignment = hasPageHeading ? VerticalAlignment.Top : VerticalAlignment.Center;
         // Page headings share one baseline below the caption while retaining its click area.
@@ -2256,9 +2377,8 @@ public partial class GlassLauncherView : UserControl, IDisposable
 
     private void ExpandButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_state.LaunchOptionsAvailable) return;
+        if (!_shownSidebar.Home || !_state.IsHome || !_state.LaunchOptionsAvailable) return;
         _expanded = !_expanded;
-        if (_expanded) AuxiliaryCards.Visibility = Visibility.Visible;
         ExpandButton.ToolTip = _expanded ? "收起启动选项" : "更多启动选项";
         AutomationProperties.SetName(ExpandButton, _expanded ? "收起启动选项" : "展开启动选项");
         _expansionMotion.Retarget(_expanded ? 1 : 0, ShouldSnapMotion);
@@ -2482,7 +2602,7 @@ public partial class GlassLauncherView : UserControl, IDisposable
         SecondaryContent.IsEnabled = !open;
         UpdateSidebarInput();
         SetSelectedNavigation(ShouldSnapMotion || immediate);
-        SetSecondaryColumnWidth(SecondaryWidth(_state.IsHome || open, IsCompactViewport), animate: !(ShouldSnapMotion || immediate));
+        SetSecondaryColumnWidth(SecondaryWidth(_state.IsHome || open), animate: !(ShouldSnapMotion || immediate));
     }
 
     // Same rhythm as switching pages: the current page leaves first (fading and receding), then the account page

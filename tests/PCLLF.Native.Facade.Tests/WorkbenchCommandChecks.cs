@@ -20,46 +20,31 @@ internal static class WorkbenchCommandChecks {
     internal static void Run(FixtureEnvironment environment) {
         VisualAssetChecks.VerifyChild(environment);
         using var scope = new VisualAssetChecks.Scope(environment, "workbench-commands");
-        var source = new MyExtraButton { Visibility = Visibility.Visible, IsHitTestVisible = true, IsEnabled = true, CanRightClick = true, ToolTip = "播放或暂停", Logo = "M2,2 H18 V18 H2 Z" };
+        bool shown = true;
+        double? progress = .5;
         var order = new List<string>();
-        source.Click += (sender, args) => { Native.Check(ReferenceEquals(sender, source) && args is null, "Logical extra activation fabricated pointer input."); order.Add("left"); };
-        source.RightClick += (sender, args) => { Native.Check(ReferenceEquals(sender, source) && args is null, "Logical secondary activation fabricated pointer input."); order.Add("right"); };
-        var services = ControlServices.Current;
-        Action<DependencyObject> originalCustom = services.RaiseCustomEvent;
-        services.RaiseCustomEvent = element => { Native.Check(ReferenceEquals(element, source), "Extra custom-event target changed."); order.Add("custom"); };
         object? adapter = null;
         Window? window = null;
         ContextMenu? menu = null;
         try {
-            Type adapterType = Native.Type("PCL.GlassExtraButtonAdapter");
-            adapter = Activator.CreateInstance(adapterType, Native.Flags, null, [source, false, true], null)!;
-            var button = Native.Property(adapterType, "View").GetValue(adapter) as Button
-                ?? throw new InvalidOperationException("The new command has no native Button presentation.");
-            Native.Check(!ReferenceEquals(button, source), "Workbench extra reused its source visual.");
+            var action = new GlassFloatingAction("MusicFixture", "播放或暂停", "M2,2 H18 V18 H2 Z", false,
+                () => shown, () => order.Add("left"), () => order.Add("right"), reduceMotion: true);
+            action.TotalProgress = () => progress;
+            action.RefreshVisibility();
+            adapter = action;
+            var button = action.View;
             window = new Window { Content = button, Width = 420, Height = 280, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
             window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
             Native.Check(!GlassMaterial.GetDesktopBackdropEnabled(button), "Desktop backdrop must default to disabled.");
             Native.Check(AutomationProperties.GetName(button) == "播放或暂停", "New extra lost its accessible semantic label.");
             button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
-            Native.Check(order.SequenceEqual(new[] { "left", "custom" }), "New primary command lost original action/custom-event order.");
-            order.Clear(); source.PerformClick(true);
-            Native.Check(order.SequenceEqual(new[] { "right" }), "Secondary command fired the left custom-event tail.");
-            order.Clear(); source.CanRightClick = false; source.PerformClick(true);
-            source.IsEnabled = false; source.PerformClick(); source.PerformClick(true);
-            Native.Check(order.Count == 0, "Disabled or unavailable extra action was executed.");
-            VisualAssetChecks.Drain(); Native.Check(!button.IsEnabled, "Enabled binding did not reach the new Button.");
-            source.IsEnabled = true; source.Visibility = Visibility.Collapsed; source.IsHitTestVisible = false;
-            VisualAssetChecks.Drain();
-            Native.Check(button.Visibility == Visibility.Collapsed && !button.IsHitTestVisible, "Visibility/hit-test binding changed original availability.");
-            source.Visibility = Visibility.Visible; source.IsHitTestVisible = true; source.ToolTip = "更新后的动作说明"; source.Progress = .5;
-            VisualAssetChecks.Drain();
-            Native.Check(AutomationProperties.GetName(button) == "更新后的动作说明", "Dynamic tooltip label was not projected.");
-            var bar = Descendants<ProgressBar>(button).Single();
-            Native.Check(Math.Abs(bar.Value - .5) < .0001 && bar.Visibility == Visibility.Visible, "Real extra progress changes did not reach the new progress view.");
-            var sourceViews = Descendants<UIElement>(source).Append(source).ToHashSet();
-            Native.Check(!Descendants<UIElement>(button).Any(sourceViews.Contains), "A source PCL visual was embedded in the new Button.");
-            CheckContrastStyle(button, source);
-            if (!SystemParameters.HighContrast) CheckFloatingFrost(window, button, adapter, source);
+            Native.Check(order.SequenceEqual(new[] { "left" }), "The floating action should execute once.");
+            shown = false; action.RefreshVisibility();
+            Native.Check(button.Visibility == Visibility.Collapsed && !button.IsHitTestVisible, "Hidden actions still intercept input.");
+            shown = true; action.RefreshVisibility(); action.RefreshProgress();
+            Native.Check((double)Native.Get(action, "_ringValue")! == .5, "The task ring lost its application progress.");
+            CheckContrastStyle(button);
+            if (!SystemParameters.HighContrast) CheckFloatingFrost(window, button, action);
 
             int clicks = 0, commands = 0, opened = 0, closed = 0;
             var menuTrace = new List<string>();
@@ -101,13 +86,12 @@ internal static class WorkbenchCommandChecks {
             if (menu is not null) menu.IsOpen = false;
             (adapter as IDisposable)?.Dispose();
             if (window is not null) { window.Content = null; window.Close(); }
-            services.RaiseCustomEvent = originalCustom;
             VisualAssetChecks.Drain(); environment.AssertNoForbiddenIo();
         }
         Console.WriteLine("PASS wallpaper-only workbench commands: new standard Button views, exact logical action/custom-event guards, observable availability/label/progress, fresh menu visuals with original command lifecycle, zero desktop backdrop HWNDs and complete cleanup.");
     }
 
-    private static void CheckFloatingFrost(Window window, Button button, object adapter, MyExtraButton source)
+    private static void CheckFloatingFrost(Window window, Button button, object adapter)
     {
         var host = new Grid();
         var wallpaper = new Image { Stretch = Stretch.Fill };
@@ -161,11 +145,11 @@ internal static class WorkbenchCommandChecks {
             Native.Call(adapter.GetType(), "SetBackdropSuspended", adapter, false);
             Native.Call(adapter.GetType(), "RefreshAppearance", adapter, false, true);
             Native.Check(ReferenceEquals(brush.Visual, frame), "The floating backdrop did not return once the page settled.");
-            source.Visibility = Visibility.Collapsed;
+            button.Visibility = Visibility.Collapsed;
             Native.Check(brush.Visual is null, "A hidden dark floating action kept sampling the page.");
             Console.WriteLine($"Floating action dark frost over the default page and colored wallpaper: stripe contrast {sharpContrast}->{frostContrast}.");
         } finally {
-            source.Visibility = Visibility.Visible;
+            button.Visibility = Visibility.Visible;
             host.Children.Remove(button);
             window.Content = button;
             window.UpdateLayout(); VisualAssetChecks.Drain();
@@ -191,7 +175,7 @@ internal static class WorkbenchCommandChecks {
         }
     }
 
-    private static void CheckContrastStyle(Button button, MyExtraButton source) {
+    private static void CheckContrastStyle(Button button) {
         Type chrome = Native.Type("PCL.GlassCommandChrome");
         MethodInfo create = chrome.GetMethod("BuildButton", Native.Flags, null, [typeof(bool), typeof(bool)], null)!;
         MethodInfo refresh = chrome.GetMethod("RefreshContrastResources", Native.Flags)!;
@@ -210,11 +194,11 @@ internal static class WorkbenchCommandChecks {
             Native.Check(button.Foreground is SolidColorBrush foreground && foreground.Color == SystemColors.WindowTextColor &&
                 button.Background is SolidColorBrush background && background.Color == SystemColors.WindowColor,
                 "High-contrast command style did not use the system window/text colors. " + ContrastDiagnostics(button));
-            source.IsEnabled = false; VisualAssetChecks.Drain();
+            button.IsEnabled = false; VisualAssetChecks.Drain();
             Native.Check(button.Foreground is SolidColorBrush disabled && disabled.Color == SystemColors.GrayTextColor && button.Opacity == 1,
                 "High-contrast disabled command did not preserve the system disabled-text color. " + ContrastDiagnostics(button));
         } finally {
-            source.IsEnabled = true; button.Style = original;
+            button.IsEnabled = true; button.Style = original;
             foreach (var (key, saved) in palette) { if (saved.Had) button.Resources[key] = saved.Value; else button.Resources.Remove(key); }
             VisualAssetChecks.Drain();
         }

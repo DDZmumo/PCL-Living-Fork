@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Schematic preview kit: Minecraft 投影（.litematic / .schem / .nbt）解析与 WPF 3D 预览。
+         Standalone library so the launcher only needs a ProjectReference. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <UseWPF>true</UseWPF>
+        <EnableWindowsTargeting>true</EnableWindowsTargeting>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>SchematicKit</AssemblyName>
+        <RootNamespace>SchematicKit</RootNamespace>
+        <Deterministic>true</Deterministic>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+        <Description>Minecraft 投影原理图（.litematic / .schem / .nbt）解析与 WPF 3D 预览控件</Description>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="fNbt" Version="1.0.0" />
+    </ItemGroup>
+</Project>

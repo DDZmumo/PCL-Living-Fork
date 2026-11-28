@@ -98,7 +98,7 @@ internal static class MmcRepairUi {
         var combo = new MmcOperationCombo<string>(fence, instance.Name + " MMC 文件补全", [worker]);
         try {
             if (services.RegisterTask is not null) services.RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(selected.VersionRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

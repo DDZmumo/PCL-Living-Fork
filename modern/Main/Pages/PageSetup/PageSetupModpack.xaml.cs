@@ -1,46 +1,45 @@
-using System;
-using PCLCS;
+// SPDX-License-Identifier: MPL-2.0
+using System.Windows;
 
-namespace PCL
+namespace PCL;
+
+public partial class PageSetupModpack : GlassWorkspacePage
 {
-    public partial class PageSetupModpack
+    private bool _refreshing;
+
+    public PageSetupModpack()
     {
-        private bool Refreshing;
-        private ModpackSetupPageController<MyCheckBox> PageController;
-        private ModpackSetupPageController<MyCheckBox> Controller
-        {
-            get
-            {
-                if (PageController is null)
-                    PageController = new ModpackSetupPageController<MyCheckBox>(new ModpackSetupPageHost<MyCheckBox>() { Refreshing = new Func<bool>(() => Refreshing), SetRefreshing = new Action<bool>(Value => Refreshing = Value), AdjustAnimation = new Action<int>(Value => ModAnimation.AniControlEnabled += Value), Animation = new Func<int>(() => ModAnimation.AniControlEnabled), TouchTitle = TouchTitle, VersionText = LabVersion, Brand = new Func<string>(() => ModBase.LauncherDisplayName), Version = new Func<string>(() => ModBase.VersionBaseName), RefreshSettings = new Action(() => SettingService.RefreshSettings(this)), Enabled = new Func<bool>(() => ModModpackMode.Enabled), SetChecked = new Action<bool>(Value => this.CheckModpackMode.Checked = Value), ScrollHome = new Action(() => this.PanBack.ScrollToHome()), Toggle = new Action<MyCheckBox, bool>((Sender, User) => ModModpackMode.Toggle(Sender, User)), HintWithoutLog = new Action<string>(Message => ModMain.Hint(Message, Log: false)) });
-                return PageController;
-            }
-        }
+        InitializeComponent();
+        AttachScroll(PanBack);
+        AttachPlaceholder(TextSystemCache, "默认");
+        SettingService.BindNativeControls(this);
+        Loaded += (_, _) => PageLoaded();
+        CheckModpackMode.Checked += ModeChanged;
+        CheckModpackMode.Unchecked += ModeChanged;
+        TextSystemCache.TextChanged += (_, _) => {
+            if (IsLoaded && !_refreshing && ModAnimation.AniControlEnabled == 0 && TextSystemCache.IsValidated)
+                ModMain.Hint("缓存文件夹将在重启启动器后生效。", Log: false);
+        };
+    }
 
-        public PageSetupModpack()
+    private void PageLoaded()
+    {
+        _refreshing = true;
+        try
         {
-            __LfAttachOwnHandles();
-            this.InitializeComponent();
+            LabVersion.Text = ModBase.LauncherDisplayName + " " + ModBase.VersionBaseName;
+            SettingService.RefreshSettings(this);
+            CheckModpackMode.IsChecked = ModModpackMode.Enabled;
+            PanBack.ScrollToTop();
         }
+        finally { _refreshing = false; }
+    }
 
-        private void TouchTitle()
-        {
-            var Title = this.CardLauncher.MainTextBlock;
-        }
-
-        private void PageLoaded()
-        {
-            Controller.Loaded();
-        }
-
-        private void ModeChanged(object sender, bool User)
-        {
-            Controller.ModeChanged(this.CheckModpackMode, User);
-        }
-
-        private void CacheChanged()
-        {
-            Controller.CacheChanged();
-        }
+    private void ModeChanged(object sender, RoutedEventArgs args)
+    {
+        if (!IsLoaded || _refreshing) return;
+        _refreshing = true;
+        try { ModModpackMode.Toggle(CheckModpackMode); }
+        finally { _refreshing = false; }
     }
 }

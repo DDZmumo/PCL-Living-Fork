@@ -1,3 +1,4 @@
+using SkinLoader = PCL.ModLoader.LoaderTask<PCLLF.Presentation.Launch.LegacySkinRequest, string>;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
@@ -11,7 +12,6 @@ using Newtonsoft.Json.Linq;
 using PCL;
 using PCLCS;
 using PCLLF.Presentation.Accounts;
-using AccountHost = PCLLF.Presentation.Accounts.LegacyLoginHost<PCL.ModLaunch.McLoginLegacy, PCL.ModLaunch.McLoginMs, PCL.ModLaunch.McLoginServer>;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -34,7 +34,6 @@ internal sealed class AccountUiChecksScope : IDisposable
     private readonly List<DispatcherOperation> posted = new();
     private readonly object postGate = new();
     private readonly object startGate = new();
-    private readonly AccountHost accounts;
     private RejectingConfigProvider? configGuard;
     private object? configLazy;
     private readonly ManualResetEventSlim entered = new(false), release = new(false);
@@ -46,7 +45,6 @@ internal sealed class AccountUiChecksScope : IDisposable
     private readonly object hintBuyGate = new();
     private string hintBuyPath = null!;
     private int hintBuyReads, hintBuyWrites;
-    internal readonly PageLaunchLeft Launch;
     internal readonly MemoryStore Store;
     internal readonly List<(string Text, LegacyLoginHint Kind)> Hints = new();
     internal ModLoader.LoaderTask<ModLaunch.McLoginMs, ModLaunch.McLoginResult> Loader => ModLaunch.McLoginMsLoader;
@@ -54,7 +52,7 @@ internal sealed class AccountUiChecksScope : IDisposable
     internal int Refreshes => Volatile.Read(ref refreshes);
     internal readonly int SeedTransactionCount;
 
-    internal AccountUiChecksScope(FixtureEnvironment environment)
+    internal AccountUiChecksScope(FixtureEnvironment environment, bool createLegacyPage = true)
     {
         this.environment = environment;
         VisualAssetChecks.VerifyChild(environment);
@@ -65,7 +63,8 @@ internal sealed class AccountUiChecksScope : IDisposable
         // A rejected pre-existing producer is never ours to cancel in catch.
         Native.Check(Loader.State != ModBase.LoadState.Loading && Loader.LastRunningThread is not { IsAlive: true }, "Cannot adopt an existing Microsoft login producer.");
         Store = new MemoryStore(this);
-        allowed = new HashSet<string>(new[] { "LoginType", "LoginMsJson", "CacheMsV2OAuthRefresh", "CacheMsV2Access", "CacheMsV2ProfileJson", "CacheMsV2Uuid", "CacheMsV2Name", "CacheMsV2Expires", "CacheMsV2Migrated" }, StringComparer.Ordinal);
+        allowed = new HashSet<string>(new[] { "LoginType", "LoginMsJson", "CacheMsV2OAuthRefresh", "CacheMsV2Access", "CacheMsV2ProfileJson", "CacheMsV2Uuid", "CacheMsV2Name", "CacheMsV2Expires", "CacheMsV2Migrated",
+            "LfSkinSites", "LfSkinSiteActive", "LfSkinSiteSelection" }, StringComparer.Ordinal);
         try
         {
             // Even a refused already-captured Shared provider enters cleanup.
@@ -75,7 +74,6 @@ internal sealed class AccountUiChecksScope : IDisposable
             ModAnimation.AniGroups.Clear();
             SaveStatic(typeof(ModAnimation), "AniLastTick");
             InstallSharedConfigGuard();
-            accounts = (AccountHost)Native.Field(Native.Type("PCL.LoginPageRuntime"), "Accounts").GetValue(null)!;
             int suppression = ModAnimation.AniControlEnabled;
             restore.Push(() => ModAnimation.AniControlEnabled = suppression);
             ModAnimation.AniControlEnabled = 0;
@@ -85,7 +83,7 @@ internal sealed class AccountUiChecksScope : IDisposable
                 List<DictionaryEntry> before = new(); foreach (DictionaryEntry value in cache) before.Add(value);
                 restore.Push(() => { cache.Clear(); foreach (var value in before) cache[value.Key] = value.Value; });
             }
-            foreach (string name in new[] { "FrmMain", "FrmLaunchLeft", "FrmLoginLegacy", "FrmLoginMs", "FrmLoginMsSkin", "FrmLoginAuth", "FrmLoginAuthSkin", "FrmLoginNide", "FrmLoginNideSkin" }) Global(name, null);
+            Global("FrmMain", null);
             SaveStatic(typeof(ModMinecraft), "_McInstanceSelected"); Native.State(typeof(ModMinecraft), "_McInstanceSelected").SetValue(null, null);
             // Actual loader thread/cancellation fields are preserved, not replaced
             // by a task-state stub. All started bodies are joined before restore.
@@ -98,32 +96,6 @@ internal sealed class AccountUiChecksScope : IDisposable
             // instruction. A fast pre-HTTP failure may clear LastRunningThread.
             var load = (Action<ModLoader.LoaderTask<ModLaunch.McLoginMs, ModLaunch.McLoginResult>>)Native.Get(Loader, "LoadDelegate")!;
             Replace(Loader, "LoadDelegate", new Action<ModLoader.LoaderTask<ModLaunch.McLoginMs, ModLaunch.McLoginResult>>(actual => { threads.TryAdd(Thread.CurrentThread, 0); load(actual); }));
-            Action<object?, bool> start = accounts.MsLogin.Start;
-            Replace(accounts.MsLogin, "Start", new Action<object?, bool>((input, force) => {
-                lock (startGate) {
-                    if (startsClosed) throw new OperationCanceledException("Owned account starts are closed.");
-                    try { start(input, force); }
-                    finally { ObserveLoaderThread(); } // Retain before cleanup can Cancel/clear it.
-                }
-            }));
-            Action cancel = accounts.MsLogin.Cancel;
-            Replace(accounts.MsLogin, "Cancel", new Action(() => { lock (startGate) { ObserveLoaderThread(); cancel(); } }));
-            Replace(accounts, "RunInUi", new Action<Action>(Dispatch));
-            Replace(accounts, "RunInUiWait", new Action<Action>(DispatchWait));
-            Replace(accounts, "RunInThread", new Action<Action>(work => Spawn(work, "Account UI platform")));
-            Replace(accounts, "RunInNewThread", new Action<Action, string>(Spawn));
-            Func<string, string> readAccount = accounts.ReadString;
-            Replace(accounts, "ReadString", new Func<string, string>(key => key is "LoginMsJson" or "CacheMsV2OAuthRefresh" or "CacheMsV2Name" ? readAccount(key) : Forbidden<string>("unexpected account string read", key)));
-            Replace(accounts, "ReadInstanceString", new Func<string, string>(key => Forbidden<string>("unexpected account instance read", key)));
-            Replace(accounts, "ReadBoolean", new Func<string, bool>(key => Forbidden<bool>("unexpected account boolean read", key)));
-            Replace(accounts, "ReadInteger", new Func<string, int>(key => Forbidden<int>("unexpected account integer read", key)));
-            Func<string, Dictionary<string, object?>> accountSnapshot = accounts.AccountSnapshot;
-            Replace(accounts, "AccountSnapshot", new Func<string, Dictionary<string, object?>>(prefix => prefix == "CacheMsV2" ? accountSnapshot(prefix) : Forbidden<Dictionary<string, object?>>("unexpected account snapshot")));
-            Replace(accounts, "Hint", new Action<string, LegacyLoginHint>((text, kind) => Dispatch(() => Hints.Add((text, kind)))));
-            Replace(accounts, "OpenWebsite", new Action<string>(_ => Forbidden("unexpected website")));
-            Replace(accounts, "RequestRetry", new Func<string, System.Net.Http.HttpMethod, object?, string?, Dictionary<string, string>?, string>((_, _, _, _, _) => Forbidden<string>("unexpected skin/cape/upload HTTP")));
-            Action<bool, bool> refresh = accounts.RefreshLaunchPage;
-            Replace(accounts, "RefreshLaunchPage", new Action<bool, bool>((keep, animate) => { Interlocked.Increment(ref refreshes); refresh(keep, animate); }));
             object loaderHost = Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             Replace(loaderHost, "RunInUi", new Action<Action>(Dispatch));
             Replace(loaderHost, "RunInUiWait", new Action<Action>(DispatchWait));
@@ -160,14 +132,21 @@ internal sealed class AccountUiChecksScope : IDisposable
             SeedTransactionCount = Store.Transactions.Count;
             Native.Check(SeedTransactionCount == 1 && Store.Transactions[0].Length == 8 && Store.Transactions[0][^1] == "CacheMsV2Migrated_LF", "The fixture seed did not use the original encrypted marker-last account transaction.");
             ModBase.RunInUi(); // Initialize Main's real UI-thread identity.
-            Launch = new PageLaunchLeft();
-            Native.Field(typeof(ModMain), "FrmLaunchLeft").SetValue(null, Launch);
-            object panelHost = Native.Get(Native.Get(Launch, "Native")!, "host")!;
-            var panelString = (Func<string, string>)Native.Get(panelHost, "ReadString")!;
-            var panelInteger = (Func<string, int>)Native.Get(panelHost, "ReadInteger")!;
-            Replace(panelHost, "ReadString", new Func<string, string>(key => key == "CacheMsV2Access" ? panelString(key) : Forbidden<string>("unexpected launch-panel string setting read", key)));
-            Replace(panelHost, "ReadInteger", new Func<string, int>(key => key == "LoginPageType" ? panelInteger(key) : Forbidden<int>("unexpected launch-panel integer setting read", key)));
-            Replace(panelHost, "ReadBoolean", new Func<string, bool>(key => Forbidden<bool>("unexpected launch-panel boolean setting read", key)));
+            {
+                Type jobs = Native.Type("PCL.LauncherSkinLoaders");
+                FieldInfo microsoftJob = Native.Field(jobs, "SkinMs");
+                FieldInfo allJobs = Native.Field(jobs, "All");
+                var previousSkin = (SkinLoader)microsoftJob.GetValue(null)!;
+                SaveStatic(jobs, "SkinMs");
+                SaveStatic(jobs, "All");
+                var fixtureSkin = new SkinLoader("Fixture skin", task => {
+                    threads.TryAdd(Thread.CurrentThread, 0);
+                    task.Output = "";
+                });
+                microsoftJob.SetValue(null, fixtureSkin);
+                allJobs.SetValue(null, ((List<SkinLoader>)allJobs.GetValue(null)!).Select(loader =>
+                    ReferenceEquals(loader, previousSkin) ? fixtureSkin : loader).ToList());
+            }
             checkpoint = Checkpoint.Ready;
 
         }
@@ -257,7 +236,8 @@ internal sealed class AccountUiChecksScope : IDisposable
     internal void CheckKey(string physical)
     {
         string logical = physical.EndsWith("_LF", StringComparison.Ordinal) ? physical[..^3] : physical;
-        if (!allowed.Contains(logical) || physical != (logical == "LoginType" ? logical : logical + "_LF")) Forbidden("unexpected account physical key", logical);
+        string expected = logical is "LoginType" or "LfSkinSites" or "LfSkinSiteActive" or "LfSkinSiteSelection" ? logical : logical + "_LF";
+        if (!allowed.Contains(logical) || physical != expected) Forbidden("unexpected account physical key", logical);
     }
     private T Forbidden<T>(string operation, string? key = null) {
         Interlocked.Increment(ref forbidden);
@@ -313,7 +293,6 @@ internal sealed class AccountUiChecksScope : IDisposable
     private void SaveStatic(Type type, string name) { var field = Native.State(type, name); object? before = field.GetValue(null); restore.Push(() => field.SetValue(null, before)); }
     private void Global(string name, object? value) { SaveStatic(typeof(ModMain), name); Native.Field(typeof(ModMain), name).SetValue(null, value); }
     internal void SetCache(string name, object value) => Native.Cache(name, value);
-    internal void VerifyController(PageLoginMs page) => Native.Check(ReferenceEquals(Native.Get(Native.Get(page, "Native")!, "host"), accounts), "Actual Microsoft page must close over the original LoginPageRuntime host.");
 
     private void Dispatch(Action work)
     {
@@ -330,8 +309,6 @@ internal sealed class AccountUiChecksScope : IDisposable
         }
     }
     private void ObserveLoaderThread() { if (Loader.LastRunningThread is Thread thread) threads.TryAdd(thread, 0); }
-    internal bool IsCurrent<T>() where T : FrameworkElement => AccountUiChecks.Part<Panel>(Launch, "PanLogin").Children.Count == 1 && AccountUiChecks.Part<Panel>(Launch, "PanLogin").Children[0] is T;
-    internal T Current<T>() where T : FrameworkElement { Native.Check(IsCurrent<T>(), "Actual launch navigation is not " + typeof(T).Name); return (T)AccountUiChecks.Part<Panel>(Launch, "PanLogin").Children[0]; }
     internal void BeginScenario(Scenario next)
     {
         checkpoint = Checkpoint.BeforeScenario;
@@ -349,7 +326,7 @@ internal sealed class AccountUiChecksScope : IDisposable
         AwaitUi(() => Loader.State == expected && threads.Keys.All(thread => !thread.IsAlive) && ui());
         foreach (Thread thread in threads.Keys) Native.Check(thread.Join(0), "Actual account producer has not joined.");
         VisualAssetChecks.Drain();
-        Native.Check(Loader.LoadingState == (expected == ModBase.LoadState.Failed ? MyLoading.MyLoadingState.Error : MyLoading.MyLoadingState.Stop), "Actual loader UI completion state did not drain.");
+        Native.Check(Loader.LoadingState == (expected == ModBase.LoadState.Failed ? LauncherLoadingState.Error : LauncherLoadingState.Stop), "Actual loader UI completion state did not drain.");
         AssertIdle();
     }
     private static void AdvanceAnimations()
@@ -430,8 +407,8 @@ internal sealed class AccountUiChecksScope : IDisposable
         checkpoint = Checkpoint.CleanupIdle;
         AssertIdle();
         Native.Check(ModAnimation.AniGroups.Count == 0, "Account animation callbacks did not finish before restoration.");
-        Native.Check(!Launch?.IsLoaded ?? true, "Detached account fixture unexpectedly loaded its entire launch page.");
-        Native.Check(PageLaunchLeft.SkinLoaders.All(loader => loader.State != ModBase.LoadState.Loading && loader.LastRunningThread is not { IsAlive: true }), "Account scope started an uncontrolled skin loader.");
+        var skinJobs = (List<SkinLoader>)Native.Field(Native.Type("PCL.LauncherSkinLoaders"), "All").GetValue(null)!;
+        Native.Check(skinJobs.All(loader => loader.State != ModBase.LoadState.Loading && loader.LastRunningThread is not { IsAlive: true }), "Account scope started an uncontrolled skin loader.");
         if (configGuard is not null) {
             Native.Check(Monitor.TryEnter(configGuard), "An owned Shared config save still holds its real provider monitor.");
             try { AssertSharedGuard(); ((IDisposable)Native.Field(typeof(MeloongCore.JsonConfigProvider), "saveWorker").GetValue(configGuard)!).Dispose(); }

@@ -27,8 +27,7 @@ internal static class VisualAssetChecks
         DesktopCompatibilityChecks.WebP(environment.Root);
         using (Scope scope = new(environment))
         {
-            VisualAssetBackgroundChecks.Run(scope);
-            VisualAssetGalleryChecks.Run(scope);
+            VisualAssetBackgroundChecks.Run(environment);
             VisualAssetThumbnailChecks.Run(scope);
             VisualAssetIconChecks.Run(scope);
             foreach (var (family, minimum) in VisualAssetOriginalChecks.Minimum)

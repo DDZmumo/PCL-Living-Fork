@@ -47,9 +47,9 @@ public sealed class LegacyToolboxPageController<TFile, TDownload, TSave, TCombo>
         if (string.IsNullOrWhiteSpace(folder) || Host.ValidateFolder(folder) != "")
             folder = Host.Common.BaseFolder() + "PCL\\MyDownload\\";
         View.Folder().Text = folder;
-        View.Folder().Validate();
-        View.Url().Validate();
-        View.Name().Validate();
+        View.Folder().ValidateInput();
+        View.Url().ValidateInput();
+        View.Name().ValidateInput();
         View.SetLoaded(true);
         StartButtonRefresh();
     }
@@ -87,10 +87,10 @@ public sealed class LegacyToolboxPageController<TFile, TDownload, TSave, TCombo>
             return;
         View.Url().Text = "";
         View.Name().Text = "";
-        View.Url().Validate();
-        View.Name().Validate();
-        View.Url().ForceShowAsSuccess();
-        View.Name().ForceShowAsSuccess();
+        View.Url().ValidateInput();
+        View.Name().ValidateInput();
+        View.Url().ClearValidationFeedback();
+        View.Name().ClearValidationFeedback();
         StartButtonRefresh();
     }
 

@@ -15,6 +15,7 @@ namespace PCL;
 /// <summary>The application's composition root. Services own state; legacy modules expose forwarding properties only.</summary>
 public static class LauncherApplicationServices {
     internal static readonly TaskApplicationService<ModLoader.LoaderBase> TaskOwner = new(ReadTask, task => task.Cancel());
+    internal static TaskManagerApplicationService TaskManager { get; } = new();
     internal static readonly LaunchOwner LaunchOwner = CreateLaunchService();
     internal static readonly AccountOwner AccountOwner = CreateAccountService();
     internal static readonly InstanceSelectionApplicationService<ModMinecraft.McInstance> SelectionOwner = CreateSelectionService();
@@ -28,16 +29,19 @@ public static class LauncherApplicationServices {
         Cancel = CancelLaunch,
         Read = ReadLaunch
     });
+    internal static bool IsLaunchAccountPending => LauncherAccountSession.ExternalCharacterSwitchPending || GlassSkinSites.RoleSelectionPending;
     private static bool CheckLaunchAccount() {
-        if (!GlassSkinSites.RoleSelectionPending) return true;
-        ModMain.Hint("请先在账号页选择皮肤站角色。", ModMain.HintType.Red);
+        if (!IsLaunchAccountPending) return true;
+        string message = LauncherAccountSession.ExternalCharacterSwitchPending
+            ? "正在验证皮肤站角色，请稍候。" : "请先在账号页选择皮肤站角色。";
+        ModMain.Hint(message, ModMain.HintType.Red);
         return false;
     }
     private static AccountOwner CreateAccountService() => new(new() {
         VerifyAccess = VerifyUiAccess,
         Read = ReadAccount,
         Validate = input => ModLaunch.McLoginAble(input),
-        CanSignIn = () => !IsLaunchActive() && !AccountTasks().Any(IsTaskActive),
+        CanSignIn = () => !IsLaunchActive() && !IsAccountOperationActive(),
         Start = input => AccountOwner.Runtime.Login.Start(input, IsForceRestart: true),
         Cancel = () => { AccountOwner.Runtime.Login.Cancel(); ProviderTask(CurrentProvider()).Cancel(); },
         SignOut = new() {
@@ -117,6 +121,8 @@ public static class LauncherApplicationServices {
     };
     private static ModLoader.LoaderBase[] AccountTasks() => [AccountOwner.Runtime.Login, AccountOwner.Runtime.Microsoft,
         AccountOwner.Runtime.Offline, AccountOwner.Runtime.Nide, AccountOwner.Runtime.Auth];
+    internal static bool IsAccountLoaderActive() => AccountTasks().Any(IsTaskActive);
+    internal static bool IsAccountOperationActive() => LauncherAccountSession.ExternalCharacterSwitchPending || IsAccountLoaderActive();
     private static AccountApplicationSnapshot ReadAccount() {
         AccountProvider provider = CurrentProvider();
         ModLoader.LoaderBase task = IsTaskActive(AccountOwner.Runtime.Login) ? AccountOwner.Runtime.Login : ProviderTask(provider);

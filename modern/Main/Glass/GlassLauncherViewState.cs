@@ -68,4 +68,5 @@ public sealed class GlassSidebarAction
     public string ToolTip { get; init; } = string.Empty;
     public string IconData { get; init; }
     public Action Invoked { get; init; }
+    public Action<FrameworkElement> TargetInvoked { get; init; }
 }

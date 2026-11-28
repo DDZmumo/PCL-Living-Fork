@@ -17,7 +17,7 @@ public static class ModMusic {
         BasePath = () => Paths.Base, BooleanSetting = name => Settings.Get<bool>(name), IntegerSetting = name => Settings.Get<int>(name),
         RandomInteger = ModBase.RandomInteger, Ui = work => ModBase.RunInUi(work), Thread = ModBase.RunInThread,
         StartThread = (work, name, priority) => ModBase.RunInNewThread(work, name, priority),
-        Button = () => ModMain.FrmMain.BtnExtraMusic, RefreshSettings = () => ModMain.FrmSetupUI?.MusicRefreshUI(),
+        RefreshSettings = () => ModMain.FrmMain?.RefreshGlassShell(),
         Hint = (text, type, log) => ModMain.Hint(text, (ModMain.HintType)type, log)
     });
     public static MusicStates MusicState => (MusicStates)(int)Native.State;

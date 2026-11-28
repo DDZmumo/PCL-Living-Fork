@@ -152,7 +152,7 @@ internal static partial class MmcPackageUpdateUi {
         var combo = new MmcOperationCombo<string>(fence, "更新 MMC 整合包：" + instance.Name, [worker]);
         try {
             if (services.RegisterTask is not null) services.RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(source.Paths.InstanceRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

@@ -26,14 +26,14 @@ public partial class PageInstanceExport {
     private int _mmcExportRevision;
     private bool IsMmcExport;
     private CancellationTokenSource _mmcFileListCancellation;
-    private MyCheckBox _mmcOtherGameFiles;
+    private CheckBox _mmcOtherGameFiles;
     private StackPanel _mmcRequiredFiles, _mmcScreenshotFiles, _mmcServerFiles, _mmcOtherFiles;
     internal Task MmcInventoryTask { get; private set; } = Task.CompletedTask;
 
     private void CaptureExportOwner(ModMinecraft.McInstance owner, bool managed, Guid expectedInstanceId) {
         ExportOwner = owner;
         _exportOwnerRoot = owner?.PathVersion ?? "";
-        var observed = owner is null ? null : PageInstanceLeft.ObserveInstanceContext(owner);
+        var observed = owner is null ? null : LauncherInstanceContext.ObserveInstanceContext(owner);
         IsMmcExport = managed || observed?.IsMmcFamily == true;
         if (!IsMmcExport || owner is null) return;
         var attached = owner.Config.ContextStamp;
@@ -49,10 +49,10 @@ public partial class PageInstanceExport {
         owner is not null && PathUtils.IsSame(owner.PathVersion, _exportOwnerRoot);
 
     private bool CanUseOrdinaryExport() {
-        var active = PageInstanceLeft.Instance;
+        var active = LauncherInstanceContext.Instance;
         bool valid = !IsMmcExport && (ExportOwner is null ? active is null :
             ReferenceEquals(active, ExportOwner) && PathUtils.IsSame(active.PathVersion, _exportOwnerRoot) &&
-            !PageInstanceLeft.ObserveInstanceContext(ExportOwner).IsMmcFamily);
+            !LauncherInstanceContext.ObserveInstanceContext(ExportOwner).IsMmcFamily);
         if (!valid && BtnExport is not null) BtnExport.IsEnabled = false;
         return valid;
     }
@@ -63,17 +63,21 @@ public partial class PageInstanceExport {
         BtnOverrideCancel.Visibility = Visibility.Collapsed;
         PanAdvancedStandard.Visibility = Visibility.Collapsed;
         PanMmcPortability.Visibility = Visibility.Visible;
-        CardAdvanced.Title = "可移植设置";
-        CardAdvanced.IsSwapped = false;
-        CardOptions.Title = "导出内容列表";
+        MmcInactiveNotice.Tag = DialogTone.Warning;
+        GlassDialogControls.Callout(MmcJavaNotice);
+        GlassDialogControls.Callout(MmcInactiveNotice);
+        CardAdvanced.Header = "可移植设置";
+        CardAdvanced.IsExpanded = true;
+        LabOptionsTitle.Text = "导出内容列表";
         LabExportVersion.Text = "文件名版本";
-        TextExportVersion.HintText = "可留空";
+        _versionHint.Text = "可留空";
         TextExportVersion.ToolTip = "仅作为导出 ZIP 文件名的版本标记；组件版本与补丁按当前配置保留。";
-        BtnExport.Text = "预览并导出";
+        GlassPageLayout.Frost(BtnExport, "预览并导出", InstanceSidebarIcons.Export);
 
         // Reparent the actual original checkboxes and file-list panels. The ordinary
         // page's complete layout stays in the same BAML for ordinary instances.
         PanOptions.Children.Clear();
+        PanOptionsResourcePacks.Columns = PanOptionsSaves.Columns = 1;
         PanOptionsResourcePacks.Children.Clear();
         PanOptionsSaves.Children.Clear();
         BindingOperations.ClearBinding(PanOptionsSaves, VisibilityProperty);
@@ -84,7 +88,8 @@ public partial class PageInstanceExport {
         ConfigureMmcCheck(CheckOptionsSaves, "存档与地图个人数据", false);
         ConfigureMmcCheck(CheckOptionsScreenshots, "截图", false);
         ConfigureMmcCheck(CheckOptionsServers, "服务器列表及自动加入设置", false);
-        _mmcOtherGameFiles = new MyCheckBox { Name = "CheckMmcOtherGameFiles", Text = "允许携带未识别的游戏文件（可能含个人信息）" };
+        _mmcOtherGameFiles = GlassDialogControls.Check("允许携带未识别的游戏文件（可能含个人信息）", false);
+        _mmcOtherGameFiles.Name = "CheckMmcOtherGameFiles";
         RegisterName(_mmcOtherGameFiles.Name, _mmcOtherGameFiles);
         _mmcRequiredFiles = MmcFilePanel();
         _mmcScreenshotFiles = MmcFilePanel();
@@ -92,32 +97,48 @@ public partial class PageInstanceExport {
         _mmcOtherFiles = MmcFilePanel();
         foreach (UIElement control in new UIElement[] {
             CheckOptionsBasic,
-            new MyHint { Text = "必需的组件、补丁、运行库和当前整合包环境会完整保留。下方按类别选择玩家数据；文件清单用于核对，导出前还会核对实际内容。", Theme = MyHint.Themes.Blue, Margin = new Thickness(0, 6, 0, 10) },
+            GlassDialogControls.Notice("必需的组件、补丁、运行库和当前整合包环境会完整保留。下方按类别选择玩家数据；文件清单用于核对，导出前还会核对实际内容。", DialogTone.Information),
             CheckOptionsMod, MmcFileScroll(_mmcRequiredFiles), CheckOptionsResourcePacks, MmcFileScroll(PanOptionsResourcePacks),
             CheckOptionsSaves, MmcFileScroll(PanOptionsSaves), CheckOptionsScreenshots, MmcFileScroll(_mmcScreenshotFiles),
             CheckOptionsServers, MmcFileScroll(_mmcServerFiles), _mmcOtherGameFiles, MmcFileScroll(_mmcOtherFiles),
-            new MyHint { Text = "存档、截图和服务器默认不包含。以上选择作用于整个类别；发现未识别文件时导出会停止，请核对后明确允许携带。启动器账号文件、日志、缓存及本机 Java 文件不会打包。", Theme = MyHint.Themes.Yellow, Margin = new Thickness(0, 8, 0, 0) }
-        }) PanOptions.Children.Add(control);
+            GlassDialogControls.Notice("存档、截图和服务器默认不包含。以上选择作用于整个类别；发现未识别文件时导出会停止，请核对后明确允许携带。启动器账号文件、日志、缓存及本机 Java 文件不会打包。", DialogTone.Warning)
+        }) {
+            if (control is FrameworkElement option) {
+                option.Margin = new Thickness();
+                if (option is CheckBox check) {
+                    check.MinHeight = 36;
+                    check.FontSize = 14;
+                }
+            }
+            PanOptions.Children.Add(control);
+        }
         Unloaded += (_, _) => { Interlocked.Increment(ref _mmcExportRevision); _mmcFileListCancellation?.Cancel(); };
         RefreshMmcExport();
     }
 
     private static StackPanel MmcFilePanel() => new() { Margin = new Thickness(30, 0, 0, 8) };
-    private static MyScrollViewer MmcFileScroll(StackPanel panel) => new() {
-        Content = panel, MaxHeight = 150, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-    };
-    private static void ConfigureMmcCheck(MyCheckBox check, string text, bool selected, bool fixedChoice = false) {
+    private static Grid MmcFileScroll(Panel panel)
+    {
+        var scroll = GlassDialogControls.Scroll();
+        var inset = panel.Margin;
+        panel.Margin = new Thickness(Math.Min(inset.Left, 24), inset.Top, inset.Right, inset.Bottom);
+        scroll.Content = panel;
+        scroll.MaxHeight = 150;
+        scroll.VerticalAlignment = VerticalAlignment.Center;
+        var row = new Grid { MinHeight = 36, Children = { scroll } };
+        GlassPageLayout.PreserveRowSize(row);
+        return row;
+    }
+    private static void ConfigureMmcCheck(CheckBox check, string text, bool selected, bool fixedChoice = false) {
         check.Visibility = Visibility.Visible;
-        check.Text = text;
-        check.Checked = selected;
+        check.Content = text;
+        check.IsChecked = selected;
         check.IsEnabled = !fixedChoice;
         check.Margin = new Thickness(0);
     }
 
     private void BlockMmcExport(string message) {
-        HintJava.Text = message;
-        HintJava.Theme = MyHint.Themes.Red;
+        GlassDialogControls.UpdateNotice(HintJava, message, DialogTone.Error);
         HintJava.Visibility = Visibility.Visible;
         PanOptions.IsEnabled = false;
         PanMmcPortability.IsEnabled = false;
@@ -126,12 +147,12 @@ public partial class PageInstanceExport {
 
     private bool VerifyMmcExportOwner(bool updateBaseline, out InstanceSidebarState state) {
         state = null;
-        var active = PageInstanceLeft.Instance;
+        var active = LauncherInstanceContext.Instance;
         if (ExportOwner is null || !ReferenceEquals(active, ExportOwner) || !PathUtils.IsSame(active.PathVersion, _exportOwnerRoot)) {
             BlockMmcExport("当前页面对应的实例已切换，请重新进入对应实例的导出页。");
             return false;
         }
-        state = PageInstanceLeft.ObserveInstanceContext(ExportOwner);
+        state = LauncherInstanceContext.ObserveInstanceContext(ExportOwner);
         if (_mmcExportInstanceId == Guid.Empty || state.InstanceId != _mmcExportInstanceId ||
             ExportOwner.Config.ContextStamp.Kind != MmcConfigurationContextKind.Managed ||
             ExportOwner.Config.ContextStamp.InstanceId != _mmcExportInstanceId) {
@@ -160,20 +181,19 @@ public partial class PageInstanceExport {
         _mmcFileListCancellation?.Dispose();
         _mmcFileListCancellation = new CancellationTokenSource();
         if (!VerifyMmcExportOwner(updateBaseline: true, out var state)) return;
-        TextExportName.HintText = ExportOwner.Name;
-        HintJava.Text = "以 MMC / Prism 格式导出当前环境。现有同名 ZIP 不会被覆盖；文件名版本只用于 ZIP 名称。";
-        HintJava.Theme = MyHint.Themes.Blue;
+        _nameHint.Text = ExportOwner.Name;
+        GlassDialogControls.UpdateNotice(HintJava, "以 MMC / Prism 格式导出当前环境。现有同名 ZIP 不会被覆盖；文件名版本只用于 ZIP 名称。", DialogTone.Information);
         HintJava.Visibility = Visibility.Visible;
         PanOptions.IsEnabled = true;
         PanMmcPortability.IsEnabled = true;
         BtnExport.IsEnabled = true;
         var summary = InstalledComponentSummary.Describe(ExportOwner.Version, state.Inspection.Manifest?.Components);
-        CheckOptionsBasic.Text = "组件、补丁与运行库" + (summary.Count == 0 ? "" : "   " + string.Join(" · ", summary.Select(item => item.Name + " " + item.Version)));
+        CheckOptionsBasic.Content = "组件、补丁与运行库" + (summary.Count == 0 ? "" : "   " + string.Join(" · ", summary.Select(item => item.Name + " " + item.Version)));
         foreach (var panel in MmcFilePanels()) SetMmcFileLines(panel, ["正在读取文件清单……"]);
         MmcInventoryTask = LoadMmcFileListAsync(state, revision, _mmcFileListCancellation.Token);
     }
 
-    private IEnumerable<StackPanel> MmcFilePanels() => [_mmcRequiredFiles, PanOptionsResourcePacks, PanOptionsSaves, _mmcScreenshotFiles, _mmcServerFiles, _mmcOtherFiles];
+    private IEnumerable<Panel> MmcFilePanels() => [_mmcRequiredFiles, PanOptionsResourcePacks, PanOptionsSaves, _mmcScreenshotFiles, _mmcServerFiles, _mmcOtherFiles];
 
     private async Task LoadMmcFileListAsync(InstanceSidebarState state, int revision, CancellationToken token) {
         try {
@@ -245,25 +265,25 @@ public partial class PageInstanceExport {
         }
     }
 
-    private static void SetMmcFileLines(StackPanel panel, IEnumerable<string> lines) {
+    private static void SetMmcFileLines(Panel panel, IEnumerable<string> lines) {
         panel.Children.Clear();
         foreach (string line in lines) panel.Children.Add(new TextBlock {
-            Text = line, TextWrapping = TextWrapping.Wrap, Opacity = 0.65, Margin = new Thickness(0, 1, 0, 1)
+            Text = line, FontSize = 13, TextWrapping = TextWrapping.Wrap, Opacity = 0.65, Margin = new Thickness(0, 1, 0, 1)
         });
     }
 
     private MmcInstanceExportOptions ReadMmcExportOptions() {
         int? minimum = null, maximum = null;
-        if (CheckMmcFixedMemory.Checked) {
+        if (CheckMmcFixedMemory.IsChecked == true) {
             if (!int.TryParse(TextMmcMinimumMemory.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int min) ||
                 !int.TryParse(TextMmcMaximumMemory.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int max) || min < 0 || max < 16 || max > 1048576 || min > max)
                 throw new IOException("请填写有效的内存范围：最大值至少 16 MiB，最小值不能大于最大值。");
             minimum = min; maximum = max;
         }
-        return new(CheckOptionsSaves.Checked, CheckOptionsScreenshots.Checked, CheckOptionsServers.Checked) {
-            IncludeUnrecognizedGameFiles = _mmcOtherGameFiles.Checked,
-            InactiveGameTree = CheckMmcExcludeInactive.Checked ? MmcExportInactiveTree.Exclude : MmcExportInactiveTree.RejectNonempty,
-            DiscardMachineJavaSelection = CheckMmcPortableJava.Checked,
+        return new(CheckOptionsSaves.IsChecked == true, CheckOptionsScreenshots.IsChecked == true, CheckOptionsServers.IsChecked == true) {
+            IncludeUnrecognizedGameFiles = _mmcOtherGameFiles.IsChecked == true,
+            InactiveGameTree = CheckMmcExcludeInactive.IsChecked == true ? MmcExportInactiveTree.Exclude : MmcExportInactiveTree.RejectNonempty,
+            DiscardMachineJavaSelection = CheckMmcPortableJava.IsChecked == true,
             PortableMinimumMemoryMiB = minimum, PortableMaximumMemoryMiB = maximum
         };
     }

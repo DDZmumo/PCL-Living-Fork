@@ -35,6 +35,16 @@
       ]
     },
     {
+      "id": "fNbt",
+      "license": "BSD-3-Clause",
+      "scope": "runtime NBT reader for schematic previews",
+      "version": "1.0.0",
+      "source": "https://github.com/mstefarov/fNbt",
+      "texts": [
+        "licenses/texts/fNbt-BSD-3-Clause.txt"
+      ]
+    },
+    {
       "id": "Markdig",
       "license": "BSD-2-Clause",
       "scope": "runtime",

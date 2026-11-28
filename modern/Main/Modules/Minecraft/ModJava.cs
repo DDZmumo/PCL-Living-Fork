@@ -94,7 +94,7 @@ namespace PCL
                 UpdateJavaLists = global::PCL.ModJava.UpdateJavaLists,
                 SelectJavaExecutable = new Func<global::System.String>(() => global::MeloongCore.Wpf.Dialogs.SelectFile("选择 java.exe（可能在 bin 文件夹中）", false, filter: "java.exe|java.exe").FirstOrDefault()),
                 Hint = global::PCL.ModJava.PublishJavaHint,
-                ReloadCurrentJava = new Action(() => global::PCL.PageInstanceLeft.ReloadCurrentJava()),
+                ReloadCurrentJava = new Action(() => global::PCL.LauncherInstanceContext.ReloadCurrentJava()),
                 RunInThread = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInThread(Work)),
                 SwitchToInstanceSetup = global::PCL.ModJava.SwitchToInstanceSetup,
                 Message = new Action<global::System.String, global::System.String, global::System.Boolean, global::System.Boolean>((Caption, Title, IsWarn, ForceWait) => global::PCL.ModMain.MyMsgBox(Caption, Title, IsWarn: IsWarn, ForceWait: ForceWait)),
@@ -117,8 +117,7 @@ namespace PCL
         {
             global::PCL.ModBase.RunInUi(() =>
         {
-            global::PCL.ModMain.FrmSetupLaunch?.UpdateJavaList();
-            global::PCL.ModMain.FrmInstanceSetup?.UpdateJavaList();
+            global::PCL.ModMain.FrmMain?.RefreshJavaPages();
         });
         }
 
@@ -164,27 +163,12 @@ namespace PCL
         {
             global::PCL.ModBase.RunInUi(() =>
         {
-            global::PCL.PageInstanceLeft.Instance = Instance;
+            global::PCL.LauncherInstanceContext.Instance = Instance;
             global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup, global::PCL.FormMain.PageSubType.InstanceJava);
         });
         }
-        private static void DisableJavaSettings()
-        {
-            if (global::PCL.ModMain.FrmInstanceSetup is not null)
-                global::PCL.ModBase.RunInUiWait(() => global::PCL.ModMain.FrmInstanceSetup.ComboArgumentJava.IsEnabled = false);
-        }
-        private static void RestoreJavaSettings()
-        {
-            if (global::PCL.ModMain.FrmInstanceSetup is not null)
-            {
-                global::PCL.ModBase.RunInUiWait(() =>
-                        {
-                            global::PCL.SettingService.RefreshSettings(global::PCL.ModMain.FrmInstanceSetup.ComboArgumentJava);
-                            global::PCL.SettingService.RefreshSettings(global::PCL.ModMain.FrmInstanceSetup.ComboArgumentJavaSelect);
-                            global::PCL.ModMain.FrmInstanceSetup.ComboArgumentJava.IsEnabled = true;
-                        });
-            }
-        }
+        private static void DisableJavaSettings() => UpdateJavaLists();
+        private static void RestoreJavaSettings() => UpdateJavaLists();
 
         // All LF processes use the same durable pin store, outside individual JDK homes.
         public static MmcJavaPinStore MmcPins => new MmcJavaPinStore(Path.Combine(Paths.AppData, ".minecraft", "runtime", ".pcllf-mmc-pins"));

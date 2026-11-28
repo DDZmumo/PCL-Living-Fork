@@ -35,21 +35,12 @@ public sealed partial class ModpackExportPageController<TInstance, TOption, TChe
         ResetConfigOverrides(); ReloadAllSubOptions(); RefreshOptions(); RefreshJavaInfo(); view.ScrollHome();
     }
     public TOption GetOption(TCheck check) => (TOption)check.Tag;
-    public IEnumerable<TCheck> AllOptions(bool includeHidden) {
-        foreach (UIElement element in view.Options.Children) {
-            if (!includeHidden && element.Visibility != Visibility.Visible) continue;
-            if (element is TCheck check) yield return check;
-            else if (element is StackPanel panel) foreach (UIElement sub in panel.Children) {
-                if (!includeHidden && sub.Visibility != Visibility.Visible) continue;
-                if (sub is TCheck item) yield return item;
-            }
-        }
-    }
+    public IEnumerable<TCheck> AllOptions(bool includeHidden) => view.ReadOptions(includeHidden);
     public void ReloadAllSubOptions() {
         ReloadSubOptions(view.ResourcePacks, true, true, "resourcepacks", "texturepacks");
         ReloadSubOptions(view.Saves, false, true, "saves"); ReloadSubOptions(view.Shaders, true, true, "shaderpacks");
     }
-    public void ReloadSubOptions(StackPanel panel, bool compressed, bool folders, params string[] names) {
+    public void ReloadSubOptions(Panel panel, bool compressed, bool folders, params string[] names) {
         panel.Children.Clear();
         foreach (string name in names) {
             DirectoryInfo target = DirectoryUtils.GetInfo(host.GameRoot(host.Instance()) + name);
@@ -107,6 +98,7 @@ public sealed partial class ModpackExportPageController<TInstance, TOption, TChe
             view.Inlines(check).Add(new Run(option.Title));
             if (!string.IsNullOrEmpty(option.Description)) view.Inlines(check).Add(new Run("   " + option.Description) { Foreground = view.Gray() });
         }
+        view.RefreshGroups();
     }
     public void RefreshJavaInfo() {
         int javaType = host.JavaType(host.Instance()); RedoableWorker<Java> worker = host.JavaWorker();

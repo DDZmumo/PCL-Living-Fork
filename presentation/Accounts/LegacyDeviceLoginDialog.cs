@@ -28,6 +28,7 @@ public sealed class LegacyDeviceLoginHost<TConverter> {
     public Func<int, string> ButtonName = null!;
     public Action<int, string> SetButtonName = null!;
     public Action SetLineThickness = null!, RemoveControl = null!, ShowWindowToTop = null!;
+    public Action? ClosePresentation;
     public Action<Action> RunInUi = null!;
     public Action<Action, string> RunInNewThread = null!;
     public Action<string> OpenWebsite = null!, ClipboardSet = null!, LaunchLog = null!;
@@ -36,42 +37,22 @@ public sealed class LegacyDeviceLoginHost<TConverter> {
 }
 public sealed class LegacyDeviceLoginDialog<TConverter> {
     private readonly LegacyDeviceLoginHost<TConverter> host;
-    private readonly int uuid;
     private TConverter converter = default!;
     private JObject data = null!;
     private string userCode = null!, deviceCode = null!, website = null!;
-    private ControlAnimations Animations => ControlServices.Current.Animations;
-    public LegacyDeviceLoginDialog(LegacyDeviceLoginHost<TConverter> host) { this.host = host; uuid = host.NewUuid(); }
+    public LegacyDeviceLoginDialog(LegacyDeviceLoginHost<TConverter> host) { this.host = host; }
     public void Initialize(TConverter Converter) {
-        host.SetButtonName(1, host.ButtonName(1) + host.NewUuid());
-        host.SetButtonName(2, host.ButtonName(2) + host.NewUuid());
-        host.SetButtonName(3, host.ButtonName(3) + host.NewUuid());
-        converter = Converter; host.SetLineThickness(); data = host.Content(Converter); Init();
+        converter = Converter;
+        data = host.Content(Converter);
+        Init();
     }
-    public void Loaded() {
-        try {
-            host.Control().Opacity = 0;
-            Animations.Start(new[] { Animations.ColorTo(host.MessagePanel(), Grid.BackgroundProperty, host.IsWarn(converter) ? new ControlColor(140, 80, 0, 0) : new ControlColor(90, 0, 0, 0), new(200)) }, "PanMsg Background");
-            Animations.Start(new[] {
-                Animations.Opacity(host.Control(), 1, new(120, 60)),
-                Animations.Double(delta => host.Position().Y += delta, -host.Position().Y, new(300, 60, ControlEase.OutBack, ControlEasePower.Weak)),
-                Animations.Double(delta => host.Rotation().Angle += delta, -host.Rotation().Angle, new(300, 60, ControlEase.OutFluent, ControlEasePower.Weak))
-            }, "MyMsgBox " + uuid);
-            Logger.Info($"登录弹窗：{host.Title()}\r\n{host.Caption()}");
-        } catch (Exception error) { Logger.Error(error, "登录弹窗加载失败", LogBehavior.Toast); }
-    }
-    private void Close() => Animations.Start(new[] {
-        Animations.Code(() => { if (!host.HasWaitingMessages()) Animations.Start(new[] { Animations.ColorTo(host.MessagePanel(), Grid.BackgroundProperty, new ControlColor(0, 0, 0, 0), new(200, ease: ControlEase.OutFluent, power: ControlEasePower.Weak)) }, ""); }, 30),
-        Animations.Opacity(host.Control(), -host.Control().Opacity, new(80, 20)),
-        Animations.Double(delta => host.Position().Y += delta, 20 - host.Position().Y, new(150, ease: ControlEase.OutFluent)),
-        Animations.Double(delta => host.Rotation().Angle += delta, 6 - host.Rotation().Angle, new(150, ease: ControlEase.InFluent, power: ControlEasePower.Weak)),
-        Animations.Code(host.RemoveControl, after: true)
-    }, "MyMsgBox " + uuid);
     public void CancelClick() => Finished(new OperationCanceledException());
     public static bool ShouldDrag(double PositionY) => PositionY <= 2;
     private void Finished(object Result) {
         if (host.IsExited(converter)) return;
-        host.SetExited(converter, true); host.SetResult(converter, Result); host.RunInUi(Close); Thread.Sleep(200); host.ShowWindowToTop();
+        host.SetExited(converter, true);
+        host.SetResult(converter, Result);
+        if (host.ClosePresentation is { } close) host.RunInUi(close);
     }
     private void Init() {
         userCode = (string)data["user_code"]!; deviceCode = (string)data["device_code"]!; website = (string)data["verification_uri"]!;

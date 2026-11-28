@@ -1,226 +1,158 @@
-<local:MyPageRight
+<local:GlassWorkspacePage
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="clr-namespace:PCL"
+    xmlns:glass="clr-namespace:PCLLF.Wpf.Glass;assembly=PCLLF.WPF.Core" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
     mc:Ignorable="d" x:Class="PCL.PageSetupSystem"
-    PanScroll="PanBack">
-    <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
+   >
+    <!-- Settings rows: title and a one-line explanation on the left, the control on the right (GlassSettingRows.cs). -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack" Style="{DynamicResource GlassPresentationScrollViewer}">
         <StackPanel x:Name="PanMain" Margin="25,10">
-            <local:MyCard Margin="0,15" Title="下载">
-                <StackPanel Margin="25,37,25,15">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="7" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="7" />
-                            <RowDefinition Height="27" />
-                            <RowDefinition Height="27" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="文件下载源" Margin="0,0,25,0" />
-                        <local:MyComboBox x:Name="ComboDownloadSource" Grid.ColumnSpan="2" local:SettingService.Key="ToolDownloadSource" Grid.Column="1">
-                            <local:MyComboBoxItem Content="尽量使用镜像源" />
-                            <local:MyComboBoxItem Content="优先使用官方源，在加载缓慢时换用镜像源" IsSelected="True" />
-                            <local:MyComboBoxItem Content="尽量使用官方源" />
-                        </local:MyComboBox>
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="版本列表源" Margin="0,0,25,0" Grid.Row="2" />
-                        <local:MyComboBox x:Name="ComboDownloadVersion" Grid.ColumnSpan="2" local:SettingService.Key="ToolDownloadVersion" Grid.Column="1" Grid.Row="2">
-                            <local:MyComboBoxItem Content="尽量使用镜像源（可能缺少刚刚更新的版本）" />
-                            <local:MyComboBoxItem Content="优先使用官方源，在加载缓慢时换用镜像源" IsSelected="True" />
-                            <local:MyComboBoxItem Content="尽量使用官方源" />
-                        </local:MyComboBox>
-                        <TextBlock Grid.Row="4" VerticalAlignment="Center" HorizontalAlignment="Left" Text="最大线程数" Margin="0,0,25,0" />
-                        <local:MySlider x:Name="SliderDownloadThread" Grid.Row="4" local:SettingService.Key="ToolDownloadThread" MaxValue="255" Value="63" Grid.Column="1"
-                                        ToolTip="线程数越多，限速的文件下载越快，但过高的线程数会造成下载时非常严重的卡顿。&#xa;一般而言，64 线程已可以保证足够的下载速度。" />
-                        <TextBlock VerticalAlignment="Center" Grid.Row="5" HorizontalAlignment="Left" Text="速度限制" Margin="0,0,25,0" />
-                        <local:MySlider x:Name="SliderDownloadSpeed" Grid.Row="5" local:SettingService.Key="ToolDownloadSpeed" MaxValue="42" Value="42" Grid.Column="1"
-                                        ToolTip="设置下载的速度上限，以避免在下载时导致其他需要联网的程序卡死" />
-                        <TextBlock VerticalAlignment="Top" Grid.Row="6" HorizontalAlignment="Left" Text="目标文件夹" Margin="0,5,25,5" />
-                        <TextBlock Margin="0,5" HorizontalAlignment="Left" Text="请在 启动 → 版本选择 → 文件夹列表 中更改下载目标文件夹。&#xa;在某个文件夹或游戏版本上右键，即可选择打开对应文件夹。" Grid.Row="6" Grid.Column="1" VerticalAlignment="Center" Opacity="0.5" />
-                    </Grid>
-                </StackPanel>
-            </local:MyCard>
-            <local:MyCard x:Name="CardBackupSettings" Margin="0,0,0,15" Title="世界备份与环境还原点">
-                <StackPanel x:Name="PanBackupSettings" Grid.IsSharedSizeScope="True" Margin="25,40,25,20">
-                    <TextBlock Text="存档自动备份 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
-                    <Grid Margin="0,0,0,12">
-                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                     <TextBlock x:Name="LabWorldAutoCreate" Text="自动备份" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyCheckBox x:Name="CheckWorldBackupAuto" Grid.Column="1" Text="正常退出游戏或更新 Minecraft 前自动备份世界" local:SettingService.Key="LaunchWorldBackupAutoEnabled"  />
-                    </Grid>
-                    <Grid Margin="0,0,0,12">
-                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                     <TextBlock x:Name="LabWorldBackupPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyComboBox x:Name="ComboWorldBackupRetention" Grid.Column="1" Height="28" SelectionChanged="WorldBackupRetentionChanged" ToolTip="仅限制自动备份的数量，手动备份不计入上限。">
-                        <local:MyComboBoxItem Content="全部保留" />
-                        <local:MyComboBoxItem Content="保留最近若干份" />
-                    </local:MyComboBox>
-                    </Grid>
-                    <StackPanel x:Name="PanWorldBackupRetentionCount" Margin="0,0,0,20">
-                     <Grid>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                      <TextBlock x:Name="LabWorldBackupCount" Text="保留份数" VerticalAlignment="Center" Margin="0,0,25,0" />
-                      <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <local:MyTextBox x:Name="TextWorldBackupRetention" Width="65" MaxLength="2" Text="5" ShowValidateResult="False" local:SettingService.Key="LaunchWorldBackupRetention">
-                            <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></local:MyTextBox.ValidateRules>
-                        </local:MyTextBox>
-                        <TextBlock Text="份自动备份" VerticalAlignment="Center" Margin="10,0,0,0" />
+            <local:GlassSettingGroup Title="下载" Margin="0,15,0,22">
+                <local:GlassSettingItem Title="文件下载源" Description="下载游戏文件时使用的服务器。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDownloadSource" local:SettingService.Key="ToolDownloadSource">
+                        <ComboBoxItem Content="尽量使用镜像源" />
+                        <ComboBoxItem Content="优先使用官方源，在加载缓慢时换用镜像源" IsSelected="True" />
+                        <ComboBoxItem Content="尽量使用官方源" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="版本列表源" Description="获取可安装的游戏版本时使用的服务器。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDownloadVersion" local:SettingService.Key="ToolDownloadVersion">
+                        <ComboBoxItem Content="尽量使用镜像源（可能缺少刚刚更新的版本）" />
+                        <ComboBoxItem Content="优先使用官方源，在加载缓慢时换用镜像源" IsSelected="True" />
+                        <ComboBoxItem Content="尽量使用官方源" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="最大线程数" Description="线程越多下载越快，但过高会让下载时卡顿。一般 64 线程已经足够。">
+                    <glass:TrackDragSlider Style="{DynamicResource GlassPresentationSlider}" x:Name="SliderDownloadThread" local:SettingService.Key="ToolDownloadThread" Maximum="255" Value="63" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="速度限制" Description="限制下载速度，避免其他联网程序卡住。">
+                    <glass:TrackDragSlider Style="{DynamicResource GlassPresentationSlider}" x:Name="SliderDownloadSpeed" local:SettingService.Key="ToolDownloadSpeed" Maximum="42" Value="42" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="下载目标文件夹" Description="在 启动 → 版本选择 → 文件夹列表 中更改。在文件夹或游戏版本上右键即可打开对应文件夹。" />
+            </local:GlassSettingGroup>
 
-                      </StackPanel>
-                     </Grid>
+            <local:GlassSettingGroup x:Name="CardBackupSettings" Title="世界备份与环境还原点">
+                <local:GlassSettingItem Title="自动备份存档" Description="正常退出游戏或更新 Minecraft 前自动备份世界。这是全局默认，实例可以单独设置。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckWorldBackupAuto" local:SettingService.Key="LaunchWorldBackupAutoEnabled" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="存档备份保留策略" Description="只限制自动备份的数量，手动备份不计入。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboWorldBackupRetention" SelectionChanged="WorldBackupRetentionChanged">
+                        <ComboBoxItem Content="全部保留" />
+                        <ComboBoxItem Content="保留最近若干份" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem x:Name="PanWorldBackupRetentionCount" Title="保留份数" Description="每个世界保留的自动备份数量，范围 1 到 50。">
+                    <StackPanel Orientation="Horizontal">
+                        <glass:GlassValidatedTextBox Style="{DynamicResource GlassPresentationTextBox}" x:Name="TextWorldBackupRetention" Width="72" MaxLength="2" Text="5" local:SettingService.Key="LaunchWorldBackupRetention">
+                            <glass:GlassValidatedTextBox.ValidateRules><local:ValidateInteger Min="1" Max="50" /></glass:GlassValidatedTextBox.ValidateRules>
+                        </glass:GlassValidatedTextBox>
+                        <TextBlock Text="份" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource GlassPresentationSecondary}" />
                     </StackPanel>
-                    <TextBlock Text="环境还原点 · 全局默认" FontWeight="SemiBold" Margin="0,0,0,10" />
-                    <Grid Margin="0,0,0,12">
-                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                     <TextBlock x:Name="LabHistoryAutoCreate" Text="自动创建" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyCheckBox x:Name="CheckHistoryAutoCreate" Grid.Column="1" Text="启动游戏或修改环境前创建还原点" local:SettingService.Key="LaunchEnvironmentHistoryAutoEnabled" />
-                    </Grid>
-                    <Grid Margin="0,0,0,12">
-                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                     <TextBlock x:Name="LabHistoryPolicy" Text="保留策略" VerticalAlignment="Center" Margin="0,0,25,0" />
-                     <local:MyComboBox x:Name="ComboHistoryRetention" Grid.Column="1" Height="28" SelectionChanged="HistoryRetentionChanged" ToolTip="仅限制自动还原点的数量，手动还原点不计入上限。">
-                        <local:MyComboBoxItem Content="全部保留" />
-                        <local:MyComboBoxItem Content="保留最近若干份" />
-                    </local:MyComboBox>
-                    </Grid>
-                    <StackPanel x:Name="PanHistoryRetentionCount" Margin="0,0,0,12">
-                     <Grid>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                      <TextBlock x:Name="LabHistoryCount" Text="保留份数" VerticalAlignment="Center" Margin="0,0,25,0" />
-                      <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <local:MyTextBox x:Name="TextHistoryRetention" Width="65" MaxLength="3" Text="10" ShowValidateResult="False" local:SettingService.Key="LaunchEnvironmentHistoryRetention">
-                            <local:MyTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></local:MyTextBox.ValidateRules>
-                        </local:MyTextBox>
-                        <TextBlock Text="个自动还原点" VerticalAlignment="Center" Margin="10,0,0,0" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="自动创建还原点" Description="启动游戏或修改环境前记录一个还原点。这是全局默认，实例可以单独设置。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckHistoryAutoCreate" local:SettingService.Key="LaunchEnvironmentHistoryAutoEnabled" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="还原点保留策略" Description="只限制自动还原点的数量，手动还原点不计入。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboHistoryRetention" SelectionChanged="HistoryRetentionChanged">
+                        <ComboBoxItem Content="全部保留" />
+                        <ComboBoxItem Content="保留最近若干份" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem x:Name="PanHistoryRetentionCount" Title="保留个数" Description="每个实例保留的自动还原点数量，范围 1 到 100。">
+                    <StackPanel Orientation="Horizontal">
+                        <glass:GlassValidatedTextBox Style="{DynamicResource GlassPresentationTextBox}" x:Name="TextHistoryRetention" Width="72" MaxLength="3" Text="10" local:SettingService.Key="LaunchEnvironmentHistoryRetention">
+                            <glass:GlassValidatedTextBox.ValidateRules><local:ValidateInteger Min="1" Max="100" /></glass:GlassValidatedTextBox.ValidateRules>
+                        </glass:GlassValidatedTextBox>
+                        <TextBlock Text="个" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource GlassPresentationSecondary}" />
+                    </StackPanel>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="存储位置" Description="世界备份和环境还原点实际存放的文件夹。">
+                    <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnBackupStorageOpen" Content="打开文件夹" Click="BtnBackupStorageOpen_Click" />
+                    <local:GlassSettingItem.Extra>
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <glass:GlassValidatedTextBox Style="{DynamicResource GlassPresentationTextBox}" x:Name="TextBackupStoragePath" IsReadOnly="True" />
+                                <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnBackupStorageChoose" Content="更改" Grid.Column="1" Margin="8,0,0,0" Click="BtnBackupStorageChoose_Click" />
+                            </Grid>
+                            <TextBlock x:Name="LabBackupStorageStatus" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource GlassPresentationSecondary}" Margin="2,8,0,0" Visibility="Collapsed" />
+                        </StackPanel>
+                    </local:GlassSettingItem.Extra>
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
 
-                      </StackPanel>
-                     </Grid>
-                    </StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="BackupSettingsLabel" /><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition Width="60" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="存储位置" VerticalAlignment="Center" Margin="0,0,25,0" />
-                        <local:MyTextBox x:Name="TextBackupStoragePath" Grid.Column="1" MinHeight="30" IsReadOnly="True" ToolTip="世界备份与环境还原点的实际存储目录。点击右侧选择按钮更改位置。" />
-                        <local:MyButton x:Name="BtnBackupStorageChoose" Text="选择" Grid.Column="3" Height="30" Click="BtnBackupStorageChoose_Click" />
-                    </Grid>
-                    <TextBlock x:Name="LabBackupStorageStatus" TextWrapping="Wrap" Foreground="{DynamicResource ColorBrushGray3}" Margin="0,10,0,0" Visibility="Collapsed" />
-                    <local:MyButton x:Name="BtnBackupStorageOpen" Text="打开文件夹" Width="140" Height="35" Margin="0,12,0,0" HorizontalAlignment="Left" Click="BtnBackupStorageOpen_Click" />
-                </StackPanel>
-            </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="社区资源">
-                <StackPanel Margin="25,37,25,12">
-                    <local:MyCheckBox x:Name="CheckModDownloadDependencies" Text="下载 Mod 时检查并提示必需前置" local:SettingService.Key="ToolDownloadModDependencies" Margin="0,0,0,14" ToolTip="下载前显示缺失前置及兼容版本，确认后一起安装。关闭后仅下载选中的 Mod；启动前依赖检查使用独立设置。" />
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="7" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="7" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="7" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left" Text="来源" Margin="0,0,25,0" />
-                        <local:MyComboBox x:Name="ComboDownloadMod" Grid.Row="0" Grid.ColumnSpan="2" local:SettingService.Key="ToolDownloadMod" Grid.Column="1">
-                            <local:MyComboBoxItem Content="尽量使用镜像源（可能缺少刚刚更新的版本）" />
-                            <local:MyComboBoxItem Content="仅在官方源加载缓慢时改用镜像源" />
-                            <local:MyComboBoxItem Content="尽量使用官方源" IsSelected="True" />
-                        </local:MyComboBox>
-                        <TextBlock Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Left" Text="文件名格式" Margin="0,0,25,0" />
-                        <local:MyComboBox Grid.Row="2" x:Name="ComboDownloadTranslateV2" Grid.ColumnSpan="2" local:SettingService.Key="ToolDownloadTranslateV2" Grid.Column="1"
-                                          ToolTip="下载社区资源时，其默认文件名的格式">
-                            <local:MyComboBoxItem Content="【机械动力】create-1.21.1-6.0.4" />
-                            <local:MyComboBoxItem Content="[机械动力] create-1.21.1-6.0.4" IsSelected="True" />
-                            <local:MyComboBoxItem Content="机械动力-create-1.21.1-6.0.4" />
-                            <local:MyComboBoxItem Content="create-1.21.1-6.0.4-机械动力" />
-                            <local:MyComboBoxItem Content="create-1.21.1-6.0.4" />
-                        </local:MyComboBox>
-                        <TextBlock Grid.Row="4" VerticalAlignment="Center" HorizontalAlignment="Left" Text="Mod 管理样式" Margin="0,0,25,0" />
-                        <local:MyComboBox Grid.Row="4" x:Name="ComboModLocalNameStyle" Grid.ColumnSpan="2" local:SettingService.Key="ToolModLocalNameStyle" Grid.Column="1"
-                                          ToolTip="在 Mod 管理页面中，Mod 项的显示方式">
-                            <local:MyComboBoxItem Content="标题显示译名，详情显示文件名" IsSelected="True" />
-                            <local:MyComboBoxItem Content="标题显示文件名，详情显示译名" />
-                        </local:MyComboBox>
-                    </Grid>
-                </StackPanel>
-            </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="辅助功能">
-                <Grid Margin="25,40,25,17">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock VerticalAlignment="Center" Text="游戏语言" Margin="0,0,25,0" />
-                    <local:MyCheckBox Text="自动设置为中文" Grid.Column="1" x:Name="CheckHelpChinese" local:SettingService.Key="ToolHelpChinese" />
-                </Grid>
-            </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="启动器">
-                <Grid Margin="25,40,25,20">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Name"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition Height="28"/><RowDefinition Height="9"/><RowDefinition Height="28"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBlock VerticalAlignment="Center" Text="启动器公告" Margin="0,0,25,0"/>
-                    <local:MyComboBox x:Name="ComboSystemActivity" local:SettingService.Key="SystemSystemActivity" Grid.Column="1" ToolTip="预留的公告显示偏好，当前版本暂未接入联网公告。">
-                        <local:MyComboBoxItem Content="显示所有公告"/><local:MyComboBoxItem Content="仅在有重要通知时显示公告"/><local:MyComboBoxItem Content="关闭所有公告"/>
-                    </local:MyComboBox>
-                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="缓存文件夹" Margin="0,0,25,0"/>
-                    <local:MyTextBox x:Name="TextSystemCache" Grid.Row="2" Grid.Column="1" local:SettingService.Key="SystemSystemCache" HintText="默认" ToolTip="留空即为默认值，重启启动器后生效。">
-                        <local:MyTextBox.ValidateRules><local:ValidateNullable/><local:ValidateFolderPath UseMinecraftCharCheck="False"/></local:MyTextBox.ValidateRules>
-                    </local:MyTextBox>
-                    <StackPanel Orientation="Horizontal" Height="35" Grid.Row="3" Grid.ColumnSpan="2" Margin="0,12,0,0">
-                        <local:MyButton x:Name="BtnSystemSettingExp" MinWidth="140" Text="导出设置" Padding="13,0" Margin="0,0,20,0"/>
-                        <local:MyButton x:Name="BtnSystemSettingImp" MinWidth="140" Text="导入设置" Padding="13,0"/>
-                    </StackPanel>
-                    <TextBlock x:Name="LabModpackMode" Text="整合包模式" Grid.Row="4" VerticalAlignment="Center" Margin="0,16,25,0" Visibility="Collapsed"/>
-                    <local:MyCheckBox x:Name="CheckModpackMode" Text="启用" Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" Margin="0,16,0,0" Visibility="Collapsed"/>
-                </Grid>
-            </local:MyCard>
+            <local:GlassSettingGroup Title="社区资源">
+                <local:GlassSettingItem Title="下载 Mod 时检查前置" Description="下载前列出缺失的必需前置及兼容版本，确认后一起安装。启动前的依赖检查使用独立设置。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckModDownloadDependencies" local:SettingService.Key="ToolDownloadModDependencies" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="资源来源" Description="获取 Mod、整合包等社区资源时使用的服务器。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDownloadMod" local:SettingService.Key="ToolDownloadMod">
+                        <ComboBoxItem Content="尽量使用镜像源（可能缺少刚刚更新的版本）" />
+                        <ComboBoxItem Content="仅在官方源加载缓慢时改用镜像源" />
+                        <ComboBoxItem Content="尽量使用官方源" IsSelected="True" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="文件名格式" Description="下载社区资源时默认使用的文件名。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboDownloadTranslateV2" local:SettingService.Key="ToolDownloadTranslateV2">
+                        <ComboBoxItem Content="【机械动力】create-1.21.1-6.0.4" />
+                        <ComboBoxItem Content="[机械动力] create-1.21.1-6.0.4" IsSelected="True" />
+                        <ComboBoxItem Content="机械动力-create-1.21.1-6.0.4" />
+                        <ComboBoxItem Content="create-1.21.1-6.0.4-机械动力" />
+                        <ComboBoxItem Content="create-1.21.1-6.0.4" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="Mod 列表显示" Description="Mod 管理页中每一项的标题和详情显示什么。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboModLocalNameStyle" local:SettingService.Key="ToolModLocalNameStyle">
+                        <ComboBoxItem Content="标题显示译名，详情显示文件名" IsSelected="True" />
+                        <ComboBoxItem Content="标题显示文件名，详情显示译名" />
+                    </ComboBox>
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
 
-            <!-- <local:MyCard x:Name="CardMain" Margin="0,15" Title="全局设置">
-                <StackPanel Margin="25,40,25,15">
-                    <Grid x:Name="PanMainLang" Height="28" Margin="0,0,0,10" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="语言" Margin="0,0,25,0" />
-                        <local:MyComboBox x:Name="ComboBackgroundSuit" Tag="UiBackgroundSuit" HorizontalAlignment="Left" Width="170" Grid.Column="1">
-                            <local:MyComboBoxItem Content="简体中文" Tag="zh_CN" IsSelected="True" />
-                            <local:MyComboBoxItem Content="繁體中文" Tag="zh_HK" />
-                            <local:MyComboBoxItem Content="English" Tag="en_US" />
-                        </local:MyComboBox>
-                    </Grid>
-                </StackPanel>
-            </local:MyCard> -->
-            <local:MyCard x:Name="CardDebug" Margin="0,0,0,15" Title="调试选项" CanSwap="True" IsSwapped="True">
-                <StackPanel Margin="25,40,25,15">
-                    <Grid x:Name="PanDebugAnim" Height="22" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="动画速度" Margin="0,0,25,0" />
-                        <local:MySlider x:Name="SliderDebugAnim" local:SettingService.Key="SystemDebugAnim" MaxValue="30" Grid.Column="1" />
-                    </Grid>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.5*" />
-                            <ColumnDefinition />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <local:MyCheckBox Grid.Column="0" Text="禁止在下载时从其他文件夹复制文件" Height="22" x:Name="CheckDebugSkipCopy" local:SettingService.Key="SystemDebugSkipCopy" ToolTip="在下载时不直接复制其他 MC 文件夹中已经存在的相同文件，而是重新下载文件。&#xa;只建议在测试下载速度时开启。" />
-                        <local:MyCheckBox Grid.Column="1" Text="调试模式" Height="22" x:Name="CheckDebugMode" local:SettingService.Key="SystemDebugMode" ToolTip="显示调试信息与更多错误信息。&#xa;这会导致启动器性能略有下降，若无特殊需要不建议开启。" />
-                        <local:MyCheckBox Grid.Column="2" Text="添加延迟" Height="22" x:Name="CheckDebugDelay" local:SettingService.Key="SystemDebugDelay" ToolTip="在各个环节添加随机的延迟，拖慢加载速度，以测试部分功能是否正常运行。&#xa;这会严重影响启动器运行，若无特殊需要不建议开启。" />
-                    </Grid>
-                </StackPanel>
-            </local:MyCard>
+            <local:GlassSettingGroup Title="辅助功能">
+                <local:GlassSettingItem Title="游戏语言自动设为中文" Description="首次启动游戏时把语言设置为简体中文。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckHelpChinese" local:SettingService.Key="ToolHelpChinese" />
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
+
+            <local:GlassSettingGroup Title="启动器">
+                <local:GlassSettingItem Title="启动器公告" Description="预留的公告显示偏好，当前版本暂未接入联网公告。">
+                    <ComboBox Style="{DynamicResource GlassPresentationComboBox}" x:Name="ComboSystemActivity" local:SettingService.Key="SystemSystemActivity">
+                        <ComboBoxItem Content="显示所有公告"/><ComboBoxItem Content="仅在有重要通知时显示公告"/><ComboBoxItem Content="关闭所有公告"/>
+                    </ComboBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="缓存文件夹" Description="留空则使用默认位置，重启启动器后生效。">
+                    <glass:GlassValidatedTextBox Style="{DynamicResource GlassPresentationTextBox}" x:Name="TextSystemCache" local:SettingService.Key="SystemSystemCache">
+                        <glass:GlassValidatedTextBox.ValidateRules><local:ValidateNullable/><local:ValidateFolderPath UseMinecraftCharCheck="False"/></glass:GlassValidatedTextBox.ValidateRules>
+                    </glass:GlassValidatedTextBox>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="设置文件" Description="导出当前设置以便备份或迁移，或从文件导入。">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnSystemSettingExp" Content="导出设置" Margin="0,0,8,0"/>
+                        <Button Style="{DynamicResource GlassPresentationButton}" x:Name="BtnSystemSettingImp" Content="导入设置"/>
+                    </StackPanel>
+                </local:GlassSettingItem>
+                <local:GlassSettingItem x:Name="LabModpackMode" Title="整合包模式" Description="只显示当前整合包的实例和相关设置。" Visibility="Collapsed">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckModpackMode" Visibility="Collapsed"/>
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
+
+            <local:GlassSettingGroup x:Name="CardDebug" Title="调试选项" IsCollapsible="True">
+                <local:GlassSettingItem x:Name="PanDebugAnim" Title="动画速度" Description="调整界面动画的播放速度。">
+                    <glass:TrackDragSlider Style="{DynamicResource GlassPresentationSlider}" x:Name="SliderDebugAnim" local:SettingService.Key="SystemDebugAnim" Maximum="30" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="调试模式" Description="显示调试信息和更详细的错误信息，会略微降低启动器性能。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckDebugMode" local:SettingService.Key="SystemDebugMode" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="下载时不复制已有文件" Description="不从其他 Minecraft 文件夹复制相同文件，而是重新下载。只建议在测试下载速度时开启。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckDebugSkipCopy" local:SettingService.Key="SystemDebugSkipCopy" />
+                </local:GlassSettingItem>
+                <local:GlassSettingItem Title="添加延迟" Description="在各个环节加入随机延迟，用于测试加载逻辑。会严重影响使用，非调试请勿开启。">
+                    <CheckBox Style="{DynamicResource GlassPresentationSwitch}" x:Name="CheckDebugDelay" local:SettingService.Key="SystemDebugDelay" />
+                </local:GlassSettingItem>
+            </local:GlassSettingGroup>
         </StackPanel>
-    </local:MyScrollViewer>
-</local:MyPageRight>
+    </ScrollViewer>
+</local:GlassWorkspacePage>

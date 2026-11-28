@@ -21,18 +21,3 @@ internal static class GlassModalState {
         .FirstOrDefault(child => child.Visibility == Visibility.Visible && IsOpen(child));
 }
 
-public partial class MyMsgText : IGlassModalState, IGlassModalTone {
-    bool IGlassModalState.IsModalOpen => MyConverter is { IsExited: false };
-    bool IGlassModalTone.IsWarning => MyConverter is { IsWarn: true };
-}
-public partial class MyMsgInput : IGlassModalState, IGlassModalTone {
-    bool IGlassModalState.IsModalOpen => MyConverter is { IsExited: false };
-    bool IGlassModalTone.IsWarning => MyConverter is { IsWarn: true };
-}
-public partial class MyMsgSelect : IGlassModalState, IGlassModalTone {
-    bool IGlassModalState.IsModalOpen => MyConverter is { IsExited: false };
-    bool IGlassModalTone.IsWarning => MyConverter is { IsWarn: true };
-}
-public partial class MyMsgLogin : IGlassModalState {
-    bool IGlassModalState.IsModalOpen => _modalConverter is { IsExited: false };
-}

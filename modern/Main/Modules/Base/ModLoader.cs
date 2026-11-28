@@ -13,16 +13,16 @@ namespace PCL
     {
         static ModLoader() { }
         internal static void EnsureApplicationServicesInitialized() { }
-        private readonly static LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> NativeLoaderHost = new LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>()
+        private readonly static LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> NativeLoaderHost = new LegacyLoaderHost<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>()
         {
             Waiting = PCL.ModBase.LoadState.Waiting,
             Loading = PCL.ModBase.LoadState.Loading,
             Finished = PCL.ModBase.LoadState.Finished,
             Failed = PCL.ModBase.LoadState.Failed,
             Canceled = PCL.ModBase.LoadState.Canceled,
-            UiRun = PCL.MyLoading.MyLoadingState.Run,
-            UiStop = PCL.MyLoading.MyLoadingState.Stop,
-            UiError = PCL.MyLoading.MyLoadingState.Error,
+            UiRun = PCL.LauncherLoadingState.Run,
+            UiStop = PCL.LauncherLoadingState.Stop,
+            UiError = PCL.LauncherLoadingState.Error,
             NewUuid = new Func<int>(() => PCL.ModBase.GetUuid()),
             Clock = new Func<long>(() => PCL.ModBase.GetTimeMs()),
             DebugFinishDelay = new Func<bool>(() => PCL.Settings.Get<bool>("SystemDebugDelay")),
@@ -30,7 +30,7 @@ namespace PCL
             RunInUi = new Action<Action>(Work => PCL.ModBase.RunInUi(Work)),
             RunInUiWait = new Action<Action>(Work => PCL.ModBase.RunInUiWait(Work)),
             RunInThread = new Action<Action>(Work => PCL.ModBase.RunInThread(Work)),
-            RefreshExtraDownload = new Action(() => PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
+            RefreshExtraDownload = new Action(() => PCL.ModMain.FrmMain.RefreshTaskButton()),
             Kind = NativeLoaderKind,
             IsDownloadInput = new Func<object, bool>(Input => Input is List<PCL.ModNet.NetFile>)
         };
@@ -47,7 +47,7 @@ namespace PCL
             return LegacyLoaderKind.Other;
         }
 
-        public abstract class LoaderBase : LegacyLoaderBase<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>, PCL.ILoadingTrigger
+        public abstract class LoaderBase : LegacyLoaderBase<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>, PCL.ILoadingTrigger
         {
             protected LoaderBase() : base(NativeLoaderHost)
             {
@@ -61,7 +61,7 @@ namespace PCL
                 }
             }
 
-            public new PCL.MyLoading.MyLoadingState LoadingState
+            public new PCL.LauncherLoadingState LoadingState
             {
                 get
                 {
@@ -102,7 +102,7 @@ namespace PCL
                 OnStateChangedThread?.Invoke(Loader, NewState, OldState);
             }
 
-            protected override void RaiseLoadingState(PCL.MyLoading.MyLoadingState NewState, PCL.MyLoading.MyLoadingState OldState)
+            protected override void RaiseLoadingState(PCL.LauncherLoadingState NewState, PCL.LauncherLoadingState OldState)
             {
                 LoadingStateChanged?.Invoke(NewState, OldState);
             }
@@ -143,11 +143,11 @@ namespace PCL
 
             public TIn Input = default;
             public TOut Output = default;
-            private readonly LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> Native;
+            private readonly LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> Native;
             public override bool? HasActiveWorkload => Native.HasActiveWorkload;
             public LoaderTask()
             {
-                Native = new LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>(this);
+                Native = new LegacyLoaderTaskEngine<LoaderTask<TIn, TOut>, TIn, TOut, LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>(this);
             }
 
             public LoaderTask(string Name, Action<LoaderTask<TIn, TOut>> LoadDelegate, Func<TIn> InputDelegate = null, ThreadPriority Priority = ThreadPriority.Normal) : this()
@@ -387,10 +387,10 @@ namespace PCL
                 }
             }
 
-            private readonly LegacyLoaderWorkerEngine<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> Native;
+            private readonly LegacyLoaderWorkerEngine<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> Native;
             public LoaderWorker(string Name, IWorker Worker)
             {
-                Native = new LegacyLoaderWorkerEngine<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>(this, () => this.Worker);
+                Native = new LegacyLoaderWorkerEngine<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>(this, () => this.Worker);
                 this.Name = Name;
                 this.Worker = Worker;
                 Native.BindInitialProgress(Worker);
@@ -433,10 +433,10 @@ namespace PCL
             }
             public List<LoaderBase> Loaders = new List<LoaderBase>();
             public InputType Input;
-            private readonly LegacyLoaderComboEngine<LoaderCombo<InputType>, InputType, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> Native;
+            private readonly LegacyLoaderComboEngine<LoaderCombo<InputType>, InputType, LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> Native;
             public LoaderCombo(string Name, IEnumerable<LoaderBase> Loaders)
             {
-                Native = new LegacyLoaderComboEngine<LoaderCombo<InputType>, InputType, LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>(this);
+                Native = new LegacyLoaderComboEngine<LoaderCombo<InputType>, InputType, LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>(this);
                 Native.Initialize(Name, Loaders);
             }
 
@@ -530,10 +530,25 @@ namespace PCL
         }
         public static double LoaderTaskbarProgress = 0d;
         private static System.Windows.Shell.TaskbarItemProgressState LoaderTaskbarProgressLast = System.Windows.Shell.TaskbarItemProgressState.None;
-        private readonly static LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> NativeTaskbar = CreateNativeTaskbar();
-        private static LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> CreateNativeTaskbar()
+        private readonly static LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> NativeTaskbar = CreateNativeTaskbar();
+        private static LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> CreateNativeTaskbar()
         {
-            return new LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>(NativeLoaderHost, new LegacyLoaderTaskbarHost<LoaderBase>() { ReadTasks = new Func<ConcurrentList<LoaderBase>>(() => LoaderTaskbar), ReadProgress = new Func<double>(() => LoaderTaskbarProgress), WriteProgress = new Action<double>(Value => LoaderTaskbarProgress = Value), ReadLastState = new Func<int>(() => (int)LoaderTaskbarProgressLast), WriteLastState = new Action<int>(Value => LoaderTaskbarProgressLast = (System.Windows.Shell.TaskbarItemProgressState)Value), RemoveTaskFromSpeedPage = new Action<LoaderBase>(Loader => PCL.ModMain.FrmSpeedLeft?.TaskRemove(Loader)), RefreshTaskOnSpeedPage = new Action<LoaderBase>(Loader => PCL.ModMain.FrmSpeedLeft?.TaskRefresh(Loader)), SetExtraDownloadProgress = new Action<double>(Value => PCL.ModMain.FrmMain.BtnExtraDownload.Progress = Value), SetTaskbarValue = new Action<double>(Value => PCL.ModMain.FrmMain.TaskbarItemInfo.ProgressValue = Value), SetTaskbarState = new Action<int>(Value => PCL.ModMain.FrmMain.TaskbarItemInfo.ProgressState = (System.Windows.Shell.TaskbarItemProgressState)Value) });
+            return new LegacyLoaderTaskbar<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>(NativeLoaderHost, new() {
+                ReadTasks = () => LoaderTaskbar,
+                ReadProgress = () => LoaderTaskbarProgress,
+                WriteProgress = value => LoaderTaskbarProgress = value,
+                ReadLastState = () => (int)LoaderTaskbarProgressLast,
+                WriteLastState = value => LoaderTaskbarProgressLast = (System.Windows.Shell.TaskbarItemProgressState)value,
+                RemoveTaskFromSpeedPage = loader => {
+                    LauncherApplicationServices.TaskManager.OnTaskAdded(loader);
+                },
+                RefreshTaskOnSpeedPage = loader => {
+                    LauncherApplicationServices.TaskManager.OnTaskRetiring(loader);
+                },
+                SetExtraDownloadProgress = _ => PCL.ModMain.FrmMain?.RefreshTaskButton(),
+                SetTaskbarValue = value => PCL.ModMain.FrmMain.TaskbarItemInfo.ProgressValue = value,
+                SetTaskbarState = value => PCL.ModMain.FrmMain.TaskbarItemInfo.ProgressState = (System.Windows.Shell.TaskbarItemProgressState)value
+            });
         }
 
         public static void LoaderTaskbarAdd<T>(LoaderCombo<T> Loader)
@@ -558,7 +573,7 @@ namespace PCL
             UpdateOnly
         }
 
-        private readonly static LegacyLoaderFolders<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState> NativeFolders = new LegacyLoaderFolders<LoaderBase, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>();
+        private readonly static LegacyLoaderFolders<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState> NativeFolders = new LegacyLoaderFolders<LoaderBase, PCL.ModBase.LoadState, PCL.LauncherLoadingState>();
         public static bool LoaderFolderRun(LoaderBase Loader, string FolderPath, LoaderFolderRunType Type, int MaxDepth = 0, string ExtraPath = "", bool WaitForExit = false)
         {
             return NativeFolders.Run(Loader, FolderPath, (LegacyLoaderFolderRunType)Type, MaxDepth, ExtraPath, WaitForExit);

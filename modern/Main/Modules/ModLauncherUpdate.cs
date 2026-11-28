@@ -57,22 +57,24 @@ namespace PCL
             => Settings.Get<int>("ToolLauncherUpdateSource") == (int)UpdateSource.GitHub ? UpdateSource.GitHub : UpdateSource.Cnb;
         private static string UpdateSourceName(UpdateSource Source) => Source == UpdateSource.GitHub ? "GitHub" : "CNB";
 
-        internal sealed class UpdatePromptView : StackPanel
+        internal sealed class UpdatePromptView : StackPanel, IGlassDialogContent
         {
-            internal double PreferredWidth => 570;
-            internal readonly MyComboBox SourcePicker = new MyComboBox { Width = 240, Height = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(18, 0, 0, 0) };
+            public double PreferredWidth => 570;
+            internal readonly ComboBox SourcePicker = new() { Style = GlassDialogControls.Style("GlassPresentationComboBox"),
+                Width = 240, Height = 30, MinHeight = 30, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(18, 0, 0, 0) };
             internal UpdateSource SelectedSource => SourcePicker.SelectedIndex == 1 ? UpdateSource.GitHub : UpdateSource.Cnb;
             internal UpdatePromptView(string Tag, UpdateSource Source)
             {
-                Children.Add(new TextBlock { Text = "当前版本：" + ModBase.VersionBaseName + Constants.vbCrLf + (Tag.Contains("-") ? "最新预发布版：" : "最新正式版：") + Tag, Margin = new Thickness(2, 0, 2, 18), LineHeight = 24 });
-                SourcePicker.Items.Add(new MyComboBoxItem { Content = "CNB（国内）" });
-                SourcePicker.Items.Add(new MyComboBoxItem { Content = "GitHub Releases" });
+                Children.Add(new TextBlock { Style = GlassDialogControls.Style("GlassPresentationTextStyle"), Text = "当前版本：" + ModBase.VersionBaseName + Constants.vbCrLf + (Tag.Contains("-") ? "最新预发布版：" : "最新正式版：") + Tag, Margin = new Thickness(2, 0, 2, 18), LineHeight = 24 });
+                SourcePicker.Items.Add("CNB（国内）");
+                SourcePicker.Items.Add("GitHub Releases");
                 SourcePicker.SelectedIndex = (int)Source;
+                System.Windows.Automation.AutomationProperties.SetName(SourcePicker, "本次下载源");
                 DockPanel Row = new DockPanel { Margin = new Thickness(2, 0, 2, 16) };
-                Row.Children.Add(new TextBlock { Text = "本次下载源", VerticalAlignment = VerticalAlignment.Center });
+                Row.Children.Add(new TextBlock { Style = GlassDialogControls.Style("GlassPresentationTextStyle"), Text = "本次下载源", VerticalAlignment = VerticalAlignment.Center });
                 Row.Children.Add(SourcePicker); Children.Add(Row);
                 TextBlock Note = new TextBlock { Text = "下载源选择仅本次生效。下载并校验完成后，启动器将自动替换并重新启动。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 2, 0) };
-                Note.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray3"); Children.Add(Note);
+                Note.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary"); Children.Add(Note);
             }
         }
         internal sealed class UpdateTransport
@@ -383,7 +385,7 @@ namespace PCL
                 ModBase.RunInUiWait(() =>
                 {
                     Work.Start(1); ModLoader.LoaderTaskbarAdd(Work);
-                    ModMain.FrmMain.BtnExtraDownload.ShowRefresh(); ModMain.FrmMain.BtnExtraDownload.Ribble();
+                    ModMain.FrmMain.RefreshTaskButton(pulse: true);
                 });
                 Work.WaitForExit(StartIfNeeded: false);
             }

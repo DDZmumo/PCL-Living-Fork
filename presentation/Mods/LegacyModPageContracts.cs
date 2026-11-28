@@ -12,8 +12,8 @@ namespace PCLLF.Presentation.Mods;
 public enum LegacyModFilter { All, Enabled, Disabled, CanUpdate, Duplicate }
 public delegate void LegacyModSelectionBar(int count,ref int previous,bool animate);
 public sealed class LegacyModPageView {
-    public Func<FrameworkElement> Root = null!, Back = null!, Empty = null!, ListBack = null!;
-    public Func<Panel?> List = null!;
+    public Func<FrameworkElement> Root = null!, Back = null!, Empty = null!;
+    public Func<ItemsControl?> List = null!;
     public Func<string> Search = null!;
     public Action<string> SetSearch = null!, SetSelectionText = null!;
     public Action ScrollHome = null!, FocusBack = null!;

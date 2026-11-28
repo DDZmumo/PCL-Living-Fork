@@ -44,7 +44,7 @@ internal static class MmcLifecycleChecks {
         var type = Native.Type("PCL.MmcLifecycleUi");
         var register = Native.Property(type, "RegisterTask"); var published = Native.Property(type, "Published");
         object? oldRegister = register.GetValue(null), oldPublished = published.GetValue(null);
-        var scheduler = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)
+        var scheduler = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)
             Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action refresh = scheduler.RefreshExtraDownload; using ManualResetEventSlim refreshed = new(false);
         ModLoader.LoaderCombo<string>? actual = null; MmcInstanceLifecycleResult? result = null;
@@ -90,7 +90,7 @@ internal static class MmcLifecycleChecks {
         var type = Native.Type("PCL.MmcCloneUi");
         var register = Native.Property(type, "RegisterTask"); var published = Native.Property(type, "Published");
         object? oldRegister = register.GetValue(null), oldPublished = published.GetValue(null);
-        var scheduler = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)
+        var scheduler = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)
             Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action refresh = scheduler.RefreshExtraDownload;
         using ManualResetEventSlim refreshed = new(false);
@@ -254,7 +254,7 @@ internal static class MmcLifecycleChecks {
         foreach(string argument in new[]{"/d","/c","mklink","/J",alias,target})start.ArgumentList.Add(argument);
         var process=System.Diagnostics.Process.Start(start)!; Native.Check(process.WaitForExit(5000) && process.ExitCode==0,"Owned ordinary junction prerequisite failed.");return process;
     }
-    private static string ImportOwned(string root,string game) {
+    internal static string ImportOwned(string root,string game) {
         string archive=Path.Combine(root,"owned.zip"), version=Path.Combine(game,"versions","managed");
         byte[] index=Encoding.UTF8.GetBytes("{\"objects\":{}}");
         using(var zip=ZipFile.Open(archive,ZipArchiveMode.Create)) {

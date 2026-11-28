@@ -11,7 +11,7 @@ internal static partial class LauncherLifecycleChecks
 {
     private sealed class ProducerScope : IDisposable
     {
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> host;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> host;
         private readonly Action<Action> original;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<Thread, byte> threads = new();
         private readonly System.Collections.Concurrent.ConcurrentBag<ModLoader.LoaderBase> roots = new();
@@ -25,7 +25,7 @@ internal static partial class LauncherLifecycleChecks
             string root = Native.Full(args[i + 1]);
             Native.Check(root.StartsWith(Native.Full(Path.GetTempPath()) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
                 System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(root), "^PclNativeFacade-[a-f0-9]{32}$") && Native.Full(AppContext.BaseDirectory) == Native.Full(Path.Combine(root, "output")), "Invalid isolated lifecycle output root.");
-            host = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            host = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             original = host.RunInThread;
             host.RunInThread = action =>
             {

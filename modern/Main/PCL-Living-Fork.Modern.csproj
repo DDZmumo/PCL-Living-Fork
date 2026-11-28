@@ -2,7 +2,7 @@
 <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting><CETCompat>false</CETCompat>
 <OutputType>WinExe</OutputType><AssemblyName>LivingPCL</AssemblyName><RootNamespace>PCL</RootNamespace><StartupObject>PCL.LauncherEntryPoint</StartupObject>
 <EnableDefaultCompileItems>false</EnableDefaultCompileItems><EnableDefaultPageItems>false</EnableDefaultPageItems><EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition><EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
-<GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><EnableLegacyLink>false</EnableLegacyLink><DefineConstants Condition="'$(EnableLegacyLink)' == 'true'">$(DefineConstants);LEGACY_LINK</DefineConstants><AllowUnsafeBlocks>true</AllowUnsafeBlocks><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
+<GenerateAssemblyInfo>false</GenerateAssemblyInfo><Nullable>disable</Nullable><LangVersion>14.0</LangVersion><ImplicitUsings>enable</ImplicitUsings><Configurations>Debug;Release;Snapshot</Configurations><AllowUnsafeBlocks>true</AllowUnsafeBlocks><CheckForOverflowUnderflow>true</CheckForOverflowUnderflow><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Images/Branding/LivingPCL.ico</ApplicationIcon>
 </PropertyGroup>
 <PropertyGroup Condition="'$(LFOfficialRelease)' == 'true'"><DefineConstants>$(DefineConstants);OFFICIAL_RELEASE</DefineConstants></PropertyGroup>
 <PropertyGroup Condition="'$(Configuration)' == 'Debug'"><DefineConstants>$(DefineConstants);SNAPSHOT</DefineConstants></PropertyGroup>
@@ -11,40 +11,31 @@
 <!-- Main-only generated C# credential source/intermediate; before other build imports. -->
 <Import Project="CredentialBuild.targets" />
 <ItemGroup>
-<ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/>
+<ProjectReference Include="../Core/PCLLF.Core.csproj"/><ProjectReference Include="../../PCLLF.WPF.Core/PCLLF.WPF.Core.csproj"/><ProjectReference Include="../Presentation/PCLLF.Presentation.Modern.csproj"/><ProjectReference Include="../../SchematicKit/SchematicKit.csproj"/>
 </ItemGroup><ItemGroup>
 <Compile Include="Application/*.cs" />
 <Compile Include="Glass/*.cs" />
 <Compile Include="FormMain.Glass.cs" />
+<Compile Include="FormMain.Navigation.cs" />
 <Page Include="Glass/GlassLauncherView.xaml" />
 <Page Include="Glass/GlassPresentationResources.xaml" />
+<Page Include="Themes/Generic.xaml" />
 <Page Include="Images/Branding/PCLLF.Logo.xaml" />
 <Compile Include="Controls/Behaviors/ClipboardInterceptor.cs" />
 <Compile Include="Controls/Behaviors/Interfaces.cs" />
 <Compile Include="Controls/Behaviors/LazyLoadBehavior.cs" />
-<Compile Include="Controls/MyComboBox.cs" />
-<Compile Include="Controls/MyComboBoxItem.cs" />
-<Compile Include="Controls/MyCard.cs" />
-<Compile Include="Controls/MyExtraTextButton.xaml.cs" />
-<Compile Include="Controls/MyImage.cs" />
 <Compile Include="Controls/LocalResourceUi.cs" />
-<Compile Include="Controls/PresentationRuntime.cs" />
 <Compile Include="Controls/ModDependencyGraphView.cs" />
 <Compile Include="Controls/ModDependencyIcon.cs" />
 <Compile Include="Controls/ModDependencyImpactView.cs" />
 <Compile Include="Controls/ReleaseNotesView.cs" />
 <Compile Include="Controls/ReleaseNotesPromptView.cs" />
-<Compile Include="Controls/ModDependencyCheckView.cs" />
 <Compile Include="Controls/ModpackUpdateViews.cs" />
-<Compile Include="Controls/MyPageRight.cs" />
-<Compile Include="Controls/MyPageLeft.cs" />
-<Compile Include="Controls/MyIconTextButton.xaml.cs" />
-<Compile Include="Controls/MyVirtualizingElement.cs" />
 <Compile Include="Modules/Base/PclLogger.cs" />
 <Compile Include="Modules/Resource/LocalResourceFile.cs" />
 <Compile Include="Modules/Resource/ResourceProject.cs" />
 <Compile Include="Modules/Resource/ResourceFavorites.cs" />
-<Compile Include="Pages/PageFavorites.xaml.cs" />
+<Compile Include="Modules/Resource/ResourceNotes.cs" />
 <Compile Include="Modules/Resource/ResourceVersion.cs" />
 <Compile Include="Modules/Resource/ResourceSearcher.cs" />
 <Compile Include="Modules/Minecraft/ModJava.cs" />
@@ -66,7 +57,6 @@
 <Compile Include="Modules/Minecraft/MmcHistoryUi.cs" />
 <Compile Include="Modules/Minecraft/MmcRepairUi.cs" />
 <Compile Include="Modules/Minecraft/MmcImportProgress.cs" />
-<Compile Include="Pages/PageSpeedLeft.MmcStages.cs" />
 <Compile Include="Modules/Minecraft/MmcPackageUpdateUi.cs" />
 <Compile Include="Controls/MmcPackageUpdateViews.cs" />
 <Compile Include="Controls/MmcProjectionReviewView.cs" />
@@ -79,19 +69,7 @@
 <Compile Include="Modules/Minecraft/MmcLegacyAdoptionPreviewView.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceOverall.Mmc.cs" />
 <Compile Include="My Project/Resources.Designer.cs" />
-<Compile Include="Pages/PageInstance/MyLocalModItem.xaml.cs" />
 <Compile Include="Modules/ModEvent.cs" />
-<Compile Include="Controls/MyExtraButton.xaml.cs" />
-<Compile Include="Controls/MyHint.xaml.cs" />
-<Compile Include="Controls/MyLoading.xaml.cs" />
-<Compile Include="Controls/MyMenuItem.cs" />
-<Compile Include="Controls/MyMsg/MyMsgInput.xaml.cs" />
-<Compile Include="Controls/MyMsg/MyMsgSelect.xaml.cs" />
-<Compile Include="Controls/MyScrollBar.cs" />
-<Compile Include="Controls/MyScrollViewer.cs" />
-<Compile Include="Controls/MySearchBox.xaml.cs" />
-<Compile Include="Controls/MyTextBox.cs" />
-<Compile Include="Controls/MyTextButton.cs" />
 <Compile Include="GlobalSuppressions.cs" />
 <Compile Include="Modules/Minecraft/ModCrash.cs" />
 <Compile Include="Modules/ModMusic.cs" />
@@ -124,15 +102,9 @@
 <Compile Include="Modules/Minecraft/InstanceCloneGroups.cs" />
 <Compile Include="Modules/Minecraft/InstanceCloner.cs" />
 <Compile Include="Modules/Minecraft/RecentEnvironmentChanges.cs" />
-<Compile Include="Pages/PageInstance/WorldBackupGroup.xaml.cs" />
-<Compile Include="Pages/PageInstance/WorldBackupSettings.xaml.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceResources.Backups.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceResources.Rows.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceClone.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstancePackUpdate.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadMap.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceRestorePoints.xaml.cs" />
-<Compile Include="Pages/PageInstance/MyScreenshotItem.xaml.cs" />
 <Compile Include="Modules/Minecraft/ModpackUpdateFlow.cs" />
 <Compile Include="Modules/Minecraft/LocalGameData.cs" />
 <Compile Include="Modules/Minecraft/BackupStorage.cs" />
@@ -150,40 +122,19 @@
 <Compile Include="Modules/Base/LoginCertificatePolicy.cs" />
 <Compile Include="Pages/PageSetup/Settings.Accounts.cs" />
 <Compile Include="Pages/PageSetup/Settings.Compatibility.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageResource.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageResource.Favorites.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadDataPack.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadPack.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadShader.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadResourcePack.xaml.cs" />
 <Compile Include="Pages/PageDownload/ModDownloadLib.cs" />
-<Compile Include="Pages/PageDownload/Resource/MyResourceItem.xaml.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadMod.xaml.cs" />
-<Compile Include="Pages/PageDownload/PageDownloadInstall.xaml.cs" />
+<Compile Include="Pages/PageDownload/PageDownloadInstall.cs" />
 <Compile Include="Pages/PageDownload/PageDownloadModify.cs" />
-<Compile Include="Pages/PageDownload/Resource/PageDownloadCompDetail.xaml.cs" />
-<Compile Include="Pages/PageLaunch/MyMsgLogin.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginAuth.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginAuthSkin.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginMs.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginMsSkin.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginNideSkin.xaml.cs" />
-<Compile Include="Pages/PageLink/PageLinkMain.xaml.cs" Condition="'$(EnableLegacyLink)' == 'true'" />
-<Compile Include="Pages/PageOther/PageOtherHelpDetail.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceExport.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceExport.Mmc.cs" />
 <Compile Include="Pages/PageInstance/PageInstancePackUpdate.Mmc.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceRestorePoints.Mmc.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMmcComponents.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceLeft.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMmcTool.xaml.cs" />
 <Compile Include="Pages/PageInstance/LocalModPageRuntime.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceMod.xaml.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceResources.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceModDisabled.xaml.cs" />
 <Compile Include="Pages/PageInstance/PageInstanceOverall.xaml.cs" />
-<Compile Include="Pages/PageInstance/PageInstanceSetup.xaml.cs" />
-<Compile Include="Controls/MyDropShadow.cs" />
 <Compile Include="Modules/Base/ModLoader.cs" />
 <Compile Include="Modules/Base/ModNet.cs" />
 <Compile Include="Modules/Base/ModValidate.cs" />
@@ -191,48 +142,18 @@
 <Compile Include="Modules/Minecraft/ModLaunch.cs" />
 <Compile Include="Modules/Minecraft/ModMinecraft.cs" />
 <Compile Include="Pages/PageOther/PageOtherTest.xaml.cs" />
-<Compile Include="Pages/PageLaunch/MySkin.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginNide.xaml.cs" />
-<Compile Include="Pages/PageLaunch/LaunchPageRuntime.cs" />
-<Compile Include="Pages/PageLaunch/LoginPageRuntime.cs" />
-<Compile Include="Pages/PageLaunch/PageLoginLegacy.xaml.cs" />
-<Compile Include="Pages/PageSelectRight.xaml.cs" />
-<Compile Include="Pages/PageSelectLeft.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLaunchLeft.xaml.cs" />
-<Compile Include="Pages/PageLaunch/PageLaunchRight.xaml.cs" />
-<Compile Include="Pages/PageOther/PageOtherAbout.xaml.cs" />
 <Compile Include="Pages/PageOther/AuxiliaryPageRuntime.cs" />
-<Compile Include="Pages/PageOther/PageOtherHelp.xaml.cs" />
-<Compile Include="Pages/PageDownload/PageDownloadLeft.xaml.cs" />
-<Compile Include="Pages/PageOther/PageOtherLeft.xaml.cs" />
-<Compile Include="Pages/PageSetup/PageSetupLeft.xaml.cs" />
 <Compile Include="Pages/PageSetup/Settings.cs" />
-<Compile Include="Pages/PageSetup/PageSetupLaunch.xaml.cs" />
-<Compile Include="Pages/PageSetup/PageSetupJava.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupSystem.BackupStorage.cs" />
-<Compile Include="Pages/PageSetup/PageSetupUpdate.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupPersonal.xaml.cs" />
 <Compile Include="Pages/PageSetup/PageSetupPersonal.Editors.cs" />
   <Compile Include="Pages/PageSetup/PageSetupPersonal.Draft.cs" />
 <Compile Include="Pages/PageSetup/PageSetupModpack.xaml.cs" />
-<Compile Include="Pages/PageSetup/PageSetupLink.xaml.cs" Condition="'$(EnableLegacyLink)' == 'true'" />
 <Compile Include="Pages/PageSetup/SetupPageRuntime.cs" />
-<Compile Include="Pages/PageSetup/PageSetupUI.xaml.cs" />
 <Compile Include="Pages/PageSetup/SettingService.cs" />
-<Compile Include="Pages/PageSpeedLeft.xaml.cs" />
-<Compile Include="Pages/PageSpeedLeft.PackStages.cs" />
-<Compile Include="Pages/PageSpeedRight.xaml.cs" />
 <Compile Include="Application.xaml.cs" />
-<Compile Include="Controls/MyListItem.xaml.cs" />
-<Compile Include="Controls/MyButton.xaml.cs" />
-<Compile Include="Controls/MyCheckBox.xaml.cs" />
-<Compile Include="Controls/MyIconButton.xaml.cs" />
-<Compile Include="Controls/MyMsg/MyMsgText.xaml.cs" />
-<Compile Include="Controls/MyRadioBox.xaml.cs" />
 <Compile Include="Controls/MyResizer.cs" />
-<Compile Include="Controls/MySlider.xaml.cs" />
-<Compile Include="Controls/MyRadioButton.xaml.cs" />
 <Compile Include="FormMain.xaml.cs" />
 <Compile Include="Modules/Base/ModAnimation.cs" />
 <Compile Include="Modules/Base/LoaderFileOperation.cs" />
@@ -246,68 +167,20 @@
 <Compile Include="Compatibility/**/*.cs"/>
 <Compile Include="NativeHandles/*.cs"/>
 <ApplicationDefinition Include="Application.xaml" />
-<Page Include="Controls/MyMsg/MyMsgInput.xaml" />
-<Page Include="Controls/MyMsg/MyMsgSelect.xaml" />
-<Page Include="Controls/MyMsg/MyMsgText.xaml" />
-<Page Include="Controls/MySearchBox.xaml" />
 <Page Include="FormMain.xaml" />
-<Page Include="Pages/PageFavorites.xaml" />
-<Page Include="Pages/PageInstance/MyLocalModItem.xaml" />
-<Page Include="Pages/PageDownload/Resource/MyResourceItem.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageResource.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadDataPack.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadPack.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadShader.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadResourcePack.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadMod.xaml" />
-<Page Include="Pages/PageDownload/PageDownloadInstall.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadCompDetail.xaml" />
-<Page Include="Pages/PageLaunch/MyMsgLogin.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginAuth.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginAuthSkin.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginMs.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginMsSkin.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginNideSkin.xaml" />
-<Page Include="Pages/PageLink/PageLinkMain.xaml" Condition="'$(EnableLegacyLink)' == 'true'" />
-<Page Include="Pages/PageOther/PageOtherHelpDetail.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceExport.xaml" />
 <Page Include="Pages/PageOther/PageOtherTest.xaml" />
-<Page Include="Pages/PageLaunch/MySkin.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginNide.xaml" />
-<Page Include="Pages/PageLaunch/PageLoginLegacy.xaml" />
-<Page Include="Pages/PageSelectRight.xaml" />
-<Page Include="Pages/PageSelectLeft.xaml" />
-<Page Include="Pages/PageLaunch/PageLaunchLeft.xaml" />
-<Page Include="Pages/PageLaunch/PageLaunchRight.xaml" />
-<Page Include="Pages/PageOther/PageOtherAbout.xaml" />
-<Page Include="Pages/PageOther/PageOtherHelp.xaml" />
-<Page Include="Pages/PageDownload/PageDownloadLeft.xaml" />
-<Page Include="Pages/PageOther/PageOtherLeft.xaml" />
-<Page Include="Pages/PageSetup/PageSetupLeft.xaml" />
-<Page Include="Pages/PageSetup/PageSetupLaunch.xaml" />
 <Page Include="Pages/PageSetup/PageSetupSystem.xaml" />
-<Page Include="Pages/PageSetup/PageSetupUpdate.xaml" />
 <Page Include="Pages/PageSetup/PageSetupPersonal.xaml" />
 <Page Include="Pages/PageSetup/PageSetupModpack.xaml" />
-<Page Include="Pages/PageSetup/PageSetupLink.xaml" Condition="'$(EnableLegacyLink)' == 'true'" />
-<Page Include="Pages/PageSetup/PageSetupUI.xaml" />
-<Page Include="Pages/PageSpeedLeft.xaml" />
-<Page Include="Pages/PageSpeedRight.xaml" />
-<Page Include="Pages/PageInstance/PageInstanceLeft.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceMmcTool.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceMod.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceKeybindings.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceRestorePoints.xaml" />
-<Page Include="Pages/PageInstance/WorldBackupGroup.xaml" />
-<Page Include="Pages/PageInstance/WorldBackupSettings.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceClone.xaml" />
 <Page Include="Pages/PageInstance/PageInstancePackUpdate.xaml" />
-<Page Include="Pages/PageInstance/MyScreenshotItem.xaml" />
-<Page Include="Pages/PageDownload/Resource/PageDownloadMap.xaml" />
-<Page Include="Pages/PageInstance/PageInstanceResources.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceModDisabled.xaml" />
 <Page Include="Pages/PageInstance/PageInstanceOverall.xaml" />
-<Page Include="Pages/PageInstance/PageInstanceSetup.xaml" />
 <Resource Include="Images/icon.ico" /><Resource Include="Images/Crash/Face.png" /><Resource Include="Images/Crash/Hand.png" /><Resource Include="Images/Crash/Praise.png" /><Resource Include="Images/Crash/Crashed.png" />
 <Resource Include="Resources/Font.ttf" />
 <Resource Include="Resources/Tabler-Icons-LICENSE.txt" />
@@ -397,8 +270,7 @@
   <LFResourceGeneratorProject>$(MSBuildThisFileDirectory)../BuildResources/ResourceGenerator.csproj</LFResourceGeneratorProject>
   <LFResourceGeneratorAssembly>$(MSBuildThisFileDirectory)../BuildResources/bin/$(Configuration)/net10.0/ResourceGenerator.dll</LFResourceGeneratorAssembly>
 </PropertyGroup><Import Project="MainResources.targets" />
-<PropertyGroup><LfWithEventsMap>$(MSBuildThisFileDirectory)../BuildEvents/WithEvents.map</LfWithEventsMap></PropertyGroup>
-<Import Project="../BuildEvents/LfWithEvents.targets" /><ItemGroup>
+<ItemGroup>
   <Compile Include="Modules/Base/FileTaskProgress.cs" />
   <Compile Include="Modules/ModTheme.cs" />
   <Compile Include="Controls/ModernTooltipTheme.cs" />
@@ -411,4 +283,17 @@
 <Compile Include="Modules/Minecraft/ModDownloadInstaller.cs" />
 <Compile Include="Modules/Minecraft/ModDownloadDependencies.cs" />
 </ItemGroup>
+<Target Name="WriteDevelopmentBuildTime" BeforeTargets="CoreCompile" Condition="'$(LFOfficialRelease)' != 'true'"
+        Inputs="$(MSBuildAllProjects);@(Compile);@(Page);@(ApplicationDefinition);@(Resource);@(EmbeddedResource);@(ReferencePathWithRefAssemblies)"
+        Outputs="$(IntermediateOutputPath)DevelopmentBuildTime.g.cs">
+  <ItemGroup>
+    <_DevelopmentMetadata Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PCL.DevelopmentBuildUtc</_Parameter1>
+      <_Parameter2>$([System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))</_Parameter2>
+    </_DevelopmentMetadata>
+    <Compile Include="$(IntermediateOutputPath)DevelopmentBuildTime.g.cs" />
+    <FileWrites Include="$(IntermediateOutputPath)DevelopmentBuildTime.g.cs" />
+  </ItemGroup>
+  <WriteCodeFragment Language="C#" AssemblyAttributes="@(_DevelopmentMetadata)" OutputFile="$(IntermediateOutputPath)DevelopmentBuildTime.g.cs" />
+</Target>
 </Project>

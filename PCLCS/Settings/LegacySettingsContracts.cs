@@ -14,7 +14,7 @@ namespace PCLCS;
 // Plain Craft Launcher 2/LICENCE; PCL.Core uses the root LICENSE / Apache-2.0.
 // No CE profile, schema, provider, cache, key or implementation is imported.
 public enum LegacySettingSource { Normal, Registry, Instance }
-public enum LegacySettingsLogLevel { Trace, Info, Warning, Error }
+public enum LegacySettingsLogLevel { Trace, Info, Warning, Error, WarningLogOnly }
 
 /// <summary>One shared value/cache record inherited by the original Settings.Setting.</summary>
 public abstract class LegacySettingData<TInstance> where TInstance : class {

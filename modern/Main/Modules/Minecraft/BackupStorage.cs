@@ -73,7 +73,7 @@ internal static class BackupStorage {
                 ModBase.RunInUi(() => stopped(result, canceled ? null : failure, canceled));
             };
             worker.Start(); ModLoader.LoaderTaskbarAdd(loader);
-            ModMain.FrmMain?.BtnExtraDownload.ShowRefresh();
+            ModMain.FrmMain?.RefreshTaskButton();
             return true;
         } catch { Interlocked.Exchange(ref changing, 0); throw; }
     }

@@ -19,6 +19,7 @@ using System.Windows;
 // Same platform contract emitted by the SDK for net10.0-windows; legacy assembly identity stays explicit.
 [assembly: System.Runtime.Versioning.SupportedOSPlatform("Windows7.0")]
 [assembly: ComVisible(false)]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("PCLLF.Native.Facade.Tests")]
 
 // 若要开始生成可本地化的应用程序，请设置
 // 在您的 .vbproj 文件中的 <PropertyGroup> 内设置 <UICulture>CultureYouAreCodingWith</UICulture>。

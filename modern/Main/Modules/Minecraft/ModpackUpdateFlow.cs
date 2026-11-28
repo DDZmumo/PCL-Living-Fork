@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) 2026 PCL Living Fork contributors.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -95,7 +95,7 @@ namespace PCL
                 OnStopped = new Action<global::MeloongCore.RedoableWorker, global::System.Action>((Worker, Work) => Worker.Stopped += () => Work()),
                 StartWorker = new Action<global::MeloongCore.RedoableWorker>(Worker => Worker.Start()),
                 AddTaskbar = new Action<global::PCL.ModLoader.LoaderCombo<global::System.String>>(Loader => global::PCL.ModLoader.LoaderTaskbarAdd(Loader)),
-                RefreshButton = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
+                RefreshButton = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
                 Name = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.Name),
                 VersionFolder = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathVersion),
                 GameRoot = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathIndie),
@@ -138,8 +138,8 @@ namespace PCL
                 CaptureHistory = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Caption, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Caption, Token)),
                 ResetSettings = new Action<global::PCL.ModMinecraft.McInstance>(Instance => Instance.ResetSettingsCache()),
                 LoadInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Folder => new global::PCL.ModMinecraft.McInstance(Folder).Load()),
-                PageInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
-                SetPageInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => { global::PCL.PageInstanceLeft.Instance = Value; ModMain.FrmInstanceLeft?.RefreshPackUpdatePage(); }),
+                PageInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.LauncherInstanceContext.Instance),
+                SetPageInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => { global::PCL.LauncherInstanceContext.Instance = Value; ModMain.FrmMain?.RefreshGlassPackUpdate(); }),
                 SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
                 SetSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value),
                 Explorer = global::PCL.ModBase.OpenExplorer,
