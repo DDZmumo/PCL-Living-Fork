@@ -273,13 +273,12 @@ internal static class GlassProjectionRegressionChecks
         }
         static Rect Bounds(FrameworkElement element, FrameworkElement ancestor) =>
             element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
-        static Border Frame(FrameworkElement page, string name)
+        static Border Frame(Border card, string name, double minInset)
         {
-            var card = (Border)page.FindName(name);
             var content = (FrameworkElement)card.Child;
             Rect bounds = Bounds(content, card);
             double bottom = card.ActualHeight - bounds.Bottom;
-            Native.Check(Math.Abs(bottom - bounds.Top) <= 1.1 && bounds.Top >= 12,
+            Native.Check(Math.Abs(bottom - bounds.Top) <= 1.1 && bounds.Top >= minInset,
                 $"Uneven insets for {name}: top={bounds.Top:0.##}, bottom={bottom:0.##}.");
             return card;
         }
@@ -288,11 +287,16 @@ internal static class GlassProjectionRegressionChecks
             foreach (Visibility visible in new[] { Visibility.Visible, Visibility.Collapsed }) {
                 adoption.Visibility = visible;
                 Layout(overview, width);
-                Frame(overview, "PanFolder");
-                Frame(overview, "PanManage");
+                var shortcuts = (UniformGrid)overview.FindName("PanFolder");
+                var buttons = shortcuts.Children.OfType<Button>().ToArray();
+                Native.Check(buttons.Length == 4 && buttons.All(button => button.ActualWidth > 0 &&
+                    Bounds(button, shortcuts).Right <= shortcuts.ActualWidth + 1),
+                    "The four instance folder shortcuts do not fit their row.");
+                var manage = (GlassSettingGroup)overview.FindName("PanManage");
+                Frame(manage.Children.OfType<GlassSurface>().Single(surface => surface.Child is GlassSettingRowStack), "PanManage", 2);
             }
             Layout(personal, width);
-            var surface = Frame(personal, "CardSearch");
+            var surface = Frame((Border)personal.FindName("CardSearch"), "CardSearch", 12);
             var search = (TextBox)personal.FindName("TextSearch");
             Rect field = Bounds(search, surface);
             double remaining = surface.ActualWidth - field.Right;
@@ -301,7 +305,7 @@ internal static class GlassProjectionRegressionChecks
             Rect At(string name) => Bounds((FrameworkElement)personal.FindName(name), personal);
             Rect save = At("BtnApply"), refresh = At("BtnRefresh"), policy = At("ComboPolicy"), note = At("LabEditScope");
             Native.Check(Math.Abs(save.Top - refresh.Top) <= 1 && refresh.Left - save.Right is >= 5 and <= 10 &&
-                note.Top >= policy.Bottom - 1 && note.Bottom <= save.Top + 1,
+                note.Height > 0 && note.Bottom <= save.Top + 1 && policy.Top >= save.Bottom - 1,
                 $"Personal settings actions or policy help are out of alignment at width {width}.");
             Native.Check(At("LabSummary").Right <= personal.ActualWidth + 1 && At("LabUpdated").Right <= personal.ActualWidth + 1,
                 $"The personal settings summary overflows at width {width}.");

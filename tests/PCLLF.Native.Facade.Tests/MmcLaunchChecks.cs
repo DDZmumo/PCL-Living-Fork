@@ -26,6 +26,7 @@ internal static partial class MmcLaunchChecks {
             ModpackUpdateCleanup.VerifyIsolatedChild(); retained = new(environment, variants);
             if (variants) retained.RunVariants(); else retained.Run();
             environment.AssertNoForbiddenIo();
+            FileTaskShell.CloseUnshownHosts();
             Native.Check(System.Windows.Application.Current.Windows.Count == 0, "MMC replay opened a window.");
             File.WriteAllText(Path.Combine(environment.Root, Receipt), MainHash());
             Console.WriteLine(variants

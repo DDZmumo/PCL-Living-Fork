@@ -130,6 +130,7 @@ foreach($route in @(
  $rich=Message-Log $newNotice $caption
  Assert-Value $true {& $readyExpression ($stageLog+$rich) ([pscustomobject]@{Owned=$true}) $newNotice $nativeProof $newNotice} 'actual rich readiness'
  Check-Log $rich $newNotice -RequireComplete
+ Check-Log $rich.Replace('[MessageDialogController]','[GlassMessageDialog]') $newNotice -RequireComplete
  Assert-LfNormalClose -1 ($rich+$closeLog) $newNotice;$count++
  $partial=Message-Log $newNotice '基于 PCL 官方开源版的第三方版本。'
  Assert-Value $false {& $readyExpression ($stageLog+$partial) ([pscustomobject]@{Owned=$true}) $newNotice $nativeProof $newNotice} 'rich caption prefix pending'

@@ -223,8 +223,8 @@ internal static class Program
                 return NativeDependencyChecks.IndexChild(environment, args);
             foreach (string group in selected)
             {
-                (Cases.TryGetValue(group, out var run) ? run : ExplicitCases[group])(environment);
-                FileTaskShell.CloseUnshownHosts();
+                try { (Cases.TryGetValue(group, out var run) ? run : ExplicitCases[group])(environment); }
+                finally { FileTaskShell.CloseUnshownHosts(); }
                 environment.AssertNoForbiddenIo();
                 Console.WriteLine("PASS native facade " + group);
             }

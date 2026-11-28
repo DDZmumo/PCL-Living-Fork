@@ -26,8 +26,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
             if (host.HasBlockingFileOperation()) { Hint("版本文件处理尚未完成，请稍候再退出。", LegacyMainHint.Red); return; }
             if (!Window.IsHitTestVisible) return;
             Window.IsHitTestVisible = false;
-            if (view.PlayClose?.Invoke(host.ForceExit) != true) host.ForceExit();
             Logger.Info("收到关闭指令");
+            if (view.PlayClose?.Invoke(host.ForceExit) != true) host.ForceExit();
         });
     }
     public void SizeChanged() {

@@ -87,13 +87,12 @@ internal static class ModpackLivePreviewChecks
             preview.UpdateLayout();
             return Walk(preview).OfType<Border>().Single(border => border.ToolTip is string tip && tip.StartsWith("mods/replaceable.jar\r\n", StringComparison.Ordinal));
         }
-        bool Checking() => ((StackPanel)Get(preview, "Header")!).Children.OfType<Border>().Select(border => border.Child).OfType<TextBlock>().Any(hint => hint.Text.Contains("正在检查", StringComparison.Ordinal));
+        var status = ((StackPanel)Get(preview, "Header")!).Children.OfType<Border>().Single();
+        bool Checking() => GlassDialogControls.NoticeText(status).Text.Contains("正在检查", StringComparison.Ordinal);
         int cancelInvocations = 0;
         var converter = new ModMain.MyMsgBoxConverter { Title = "整合包更新预览", Text = "Live compatibility checks", Button1 = "按以上选择更新", Button2 = "取消", IsWarn = false, ContentFactory = () => preview, Button2Action = () => cancelInvocations++ };
-        var modal = Native.Dialog(converter);
+        using var modal = Native.Dialog(converter);
         var messagePanel = new Grid(); messagePanel.Children.Add(modal);
-        object dialogController = Native.Get(modal, "Native")!;
-         
         var confirm = (Button)((Button[])Native.Get(modal, "_buttons")!)[0];
         var app = System.Windows.Application.Current; Window? previousMain = app.MainWindow; ShutdownMode previousMode = app.ShutdownMode;
         int previousAnimation = ModAnimation.AniControlEnabled;
@@ -132,8 +131,7 @@ internal static class ModpackLivePreviewChecks
             var sections = Walk(preview).OfType<Border>().ToArray();
             Native.Check(sections.Count(card => AutomationProperties.GetName(card) == "更新检查") == 1 && !sections.Any(card => AutomationProperties.GetName(card) == "文件变更"), "Compatibility page mixed in file changes.");
             Native.Check(Walk(preview).OfType<Expander>().All(details => !details.IsExpanded), "Action details were repeated as expanded error walls.");
-            // The original dialog controller follows the owned message panel's
-            // real size changes, just as it follows FormMain.PanMsg in production.
+            // Resize the attached native dialog through the real WPF layout.
             window.Width = 560; window.UpdateLayout();
             var scroll = Walk(preview).OfType<ScrollViewer>().Single();
             Native.Check(scroll.ViewportHeight >= 80 && scroll.ScrollableHeight > 0, "Narrow preview lost its scrolling viewport.");

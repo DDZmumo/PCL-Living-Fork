@@ -144,6 +144,8 @@ internal static class ModpackUpdateFlowChecks
             return 2;
         };
         TraceStage("preview-refusal-start"); flow.Start(declined); flow.WaitStopped(); TraceStage("preview-refusal-stopped");
+        if (flow.Step!.State == ModBase.LoadState.Failed)
+            throw new InvalidOperationException("The real update worker failed before preview refusal.", flow.Step.Error);
         Check(shown is not null && shown.GetType().Assembly == Native.Main && Changes(shown).Any(Conflict), "FLOW-03-plan", "preview did not receive actual personal-preserving plan");
         Check(flow.Step!.State == ModBase.LoadState.Canceled && !flow.Worker!.LastSucceeded && flow.Messages.SequenceEqual(new[] { "补全整合包记录" }), "FLOW-03", "preview rejection did not cancel after establishing the correct origin");
         Check(Stages(flow.Step).Single(item => item.Stage == PackUpdateStage.ConfirmPreview).State == PackUpdateStageState.Canceled &&

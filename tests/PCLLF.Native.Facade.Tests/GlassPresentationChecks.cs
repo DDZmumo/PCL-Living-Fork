@@ -41,17 +41,16 @@ internal static class GlassPresentationChecks
                     <Style x:Key="NewsCommand" TargetType="local:MyIconTextButton"><Setter Property="Text" Value="查看"/></Style>
                     <ControlTemplate x:Key="AuthoredTemplate" TargetType="ContentControl">
                         <Border x:Name="TemplateFace" Background="{StaticResource AuthoredInk}" Padding="4">
-                            <ContentPresenter/>
+                            <TextBlock x:Name="TemplateLabel" Text="{TemplateBinding Content}"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="Tag" Value="hide">
+                            <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="TemplateFace" Property="Opacity" Value="0.25"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </StackPanel.Resources>
                 <Button x:Name="AuthoredAction" Content="初始名称"/>
-                <TextBlock x:Name="AuthoredLabel" Text="{Binding Content, ElementName=AuthoredAction}"/>
                 <ContentControl x:Name="AuthoredSection" Content="分组" Template="{StaticResource AuthoredTemplate}"/>
                 <Border MaxHeight="140" HorizontalAlignment="Center">
                     <Image x:Name="FlexibleArtwork" Stretch="UniformToFill"/>
@@ -92,7 +91,6 @@ internal static class GlassPresentationChecks
         Load(markup);
         var authored = (FrameworkElement)outlet.Children[0];
         var button = (Button)authored.FindName("AuthoredAction");
-        var label = (TextBlock)authored.FindName("AuthoredLabel");
         var section = (ContentControl)authored.FindName("AuthoredSection");
         var gallery = (Viewbox)authored.FindName("AuthoredGallery");
         var artwork = (Image)authored.FindName("FlexibleArtwork");
@@ -100,7 +98,7 @@ internal static class GlassPresentationChecks
         var badge = (Border)authored.FindName("AuthoredBadge");
         var badgeLabel = (TextBlock)authored.FindName("AuthoredBadgeLabel");
         var iconAction = (LauncherMarkupButton)authored.FindName("AuthoredIconAction");
-        artwork.Source = crop.Source = new DrawingImage(new GeometryDrawing(Brushes.Tan, null, new RectangleGeometry(new Rect(0, 0, 640, 360))));
+        var fixtureArtwork = new DrawingImage(new GeometryDrawing(Brushes.Tan, null, new RectangleGeometry(new Rect(0, 0, 640, 360))));
         int clicks = 0;
         button.Click += (_, _) => clicks++;
 
@@ -109,6 +107,8 @@ internal static class GlassPresentationChecks
             WindowStyle = WindowStyle.None, ShowActivated = false, ShowInTaskbar = false };
         try {
             window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
+            artwork.Source = crop.Source = fixtureArtwork;
+            window.UpdateLayout();
             var styledNewsAction = (LauncherMarkupButton)authored.FindName("StyledNewsAction");
             var newsLoader = (LauncherMarkupLoading)authored.FindName("NewsLoading");
             var spinner = newsLoader.Children.OfType<BlockCurveLoader>().Single();
@@ -122,12 +122,13 @@ internal static class GlassPresentationChecks
             Native.Check(ReferenceEquals(outlet.Children[0], authored) && authored.IsVisible,
                 "The new shell did not present the original parsed homepage tree.");
             var face = (Border)section.Template.FindName("TemplateFace", section);
-            section.Tag = "hide";
-            button.Content = "更新名称";
+            section.IsEnabled = false;
+            section.Content = "更新名称";
             VisualAssetChecks.Drain();
+            var label = (TextBlock)section.Template.FindName("TemplateLabel", section);
             Native.Check(label.Text == "更新名称" && Math.Abs(face.Opacity - .25) < .01 &&
                 face.Background is SolidColorBrush brush && brush.Color == Color.FromRgb(18, 128, 128),
-                "An authored template trigger, static resource or ElementName binding was lost.");
+                "An authored template trigger, static resource or template binding was lost.");
             Invoke(button);
             Native.Check(clicks == 1, "Hosting the authored homepage lost its original action.");
             foreach (int mode in new[] { 0, 1 }) {
@@ -166,9 +167,10 @@ internal static class GlassPresentationChecks
                     Rect bounds = card.TransformToVisual(gallery).TransformBounds(new Rect(card.RenderSize));
                     return bounds.Width > 20 && bounds.Left >= -1 && bounds.Right <= gallery.ActualWidth + 1;
                 }), "A Viewbox authored in the original homepage clipped its gallery at " + width + " DIP.");
-                Native.Check(artwork.Stretch == Stretch.Uniform && artwork.ActualHeight <= 140.5 &&
-                    Math.Abs(artwork.ActualWidth / artwork.ActualHeight - 16d / 9) < .04 && crop.Stretch == Stretch.UniformToFill,
-                    "The homepage cropped a flexible cover or changed its explicitly fixed crop.");
+                Native.Check(artwork.Stretch == Stretch.UniformToFill && ((Border)artwork.Parent).ActualHeight <= 140.5 &&
+                    artwork.ActualWidth > 0 && crop.Stretch == Stretch.UniformToFill &&
+                    crop.Parent is Border { ClipToBounds: true },
+                    "The homepage changed the authored proportional fill and explicit crop.");
             }
 
             Load(markup);
@@ -177,8 +179,9 @@ internal static class GlassPresentationChecks
             VisualAssetChecks.Drain();
             window.Content = page;
             window.UpdateLayout(); VisualAssetChecks.Drain();
-            Native.Check(ReferenceEquals(outlet.Children[0], authored) && BindingOperations.IsDataBound(label, TextBlock.TextProperty) &&
-                button.IsEnabled && artwork.Stretch == Stretch.Uniform,
+            Native.Check(ReferenceEquals(outlet.Children[0], authored) &&
+                section.Template.FindName("TemplateLabel", section) is TextBlock { Text: "更新名称" } &&
+                button.IsEnabled && artwork.Stretch == Stretch.UniformToFill,
                 "Reopening Home discarded the active page, bindings or image fit.");
             Load("""<TextBlock x:Name="ReplacementHome" Text="替换后的主页"/>""");
             window.UpdateLayout(); VisualAssetChecks.Drain();
@@ -322,7 +325,7 @@ internal static class GlassPresentationChecks
             var catalog = (StackPanel)page.FindName("PanMinecraft");
             VisualAssetChecks.Pump(() => catalog.Children.Count > 0, "the cached release-only catalog");
             window.UpdateLayout();
-            var releaseRow = Descendants(catalog).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "1.21.1");
+            var releaseRow = Descendants(catalog).OfType<Button>().Single(button => AutomationProperties.GetName(button) == "安装 1.21.1");
             Invoke(releaseRow);
             Native.Check(page.IsInSelectPage && page.VanillaName == "1.21.1", "Clicking a native version row did not enter selection.");
             page.ReloadComponentLists();

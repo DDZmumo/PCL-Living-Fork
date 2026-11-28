@@ -78,7 +78,7 @@ function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$Nativ
    if($NativeSource -ceq 'published-or-local'){$captions+=('基于 PCL 官方开源版的第三方版本。'+[char]13+[char]10+'以下为当前版本的完整发布说明。')}
   }else{$captions+=Get-ReviewedUpgradeCaption $NativeVersion}
   $records=[Collections.Generic.List[object]]::new();$current=$null
-  foreach($line in [regex]::Matches($Text,'(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[MessageDialogController\] (?<Content>[^\r\n]*)\r?\n')){
+  foreach($line in [regex]::Matches($Text,'(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[(?:MessageDialogController|GlassMessageDialog)\] (?<Content>[^\r\n]*)\r?\n')){
    $content=$line.Groups['Content'].Value.TrimEnd([char]13)
    $header=[regex]::Match($content,'^(?<Kind>普通|选择|输入)弹窗：(?<Title>.+)$')
    if($header.Success){
@@ -88,7 +88,7 @@ function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$Nativ
    }elseif($null -ne $current -and $content.Length -gt 0){$current.Body.Add($content)}
   }
   $upgrades=@($records | Where-Object {$_.Kind -ceq '普通' -and $_.Title -ceq $reviewedTitle})
-  if($upgrades.Count -ne 1 -or $reviewedCount -ne 1){throw 'PENDING: Startup notice has no unique owned MessageDialogController log record.'}
+  if($upgrades.Count -ne 1 -or $reviewedCount -ne 1){throw 'PENDING: Startup notice has no unique owned dialog log record.'}
   $record=$upgrades[0]
   $prefixMatches=$false;$completeMatches=$false
   foreach($caption in $captions){

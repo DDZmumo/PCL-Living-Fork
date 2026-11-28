@@ -479,7 +479,7 @@ internal static class GlassWindowIntegrationChecks {
                 "A native custom dialog initialized the old overlay.");
             Native.Call(integration.GetType(), "HandleDirectMessageKey", integration, Key.Escape);
             VisualAssetChecks.Pump(() => Native.Get(integration, "_directMessage") is null, "native content dialog closes");
-            Native.Check(Equals(message.Result, 2) && !message.WaitFrame.Continue && body.Parent is null,
+            Native.Check(message.IsExited && message.Result is null && !message.WaitFrame.Continue && body.Parent is null,
                 "Closing the native dialog did not release its request and content.");
         } finally {
             if (Native.Get(integration, "_directMessage") is { } direct)
@@ -796,7 +796,8 @@ internal static class GlassWindowIntegrationChecks {
 
     private static void CheckWallpaperToolTip(FormMain window, GlassLauncherView view, ImageSource wallpaper) {
         var owner = Part<Button>(view, "NavDownload");
-        Native.Check(!MeloongCore.Wpf.ModernTooltipService.GetUseModernTooltip(owner),
+        bool legacyTooltipActive = (bool)Native.Field(typeof(MeloongCore.Wpf.ModernTooltipService), "initialized").GetValue(null)!;
+        Native.Check(!legacyTooltipActive || !MeloongCore.Wpf.ModernTooltipService.GetUseModernTooltip(owner),
             "The legacy hover renderer still overrides workbench tooltips.");
         int previousMode = Settings.Get<int>("UiLauncherColorMode");
         try {

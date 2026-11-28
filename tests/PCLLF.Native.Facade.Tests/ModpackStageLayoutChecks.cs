@@ -26,9 +26,11 @@ internal static class ModpackStageLayoutChecks
 
     internal static void CaptureTask(ModLoader.LoaderCombo<string> task, string path)
     {
-        var page = new GlassTaskManagerPage(LauncherApplicationServices.TaskManager);
-        page.Open();
-        Save(page, path, 850, 560);
+        System.Windows.Application.Current.Dispatcher.Invoke(() => {
+            var page = new GlassTaskManagerPage(LauncherApplicationServices.TaskManager);
+            page.Open();
+            Save(page, path, 850, 560);
+        });
     }
 
     internal static void Save(FrameworkElement element, string path, int width, int height) =>

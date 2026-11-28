@@ -998,6 +998,7 @@ internal sealed partial class GlassShellIntegration : IDisposable {
             _directMessage = dialog;
             _modalLayer.Children.Add(dialog);
             RefreshModalState();
+            dialog.LogPresented();
         } catch (Exception error) {
             request.Dismiss(request.Type == ModMain.MyMsgBoxType.Login ? error : null);
             if (dialog is not null) {

@@ -211,7 +211,11 @@ internal static class ModpackUpdateUxChecks
                 ((IList)Get(plan, "Changes")!).Add(change);
             }
         object preview = Construct("ModpackUpdatePreviewView", plan, "1.21.11", new Dictionary<ModLoaders, string> { [ModLoaders.Fabric] = "0.19.3" });
-        Native.Check(!Descendants((DependencyObject)preview).Any(control => control is RadioButton or CheckBox), "Preview still contains a legacy option control.");
+        var options = Descendants((DependencyObject)preview).OfType<ToggleButton>()
+            .Where(option => option is RadioButton or CheckBox).ToArray();
+        Native.Check(options.Length > 0 && options.All(option => option.GetType() == (option is RadioButton ? typeof(RadioButton) : typeof(CheckBox)) &&
+            ReferenceEquals(option.Style, GlassDialogControls.Style(option is RadioButton ? "GlassPresentationRadioBox" : "GlassPresentationCheckBox"))),
+            "Preview options do not use the native controls and shared glass styles.");
         IDictionary counts = (IDictionary)Get(preview, "Counts")!;
         Type kinds = Native.Type("PCL.ModpackUpdatePreviewView+ChangeKind");
         Check(Property(preview, "ActiveKind")!.ToString() == "Preserved", "UX-07", "personal changes not visible by default");
@@ -379,9 +383,10 @@ internal static class ModpackUpdateUxChecks
             Rect button = confirm.TransformToAncestor(modal).TransformBounds(new Rect(confirm.RenderSize));
             Native.Check(button.Height > 0 && button.Top >= 0 && button.Bottom <= modal.ActualHeight + 1, "Compact preview clipped its confirmation action.");
             Native.Check(scroll.ViewportHeight >= 80 && scroll.ScrollableHeight > 0, "Actual modal wrapper removed the file-list viewport.");
-            var outer = Native.Get(modal, "_nativeContentHost") as ScrollViewer
-                ?? throw new InvalidOperationException("The update preview scroll host is missing.");
-            Native.Check(Math.Abs(preview.ActualWidth - outer.ViewportWidth) <= 1, "Preview content left unused horizontal space inside the modal.");
+            var host = Native.Get(modal, "_nativeContentHost") as ContentControl
+                ?? throw new InvalidOperationException("The update preview content host is missing.");
+            Native.Check(ReferenceEquals(host.Content, preview) && Math.Abs(preview.ActualWidth - host.ActualWidth) <= 1,
+                "Preview content left unused horizontal space inside the modal.");
             Grid cards = ((StackPanel)Get(preview, "Rows")!).Children.OfType<Grid>().Single();
             Border[] boxes = cards.Children.Cast<Border>().ToArray();
             Native.Check(cards.ColumnDefinitions.Count == 2 && boxes.Length == 36, "Wide conflict preview did not use two columns for all mods.");
@@ -389,7 +394,10 @@ internal static class ModpackUpdateUxChecks
             Rect right = boxes[1].TransformToAncestor(preview).TransformBounds(new Rect(boxes[1].RenderSize));
             Native.Check(Math.Abs(left.Top - right.Top) <= 1 && left.Right <= right.Left + 1 && right.Right <= preview.ActualWidth + 1,
                 "Conflict cards overlapped or escaped their two-column viewport.");
-            Native.Check(outer.ScrollableHeight == 0, "The disabled modal wrapper can intercept the inner list's mouse wheel.");
+            DependencyObject? ancestor = VisualTreeHelper.GetParent(scroll);
+            for (; ancestor is not null && ancestor != modal; ancestor = VisualTreeHelper.GetParent(ancestor))
+                Native.Check(ancestor is not ScrollViewer, "An outer scroll viewer can intercept the preview list's mouse wheel.");
+            Native.Check(ancestor == modal, "The preview list was not presented inside the production modal.");
             MouseWheelEventArgs wheel = new(Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = UIElement.PreviewMouseWheelEvent };
             scroll.RaiseEvent(wheel);
             Native.Check(wheel.Handled, "The genuine native preview list did not accept the mouse wheel.");

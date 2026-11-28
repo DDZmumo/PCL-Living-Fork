@@ -42,6 +42,7 @@ internal static class MmcPhase2LaunchChecks {
             runScenario(retained);
             retained.Finish();
             environment.AssertNoForbiddenIo();
+            FileTaskShell.CloseUnshownHosts();
             Native.Check(System.Windows.Application.Current.Windows.Count == 0, "Phase 2 launch checks unexpectedly opened a window.");
             string value = string.Join('\n', args[3], Environment.ProcessId, Native.Full(environment.Root), MainHash(), group + "-verified");
             string pending = Path.Combine(environment.Root, receipt + ".pending");

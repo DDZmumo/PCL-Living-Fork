@@ -145,6 +145,7 @@ internal static class ReviewedInformationNotice
             var notice = ForTitle(title, "markdown-suppress", source);
             string log = "00:00:00.001 I [MessageDialogController] 普通弹窗：" + title + "\r\n" + string.Join("\r\n", notice.LogCaption.Split("\r\n").Select(line => "00:00:00.001 I [MessageDialogController] " + line)) + "\r\n";
             notice.VerifyLogCaption(log);
+            notice.VerifyLogCaption(log.Replace("[MessageDialogController]", "[GlassMessageDialog]", StringComparison.Ordinal));
             notice.VerifyDocument(notice.DocumentText);
             notice.VerifyDocument(notice.DocumentText.Replace("- ", "• ").Replace("\r\n", "\r\n\r\n"));
             notice.VerifyDocument(notice.DocumentText.Replace("- ", ""));
@@ -200,7 +201,7 @@ internal sealed record ReviewedNotice(string Title, string Style, string Source,
                 throw new InvalidOperationException("PENDING: unexpected actual dialog, never auto-clicked: " + dialog.Groups["Title"].Value);
         if (!IsMarkdown) return;
         var body = new List<string>(); bool current = false; int count = 0;
-        foreach (Match line in Regex.Matches(log, @"(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[MessageDialogController\] (?<Content>[^\r\n]*)\r?\n"))
+        foreach (Match line in Regex.Matches(log, @"(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[(?:MessageDialogController|GlassMessageDialog)\] (?<Content>[^\r\n]*)\r?\n"))
         {
             string content = line.Groups["Content"].Value;
             if (Regex.IsMatch(content, @"^(?:普通|选择|输入)弹窗："))

@@ -21,6 +21,7 @@ internal static partial class PackRootInstallChecks
     }
     private static void CompleteOwnedChild(FixtureEnvironment environment,string nonce,PackRootInstallChecksScope scope)
     {
+        FileTaskShell.CloseUnshownHosts();
         Native.Check(Application.Current.Windows.Count==0,"HMCL root child left a real window open.");
         Thread[] threads=scope.NetworkThreads.ToArray(), managers=threads.Where(thread=>ManagerNames.Contains(thread.Name,StringComparer.Ordinal)).ToArray();
         Native.Check(managers.Length==3&&managers.Select(thread=>thread.Name).Distinct(StringComparer.Ordinal).Count()==3&&managers.All(thread=>thread.IsAlive&&!thread.IsBackground)&&threads.Except(managers).All(thread=>!thread.IsAlive),"HMCL completion requires exactly three original perpetual managers and all transient network threads returned.");

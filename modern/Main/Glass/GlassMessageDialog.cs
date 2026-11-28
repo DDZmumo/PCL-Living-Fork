@@ -49,6 +49,20 @@ internal sealed class GlassMessageDialog : Grid, IGlassModalState, IGlassModalTo
     bool IGlassModalState.IsModalOpen => !_request.IsExited;
     bool IGlassModalTone.IsWarning => _request.IsWarn;
 
+    internal void LogPresented() {
+        string kind = _request.Type switch {
+            ModMain.MyMsgBoxType.Select => "选择",
+            ModMain.MyMsgBoxType.Input => "输入",
+            _ => "普通"
+        };
+        string title = $"{kind}弹窗：{Title.ReplaceLineEndings(" ")}";
+        // The startup notice caption is fixed application text. Do not log input values or other dialog contents.
+        if (_nativeContentHost?.Content is ReleaseNotesPromptView && _request.Text is { Length: > 0 } caption)
+            Logger.Info(title + "\r\n" + caption);
+        else
+            Logger.Info(title);
+    }
+
     internal GlassMessageDialog(ModMain.MyMsgBoxConverter request, Action drag, Action<GlassMessageDialog> removed) {
         _request = request;
         _removed = removed;
