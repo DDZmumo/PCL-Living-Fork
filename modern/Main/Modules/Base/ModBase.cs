@@ -484,6 +484,9 @@ namespace PCL
         internal static string UpdateIniValue(string file, string key, Func<string, string> update)
             => BaseOps.UpdateIniValue(file, key, value => update(value ?? ""), IniCache) ?? "";
 
+        internal static void UpdateIniValues(string file, IReadOnlyDictionary<string, string> values, CancellationToken token)
+            => BaseOps.UpdateIniValues(file, values, IniCache, token);
+
         // 权限检查
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using MeloongCore;
 using Newtonsoft.Json.Linq;
 using PCL;
 using PCLCS;
@@ -29,6 +30,7 @@ internal static partial class PackRootInstallChecks
             PackRootInstallChecksCounter.Run(environment.Data);
             OrdinaryInstallCleanupChecks.Run(environment.Data);
             Scenarios(retainedScope);
+            ModrinthIsolation(retainedScope);
             retainedScope.Finish();
             Check("producer-barrier", true);
             Check("actual-transport", retainedScope.TransportUsed);
@@ -40,7 +42,7 @@ internal static partial class PackRootInstallChecks
         } catch (Exception error) {
             // Network manager loops are genuine LF foreground process-lifetime
             // producers. Never unwind their live platform/settings guards.
-            ModpackUpdateCleanup.TerminateChild("HMCL root-install failed with all live context retained: " + error);
+            ModpackUpdateCleanup.TerminateChild("Pack root-install failed with all live context retained: " + error);
         }
     }
     private static void Scenarios(PackRootInstallChecksScope scope)
@@ -101,4 +103,110 @@ internal static partial class PackRootInstallChecks
         Console.WriteLine("PASS HMCL root installation data chain: real pack+game combos, loopback metadata/client/library/assets, merge/config manifest, original refusal, real cancel/failure cleanup. No game/Java launch or UI-navigation completion claimed.");
     }
     private static Exception Rejected(Func<object?> action) { try { action(); } catch(Exception error) { return error; } throw new InvalidOperationException("Original install refusal was not observed."); }
+
+    private static void ModrinthIsolation(PackRootInstallChecksScope scope)
+    {
+        PackRootInstallChecksScope.InstallCase Pack(string name, bool? isolated, JArray files, bool pause = false, bool badSetup = false, string? fabric = null) =>
+            scope.Case(name, pauseAdmission: pause, contents: archive => {
+                void Add(string path, string content) {
+                    using var entry = archive.CreateEntry(path).Open();
+                    entry.Write(Encoding.UTF8.GetBytes(content));
+                }
+                var dependencies = new JObject { ["minecraft"] = "1.20.1" };
+                if (fabric is not null) dependencies["fabric-loader"] = fabric;
+                Add("modrinth.index.json", new JObject {
+                    ["formatVersion"] = 1, ["name"] = name,
+                    ["dependencies"] = dependencies, ["files"] = files
+                }.ToString());
+                if (isolated is bool enabled) {
+                    Add("overrides/PCL/Setup.ini", $"LivingExportVersionIsolation:{enabled}\r\nFixture:common\r\n");
+                    Add("client-overrides/PCL/Setup.ini", $"VersionArgumentIndieV2:{!enabled}\r\nFixture:client\r\n");
+                    Add("client-overrides/mods/priority.jar", "fixture client-layer priority");
+                }
+                if (badSetup) Add("overrides/PCL/Setup.ini/blocker.txt", "fixture directory prevents INI publication");
+            });
+
+        using var modEntered = new ManualResetEventSlim();
+        using var modRelease = new ManualResetEventSlim();
+        const string fabricVersion = "0.16.14";
+        scope.AddFabricProfile(fabricVersion);
+        var isolated = Pack("Modrinth-Isolated", true, new JArray(
+            scope.PackFile("mods/held.jar", "/modrinth-held-mod", "fixture delayed isolated mod", modEntered, modRelease),
+            scope.PackFile("mods/PRIORITY.jar", "/modrinth-priority", "fixture index priority")), fabric: fabricVersion);
+        var isolatedRoot = scope.Start(isolated);
+        try {
+            scope.Until(() => modEntered.IsSet && isolated.MetadataEntered.IsSet && scope.FabricProfileRequested,
+                "original game and Fabric metadata start while a Modrinth mod is downloading");
+            string file = Path.Combine(isolated.Folder, "PCL", "Setup.ini");
+            Native.Check(ModBase.ReadIni(file, "VersionArgumentIndie") == "1" && ModBase.ReadIni(file, "VersionArgumentIndieV2") == "True" &&
+                ModBase.ReadIni(file, "IsStar") == "False" && ModBase.ReadIni(file, "Fixture") == "client" &&
+                File.ReadAllText(Path.Combine(isolated.Folder, "mods", "priority.jar")) == "fixture client-layer priority" &&
+                File.Exists(Path.Combine(isolated.Folder, ".pclignore")), "Game started with unverified isolation, inconsistent override order or no live install marker.");
+        } finally { modRelease.Set(); }
+        scope.Until(() => isolatedRoot.State == ModBase.LoadState.Finished, "isolated Modrinth import");
+        scope.Settle(isolatedRoot);
+        var fabricProfile = JObject.Parse(File.ReadAllText(Path.Combine(isolated.Folder, isolated.Name + ".json")));
+        Native.Check(PathUtils.IsSame(new ModMinecraft.McInstance(isolated.Folder).Load().PathIndie, isolated.Folder) &&
+            fabricProfile["mainClass"]?.ToString() == "fixture.NotExecutableFabricMain" &&
+            !File.Exists(Path.Combine(isolated.Folder, ".pclignore")), "Isolated Modrinth publication lost the Fabric profile or its own instance directory.");
+
+        using var iniEntered = new ManualResetEventSlim();
+        using var iniRelease = new ManualResetEventSlim();
+        var shared = Pack("Modrinth-Shared", false, new JArray(
+            scope.PackFile("pcl/setup.INI", "/modrinth-held-ini", "Fixture:index\r\nVersionArgumentIndieV2:True\r\n", iniEntered, iniRelease)));
+        var sharedRoot = scope.Start(shared);
+        try {
+            scope.Until(() => iniEntered.IsSet, "Modrinth setup download holds the game chain");
+            Native.Check(!shared.MetadataEntered.IsSet &&
+                scope.AllNodes(sharedRoot).First(loader => loader.Name == "游戏安装").State == ModBase.LoadState.Waiting,
+                "Game installation started before the final Setup.ini was available.");
+        } finally { iniRelease.Set(); }
+        scope.Until(() => sharedRoot.State == ModBase.LoadState.Finished, "shared Modrinth import");
+        scope.Settle(sharedRoot);
+        Native.Check(PathUtils.IsSame(new ModMinecraft.McInstance(shared.Folder).Load().PathIndie, scope.Game) &&
+            ModBase.ReadIni(Path.Combine(shared.Folder, "PCL", "Setup.ini"), "Fixture") == "client" &&
+            File.Exists(Path.Combine(scope.Game, "mods", "priority.jar")), "Shared Modrinth publication lost its client overrides or game root.");
+
+        var defaults = Pack("Modrinth-Default", null, new JArray());
+        var defaultRoot = scope.Start(defaults);
+        scope.Until(() => defaultRoot.State == ModBase.LoadState.Finished, "Modrinth import without overrides");
+        scope.Settle(defaultRoot);
+        Native.Check(ModBase.ReadIni(Path.Combine(defaults.Folder, "PCL", "Setup.ini"), "VersionArgumentIndieV2") == "True",
+            "A Modrinth pack without overrides lost default isolation.");
+
+        var failed = Pack("Modrinth-SetupFailure", null, new JArray(), badSetup: true);
+        var failedRoot = scope.Start(failed);
+        scope.Until(() => failedRoot.State == ModBase.LoadState.Failed && !Directory.Exists(failed.Folder), "Modrinth setup write failure and owned cleanup");
+        scope.Settle(failedRoot);
+        Native.Check(!failed.MetadataEntered.IsSet, "A failed Modrinth configuration released the game chain.");
+
+        using var cancelEntered = new ManualResetEventSlim();
+        using var cancelRelease = new ManualResetEventSlim();
+        var canceled = Pack("Modrinth-Cancel", true, new JArray(
+            scope.PackFile("PCL/Setup.ini", "/modrinth-cancel-ini", "Fixture:cancel\r\n", cancelEntered, cancelRelease)));
+        var canceledRoot = scope.Start(canceled);
+        try {
+            scope.Until(() => cancelEntered.IsSet, "Modrinth setup download in progress before cancellation");
+            canceledRoot.Cancel();
+        } finally { cancelRelease.Set(); }
+        scope.Until(() => canceledRoot.State == ModBase.LoadState.Canceled && !Directory.Exists(canceled.Folder), "Modrinth cancellation and owned cleanup");
+        scope.Settle(canceledRoot);
+        Native.Check(!canceled.MetadataEntered.IsSet, "Canceling Modrinth setup started the game chain.");
+
+        int completedCleanups = scope.CleanupCompletions;
+        var occupied = Pack("Modrinth-Occupied", null, new JArray(), pause: true);
+        var occupiedRoot = scope.Start(occupied);
+        string sentinel = Path.Combine(occupied.Folder, "unrelated.txt");
+        try {
+            scope.AwaitAdmission(occupied, occupiedRoot, children: 5);
+            Directory.CreateDirectory(occupied.Folder);
+            File.WriteAllText(sentinel, "fixture competing owner");
+        } finally { scope.ReleaseAdmission(occupied); }
+        scope.Until(() => occupiedRoot.State == ModBase.LoadState.Failed && scope.CleanupCompletions > completedCleanups,
+            "Modrinth same-directory refusal reaches safe cleanup");
+        scope.Settle(occupiedRoot);
+        Native.Check(!occupied.MetadataEntered.IsSet && File.ReadAllText(sentinel) == "fixture competing owner" &&
+            Directory.GetFileSystemEntries(occupied.Folder).Length == 1, "Losing the directory claim wrote or removed another owner's files.");
+        Console.WriteLine("PASS Modrinth root installation: real parallel downloads, isolation/overlay order, default mode, write failure, cancellation and directory ownership.");
+    }
 }

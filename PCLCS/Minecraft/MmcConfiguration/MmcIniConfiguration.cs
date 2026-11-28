@@ -90,17 +90,17 @@ public static partial class MmcIniConfiguration {
         admission?.Dispose(); admission = null;
         lock (state.Sync) { AssertReadWriteContext(state); state.EnqueueIni(key, value, context); } return true;
     }
-    internal static MmcAdmissionLease? AdmitSynchronousUpdate(string file, string key) {
+    internal static MmcAdmissionLease? AdmitSynchronousUpdate(string file, IReadOnlyCollection<string> keys, CancellationToken token = default) {
         if (!TryRoot(file, out string root)) return null;
         var state = MmcConfigurationCoordinator.StateFor(root);
-        var lease = MmcConfigurationCoordinator.PreferenceLease(state.Root, CancellationToken.None);
+        var lease = MmcConfigurationCoordinator.PreferenceLease(state.Root, token);
         try {
             MmcConfigurationCoordinator.AssertExistingVersionRoot(state.Root);
             var management = MmcConfigurationPaths.ReadManagement(root, state.Root);
             MmcConfigurationCoordinator.AssertPreferenceWritable(management);
             lock (state.Sync) AssertReadWriteContext(state);
             if (ContextForWrite(state, root) != MmcConfigurationCoordinator.ContextFor(state.Root, management)) throw new IOException("INI 写入缺少当前实例的身份上下文。");
-            if (AlwaysReserved(key) || management.State != MmcManagementState.Legacy && IsStructural(key))
+            if (keys.Any(key => AlwaysReserved(key) || management.State != MmcManagementState.Legacy && IsStructural(key)))
                 throw new IOException("布局或实例身份设置只能通过有代数约束的实例维护事务修改。");
             return lease;
         } catch { lease.Dispose(); throw; }

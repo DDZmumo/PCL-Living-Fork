@@ -11,9 +11,10 @@ namespace PCLCS;
 // A live installer task can prove only its own initially absent target. Historical
 // folders and other incomplete observations never acquire this narrow permission.
 internal static class OrdinaryInstallCleanupProof {
-    private sealed class Proof(string root, string? jsonName) {
+    private sealed class Proof(string root, string? jsonName, bool exclusive = false) {
         internal readonly string Root = root;
         internal readonly string? JsonName = jsonName;
+        internal readonly bool Exclusive = exclusive;
         internal readonly byte[] Marker = Encoding.UTF8.GetBytes("PCLLF.OrdinaryInstall/v1\n" + Guid.NewGuid().ToString("N") + "\n" + root);
         internal string? DirectoryIdentity;
     }
@@ -24,10 +25,39 @@ internal static class OrdinaryInstallCleanupProof {
         bool sameName = string.Equals(instanceName, leaf, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
         if (MmcInstancePaths.Attributes(root) is null) proofs.Add(task, new(root, sameName ? leaf + ".json" : null));
     }
+    internal static void RegisterExclusive(object task, string folder, string instanceName) {
+        string root = MmcCanonicalPaths.ForTrustedRoot(folder);
+        string leaf = Path.GetFileName(root);
+        if (!string.Equals(instanceName, leaf, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("实例名称与安装目标目录不一致。");
+        // Record the claim even before it succeeds so a losing task cannot use legacy cleanup.
+        proofs.Add(task, new(root, leaf + ".json", exclusive: true));
+    }
+    internal static bool HasExclusiveClaim(IEnumerable<object> tasks) =>
+        tasks.Any(task => proofs.TryGetValue(task, out var proof) && proof.Exclusive);
+
+    internal static void AssertOwned(object task) {
+        if (!proofs.TryGetValue(task, out var proof) || !proof.Exclusive || proof.DirectoryIdentity is null || !Matches(proof))
+            throw new IOException("本次安装已失去目标目录的所有权。");
+    }
+
     internal static void WriteMarker(object task, string folder) {
         const string original = "用于临时地在 PCL 的版本列表中屏蔽此版本。";
         if (!proofs.TryGetValue(task, out var proof) || proof.JsonName is null || !OperatingSystem.IsWindows()) { FileUtils.Write(Path.Combine(folder, ".pclignore"), original); return; }
         lock (proof) {
+            if (proof.Exclusive) {
+                if (proof.DirectoryIdentity is not null) { AssertOwned(task); return; }
+                if (!PathUtils.IsSame(MmcCanonicalPaths.ForTrustedRoot(folder), proof.Root) || MmcInstancePaths.Attributes(proof.Root) is not null)
+                    throw new IOException("安装目标目录已被占用。");
+                string parent = Path.GetDirectoryName(proof.Root)!;
+                Directory.CreateDirectory(parent);
+                MmcInstancePaths.EnsureNoLinks(parent);
+                MmcOwnedImportReservation.CreateExclusiveDirectory(PathUtils.ForApi(proof.Root));
+                string directoryIdentity = Identity(proof.Root);
+                MmcDurableFiles.WriteNew(Path.Combine(proof.Root, ".pclignore"), proof.Marker);
+                proof.DirectoryIdentity = directoryIdentity;
+                return;
+            }
             Directory.CreateDirectory(folder);
             string marker = Path.Combine(folder, ".pclignore");
             if (proof.DirectoryIdentity is not null) {

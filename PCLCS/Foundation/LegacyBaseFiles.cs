@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using MeloongCore;
 using MeloongCore.Extensions;
 using Microsoft.VisualBasic.CompilerServices;
@@ -83,13 +85,34 @@ public static partial class LegacyBaseOperations {
     public static string? UpdateIniValue(string fileName, string key, Func<string?, string?> update,
         ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
         fileName = IniPath(fileName);
-        using var admission = MmcIniConfiguration.AdmitSynchronousUpdate(fileName, key);
+        using var admission = MmcIniConfiguration.AdmitSynchronousUpdate(fileName, [key]);
         return UpdateIniValueCore(fileName, key, update, cache);
     }
+
+    public static void UpdateIniValues(string fileName, IReadOnlyDictionary<string, string> values,
+        ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache, CancellationToken token) {
+        var writes = values.Select(pair => (Key: NormalizeIniKey(pair.Key), Value: pair.Value.ReplaceLineEndings(""))).ToArray();
+        fileName = IniPath(fileName);
+        using var admission = MmcIniConfiguration.AdmitSynchronousUpdate(fileName, writes.Select(write => write.Key).ToArray(), token);
+        lock (IniLock(fileName)) {
+            token.ThrowIfCancellationRequested();
+            byte[]? before = FileUtils.Exists(fileName) ? FileUtils.ReadAsBytes(fileName) : null;
+            string text = before is null ? "" : DecodeLegacyText(before);
+            string replacement = text;
+            foreach (var write in writes) replacement = ReplaceIniValue(replacement, write.Key, write.Value);
+            token.ThrowIfCancellationRequested();
+            SaveIniSnapshot(fileName, before, text, replacement, cache);
+        }
+    }
+
+    private static string NormalizeIniKey(string key) {
+        if (key.Contains(":")) throw new ArgumentException("ini 键名中不能包含冒号", nameof(key));
+        return key.ReplaceLineEndings("");
+    }
+
     private static string? UpdateIniValueCore(string fileName, string key, Func<string?, string?> update,
         ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
-        if (key.Contains(":")) throw new ArgumentException("ini 键名中不能包含冒号", nameof(key));
-        key = key.ReplaceLineEndings("");
+        key = NormalizeIniKey(key);
         fileName = IniPath(fileName);
         lock (IniLock(fileName)) {
             byte[]? before = FileUtils.Exists(fileName) ? FileUtils.ReadAsBytes(fileName) : null;
@@ -97,35 +120,37 @@ public static partial class LegacyBaseOperations {
             ConcurrentDictionary<string, string> content = ParseIni(text);
             content.TryGetValue(key, out string? previous);
             string? value = update(previous)?.ReplaceLineEndings("");
-            if (string.Equals(previous, value, StringComparison.Ordinal)) {
-                cache[fileName] = content;
-                MmcIniConfiguration.PublishedOrdinary(fileName, text);
-                return value;
-            }
-            string replacement = ReplaceIniValue(text, key, value);
-            byte[] expected = new UTF8Encoding(false).GetBytes(replacement);
-            bool replaced = false;
+            string replacement = string.Equals(previous, value, StringComparison.Ordinal) ? text : ReplaceIniValue(text, key, value);
+            SaveIniSnapshot(fileName, before, text, replacement, cache);
+            return value;
+        }
+    }
+    private static void SaveIniSnapshot(string fileName, byte[]? before, string text, string replacement,
+        ConcurrentDictionary<string, ConcurrentDictionary<string, string>> cache) {
+        if (string.Equals(text, replacement, StringComparison.Ordinal)) {
+            cache[fileName] = ParseIni(text);
+            MmcIniConfiguration.PublishedOrdinary(fileName, text);
+            return;
+        }
+        byte[] expected = new UTF8Encoding(false).GetBytes(replacement);
+        bool replaced = false;
+        try {
+            // Keep the ordinary INI writer's retry policy for transient sharing failures.
+            ThrottleDebounce.Retrier.Attempt(delay: _ => TimeSpan.FromMilliseconds(200),
+                isRetryAllowed: error => error is IOException, action: _ => FileUtils.WriteAtomic(fileName, expected));
+            replaced = true;
+            if (!FileUtils.ReadAsBytes(fileName).SequenceEqual(expected)) throw new IOException("ini 写入后读回不一致");
+            cache[fileName] = ParseIni(replacement);
+            MmcIniConfiguration.PublishedOrdinary(fileName, replacement);
+        } catch {
             try {
-                // Keep the ordinary INI writer's existing IOException retry policy,
-                // including transient sharing failures at the atomic replacement.
-                ThrottleDebounce.Retrier.Attempt(delay: _ => TimeSpan.FromMilliseconds(200),
-                    isRetryAllowed: error => error is IOException, action: _ => FileUtils.WriteAtomic(fileName, expected));
-                replaced = true;
-                if (!FileUtils.ReadAsBytes(fileName).SequenceEqual(expected)) throw new IOException("ini 写入后读回不一致");
-                cache[fileName] = ParseIni(replacement);
-                MmcIniConfiguration.PublishedOrdinary(fileName, replacement);
-                return value;
-            } catch {
-                try {
-                    // WriteAtomic preserves the old target on failure. If replacement
-                    // finished, restore its exact bytes before reporting a failed save.
-                    if (replaced || (FileUtils.Exists(fileName) && FileUtils.ReadAsBytes(fileName).SequenceEqual(expected))) {
-                        if (before is null) FileUtils.Delete(fileName);
-                        else FileUtils.WriteAtomic(fileName, before);
-                    }
-                } finally { cache.Remove(fileName); }
-                throw;
-            }
+                // Restore the exact old bytes if the atomic replacement already completed.
+                if (replaced || (FileUtils.Exists(fileName) && FileUtils.ReadAsBytes(fileName).SequenceEqual(expected))) {
+                    if (before is null) FileUtils.Delete(fileName);
+                    else FileUtils.WriteAtomic(fileName, before);
+                }
+            } finally { cache.Remove(fileName); }
+            throw;
         }
     }
     internal static ConcurrentDictionary<string, string> ParseIni(string text) {
