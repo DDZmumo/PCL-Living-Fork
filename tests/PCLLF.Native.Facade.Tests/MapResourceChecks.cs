@@ -59,7 +59,7 @@ internal static class MapResourceChecks
         }
 
         Native.Check(controller is not null && controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && controller.GetType().GetGenericArguments()[0] == project.GetType() && controller.GetType().GetGenericArguments()[1] == version, "Page adapter did not use the actual production controller and actual Main models.");
-        Native.Check(ReferenceEquals(Native.Get(controller, "Project"), project), "Detail adapter created a second project store.");
+        Native.Check(ReferenceEquals(Native.Get(controller!, "Project"), project), "Detail adapter created a second project store.");
     }
 
     internal static void ResourceEntries(FixtureEnvironment fixture)

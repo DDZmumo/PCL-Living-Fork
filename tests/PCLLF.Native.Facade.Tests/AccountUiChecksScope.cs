@@ -38,9 +38,8 @@ internal sealed class AccountUiChecksScope : IDisposable
     private object? configLazy;
     private readonly ManualResetEventSlim entered = new(false), release = new(false);
     private readonly HashSet<string> allowed;
-    private int forbidden, requestCount, refreshes;
+    private int forbidden, requestCount;
     private Scenario scenario;
-    private bool startsClosed;
     private bool disposed;
     private readonly object hintBuyGate = new();
     private string hintBuyPath = null!;
@@ -49,7 +48,6 @@ internal sealed class AccountUiChecksScope : IDisposable
     internal readonly List<(string Text, LegacyLoginHint Kind)> Hints = new();
     internal ModLoader.LoaderTask<ModLaunch.McLoginMs, ModLaunch.McLoginResult> Loader => ModLaunch.McLoginMsLoader;
     internal int RequestCount => Volatile.Read(ref requestCount);
-    internal int Refreshes => Volatile.Read(ref refreshes);
     internal readonly int SeedTransactionCount;
 
     internal AccountUiChecksScope(FixtureEnvironment environment, bool createLegacyPage = true)
@@ -394,7 +392,7 @@ internal sealed class AccountUiChecksScope : IDisposable
         checkpoint = Checkpoint.CleanupFreeze;
         AwaitUi(() => {
             if (!Monitor.TryEnter(startGate)) return false;
-            try { startsClosed = true; ObserveLoaderThread(); Loader.Cancel(); release.Set(); return true; }
+            try { ObserveLoaderThread(); Loader.Cancel(); release.Set(); return true; }
             finally { Monitor.Exit(startGate); }
         });
         checkpoint = Checkpoint.CleanupThreads;

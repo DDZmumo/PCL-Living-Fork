@@ -10,8 +10,7 @@ namespace PCLLF.Native.Facade.Tests;
 internal static class ToolboxSurpriseChecks {
     internal static void Run() {
         PageOtherTest page = new();
-        Button button = (Button)page.FindName("BtnSurprise");
-        Native.Check(button is not null, "The native surprise button is missing.");
+        var button = page.FindName("BtnSurprise") as Button ?? throw new InvalidOperationException("The native surprise button is missing.");
         var action = Native.Field(typeof(PageOtherTest), "SurpriseAction");
         object? previous = action.GetValue(null); int clicks = 0;
         try {

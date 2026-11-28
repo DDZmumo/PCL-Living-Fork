@@ -229,7 +229,9 @@ internal static class ModpackUpdateUxChecks
         Native.Call(preview.GetType(), "ShowKind", preview, Enum.Parse(kinds, "Removed"));
         Render(previewModal, Path.Combine(folder, "modpack-removals-preview.png"));
         int before = Changes(plan).Count, conflicts = Changes(plan).Count(Conflict);
-        ((ContentControl)Native.Get(previewModal, "_nativeContentHost")).Content = null;
+        var nativeHost = Native.Get(previewModal, "_nativeContentHost") as ContentControl
+            ?? throw new InvalidOperationException("The update preview content host is missing.");
+        nativeHost.Content = null;
         FrameworkElement compact = (FrameworkElement)preview; compact.MaxHeight = 240; compact.Width = 460;
         Render(compact, Path.Combine(folder, "modpack-preview-compact.png"), 470, 250);
         Check(((UniformGrid)Get(preview, "Filters")!).Columns == 4, "UX-11", "compact categories unnecessarily consumed a second row");
@@ -377,7 +379,8 @@ internal static class ModpackUpdateUxChecks
             Rect button = confirm.TransformToAncestor(modal).TransformBounds(new Rect(confirm.RenderSize));
             Native.Check(button.Height > 0 && button.Top >= 0 && button.Bottom <= modal.ActualHeight + 1, "Compact preview clipped its confirmation action.");
             Native.Check(scroll.ViewportHeight >= 80 && scroll.ScrollableHeight > 0, "Actual modal wrapper removed the file-list viewport.");
-            ScrollViewer outer = (ScrollViewer)Native.Get(modal, "_nativeContentHost");
+            var outer = Native.Get(modal, "_nativeContentHost") as ScrollViewer
+                ?? throw new InvalidOperationException("The update preview scroll host is missing.");
             Native.Check(Math.Abs(preview.ActualWidth - outer.ViewportWidth) <= 1, "Preview content left unused horizontal space inside the modal.");
             Grid cards = ((StackPanel)Get(preview, "Rows")!).Children.OfType<Grid>().Single();
             Border[] boxes = cards.Children.Cast<Border>().ToArray();
