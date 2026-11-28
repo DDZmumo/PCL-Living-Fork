@@ -21,7 +21,7 @@ internal static class MmcRelocationAutoRecoveryChecks {
         private readonly Stack<Action> restore = new();
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceLifecycleResult> results = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly string root, game, otherGame, worldRelative = Path.Combine("minecraft", "saves", "current", "level.dat");
         private string expectedSource = "", expectedTarget = "", operation = "";
         private Guid expectedId;
@@ -32,7 +32,7 @@ internal static class MmcRelocationAutoRecoveryChecks {
 
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             Action refresh = scheduler.RefreshExtraDownload; restore.Push(() => scheduler.RefreshExtraDownload = refresh); scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); }));
             Set("Published", new Action<MmcInstanceLifecycleResult>(result => results.Enqueue(result)));

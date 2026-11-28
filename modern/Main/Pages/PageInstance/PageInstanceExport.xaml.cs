@@ -17,6 +17,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using global::System.Windows.Documents;
 using System.Windows.Documents;
+using System.Windows.Automation;
 using System.Windows.Input;
 using global::System.Windows.Media;
 using System.Windows.Media;
@@ -31,7 +32,7 @@ using Microsoft.VisualBasic.CompilerServices;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
-using ExportController = global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.MyCheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
+using ExportController = global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::System.Windows.Controls.CheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
 using ExportPipeline = global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>;
 using ExportRequest = global::PCLCS.ModpackExportRequest<global::PCL.ModMinecraft.McInstance>;
 using ThrottleDebounce;
@@ -44,26 +45,28 @@ namespace PCL
 
     public partial class PageInstanceExport : global::PCL.IRefreshable
     {
+        private TextBlock _nameHint, _versionHint;
+        private GlassExportGroups _groups;
         private global::System.String CurrentInstance;
         private global::System.String[] SubOptionBlackList;
         private global::System.Collections.Generic.List<global::System.String> _RulesOverrides;
         private global::System.Collections.Generic.List<global::System.String> ExtraFiles;
         private global::System.String ConfigPackPath;
         private const global::System.String Sperator = "==============================================================";
-        private global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.MyCheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>> PageController;
+        private global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::System.Windows.Controls.CheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>> PageController;
         private readonly global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion> Pipeline;
-        private global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.MyCheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>> Controller
+        private global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::System.Windows.Controls.CheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>> Controller
         {
             get
             {
                 if (this.IsMmcExport) throw new global::System.InvalidOperationException("MMC 导出必须使用专用后端。");
                 if (this.PageController is null)
-                    this.PageController = new global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.MyCheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>>(this.CreateView(), this.CreateState(), this.CreateHost());
+                    this.PageController = new global::PCLCS.ModpackExportPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::System.Windows.Controls.CheckBox, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion, global::PCL.ModLoader.LoaderCombo<global::System.String>>(this.CreateView(), this.CreateState(), this.CreateHost());
                 return this.PageController;
             }
         }
 
-        public PageInstanceExport() : this(global::PCL.PageInstanceLeft.Instance, false, global::System.Guid.Empty)
+        public PageInstanceExport() : this(global::PCL.LauncherInstanceContext.Instance, false, global::System.Guid.Empty)
         {
         }
 
@@ -75,7 +78,6 @@ namespace PCL
         private PageInstanceExport(global::PCL.ModMinecraft.McInstance owner, global::System.Boolean managed, global::System.Guid expectedInstanceId)
         {
             this.CaptureExportOwner(owner, managed, expectedInstanceId);
-            __LfAttachOwnHandles();
             this.CurrentInstance = "";
             this.SubOptionBlackList = new[]
             {
@@ -88,21 +90,41 @@ namespace PCL
             this.ConfigPackPath = (global::System.String)null;
             if (!this.IsMmcExport)
                 this.Pipeline = new global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>(global::PCL.PageInstanceExport.CreatePipelineHost());
-            this.InitializeComponent();
+            InitializeComponent();
+            GlassDialogControls.Callout(HintJava);
+            if (!IsMmcExport) _groups = new GlassExportGroups(PanOptions);
+            // The export action floats over the wallpaper at the bottom of the page, frosted like the other page actions.
+            GlassPageLayout.Frost(BtnExport, "开始导出", InstanceSidebarIcons.Export);
+            AttachScroll(PanBack);
+            _nameHint = AttachPlaceholder(TextExportName, "");
+            _versionHint = AttachPlaceholder(TextExportVersion, "");
+            Loaded += (_, _) => { PageInstanceExport_Loaded(); RefreshJavaInfo(); };
+            TextExportName.GotKeyboardFocus += (_, _) => TextExportName_GotFocus();
+            BtnAdvancedExport.Click += (_, _) => ExportConfig();
+            BtnAdvancedImport.Click += (_, _) => ImportConfig();
+            BtnAdvancedHelp.Click += (_, _) => BtnAdvancedHelp.RaiseCustomEvent();
+            BtnExport.Click += (_, _) => StartExport();
+            CheckAdvancedInclude.Click += (_, _) => CheckAdvancedInclude_Change(CheckAdvancedInclude, true);
+            CheckAdvancedModrinth.Click += (_, _) => CheckAdvancedModrinth_Change(CheckAdvancedModrinth, true);
+            CheckOptionsPcl.Click += (_, _) => CheckAdvancedModrinth_Change(CheckOptionsPcl, true);
             // The new presentation invokes this button directly instead of the old card's mouse event.
             this.BtnOverrideCancel.Click += (_, _) => { if (!this.IsMmcExport && this.CanUseOrdinaryExport()) this.Controller.OptionsMouseDown(); };
-            if (this.IsMmcExport) this.InitializeMmcExport();
+            if (IsMmcExport) InitializeMmcExport();
+            else {
+                AddExportConfigDismissal();
+                PageInstanceExport_Initialized(this, EventArgs.Empty);
+            }
         }
 
-        private global::PCLCS.ModpackExportPageView<global::PCL.MyCheckBox> CreateView()
+        private global::PCLCS.ModpackExportPageView<global::System.Windows.Controls.CheckBox> CreateView()
         {
-            return new global::PCLCS.ModpackExportPageView<global::PCL.MyCheckBox>()
+            return new global::PCLCS.ModpackExportPageView<global::System.Windows.Controls.CheckBox>()
             {
                 Name = TextExportName,
                 Version = TextExportVersion,
-                NameHint = new Func<global::System.String>(() => this.TextExportName.HintText),
-                SetNameHint = new Action<global::System.String>(Value => this.TextExportName.HintText = Value),
-                SetVersionHint = new Action<global::System.String>(Value => this.TextExportVersion.HintText = Value),
+                NameHint = new Func<global::System.String>(() => _nameHint.Text),
+                SetNameHint = new Action<global::System.String>(Value => _nameHint.Text = Value),
+                SetVersionHint = new Action<global::System.String>(Value => _versionHint.Text = Value),
                 Basic = CheckOptionsBasic,
                 Java = CheckOptionsJava,
                 Launcher = CheckOptionsPcl,
@@ -113,6 +135,8 @@ namespace PCL
                 Modrinth = CheckAdvancedModrinth,
                 ShaderSettings = CheckOptionsShaderPackSettings,
                 Options = PanOptions,
+                ReadOptions = _groups.ReadOptions,
+                RefreshGroups = _groups.Refresh,
                 ResourcePacks = PanOptionsResourcePacks,
                 Saves = PanOptionsSaves,
                 Shaders = PanOptionsShaderPacks,
@@ -122,18 +146,53 @@ namespace PCL
                 HintJava = HintJava,
                 HintModrinth = HintModrinthFormat,
                 Export = BtnExport,
-                CardInlines = new Func<global::System.Windows.Documents.InlineCollection>(() => this.CardOptions.Inlines),
-                ScrollHome = new Action(() => this.PanBack.ScrollToHome()),
-                Checked = new Func<global::PCL.MyCheckBox, global::System.Boolean>(Check => Check.Checked),
-                SetChecked = new Action<global::PCL.MyCheckBox, global::System.Boolean>((Check, Value) => Check.Checked = Value),
-                Inlines = new Func<global::PCL.MyCheckBox, global::System.Windows.Documents.InlineCollection>(Check => Check.Inlines),
-                CreateCheck = new Func<global::PCLCS.ModpackExportOptionData, global::PCL.MyCheckBox>(Data => new global::PCL.MyCheckBox() { Tag = Data }),
-                Gray = new Func<global::System.Windows.Media.Brush>(() => ((global::System.Windows.Media.Brush)(global::PCL.ModSecret.ColorGray5))),
+                CardInlines = new Func<global::System.Windows.Documents.InlineCollection>(() => LabOptionsTitle.Inlines),
+                ScrollHome = new Action(() => PanBack.ScrollToTop()),
+                Checked = new Func<global::System.Windows.Controls.CheckBox, global::System.Boolean>(Check => Check.IsChecked == true),
+                SetChecked = new Action<global::System.Windows.Controls.CheckBox, global::System.Boolean>((Check, Value) => Check.IsChecked = Value),
+                Inlines = new Func<global::System.Windows.Controls.CheckBox, global::System.Windows.Documents.InlineCollection>(CheckInlines),
+                CreateCheck = data => {
+                    var option = GlassDialogControls.Check(data.Title, data.DefaultChecked);
+                    option.Tag = data;
+                    return option;
+                },
+                Gray = new Func<global::System.Windows.Media.Brush>(() => (Brush)FindResource("GlassPresentationSecondary")),
                 SetJavaHint = new Action<global::System.String, global::System.Boolean>((Text, Red) =>
                 {
-                    this.HintJava.Theme = (Red) ? (global::PCL.MyHint.Themes.Red) : (global::PCL.MyHint.Themes.Yellow);
-                    this.HintJava.Text = Text;
+                    GlassDialogControls.UpdateNotice(HintJava, Text, Red ? DialogTone.Error : DialogTone.Warning);
                 })
+            };
+        }
+
+        private static InlineCollection CheckInlines(CheckBox check)
+        {
+            if (check.Content is not TextBlock content) {
+                content = new TextBlock { Text = check.Content?.ToString() ?? "", TextWrapping = TextWrapping.Wrap };
+                check.Content = content;
+                BindingOperations.SetBinding(check, AutomationProperties.NameProperty,
+                    new Binding(nameof(TextBlock.Text)) { Source = content });
+            }
+            return content.Inlines;
+        }
+
+        private void AddExportConfigDismissal()
+        {
+            if (Settings.Get<bool>("HintExportConfig")) {
+                HintExportConfiguration.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var caption = HintExportConfiguration.Child;
+            HintExportConfiguration.Child = null;
+            var dismiss = GlassDialogControls.Button("关闭");
+            var notice = new DockPanel();
+            DockPanel.SetDock(dismiss, Dock.Right);
+            dismiss.Margin = new Thickness(8, 0, 0, 0);
+            notice.Children.Add(dismiss);
+            notice.Children.Add(caption);
+            HintExportConfiguration.Child = notice;
+            dismiss.Click += (_, _) => {
+                Settings.Set("HintExportConfig", true);
+                HintExportConfiguration.Visibility = Visibility.Collapsed;
             };
         }
 
@@ -157,7 +216,7 @@ namespace PCL
         {
             return new global::PCLCS.ModpackExportPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.ExportOption, global::PCL.ModLoader.LoaderCombo<global::System.String>>()
             {
-                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => this.ExportOwner ?? global::PCL.PageInstanceLeft.Instance),
+                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => this.ExportOwner ?? global::PCL.LauncherInstanceContext.Instance),
                 Name = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.Name),
                 VersionFolder = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathVersion),
                 GameRoot = new Func<global::PCL.ModMinecraft.McInstance, global::System.String>(Instance => Instance.PathIndie),
@@ -165,7 +224,7 @@ namespace PCL
                 Version = new Func<global::PCL.ModMinecraft.McInstance, global::PCLCS.McVersion>(Instance => Instance.Version),
                 Modable = new Func<global::PCL.ModMinecraft.McInstance, global::System.Boolean>(Instance => Instance.Modable),
                 JavaType = new Func<global::PCL.ModMinecraft.McInstance, global::System.Int32>(Instance => global::PCL.Settings.Get<int>("VersionArgumentJavaV2", Instance)),
-                JavaWorker = new Func<global::MeloongCore.RedoableWorker<global::PCLCS.Java>>(() => global::PCL.PageInstanceLeft.CurrentJavaWorker),
+                JavaWorker = new Func<global::MeloongCore.RedoableWorker<global::PCLCS.Java>>(() => global::PCL.LauncherInstanceContext.CurrentJavaWorker),
                 Ui = new Action<global::System.Action>(Work => global::PCL.ModBase.RunInUi(() => Work())),
                 AdjustAnimation = new Action<global::System.Int32>(Value => global::PCL.ModAnimation.AniControlEnabled += Value),
                 Animation = new Func<global::System.Int32>(() => global::PCL.ModAnimation.AniControlEnabled),
@@ -191,8 +250,8 @@ namespace PCL
                 CreateCombo = this.CreateExportLoader,
                 StartCombo = new Action<global::PCL.ModLoader.LoaderCombo<global::System.String>>(Loader => Loader.Start()),
                 AddTaskbar = new Action<global::PCL.ModLoader.LoaderCombo<global::System.String>>(Loader => global::PCL.ModLoader.LoaderTaskbarAdd(Loader)),
-                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
-                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
+                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
+                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton(pulse: true)),
                 QuoteLeft = new Func<global::System.Char>(() => global::PCL.ModBase.vbLQ),
                 QuoteRight = new Func<global::System.Char>(() => global::PCL.ModBase.vbRQ)
             };
@@ -284,12 +343,12 @@ namespace PCL
             return global::PCLCS.ModpackExportPipeline<global::PCL.ModMinecraft.McInstance, global::PCL.LocalResourceFile, global::PCL.ResourceProject, global::PCL.ResourceVersion>.StandardizeLines(Raw, AddSuffixStarToFolderPath);
         }
 
-        private global::System.Collections.Generic.IEnumerable<global::PCL.MyCheckBox> GetAllOptions(global::System.Boolean IncludeHidden)
+        private global::System.Collections.Generic.IEnumerable<global::System.Windows.Controls.CheckBox> GetAllOptions(global::System.Boolean IncludeHidden)
         {
             return this.Controller.AllOptions(IncludeHidden);
         }
 
-        private global::PCL.ExportOption GetExportOption(global::PCL.MyCheckBox CheckBox)
+        private global::PCL.ExportOption GetExportOption(global::System.Windows.Controls.CheckBox CheckBox)
         {
             return this.Controller.GetOption(CheckBox);
         }
@@ -352,7 +411,7 @@ namespace PCL
         {
             if (this.IsMmcExport)
             {
-                if (this.TextExportName.Text == "") this.TextExportName.Text = this.TextExportName.HintText;
+                if (this.TextExportName.Text == "") this.TextExportName.Text = _nameHint.Text;
             }
             else if (this.CanUseOrdinaryExport()) this.Controller.NameGotFocus();
         }

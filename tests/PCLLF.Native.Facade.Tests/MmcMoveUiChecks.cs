@@ -22,14 +22,14 @@ internal static class MmcMoveUiChecks {
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceLifecycleResult> results = new();
         private readonly ConcurrentQueue<Exception> errors = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action previousRefresh;
         private readonly List<ModMinecraft.McFolder> previousFolders;
         private Action<ModLoader.LoaderCombo<string>>? register;
         private Action<MmcLifecycleCheckpoint>? checkpoint;
         internal Scope(FileTaskScope files) {
             this.files = files; previousFolders = ModMinecraft.McFolderList;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             previousRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); register?.Invoke(task); }));
             Set("Published", new Action<MmcInstanceLifecycleResult>(value => results.Enqueue(value)));
@@ -75,15 +75,14 @@ internal static class MmcMoveUiChecks {
             File.WriteAllBytes(primary, original);
             Set("ConfirmMove", new Func<string, string, bool>((_, _) => true));
             checkpoint = phase => { if (phase == MmcLifecycleCheckpoint.CommitDecided) Current.Cancel(); };
-            var previousPage = PageInstanceLeft.Instance; count = tasks.Count;
+            var previousPage = LauncherInstanceContext.Instance; count = tasks.Count;
             try {
-                PageInstanceLeft.Instance = instance;
+                LauncherInstanceContext.Instance = instance;
                 Native.Check(new PageInstanceOverall().FindName("BtnMmcMove") is null, "Duplicate BtnMmcMove remained in Overview.");
-                var left = new PageInstanceLeft();
-                Native.Check(((FrameworkElement)left.FindName("ItemMmcMove")).Visibility == Visibility.Visible, "Managed move sidebar entry stayed collapsed.");
-                var toolPage = (PageInstanceMmcTool)left.PageGet(FormMain.PageSubType.InstanceMmcMove);
+                var left = FileTaskShell.Install().GlassInstanceNavigation;
+                var toolPage = (PageInstanceMmcTool)left.GetPage(FormMain.PageSubType.InstanceMmcMove);
                 Native.Call(toolPage.GetType(), "BtnPrimaryAction_Click", toolPage, toolPage.FindName("BtnPrimaryAction"), null);
-            } finally { PageInstanceLeft.Instance = previousPage; }
+            } finally { LauncherInstanceContext.Instance = previousPage; }
             Wait(count);
             var result = results.Single(); var moved = MmcInstanceInspector.Read(target);
             Native.Check(Current.State == ModBase.LoadState.Finished && result.Status == MmcInstanceBackendStatus.Succeeded && moved.IsConsistent &&

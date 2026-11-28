@@ -58,7 +58,7 @@ internal static class MmcPackageUpdateUiChecks {
         private readonly List<MmcInstancePackageUpdateResult> published = [], discarded = [];
         private readonly HttpClient metadataClient = new(new NoNetwork());
         private readonly Stack<Action> restore = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private Fixture? fixture;
         private Func<MmcInstancePackageUpdatePreview, MmcInstancePackageUpdateChoices?> choose = Preserve;
@@ -79,7 +79,7 @@ internal static class MmcPackageUpdateUiChecks {
             Stage("owned Java provider ready");
             Configs.JavaList.Set(new ConcurrentList<Java>([RealJava("PCLLF_MMC_TEST_JAVA8", 8), RealJava("PCLLF_MMC_TEST_JAVA21", 21)]));
             Configs.JavaConfigVersion.Set(Versions.JavaConfigVersion);
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("ServicesFactory", new Func<ModMinecraft.McInstance, MmcPackageUpdateServices>(_ => new() {
                 Metadata = fixture!.Metadata, CacheRoots = fixture.Caches,

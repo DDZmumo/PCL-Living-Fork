@@ -66,7 +66,7 @@ public sealed class ModpackModeController<TPage, TFolder, TInstance>
     public void ApplyVisibility(Window? main = null) {
         main ??= host.MainWindow();
         bool active = Enabled, force = host.ForceShow();
-        if (main is not null) ApplyHeader(host.Header(main));
+        if (main is not null && host.Header(main) is { } header) ApplyHeader(header);
         ModpackModeSetupView? setup = host.Setup();
         if (setup is not null) {
             setup.SystemTitle(active ? "启动器" : "其他");

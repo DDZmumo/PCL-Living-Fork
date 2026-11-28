@@ -69,7 +69,7 @@ internal static class SkinLibraryChecks {
         var identify = (Func<string>)Native.Get(settingsHost, "Identify")!;
         const string names = "Current¨Explorer¨Second";
         string encryptedNames = PCLCS.LegacySettingsCrypto.Encrypt(names, "PCL" + identify());
-        var skins = Native.Field(Native.Type("PCL.LaunchPageRuntime"), "Skins").GetValue(null)!;
+        var skins = Native.Field(Native.Type("PCL.LauncherSkinSessions"), "Skins").GetValue(null)!;
         var host = Native.Get(skins, "host")!;
         object? previousLookup = Native.Get(host, "OfflineLibrarySkin");
         try {

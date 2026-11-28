@@ -1,9 +1,13 @@
 ﻿#requires -Version 5.1
 # Pure read-only log admission policy. This never touches a process/profile/UI.
 function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
- if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4','1.6.0')){throw 'PENDING: Native upgrade notice version has not been reviewed.'}
  $nl=[string][char]13+[char]10
- if($NativeVersion -cin @('dev_edition','1.6.0-pre-4')){
+ if($NativeVersion -cin @('dev_edition','1.6.0')){
+  $highlights='- 新版 WPF 工作台正式上线，支持深浅外观、动态壁纸与背景音乐'+$nl+'- 改进资源排序和收藏备注，新增带贴图的 3D 投影预览'+$nl+'- 完善 Java 管理、可选陶瓦联机和自定义主页兼容'+$nl+'- Windows x64 正式版需 .NET 10 Desktop Runtime'
+  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
+ }
+ if($NativeVersion -ceq '1.6.0-pre-4'){
   $highlights='- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java'+$nl+'- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例'+$nl+'- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
   return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
  }
@@ -34,16 +38,16 @@ function Get-ReviewedUpgradeCaption([string]$NativeVersion) {
  return 'PCL Living Fork '+$NativeVersion+$nl+$nl+$highlights
 }
 function Get-ReviewedStartupNoticeTitle([string]$NativeVersion,[string]$NativeStyle='plain') {
- if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4')){throw 'PENDING: Native startup notice version has not been reviewed.'}
+ if($NativeVersion -cnotin @('dev_edition','1.3.5-pre-3','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4','1.6.0')){throw 'PENDING: Native startup notice version has not been reviewed.'}
  if($NativeStyle -ceq 'plain'){return 'PCL Living Fork '+$NativeVersion+' 版本说明'}
- if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
+ if($NativeStyle -cnotin @('markdown','markdown-suppress') -or $NativeVersion -cnotin @('dev_edition','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4','1.6.0') -or ($NativeStyle -ceq 'markdown' -and $NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1','1.6.0'))){throw 'PENDING: Native startup notice style/version has not been reviewed.'}
  return 'PCL Living Fork '+$NativeVersion+' 更新说明'
 }
 function Get-ReviewedNativeStartupNotice([object]$NativeProof) {
  if($NativeProof.displayName -cne 'PCL Living Fork'){throw 'PENDING: Native startup notice product binding differs.'}
  $title=Get-ReviewedStartupNoticeTitle $NativeProof.versionBaseName $NativeProof.startupNoticeStyle
  if($NativeProof.startupNoticeTitle -cne $title){throw 'PENDING: Native startup notice metadata title differs.'}
- if($NativeProof.startupNoticeSource -cnotin @('local','published-or-local') -or ($NativeProof.startupNoticeStyle -ceq 'markdown' -and $NativeProof.startupNoticeSource -cne 'published-or-local') -or ($NativeProof.startupNoticeSource -ceq 'published-or-local' -and ($NativeProof.versionBaseName -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1') -or $NativeProof.startupNoticeStyle -ceq 'plain' -or $NativeProof.buildType -ne 50))){throw 'PENDING: Native startup notice metadata source differs.'}
+ if($NativeProof.startupNoticeSource -cnotin @('local','published-or-local') -or ($NativeProof.startupNoticeStyle -ceq 'markdown' -and $NativeProof.startupNoticeSource -cne 'published-or-local') -or ($NativeProof.startupNoticeSource -ceq 'published-or-local' -and ($NativeProof.versionBaseName -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1','1.6.0') -or $NativeProof.startupNoticeStyle -ceq 'plain' -or $NativeProof.buildType -ne 50))){throw 'PENDING: Native startup notice metadata source differs.'}
  return $title
 }
 function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$NativeVersion,[switch]$NativePhase,[string]$NativeStyle='plain',[string]$NativeSource='local') {
@@ -51,7 +55,7 @@ function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$Nativ
  if($Text -match '主窗体加载完成前出现意料外的等待弹窗|处理等待中的弹窗失败|弹窗初始化失败|弹窗加载失败'){throw 'Actual initialization/dialog failed.'}
  if($NativePhase){
   if($Notice -cne (Get-ReviewedStartupNoticeTitle $NativeVersion $NativeStyle)){throw 'PENDING: Native notice phase/version/style binding differs.'}
-  if($NativeSource -cnotin @('local','published-or-local') -or ($NativeStyle -ceq 'markdown' -and $NativeSource -cne 'published-or-local') -or ($NativeSource -ceq 'published-or-local' -and ($NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1') -or $NativeStyle -ceq 'plain'))){throw 'PENDING: Native notice source binding differs.'}
+  if($NativeSource -cnotin @('local','published-or-local') -or ($NativeStyle -ceq 'markdown' -and $NativeSource -cne 'published-or-local') -or ($NativeSource -ceq 'published-or-local' -and ($NativeVersion -cnotin @('1.4.0','1.4.1','1.4.3','1.5.0','1.5.1','1.6.0') -or $NativeStyle -ceq 'plain'))){throw 'PENDING: Native notice source binding differs.'}
  }
  $rich=$NativePhase -and $NativeStyle -cne 'plain'
  $ordinarySeen=$false;$upgradeRequested=$false;$reviewedCount=0
@@ -74,7 +78,7 @@ function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$Nativ
    if($NativeSource -ceq 'published-or-local'){$captions+=('基于 PCL 官方开源版的第三方版本。'+[char]13+[char]10+'以下为当前版本的完整发布说明。')}
   }else{$captions+=Get-ReviewedUpgradeCaption $NativeVersion}
   $records=[Collections.Generic.List[object]]::new();$current=$null
-  foreach($line in [regex]::Matches($Text,'(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[MessageDialogController\] (?<Content>[^\r\n]*)\r?\n')){
+  foreach($line in [regex]::Matches($Text,'(?m)^\d{2}:\d{2}:\d{2}\.\d{3} I (?:<[^>\r\n]*> )?\[(?:MessageDialogController|GlassMessageDialog)\] (?<Content>[^\r\n]*)\r?\n')){
    $content=$line.Groups['Content'].Value.TrimEnd([char]13)
    $header=[regex]::Match($content,'^(?<Kind>普通|选择|输入)弹窗：(?<Title>.+)$')
    if($header.Success){
@@ -84,7 +88,7 @@ function Test-ReviewedStartupNotice([string]$Text,[string]$Notice,[string]$Nativ
    }elseif($null -ne $current -and $content.Length -gt 0){$current.Body.Add($content)}
   }
   $upgrades=@($records | Where-Object {$_.Kind -ceq '普通' -and $_.Title -ceq $reviewedTitle})
-  if($upgrades.Count -ne 1 -or $reviewedCount -ne 1){throw 'PENDING: Startup notice has no unique owned MessageDialogController log record.'}
+  if($upgrades.Count -ne 1 -or $reviewedCount -ne 1){throw 'PENDING: Startup notice has no unique owned dialog log record.'}
   $record=$upgrades[0]
   $prefixMatches=$false;$completeMatches=$false
   foreach($caption in $captions){

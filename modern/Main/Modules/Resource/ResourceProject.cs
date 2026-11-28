@@ -29,19 +29,6 @@ namespace PCL
         {
             return ResourceCatalogRuntime.Pipeline.FromProjectIds(ProjectIds, Platform);
         }
-        public MyVirtualizingElement<MyResourceItem> ToResourceItem(bool ShowMcVersionDesc, bool ShowLoaderDesc, ResourceTypes? ResourceTypeContext = null)
-        {
-            return new MyVirtualizingElement<MyResourceItem>(() => {
-                var Context = ResourcePresentation.ProjectContext(this, ShowMcVersionDesc, ShowLoaderDesc);
-                MyResourceItem Row = ResourcePresentation.ProjectRow(this, Context, CreateItemHost());
-                Row.ResourceTypeContext = ResourceTypeContext;
-                return Row;
-            }) { Height = 64d };
-        }
-        public void ApplyLogoToMyImage(MyImage Img)
-        {
-            ResourcePresentation.ApplyLogo(this, Value => Img.Source = Value, Value => Img.FallbackSource = Value);
-        }
         public bool IsLike(ResourceProject Project)
         {
             return base.IsLike(Project);
@@ -63,41 +50,6 @@ namespace PCL
             return !(Left == Right);
         }
 
-        // 仅映射原控件成员，分段、标题、图片源、筛选描述及计数格式均由 C# 决定。
-        private static ResourceProjectListHost<MyResourceItem> CreateItemHost()
-        {
-            return new ResourceProjectListHost<MyResourceItem>()
-            {
-                Create = new Func<MyResourceItem>(() => new MyResourceItem()),
-                SetTag = new Action<MyResourceItem, object>((Row, Value) => { Row.Tag = Value; Row.BindFavorite((ResourceProject)Value); }),
-                SetLogoSource = new Action<MyResourceItem, string>((Row, Value) => Row.PathLogo.Source = Value),
-                SetLogoFallback = new Action<MyResourceItem, string>((Row, Value) => Row.PathLogo.FallbackSource = Value),
-                SetTitle = new Action<MyResourceItem, string>((Row, Value) => Row.Title = Value),
-                SetSubtitle = new Action<MyResourceItem, string>((Row, Value) => Row.SubTitle = Value),
-                RemoveSubtitle = new Action<MyResourceItem>(Row => ((StackPanel)Row.LabTitleRaw.Parent).Children.Remove(Row.LabTitleRaw)),
-                SetContent = new Action<MyResourceItem, List<string>, string>((Row, Tags, Description) =>
-                    {
-                        Row.Tags = Tags;
-                        Row.Description = Description;
-                    }),
-                HideVersion = HideVersion,
-                SetVersion = new Action<MyResourceItem, string>((Row, Value) => Row.LabVersion.Text = Value),
-                SetFooter = new Action<MyResourceItem, string, string, string>((Row, Source, Time, Downloads) =>
-                    {
-                        Row.LabSource.Text = Source;
-                        Row.LabTime.Text = Time;
-                        Row.LabDownload.Text = Downloads;
-                    })
-            };
-        }
-        private static void HideVersion(MyResourceItem Row)
-        {
-            ((Grid)Row.PathVersion.Parent).Children.Remove(Row.PathVersion);
-            ((Grid)Row.LabVersion.Parent).Children.Remove(Row.LabVersion);
-            Row.ColumnVersion1.Width = new GridLength(0d);
-            Row.ColumnVersion2.MaxWidth = 0d;
-            Row.ColumnVersion3.Width = new GridLength(0d);
-        }
     }
 
     // 原可替换缓存字典与真实网络／镜像／日志服务；不建立第二份生产缓存。

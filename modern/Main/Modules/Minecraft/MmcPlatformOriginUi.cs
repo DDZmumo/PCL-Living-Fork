@@ -103,7 +103,7 @@ internal static class MmcPlatformOriginUi {
         var combo = new MmcOperationCombo<string>(fence, "核实 MMC 平台来源：" + instance.Name, [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(source.Paths.InstanceRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

@@ -147,7 +147,7 @@ public sealed partial class ResourceDetailPageController<TProject, TVersion, TCa
         animation.SetDisabled(checked(animation.Disabled() + 1)); Project = (TProject)host.Argument(0)!; ResourceDetailPageView view = host.View(); view.ScrollHome();
         if (firstInit) firstInit = false; else host.Restart(true);
         if (ResourceItem is not null) view.Intro.Children.Remove(ResourceItem);
-        ResourceItem = host.Header(Project); host.HeaderInteractive(ResourceItem, false); ResourceItem.Margin = new Thickness(-7, -7, 0, 8); view.Intro.Children.Insert(0, ResourceItem);
+        ResourceItem = host.Header(Project); host.HeaderInteractive(ResourceItem, false); ResourceItem.Margin = new Thickness(0, 0, 0, 8); view.Intro.Children.Insert(0, ResourceItem);
         view.WebText("转到 " + Project.Platform); view.Wiki.Visibility = Project.WikiId == 0 ? Visibility.Collapsed : Visibility.Visible;
         animation.SetDisabled(checked(animation.Disabled() - 1));
     }

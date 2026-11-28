@@ -46,10 +46,9 @@ internal static class AnimationTests {
 
     internal static void Run() {
         Assembly assembly = typeof(AnimationNativeRuntime).Assembly;
-        Require(assembly.GetName().Name == "PCLLF.Presentation" && assembly.GetCustomAttribute<TargetFrameworkAttribute>()?.FrameworkName == ".NETCoreApp,Version=v10.0" &&
-            typeof(MyButtonView).Assembly == assembly && typeof(MyRadioButtonView).Assembly == assembly && typeof(MyCheckBoxView).Assembly == assembly,
+        Require(assembly.GetName().Name == "PCLLF.Presentation" && assembly.GetCustomAttribute<TargetFrameworkAttribute>()?.FrameworkName == ".NETCoreApp,Version=v10.0",
             "Native animation or controls did not come from the actual modern LF presentation assembly.");
-        NumericAndCancel(); DelaysAndReplacement(); ColorsAndResources(); CallbackFailure(); NativeControls();
+        NumericAndCancel(); DelaysAndReplacement(); ColorsAndResources(); CallbackFailure();
     }
 
     internal static void RunThreadDriverProcess(string repositoryRoot) =>
@@ -247,74 +246,5 @@ internal static class AnimationTests {
         timer.Start(); try { Dispatcher.PushFrame(frame); } finally { timer.Stop(); }
         Require(ready(), "Native modern WPF views did not finish loading.");
     }
-    private static void NativeControls() {
-        Session session = new(); AnimationNativeRuntime runtime = session.Runtime; Application app = Application.Current;
-        Window previousMain = app.MainWindow; ShutdownMode shutdown = app.ShutdownMode; Window window = null;
-        ControlServiceHost prior = null; try { prior = ControlServices.Current; } catch (InvalidOperationException) { }
-        Dictionary<string, object> saved = new();
-        // A fixed narrow palette supplies the actual LF resource names used by these three views.
-        // Complete native LF theme/main-window acceptance remains a separate gate.
-        Dictionary<string, SolidColorBrush> palette = new() {
-            ["ColorBrushSemiTransparent"] = new(Color.FromArgb(1, 255, 255, 255)), ["ColorBrushHalfWhite"] = new(Color.FromArgb(128, 255, 255, 255)),
-            ["ColorBrush1"] = new(Color.FromRgb(200, 180, 160)), ["ColorBrush2"] = new(Color.FromRgb(100, 120, 140)), ["ColorBrush3"] = new(Color.FromRgb(40, 60, 80)),
-            ["ColorBrush6"] = new(Color.FromRgb(150, 160, 170)), ["ColorBrush7"] = new(Color.FromRgb(210, 220, 230)), ["ColorBrushBg1"] = new(Color.FromRgb(245, 245, 245)),
-            ["ColorBrushGray4"] = new(Color.FromRgb(90, 90, 90)), ["ColorBrushGray5"] = new(Color.FromRgb(130, 130, 130)),
-            ["ColorBrushRedLight"] = new(Color.FromRgb(240, 50, 40)), ["ColorBrushRedDark"] = new(Color.FromRgb(200, 30, 20)), ["ColorBrushRedBack"] = new(Color.FromArgb(50, 200, 30, 20))
-        };
-        int customEvents = 0;
-        try {
-            foreach (KeyValuePair<string, SolidColorBrush> pair in palette) { if (app.Resources.Contains(pair.Key)) saved[pair.Key] = app.Resources[pair.Key]; app.Resources[pair.Key] = pair.Value; }
-            ControlServices.Configure(runtime.CreateControlServices(kind => runtime.Host.ReadColor(palette[kind switch {
-                ControlThemeColor.Gray4 => "ColorBrushGray4", ControlThemeColor.Gray5 => "ColorBrushGray5", ControlThemeColor.Accent8 => "ColorBrush3", _ => "ColorBrushSemiTransparent"
-            }]), _ => { }, (error, _) => session.Warnings.Add(error), (error, _) => session.Errors.Add(error), _ => customEvents++));
-            Require(ControlServices.Current.Animations is ControlAnimationHost<AnimationData>, "Modern controls did not use their real native frame adapter.");
-            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            MyButtonView button = new() { Text = "Modern native button", Height = 36 };
-            MyRadioButtonView first = new() { Text = "First", Logo = "M0,0 L8,8" }, second = new() { Text = "Second", Logo = "M0,0 L8,8", ColorType = MyRadioButtonView.ColorState.Highlight };
-            MyCheckBoxView check = new() { Text = "Modern native checkbox", Height = 30 };
-            StackPanel panel = new(), radios = new() { Orientation = Orientation.Horizontal };
-            radios.Children.Add(first); radios.Children.Add(second); panel.Children.Add(button); panel.Children.Add(radios); panel.Children.Add(check);
-            window = new Window { Content = panel, Width = 500, Height = 300, Left = -20000, Top = -20000, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
-            window.Show(); window.UpdateLayout(); PumpUntil(() => button.IsLoaded && first.IsLoaded && second.IsLoaded && check.IsLoaded); session.Frames(30);
-            int clicks = 0; object clickSender = null; MouseButtonEventArgs clickedArgs = null;
-            button.Click += (sender, args) => { clicks++; clickSender = sender; clickedArgs = args; };
-            RaiseMouse(button, UIElement.MouseLeftButtonDownEvent); session.Frame(32);
-            Require(((ScaleTransform)button.RealRenderTransform).ScaleX > .9 && ((ScaleTransform)button.RealRenderTransform).ScaleX < 1, "Native button press frames did not alter its real scale.");
-            MouseButtonEventArgs up = RaiseMouse(button, UIElement.MouseLeftButtonUpEvent); session.Frames(25);
-            Require(clicks == 1 && ReferenceEquals(clickSender, button) && ReferenceEquals(clickedArgs, up) && customEvents == 1, "Modern button input did not preserve its original sender/event/custom callbacks.");
-            Near(1, ((ScaleTransform)button.RealRenderTransform).ScaleX, "Native button release did not reach its final scale");
-            RaiseMouse(button, UIElement.MouseLeftButtonDownEvent); Leave(button); RaiseMouse(button, UIElement.MouseLeftButtonUpEvent); session.Frames(60);
-            Require(clicks == 1, "Leaving the native button did not cancel its pending click."); Near(1, ((ScaleTransform)button.RealRenderTransform).ScaleX, "Native button leave animation did not restore scale");
 
-            first.SetChecked(true, false, true); session.Frames(15); bool cancel = true; int previews = 0, checks = 0;
-            second.PreviewClick += (_, args) => { previews++; args.Handled = cancel; };
-            second.Check += (_, user) => { if (user) checks++; };
-            Click(second); Require(first.Checked && !second.Checked && previews == 1 && checks == 0, "Native radio preview cancellation changed selection.");
-            Leave(second); session.Frames(15); cancel = false; Click(second); session.Frame(60);
-            Color middle = ((SolidColorBrush)second.Background).Color;
-            Require(!first.Checked && second.Checked && previews == 2 && checks == 1 && middle.A > 1 && middle.A < 255, "Native radio group/user handling or selected-color midpoint changed.");
-            session.Frames(15); Require(ReferenceEquals(second.Background, palette["ColorBrush3"]), "Native radio selection did not reach its resource-bound final color.");
-
-            int changes = 0; bool cancelCheck = false;
-            check.PreviewChange += (_, args) => { args.Handled = cancelCheck; };
-            check.Change += (_, _) => changes++;
-            check.SetChecked(true, true); Click(check);
-            Require(check.Checked && changes == 1 && runtime.Engine.AniIsRun("MyCheckBox AllowMouseDown " + check.Uuid), "Native checkbox lost its delayed mouse gate.");
-            session.Frames(12); double partial = ((ScaleTransform)check.ShapeCheck.RenderTransform).ScaleX;
-            Require(partial > 0 && partial < 1.5, "Native checkbox did not execute the real delayed check-mark frames.");
-            session.Frames(35); Near(1, ((ScaleTransform)check.ShapeCheck.RenderTransform).ScaleX, "Native checkbox did not finish checking"); Near(18, check.ShapeBorder.Width, "Native checkbox border did not return to its original size");
-            Click(check); session.Frames(35); Require(!check.Checked && changes == 2, "The native delayed callback did not restore checkbox mouse input.");
-            Near(0, ((ScaleTransform)check.ShapeCheck.RenderTransform).ScaleX, "Native checkbox did not finish unchecking");
-            cancelCheck = true; check.SetChecked(true, true); session.Frames(40); Require(!check.Checked && changes == 2, "Native checkbox preview cancellation emitted Change or checked the box.");
-            session.Healthy(); Console.WriteLine("PASS native animation 5/5: three actual C# WPF views, native press/color/check-mark middle/end frames, cancellation and delayed mouse restoration.");
-        } finally {
-            try { if (window != null) window.Close(); }
-            finally {
-                foreach (string name in runtime.Groups.Keys.ToArray()) runtime.Engine.AniStop(name);
-                foreach (string key in palette.Keys) { if (saved.TryGetValue(key, out object value)) app.Resources[key] = value; else app.Resources.Remove(key); }
-                if (prior != null) ControlServices.Configure(prior);
-                app.MainWindow = previousMain; app.ShutdownMode = shutdown;
-            }
-        }
-    }
 }

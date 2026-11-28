@@ -21,13 +21,13 @@ internal static class MmcHistoryUiChecks {
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceHistoryCaptureResult> captures = new();
         private readonly ConcurrentQueue<MmcInstanceHistoryRestoreResult> restores = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action previousRefresh;
         private Action<ModLoader.LoaderCombo<string>>? register;
         private Action<MmcTransactionCheckpoint>? checkpoint;
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             previousRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); register?.Invoke(task); }));
             Set("Captured", new Action<MmcInstanceHistoryCaptureResult>(result => captures.Enqueue(result)));

@@ -84,12 +84,12 @@ namespace PCL
         }
         private static void OpenRestorePoint(global::PCL.ModMinecraft.McInstance TargetInstance, global::PCL.RecentEnvironmentChangesReport Report)
         {
-            global::PCL.PageInstanceLeft.Instance = TargetInstance;
-            if (global::PCL.ModMain.FrmInstanceLeft is null)
-                global::PCL.ModMain.FrmInstanceLeft = new global::PCL.PageInstanceLeft();
-            global::PCL.PageInstanceRestorePoints Page = (global::PCL.PageInstanceRestorePoints)global::PCL.ModMain.FrmInstanceLeft.PageGet(global::PCL.FormMain.PageSubType.InstanceRestorePoints);
-            Page.FocusPoint(Report.BaselineId);
-            global::PCL.ModMain.FrmMain.PageChange((global::PCL.FormMain.PageStackData)global::PCL.FormMain.PageType.InstanceSetup, global::PCL.FormMain.PageSubType.InstanceRestorePoints);
+            global::PCL.LauncherInstanceContext.Instance = TargetInstance;
+            var window = ModMain.FrmMain;
+            var historyRoute = FormMain.PageSubType.InstanceRestorePoints;
+            var page = window.GlassInstanceNavigation.GetPage(historyRoute);
+            ((PageInstanceRestorePoints)page).FocusPoint(Report.BaselineId);
+            window.PageChange(FormMain.PageType.InstanceSetup, historyRoute);
         }
     }
 }

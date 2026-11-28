@@ -345,20 +345,7 @@ internal static class GlassShellChecks
             Native.Check(Enumerable.Range(0, size * size).Any(pixel => !palette.Contains(AvatarColor(blended, pixel * 4))),
                 "The old smooth-scaling control did not distinguish pixel-art interpolation at " + scale);
         }
-        // Ordinary photos retain their own source policy; projection must not force every
-        // Image to nearest-neighbor while preserving the original skin image policy.
-        var source = new Image { Source = face, Width = 32, Height = 32 };
-        RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.NearestNeighbor);
-        using (var session = PCL.GlassPresentation.Create(source))
-        {
-            var projected = (Image)((ContentControl)session.View).Content;
-            Native.Check(RenderOptions.GetBitmapScalingMode(projected) == BitmapScalingMode.NearestNeighbor && projected.SnapsToDevicePixels,
-                "Projected skin image lost the source pixel-art policy.");
-            RenderOptions.SetBitmapScalingMode(source, BitmapScalingMode.HighQuality); session.Refresh();
-            Native.Check(RenderOptions.GetBitmapScalingMode(projected) == BitmapScalingMode.HighQuality,
-                "Image projection forced a photo to the avatar's pixel-art policy.");
-        }
-        view.SetState(State(restoreIcon)); Flush(window);
+
     }
 
     private static BitmapSource AvatarLayer(bool hat)
@@ -647,8 +634,8 @@ internal static class GlassShellChecks
         view.SetSidebar(Array.Empty<GlassSidebarItem>());
         view.SetState(State(image));
         var workspaceType = Native.Type("PCL.GlassAccountWorkspace");
-        var constructor = workspaceType.GetConstructor(Native.Flags, null, [Native.Type("PCL.PageLaunchLeft"), typeof(GlassLauncherView)], null)!;
-        using var workspace = (IDisposable)constructor.Invoke([null, view]);
+        var constructor = workspaceType.GetConstructor(Native.Flags, null, [typeof(GlassLauncherView)], null)!;
+        using var workspace = (IDisposable)constructor.Invoke([view]);
         var scene = (Grid)Native.Property(workspaceType, "Scene").GetValue(workspace)!;
         var side = (FrameworkElement)Native.Property(workspaceType, "Side").GetValue(workspace)!;
         // Scene hosts the account page first and the skin library page after it.
@@ -1103,7 +1090,7 @@ internal static class GlassShellChecks
     {
         var tap = new PCLLF.Presentation.Shell.MusicSampleTap();
         float[] input = Enumerable.Repeat(.5f, 32).ToArray(), read = new float[16];
-        void Write() => Native.Call(tap.GetType(), "Write", tap, input, 0, input.Length, 1);
+        void Write() => Native.Call(tap.GetType(), "Write", tap, 0, input, 0, input.Length, 1); // generation 0: a fresh tap
         Write();
         Native.Check(!tap.Snapshot(read, 0), "The disabled spectrum tap took audio samples.");
         tap.CaptureEnabled = true;
@@ -1222,15 +1209,14 @@ internal static class GlassShellChecks
 
     private static void CheckToastPlacement(Window window, GlassLauncherView view, FrameworkElement dock, FrameworkElement playlist)
     {
-        var source = new StackPanel();
-        source.Children.Add(new Border { Tag = new object[] { true }, Child = new TextBlock { Text = "正在加载主页……" } });
         Type hostType = Native.Type("PCL.GlassToastHost");
-        var toast = (FrameworkElement)Activator.CreateInstance(hostType, Native.Flags, null, [source], null)!;
+        var toast = (FrameworkElement)Activator.CreateInstance(hostType, Native.Flags, null, [], null)!;
+        object info = Enum.Parse(Native.Type("PCL.GlassToastKind"), "Info");
         var overlay = new Grid { Width = view.ActualWidth, Height = view.ActualHeight };
         var viewport = (Canvas)window.Content;
         overlay.Children.Add(toast); viewport.Children.Add(overlay);
         try {
-            Native.Call(hostType, "Refresh", toast);
+            Native.Call(hostType, "Show", toast, "正在加载主页……", info);
             Flush(window);
             Rect dockBounds = OverlayBounds(dock), listBounds = OverlayBounds(playlist);
             Rect taken = (Rect)Native.Call(typeof(GlassLauncherView), "MusicOverlayBounds", view, overlay)!;
@@ -1490,8 +1476,12 @@ internal static class GlassShellChecks
                 ReferenceEquals(Part<Image>(view, "RecentWorldImage").Source, image), "The view replaced supplied actual images.");
             Click(Part<Button>(view, "ExpandButton"));
             VisualAssetChecks.Drain();
+            var autoFillCheckbox = Part<CheckBox>(view, "AutoFillCheckBox");
             Toggle(Part<CheckBox>(view, "DependencyCheckBox"));
-            Toggle(Part<CheckBox>(view, "AutoFillCheckBox"));
+            Native.Check(!autoFillCheckbox.IsVisible, "Disabling launch dependency checks left the auto-fill control visible.");
+            view.SetState(State(image, dependency: true, autoFill: false));
+            VisualAssetChecks.Drain();
+            Toggle(autoFillCheckbox);
             Native.Check(dependency.SequenceEqual(new[] { false }) && autoFill.SequenceEqual(new[] { true }),
                 "Actual checkbox automation did not forward the toggled values exactly once.");
             view.SetState(State(image, dependency: true, autoFill: false));
@@ -1559,6 +1549,32 @@ internal static class GlassShellChecks
         view.SetState(State(image));
         Native.Check(cards.IsHitTestVisible && cards.Opacity == 1 && plus.Visibility == Visibility.Visible,
             "Restoring availability discarded the user's expanded choice.");
+        double originalWidth = view.Width;
+        foreach (var (destination, reduceMotion) in new[] { (PCL.FormMain.PageType.Favorites, false), (PCL.FormMain.PageType.InstanceSetup, true) })
+        {
+            var state = State(image, home: false, navigation: (int)destination, reduceMotion: reduceMotion);
+            int invoked = 0;
+            const string row = "目标侧栏操作";
+            view.SetState(state);
+            view.SetSidebar(new[] { new GlassSidebarItem { Label = row, Invoked = () => invoked++ } });
+            VisualAssetChecks.Pump(() => Part<FrameworkElement>(view, "PrimaryCard").Visibility == Visibility.Hidden &&
+                Part<FrameworkElement>(view, "SideRail").IsHitTestVisible, "Destination sidebar did not replace the home sidebar.");
+            foreach (double width in new[] { originalWidth + 24, originalWidth })
+            {
+                view.Width = width;
+                view.SetState(state);
+                view.UpdateLayout();
+                VisualAssetChecks.Drain();
+                Native.Check(cards.Visibility == Visibility.Hidden && cards.Opacity == 0 && !cards.IsHitTestVisible,
+                    "Expanded home launch checks covered the destination sidebar after navigation and resize.");
+            }
+            Click(Button(view, row));
+            Native.Check(invoked == 1, "Destination sidebar could not be used after leaving expanded home launch checks.");
+            view.SetState(State(image, reduceMotion: reduceMotion));
+            view.SetSidebar(Array.Empty<GlassSidebarItem>());
+            VisualAssetChecks.Pump(() => cards.IsHitTestVisible && cards.Opacity > .999,
+                "Returning to the home sidebar discarded the expanded choice.");
+        }
         Click(plus);
         Native.Check(cards.Visibility == Visibility.Hidden && cards.Opacity == 0,
             "Reduced motion did not close auxiliary cards immediately.");

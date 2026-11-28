@@ -110,6 +110,7 @@ public class LegacyMinecraftLibrary {
     public long Size;
     public bool IsNatives;
     public string? SHA1;
+    internal string? RequiredSecuritySha256;
     public string? Url {
         get => url;
         set => url = string.IsNullOrWhiteSpace(value) ? null : value;

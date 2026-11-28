@@ -10,7 +10,7 @@ using System.Windows.Controls;
 using PCL;
 using PCLCS;
 using PCLCS.Loaders;
-using Overall = PCLCS.InstanceOverallPageController<PCL.ModMinecraft.McInstance, PCL.ModMinecraft.McInstance.McInstanceState, PCL.ModMinecraft.McInstanceCardType, PCL.MyListItem, PCL.ModLoader.LoaderCombo<string>>;
+using Overall = PCLCS.InstanceOverallPageController<PCL.ModMinecraft.McInstance, PCL.ModMinecraft.McInstance.McInstanceState, PCL.ModMinecraft.McInstanceCardType, PCL.GlassInstanceHeader, PCL.ModLoader.LoaderCombo<string>>;
 
 namespace PCLLF.Native.Facade.Tests;
 
@@ -47,7 +47,7 @@ internal static class MmcDeleteUiChecks {
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceLifecycleResult> results = new();
         private readonly ConcurrentQueue<Exception> errors = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action previousRefresh;
         private int sequence;
         internal Func<string, int> Confirmation = _ => 1;
@@ -56,7 +56,7 @@ internal static class MmcDeleteUiChecks {
         internal Action? Completed;
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             previousRefresh = scheduler.RefreshExtraDownload;
             scheduler.RefreshExtraDownload = () => { }; // Only the absent offscreen download button presentation is replaced.
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); Registered?.Invoke(task); }));
@@ -82,18 +82,18 @@ internal static class MmcDeleteUiChecks {
         }
         private void Wait(int before) => Until(() => tasks.Count > before && !Busy && Current.State != ModBase.LoadState.Loading, "MMC deletion/recovery task did not really return.");
         internal void Bindings() {
-            object selection = Native.Call(typeof(PageSelectRight), "CreateHost", null, new object?[] { null })!;
+            object selection = Native.Call(typeof(GlassInstanceSelectionPage), "CreateHost", new GlassInstanceSelectionPage(FileTaskShell.Install()))!;
             object overall = Native.Call(typeof(PageInstanceOverall), "CreateHost", RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall)))!;
             foreach (object host in new[] { selection, overall }) {
                 var managed = (Delegate)Native.Get(host, "BeginManagedDelete")!;
                 Native.Check(managed.Method.DeclaringType == ui && managed.Method.Name == "PromptDelete", "A Main deletion UI bypassed the new managed dispatcher.");
                 var legacy = (Delegate)Native.Get(host, "DeleteConfirmed")!;
-                Native.Check(legacy.Method.DeclaringType == typeof(PageSelectRight) && legacy.Method.Name == "DeleteInstanceInBackground", "Ordinary deletion lost its original binding.");
+                Native.Check(legacy.Method.DeclaringType == typeof(LauncherInstanceDeletion) && legacy.Method.Name == "Start", "Ordinary deletion lost its original binding.");
             }
         }
         internal void SelectionDeleteAndEmptyRecovery() {
             var instance = Import(); int before = tasks.Count; Action? callback = null; bool shifted = false;
-            var host = (InstanceSelectionPageHost<ModMinecraft.McInstance, ModMinecraft.McInstanceCardType>)Native.Call(typeof(PageSelectRight), "CreateHost", null, new object?[] { null })!;
+            var host = (InstanceSelectionPageHost<ModMinecraft.McInstance, ModMinecraft.McInstanceCardType>)Native.Call(typeof(GlassInstanceSelectionPage), "CreateHost", new GlassInstanceSelectionPage(FileTaskShell.Install()))!;
             var actual = host.BeginManagedDelete!;
             var cards = new Dictionary<ModMinecraft.McInstanceCardType, List<ModMinecraft.McInstance>> { [ModMinecraft.McInstanceCardType.Star] = [instance] };
             ModMinecraft.McInstance? selected = instance, pageInstance = instance;
@@ -113,7 +113,7 @@ internal static class MmcDeleteUiChecks {
             var quarantined = results.Single(); Native.Check(quarantined.Quarantined && !Directory.Exists(instance.PathVersion), "Managed list deletion did not quarantine the source.");
             Native.Check(File.ReadAllText(Path.Combine(quarantined.CurrentRoot!, "minecraft", "saves", "player-world", "level.dat")) == "current player world", "Quarantine changed the player's world.");
             ModMinecraft.McInstanceList = [];
-            var view = new PageSelectRight(); var controller = Native.Property(view.GetType(), "Service").GetValue(view)!;
+            var view = new GlassInstanceSelectionPage(FileTaskShell.Install()); var controller = Native.Get(view, "_controller")!;
             Native.Call(controller.GetType(), "Render", controller);
             var button = (FrameworkElement)view.FindName("BtnMmcRecovery");
             Native.Check(button.Visibility == Visibility.Visible && ((FrameworkElement)view.FindName("PanEmpty")).Visibility == Visibility.Visible && Grid.GetRow(button) == 0,
@@ -134,7 +134,7 @@ internal static class MmcDeleteUiChecks {
         }
         internal void OverallAndNavigation() {
             var instance = Import(); int before = tasks.Count; Action? callback = null; int backed = 0, refreshed = 0; bool currentPage = true;
-            var host = (InstanceOverallPageHost<ModMinecraft.McInstance, MyListItem, ModLoader.LoaderCombo<string>>)Native.Call(typeof(PageInstanceOverall), "CreateHost", RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall)))!;
+            var host = (InstanceOverallPageHost<ModMinecraft.McInstance, GlassInstanceHeader, ModLoader.LoaderCombo<string>>)Native.Call(typeof(PageInstanceOverall), "CreateHost", RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall)))!;
             var actual = host.BeginManagedDelete!;
             host.Instance = () => instance; host.ModpackEnabled = () => false; host.Shift = () => false; host.IsCurrentPage = () => currentPage;
             host.RefreshInstanceList = () => refreshed++; host.PageBack = () => backed++;

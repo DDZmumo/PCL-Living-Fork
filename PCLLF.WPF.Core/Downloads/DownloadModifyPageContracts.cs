@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 namespace PCLCS;
 
 /// <summary>Direct access to the existing Modify page fields and its original dictionary. No mirrored selection.</summary>
-public abstract class DownloadModifyPageState<TLoader, TLoading> where TLoader : class where TLoading : class {
+public abstract class DownloadModifyPageState<TLoader, TLoading> where TLoader : class where TLoading : notnull {
     public abstract TLoader? ForgeVersionLoader { get; set; }
     public abstract McComponents? InitialTarget { get; set; }
     public abstract bool IsVanillaVersionReliable { get; set; }
@@ -35,7 +35,7 @@ public sealed class DownloadModifyComparison {
 }
 public sealed class DownloadModifyPageView {
     public Panel Select = null!;
-    public FrameworkElement SelectNameCard = null!, AllBack = null!, Back = null!, Minecraft = null!, BackButton = null!, Logo = null!, ChangeMinecraft = null!;
+    public FrameworkElement AllBack = null!, Back = null!, Minecraft = null!, BackButton = null!, ChangeMinecraft = null!;
     public FrameworkElement Start = null!, NameRestore = null!;
     public TextBox Name = null!;
     public TextBlock NameLabel = null!, MinecraftVersion = null!;
@@ -43,28 +43,16 @@ public sealed class DownloadModifyPageView {
     public Action<string?> MinecraftOldLogo = null!, MinecraftNewLogo = null!;
     public Func<bool> NameValidated = null!;
     public Action<string> ValidateName = null!, StartText = null!;
-    public Action SetStartLogo = null!;
-}
-public sealed class DownloadModifyAnimation<TAnimation> {
-    public DownloadPageAnimationHost<TAnimation> Native = null!;
-    public Func<Action<double>, double, double, int, DownloadPageEase, TAnimation> Double = null!;
 }
 public sealed class DownloadModifyPageHost<TOptiFine, TForge, TNeo, TLite, TResource, TRequest, TInstance, TLoader, TLoading>
     where TOptiFine : class where TForge : class where TNeo : class where TLite : class where TResource : class
-    where TInstance : class where TLoader : class where TLoading : class {
+    where TInstance : class where TLoader : class where TLoading : notnull {
     public DownloadInstallSelection<TOptiFine, TForge, TNeo, TLite, TResource> Selection = null!;
     public DownloadModifyPageState<TLoader, TLoading> State = null!;
     public Func<DownloadModifyPageView> View = null!;
     public Func<int, DownloadModifyComparison> Comparison = null!;
     public Func<Grid, DownloadModifyComparison> ComparisonCard = null!;
-    public Func<WrapPanel?> PackButtons = null!;
-    public Func<TextBlock?> PackName = null!, PackInfo = null!;
-    public Action<WrapPanel> SetPackButtons = null!;
-    public Action<TextBlock> SetPackName = null!, SetPackInfo = null!;
-    public Func<string, Thickness, Panel> Card = null!;
-    public Func<string, Action, FrameworkElement> UpdateButton = null!;
-    public Action<bool> StartPackUpdate = null!;
-    public Action OpenPackBackups = null!;
+    public Action<JObject?> ShowPackInfo = null!;
     public Action BaseControlInit = null!, InitializeLoader = null!, Restart = null!, Cancel = null!;
     public Action BaseClearSelected = null!, BaseReloadSelected = null!, BaseShowMinecraftList = null!, BasePrepareSelection = null!, BaseReloadLists = null!;
     public Func<string?> BaseLogo = null!, SelectName = null!;
@@ -88,7 +76,7 @@ public sealed class DownloadModifyPageHost<TOptiFine, TForge, TNeo, TLite, TReso
     public Func<TLoader, List<TForge>?> ForgeOutput = null!;
     public Action<TLoader> BindForge = null!;
     public Action<FrameworkElement, bool> SwapRestoreParent = null!;
-    public Func<DownloadInstallComponent, TLoading> LoadingControl = null!;
+    public Func<DownloadInstallComponent, TLoading> LoadingKey = null!;
     public Func<TLoading, bool> IsLoader = null!;
     public Func<TLoading, TLoader> ReadLoader = null!;
     public Func<DownloadInstallComponent, string?> ComponentError = null!;

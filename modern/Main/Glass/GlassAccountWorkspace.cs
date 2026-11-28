@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) 2026 PCL Living Fork contributors.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,9 +26,7 @@ namespace PCL;
 /// <summary>
 /// Full account page opened from the rail avatar. The side card shows the game account (login method switch, avatar,
 /// name, method) with skin and sign-out actions; the scene shows the signed-in account and a swipeable stack of saved
-/// accounts ending with an "add account" card. Every action runs through the original login pages
-/// (<see cref="PageLaunchLeft"/>, <see cref="PageLoginMs"/>, <see cref="PageLoginMsSkin"/>, <see cref="PageLoginLegacy"/>),
-/// which keep ownership of sessions, saved accounts and skins.
+/// accounts ending with an "add account" card. The account session owns login input and saved accounts.
 /// </summary>
 internal sealed class GlassAccountWorkspace : IDisposable
 {
@@ -39,7 +37,6 @@ internal sealed class GlassAccountWorkspace : IDisposable
     private const string ChevronLeft = "M14,6 L8,12 14,18";
     private const string ChevronRight = "M10,6 L16,12 10,18";
 
-    private readonly PageLaunchLeft _source;
     private readonly PCLLF.Wpf.Glass.GlassLauncherView _view;
     private readonly StackPanel _types = new() { Orientation = Orientation.Horizontal };
     private readonly ScrollViewer _typesScroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false, Focusable = false };
@@ -139,9 +136,9 @@ internal sealed class GlassAccountWorkspace : IDisposable
     private GlassTideProgress _loginTide = null!;
     internal FrameworkElement Scene { get; }
 
-    internal GlassAccountWorkspace(PageLaunchLeft source, PCLLF.Wpf.Glass.GlassLauncherView view)
+    internal GlassAccountWorkspace(PCLLF.Wpf.Glass.GlassLauncherView view)
     {
-        _source = source; _view = view;
+        _view = view;
         _skin = IconButton(GridGlyph, "皮肤与披风", OpenSkinMenu);
         // The skin library has its own button beside the account's skin menu (which keeps all its original options).
         _libraryButton = IconButton(WardrobeGlyph, "皮肤库", () => ShowLibrary(true));
@@ -384,12 +381,12 @@ internal sealed class GlassAccountWorkspace : IDisposable
         List<SkinSite> sites = GlassSkinSites.Load();
         SkinSiteCharacter? siteCharacter = GlassSkinSites.Current(sites);
         bool siteMode = siteCharacter is not null;
-        bool microsoft = !siteMode && _source.RadioLoginType5.Checked;
+        bool microsoft = !siteMode && LauncherAccountSession.Current == ModLaunch.McLoginType.Ms;
         string kind = siteMode ? "Auth" : microsoft ? "Ms" : "Legacy";
-        var skinRequest = siteCharacter is null ? LaunchPageRuntime.Skins.Input(kind) : LaunchPageRuntime.SkinSiteRequest(siteCharacter);
-        string name = kind == "Legacy" ? LaunchPageRuntime.Skins.OfflineAccountName() :
+        var skinRequest = siteCharacter is null ? LauncherSkinSessions.Skins.Input(kind) : LauncherSkinSessions.SkinSiteRequest(siteCharacter);
+        string name = kind == "Legacy" ? LauncherAccountSession.OfflineName :
             siteMode || microsoft && MicrosoftSignedIn ? skinRequest.Name : "";
-        ImageSource? avatar = string.IsNullOrWhiteSpace(name) ? null : LaunchPageRuntime.Avatar(kind, skinRequest);
+        ImageSource? avatar = string.IsNullOrWhiteSpace(name) ? null : LauncherSkinSessions.Avatar(kind, skinRequest);
         string siteName = siteCharacter?.Site.Name ?? "";
         string method = siteMode
             ? (siteName.Length > 0 ? siteName + " · 外置登录" : "外置登录账号")
@@ -413,7 +410,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
             _sideMethod.Text = method;
             _sideAvatar.Show(avatar);
         }
-        _skin.Visibility = SkinMenu() is null ? Visibility.Hidden : Visibility.Visible;
+        _skin.Visibility = siteMode || (microsoft && MicrosoftSignedIn) ? Visibility.Visible : Visibility.Hidden;
         if (_libraryOpen) _library.Refresh();
         _edit.Visibility = microsoft && MicrosoftSignedIn ? Visibility.Visible : Visibility.Collapsed;
         _exit.Visibility = siteMode || (microsoft && MicrosoftSignedIn) ? Visibility.Visible : Visibility.Hidden;
@@ -425,24 +422,18 @@ internal sealed class GlassAccountWorkspace : IDisposable
     }
 
     private bool SiteMode => GlassSkinSites.CurrentForLaunch() is not null;
-    private bool MicrosoftSignedIn => ModMain.FrmLoginMsSkin is { } skin && _source.PanLogin.Children.Contains(skin);
+    private bool MicrosoftSignedIn => LauncherAccountSession.MicrosoftSignedIn;
 
     private void RefreshTypes()
     {
-        MyRadioButton[] radios = [_source.RadioLoginType5, _source.RadioLoginType0];
-        bool siteMode = SiteMode;
-        bool external = siteMode || _sideMode != SideMode.Identity;
-        string signature = string.Join("|", radios.Select(radio => radio.Text + ":" + (radio.Checked && !external))) + "#" + external;
+        bool external = SiteMode || _sideMode != SideMode.Identity;
+        ModLaunch.McLoginType provider = LauncherAccountSession.Current;
+        string signature = $"{provider}:{external}";
         if (signature == _typeSignature) return;
         _typeSignature = signature;
         _types.Children.Clear();
-        foreach (MyRadioButton radio in radios)
-        {
-            MyRadioButton target = radio;
-            var segment = Pill(radio.Text, radio.Checked && !external ? PillKind.Primary : PillKind.Plain, () => UseMethod(target));
-            segment.Margin = new Thickness(0, 0, 6, 0);
-            _types.Children.Add(segment);
-        }
+        AddType("正版", ModLaunch.McLoginType.Ms);
+        AddType("离线", ModLaunch.McLoginType.Legacy);
         // One bubble for every third-party (Yggdrasil) server: it opens the server list on the side card.
         var externalPill = Pill("外置登录", external ? PillKind.Primary : PillKind.Plain, () => { if (!_siteBusy && _sideMode != SideMode.Servers) OpenServers(); });
         externalPill.Margin = new Thickness(0, 0, 6, 0);
@@ -450,6 +441,12 @@ internal sealed class GlassAccountWorkspace : IDisposable
         _types.Children.Add(externalPill);
         _plusSlot.Content = null;
         _typesScroll.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(RefreshTypeChevrons));
+
+        void AddType(string label, ModLaunch.McLoginType type) {
+            var segment = Pill(label, provider == type && !external ? PillKind.Primary : PillKind.Plain, () => UseMethod(type));
+            segment.Margin = new Thickness(0, 0, 6, 0);
+            _types.Children.Add(segment);
+        }
     }
 
     // Side card: the saved servers as a vertical list (the one in use ticked), and a + bubble that opens the form.
@@ -463,11 +460,35 @@ internal sealed class GlassAccountWorkspace : IDisposable
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition());
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        panel.Children.Add(FlowHeading("外置登录", sites.Count == 0 ? "还没有添加验证服务器" : "选择验证服务器"));
+        bool empty = sites.Count == 0;
+        panel.Children.Add(FlowHeading("外置登录", empty ? null : "选择验证服务器"));
         var list = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
-        foreach (SkinSite site in sites) list.Children.Add(ServerRow(site, GlassSkinSites.SameServer(site.Server, activeServer)));
-        var scroller = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        Grid.SetRow(scroller, 1); panel.Children.Add(scroller);
+        if (empty)
+        {
+            list.VerticalAlignment = VerticalAlignment.Center;
+            var glyph = new GlassStatusGlyph(GlassStatusGlyph.Kind.Empty, 52,
+                signBrush: "GlassTextBrush", outlineBrush: "GlassSecondaryTextBrush")
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            var message = Text("还没有添加验证服务器", 12, FontWeights.Normal, secondary: true);
+            message.Margin = new Thickness(0, 10, 0, 0);
+            message.TextAlignment = TextAlignment.Center;
+            list.Children.Add(glyph);
+            list.Children.Add(message);
+            Grid.SetRow(list, 1);
+            panel.Children.Add(list);
+        }
+        else
+        {
+            foreach (SkinSite site in sites)
+                list.Children.Add(ServerRow(site, GlassSkinSites.SameServer(site.Server, activeServer)));
+            var scroller = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+            Grid.SetRow(scroller, 1);
+            panel.Children.Add(scroller);
+        }
         // + bubble with its caption, centred under the list.
         var add = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 2) };
         var plus = IconButton(PlusGlyph, "添加验证服务器", () => { if (!_siteBusy) OpenSiteForm(null); }, 42);
@@ -480,10 +501,10 @@ internal sealed class GlassAccountWorkspace : IDisposable
             GlassSkinSites.EndRoleSelection(this);
             Refresh();
         }
-        Stagger(list);
+        if (!empty) Stagger(list);
     }
 
-    private FrameworkElement FlowHeading(string title, string note, Action? back = null)
+    private FrameworkElement FlowHeading(string title, string? note, Action? back = null)
     {
         var heading = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -495,8 +516,13 @@ internal sealed class GlassAccountWorkspace : IDisposable
         }
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         texts.Children.Add(Text(title, 17, FontWeights.SemiBold));
-        var line = Text(note, 12, FontWeights.Normal, secondary: true); line.TextTrimming = TextTrimming.CharacterEllipsis; line.Margin = new Thickness(0, 2, 0, 0);
-        texts.Children.Add(line);
+        if (note is not null)
+        {
+            var line = Text(note, 12, FontWeights.Normal, secondary: true);
+            line.TextTrimming = TextTrimming.CharacterEllipsis;
+            line.Margin = new Thickness(0, 2, 0, 0);
+            texts.Children.Add(line);
+        }
         Grid.SetColumn(texts, 1); heading.Children.Add(texts);
         return heading;
     }
@@ -583,6 +609,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
 
     private void DeleteSite(SkinSite site)
     {
+        if (!LauncherAccountSession.CanChangeAccount()) return;
         List<SkinSite> sites = GlassSkinSites.Load();
         bool inUse = GlassSkinSites.Current(sites) is { } current && GlassSkinSites.SameServer(current.Site.Server, site.Server);
         sites.RemoveAll(item => GlassSkinSites.SameServer(item.Server, site.Server));
@@ -590,25 +617,17 @@ internal sealed class GlassAccountWorkspace : IDisposable
         if (inUse)
         {
             GlassSkinSites.Deactivate();
-            _source.RefreshPage(true, false);
+            LauncherAccountSession.ApplyExternalSelection();
+            LauncherAccountSession.LoadActiveSkin();
         }
         _typeSignature = string.Empty;
         _deckSignature = string.Empty;
         Refresh();
     }
 
-    // Microsoft / offline: leaving a skin-site character first, then the original radio as before.
-    private void UseMethod(MyRadioButton target)
+    private void UseMethod(ModLaunch.McLoginType target)
     {
-        if (_siteBusy) return;
-        if (GlassSkinSites.IsActive)
-        {
-            GlassSkinSites.Deactivate();
-            // Switch the original page at once (no animated swap), so the account page never sees the old page.
-            if (!target.Checked) target.Checked = true;
-            _source.RefreshPage(true, false);
-        }
-        else if (!target.Checked) target.PerformClick();
+        if (_siteBusy || !LauncherAccountSession.SelectPrimary(target)) return;
         if (_sideMode != SideMode.Identity) CloseSideFlow();
         else Refresh();
     }
@@ -630,7 +649,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         }
         else if (microsoft)
         {
-            foreach (string saved in SavedMicrosoftAccounts())
+            foreach (string saved in LauncherAccountSession.SavedMicrosoftNames())
             {
                 string chosen = saved;
                 accounts.Add(new(saved, saved, () => UseMicrosoft(chosen)));
@@ -821,22 +840,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         FrameworkElement? card = _cards.FirstOrDefault(item => AutomationProperties.GetName(item) == name);
         try
         {
-            if (microsoft)
-            {
-                Settings.UpdateMicrosoftAccounts(accounts => accounts.Property(name, StringComparison.OrdinalIgnoreCase)?.Remove());
-                if (ModMain.FrmLoginMs is PageLoginMs page &&
-                    page.ComboAccounts.Items.OfType<MyListItem>().FirstOrDefault(item => string.Equals(item.Title, name, StringComparison.OrdinalIgnoreCase)) is MyListItem row)
-                {
-                    if (ReferenceEquals(page.ComboAccounts.SelectedItem, row)) page.ComboAccounts.SelectedIndex = 0;
-                    page.ComboAccounts.Items.Remove(row);
-                }
-            }
-            else if (ModMain.FrmLoginLegacy is PageLoginLegacy offline)
-            {
-                var names = Settings.UpdateLegacyNames(items => items.RemoveAll(item => item.Equals(name, StringComparison.OrdinalIgnoreCase)));
-                offline.ComboName.ItemsSource = names;
-                if (string.Equals(offline.ComboName.Text, name, StringComparison.OrdinalIgnoreCase)) offline.ComboName.Text = names.Any() ? names[0] : string.Empty;
-            }
+            if (!LauncherAccountSession.RemoveSavedAccount(name, microsoft)) return;
         }
         catch (Exception error)
         {
@@ -1352,27 +1356,31 @@ internal sealed class GlassAccountWorkspace : IDisposable
 
     private void UseCharacter(SkinSiteCharacter character) => _ = UseCharacterAsync(character, fromSideFlow: _sideMode != SideMode.Identity);
 
-    // Binds the account's token to the character, saves it and makes it the account in use through the original
-    // Authlib-Injector login page (which then loads its skin like any other account).
+    // Bind the saved session to the selected role before exposing it as the launch account.
     private async System.Threading.Tasks.Task<bool> UseCharacterAsync(SkinSiteCharacter character, bool fromSideFlow)
     {
-        if (_siteBusy) return false;
+        bool OwnerClosed() => _disposed || _view.IsClosing;
+        if (_siteBusy || OwnerClosed()) return false;
         try
         {
             SetSiteBusy(true, .4, "正在切换到 " + character.Profile.Name);
-            await GlassSkinSites.UseCharacter(character);
+            if (!await LauncherAccountSession.SelectExternalCharacterAsync(this, character, _view.Dispatcher, OwnerClosed) || OwnerClosed()) return false;
             SetSiteBusy(true, .85, "即将完成");
-            _source.RefreshPage(false, false);
-            ModMain.FrmLoginAuthSkin?.Reload(false);
-            PageLaunchLeft.SkinAuth.Start(IsForceRestart: true);
+            LauncherAccountSession.LoadActiveSkin(force: true);
             SetSiteBusy(false);
             if (fromSideFlow) CloseSideFlow();
             else Refresh();
             return true;
         }
-        catch (SkinSiteException failure) { SetSiteBusy(false); ModMain.Hint("切换外置登录角色失败：" + failure.Message, ModMain.HintType.Red); }
-        catch (Exception failure) { SetSiteBusy(false); Logger.Error(failure, "切换外置登录角色失败", LogBehavior.Toast); }
-        return false;
+        catch (SkinSiteException failure) {
+            if (!OwnerClosed()) ModMain.Hint("切换外置登录角色失败：" + failure.Message, ModMain.HintType.Red);
+            return false;
+        }
+        catch (Exception failure) {
+            if (!OwnerClosed()) Logger.Error(failure, "切换外置登录角色失败", LogBehavior.Toast);
+            return false;
+        }
+        finally { if (_siteBusy && !OwnerClosed()) SetSiteBusy(false); }
     }
 
     private (Border Field, TextBox Box) FormField(string placeholder, string value)
@@ -1414,7 +1422,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
         var layers = new Grid();
         layers.Children.Add(hint); layers.Children.Add(box);
         field.Child = layers;
-        if (box is TextBox input) GlassPresentationSession.BindTextPlaceholder(input, hint);
+        if (box is TextBox input) GlassPageResources.BindTextPlaceholder(input, hint);
         if (box is PasswordBox password) {
             void SyncHint() => hint.Visibility = !password.IsKeyboardFocusWithin && password.Password.Length == 0
                 ? Visibility.Visible : Visibility.Hidden;
@@ -1427,103 +1435,49 @@ internal sealed class GlassAccountWorkspace : IDisposable
         return field;
     }
 
-    // ---------- Actions (all through the original pages) ----------
+    // ---------- Account actions ----------
 
-    private static IReadOnlyList<string> SavedMicrosoftAccounts()
-    {
-        try
-        {
-            string json = Settings.Get<string>("LoginMsJson");
-            if (string.IsNullOrWhiteSpace(json)) return Array.Empty<string>();
-            return Newtonsoft.Json.Linq.JObject.Parse(json).Properties().Select(property => property.Name).Where(name => name.Length > 0).ToList();
+    private void UseMicrosoft(string name) => _ = SignInMicrosoft(name);
+    private void AddMicrosoft() => _ = SignInMicrosoft(null);
+
+    private async Task SignInMicrosoft(string? name) {
+        if (_siteBusy) return;
+        await LauncherAccountSession.SignInMicrosoftAsync(name);
+        Refresh();
+    }
+
+    private void UseOffline(string name) {
+        try {
+            LauncherAccountSession.SelectOffline(name);
+            Refresh();
+        } catch (Exception error) { Logger.Error(error, "切换离线账号失败", LogBehavior.Toast); }
+    }
+
+    private void OpenSkinMenu() {
+        if (!SiteMode && (LauncherAccountSession.Current != ModLaunch.McLoginType.Ms || !MicrosoftSignedIn)) return;
+        var menu = new GlassActionMenu(_skin, DarkText) { CanActivateOwner = () => !_disposed };
+        if (SiteMode) {
+            menu.AddCommand("刷新", () => LauncherSkinSessions.RefreshCache(LauncherSkinLoaders.SkinAuth));
+        } else {
+            menu.AddCommand("刷新皮肤", () => LauncherSkinSessions.RefreshCache(LauncherSkinLoaders.SkinMs));
+            menu.AddSeparator();
+            menu.AddCommand("使用 CDKEY 兑换奖励", () => ModBase.OpenWebsite("https://www.minecraft.net/zh-hans/redeem"));
         }
-        catch (Exception) { return Array.Empty<string>(); }
+        menu.Show();
     }
 
-    // Switching to another saved Microsoft account signs out of the current one (it stays saved, and the original
-    // login page reloads its list), then selects that account in the original list and logs in.
-    private void UseMicrosoft(string name) => ViaLoginPage(page =>
-    {
-        int index = page.ComboAccounts.Items.Cast<object>().ToList().FindIndex(item => item is MyListItem row && row.Title == name);
-        if (index < 0) return;
-        page.ComboAccounts.SelectedIndex = index;
-        page.BtnLogin.PerformClick();
-    });
-
-    private void AddMicrosoft() => ViaLoginPage(page =>
-    {
-        int index = page.ComboAccounts.Items.Cast<object>().ToList().FindIndex(item => item is MyComboBoxItem);
-        if (index >= 0) page.ComboAccounts.SelectedIndex = index;
-        page.BtnLogin.PerformClick();
-    });
-
-    private void ViaLoginPage(Action<PageLoginMs> act)
-    {
-        if (MicrosoftSignedIn && ModMain.FrmLoginMsSkin is { } skin)
-        {
-            skin.BtnExit.PerformClick();
-            skin.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => { if (ModMain.FrmLoginMs is PageLoginMs page) act(page); Refresh(); }));
-        }
-        else if (ModMain.FrmLoginMs is PageLoginMs page) act(page);
+    private void OpenEditMenu() {
+        if (LauncherAccountSession.Current != ModLaunch.McLoginType.Ms || !MicrosoftSignedIn) return;
+        var menu = new GlassActionMenu(_edit, DarkText) { CanActivateOwner = () => !_disposed };
+        menu.AddCommand("修改密码", () => ModBase.OpenWebsite("https://account.live.com/password/Change"));
+        menu.AddCommand("修改玩家名", () => ModBase.OpenWebsite("https://www.minecraft.net/zh-hans/msaprofile/mygames/editprofile"));
+        menu.Show();
     }
 
-    // The offline account in use is the first entry of the original saved name list (LoginLegacyName); the original
-    // page only writes it on launch. Switching moves the name to the front of that list and updates the page.
-    private void UseOffline(string name)
-    {
-        name = name.Replace("¨", string.Empty).Trim();
-        if (name.Length == 0) return;
-        try
-        {
-            var names = Settings.UpdateLegacyNames(items =>
-            {
-                items.RemoveAll(item => item.Equals(name, StringComparison.OrdinalIgnoreCase));
-                items.Insert(0, name);
-            });
-            if (ModMain.FrmLoginLegacy is PageLoginLegacy page)
-            {
-                page.ComboName.ItemsSource = names;
-                page.ComboName.Text = name;
-            }
-            _source.RefreshPage(false, false);
-            PageLaunchLeft.SkinLegacy.Start();
-        }
-        catch (Exception error) { Logger.Error(error, "切换离线账号失败", LogBehavior.Toast); }
-    }
-
-    private ContextMenu? SkinMenu() => SiteMode
-        ? ModMain.FrmLoginAuthSkin?.Skin.ContextMenu
-        : _source.RadioLoginType5.Checked && MicrosoftSignedIn ? ModMain.FrmLoginMsSkin?.BtnSkin.ContextMenu : null;
-
-    // Changing the skin or cape lives in the skin library now; the account menu keeps the rest (save, refresh, …).
-    private static readonly HashSet<string> LibraryHandled = new(StringComparer.Ordinal) { "修改皮肤", "修改披风", "刷新披风列表", "更换披风", "更换皮肤", "保存皮肤文件", "另存为" };
-
-    private void OpenSkinMenu()
-    {
-        if (SkinMenu() is not ContextMenu menu) return;
-        foreach (MenuItem item in menu.Items.OfType<MenuItem>())
-            if (item.Header is string header && LibraryHandled.Contains(header)) item.Visibility = Visibility.Collapsed;
-        // A separator left with nothing after it (or two in a row) goes too.
-        var entries = menu.Items.OfType<Control>().ToList();
-        for (int index = 0; index < entries.Count; index++)
-            if (entries[index] is Separator separator)
-            {
-                bool before = entries.Take(index).Any(entry => entry is MenuItem { Visibility: Visibility.Visible });
-                bool after = entries.Skip(index + 1).TakeWhile(entry => entry is not Separator).Any(entry => entry.Visibility == Visibility.Visible);
-                separator.Visibility = before && after ? Visibility.Visible : Visibility.Collapsed;
-            }
-        GlassActionMenu.FromContextMenu(menu, _skin, DarkText).IsOpen = true;
-    }
-
-    private void OpenEditMenu()
-    {
-        if (ModMain.FrmLoginMsSkin?.BtnEdit.ContextMenu is ContextMenu menu) GlassActionMenu.FromContextMenu(menu, _edit, DarkText).IsOpen = true;
-    }
-
-    private void SignOut()
-    {
+    private void SignOut() {
         if (SiteMode) { if (!_siteBusy) OpenServers(); return; }
-        if (MicrosoftSignedIn) ModMain.FrmLoginMsSkin?.BtnExit.PerformClick();
+        if (LauncherAccountSession.Current == ModLaunch.McLoginType.Ms && MicrosoftSignedIn)
+            LauncherAccountSession.SignOutMicrosoft();
         Refresh();
     }
 
@@ -1653,6 +1607,7 @@ internal sealed class GlassAccountWorkspace : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        LauncherAccountSession.CancelExternalCharacterSwitch(this);
         CancelChoosingHeads();
         GlassSkinSites.EndRoleSelection(this);
         foreach (Presence state in _presence.Values) state.Motion.Dispose();

@@ -31,7 +31,7 @@ internal static class MapInstallChecks
         C(36,world==Path.Combine(saves,"Flat map")&&!Directory.Exists(Path.Combine(archives,"Flat map")));Text(37,Path.Combine(world,"level.dat"),"flat-world");Text(37,Path.Combine(world,"region","data.txt"),"region-data");C(38,Hash(flat)==hash);
         string second=(string)Installer("Install",flat,saves,CancellationToken.None)!;C(40,world!=second);Text(40,Path.Combine(world,"level.dat"),"flat-world");
         string wrapped=Path.Combine(archives,"Wrapped.zip");Zip(wrapped,("outer/world/level.dat","wrapped-world"),("outer/world/region/data.txt","wrapped-data"),("README.txt","readme"));
-        ModLoader.LoaderBase step=(ModLoader.LoaderBase)Native.Static("PCL.PageDownloadResourceDetail","CreateMapInstallLoader",wrapped,saves)!;Native.Check(step.GetType().Assembly==Native.Main,"Map install loader is not the genuine Main adapter.");scope.Track(step);
+        ModLoader.LoaderBase step=(ModLoader.LoaderBase)Native.Call(Native.Field(typeof(GlassResourceDetailPage), "_detail").FieldType,"CreateMapInstallLoader",null,ResourceDownloadOperations.CreateHost(),wrapped,saves)!;Native.Check(step.GetType().Assembly==Native.Main,"Map install loader is not the genuine Main adapter.");scope.Track(step);
         using(CancellationTokenSource deadline=new(TimeSpan.FromSeconds(10)))step.WaitForExit(1,null,false,deadline.Token,null,true);
         Text(44,Path.Combine(saves,"Wrapped","level.dat"),"wrapped-world");
         string bad=Path.Combine(archives,"Bad.zip");Zip(bad,("../outside.txt","bad"),("level.dat","bad"));C(45,Rejected(()=>Installer("Install",bad,saves,CancellationToken.None))is not null);C(46,!File.Exists(Path.Combine(scope.Root,"outside.txt")));

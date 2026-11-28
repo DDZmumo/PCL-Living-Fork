@@ -37,11 +37,11 @@ public partial class PageInstancePackUpdate {
         mmcReady = false;
         BtnOnline.IsEnabled = BtnLocal.IsEnabled = BtnBackups.IsEnabled = BtnOrigin.IsEnabled = false;
         BtnOrigin.Visibility = Visibility.Visible;
-        BtnBackups.Text = "环境记录";
+        BtnBackups.Content = "环境记录";
     }
     internal bool IsManagedOwner(ModMinecraft.McInstance owner, Guid instanceId) => mmcCaptured && ReferenceEquals(owner, mmcOwner)
         && instanceId == mmcInstanceId && MeloongCore.PathUtils.IsSame(owner.PathVersion, mmcRoot);
-    private bool MmcLocationMatches() => ReferenceEquals(PageInstanceLeft.Instance, mmcOwner)
+    private bool MmcLocationMatches() => ReferenceEquals(LauncherInstanceContext.Instance, mmcOwner)
         && MeloongCore.PathUtils.IsSame(mmcOwner.PathVersion, mmcRoot);
     private bool MmcOwnerCurrent() {
         if (!mmcReady || mmcSource is null || !MmcLocationMatches() || mmcInstanceId == Guid.Empty) return false;
@@ -97,13 +97,13 @@ public partial class PageInstancePackUpdate {
                 LabVersion.Text = string.IsNullOrWhiteSpace(mmcVersion) ? "未记录整合包版本" : mmcVersion;
                 LabSource.Text = mmcVerified is null ? "MMC / Prism 本地整合包 · 平台来源未核实" : mmcVerified.Identity.Platform + " · 项目 " + mmcVerified.Identity.ProjectId + " · 来源已核实";
                 if (mmcMinecraft.Length > 0) LabSource.Text += " · Minecraft " + mmcMinecraft;
-                BtnOrigin.Text = mmcVerified is null ? "核实平台来源" : "重新核实来源";
+                BtnOrigin.Content = mmcVerified is null ? "核实平台来源" : "重新核实来源";
                 BtnLocal.IsEnabled = BtnBackups.IsEnabled = BtnOrigin.IsEnabled = true;
                 BtnOnline.IsEnabled = mmcVerified is not null;
-                HintState.Theme = mmcVerified is null ? MyHint.Themes.Yellow : MyHint.Themes.Blue;
-                HintState.Text = mmcVerified is null
+                GlassDialogControls.UpdateNotice(HintState, mmcVerified is null
                     ? "选择最初导入的原 ZIP 核实平台来源后，可在此选择同一项目的在线版本；也可直接从新版 MMC / Prism ZIP 更新。"
-                    : "在线文件将核对同一平台项目、下载内容和 MMC 容器；确认前可预览文件与组件变更，个人存档会受到保护。";
+                    : "在线文件将核对同一平台项目、下载内容和 MMC 容器；确认前可预览文件与组件变更，个人存档会受到保护。",
+                    mmcVerified is null ? DialogTone.Warning : DialogTone.Information);
                 RenderVersions();
                 if (mmcVerified is not null) listing = LoadMmcVersionsAsync(current, cancellation.Token);
             });
@@ -167,7 +167,7 @@ public partial class PageInstancePackUpdate {
         mmcReady = false; mmcSource = null; mmcVerified = null; mmcStateMessage = message;
         catalogLoading = false; catalogError = null; catalog.Clear(); mmcReleases.Clear();
         BtnOnline.IsEnabled = BtnLocal.IsEnabled = BtnBackups.IsEnabled = BtnOrigin.IsEnabled = false;
-        LabVersion.Text = "暂不可更新"; HintState.Theme = MyHint.Themes.Yellow; HintState.Text = message;
+        LabVersion.Text = "暂不可更新"; GlassDialogControls.UpdateNotice(HintState, message, DialogTone.Warning);
         RenderVersions();
     }
     private bool IsCurrentMmcRelease(ResourceVersion version) => mmcVerified is not null && mmcReleases.TryGetValue(version, out var release)
@@ -216,7 +216,7 @@ public partial class PageInstancePackUpdate {
         } catch (Exception error) { ShowMmcActionError(error); }
     }
     private void ShowMmcActionError(Exception error) {
-        HintState.Theme = MyHint.Themes.Yellow; HintState.Text = error.Message;
+        GlassDialogControls.UpdateNotice(HintState, error.Message, DialogTone.Warning);
     }
     private async void ObserveMmcOperation(ModLoader.LoaderCombo<string> operation) {
         if (operation is null) return;

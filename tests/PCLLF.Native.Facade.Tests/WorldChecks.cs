@@ -88,30 +88,7 @@ internal static class WorldChecks
         string old = Describe(legacy);
         Native.Check(old.Contains("Old world", StringComparison.Ordinal) && old.Contains("-42", StringComparison.Ordinal) && !old.Contains("游戏模式：", StringComparison.Ordinal), "Legacy/absent fields were not preserved.");
         Native.Check(Read("Read", legacy)is null, "Legacy world without LastPlayed became a recent entry.");
-        string linked = Path.Combine(fixture.Data, "linked-world");
-        Directory.CreateDirectory(linked);
-        string link = Path.Combine(linked, "level.dat");
-        try
-        {
-            File.CreateSymbolicLink(link, path);
-            bool rejected = false;
-            try
-            {
-                Read("ReadDetails", linked);
-            }
-            catch (IOException error)when (error.Message.Contains("链接文件", StringComparison.Ordinal))
-            {
-                rejected = true;
-            }
-
-            Native.Check(rejected && Describe(linked).Contains("无法读取", StringComparison.Ordinal), "Real Main file-link guard was bypassed.");
-        }
-        finally
-        {
-            if (File.Exists(link))
-                File.Delete(link);
-        }
-
+        CheckFileLink(fixture, path);
         Native.Check(before.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path))), "Link validation modified its target.");
         File.WriteAllText(path, "invalid gzip");
         bool corrupt = false;
@@ -131,6 +108,28 @@ internal static class WorldChecks
         Native.Check(Describe(Path.Combine(fixture.Data, "missing-world")).Contains("未找到", StringComparison.Ordinal), "Missing metadata was not explained.");
     }
 
+    private static void CheckFileLink(FixtureEnvironment fixture, string path)
+    {
+        string linked = Directory.CreateDirectory(Path.Combine(fixture.Data, "linked-world")).FullName;
+        string link = Path.Combine(linked, "level.dat");
+        const int privilegeNotHeld = unchecked((int)0x80070522);
+        try { File.CreateSymbolicLink(link, path); }
+        catch (IOException error) when (error.HResult == privilegeNotHeld)
+        {
+            Console.WriteLine("SKIP world-details symbolic-link assertion: Windows runner lacks symbolic-link permission.");
+            return;
+        }
+
+        try
+        {
+            bool rejected = false;
+            try { Read("ReadDetails", linked); }
+            catch (IOException error) when (error.Message.Contains("链接文件", StringComparison.Ordinal)) { rejected = true; }
+            Native.Check(rejected && Describe(linked).Contains("无法读取", StringComparison.Ordinal), "Real Main file-link guard was bypassed.");
+        }
+        finally { File.Delete(link); }
+    }
+
     private static object? Read(string name, string folder) => Native.Static("PCL.WorldMetadata", name, folder);
     private static string Describe(string folder) => (string)Read("Describe", folder)!;
     private static void Released(string path)
@@ -147,19 +146,19 @@ internal static class WorldChecks
         stream.Write(bytes);
     }
 
-    private static void Header(Stream stream, byte kind, string name)
+    internal static void Header(Stream stream, byte kind, string name)
     {
         stream.WriteByte(kind);
         Name(stream, name);
     }
 
-    private static void Text(Stream stream, string name, string text)
+    internal static void Text(Stream stream, string name, string text)
     {
         Header(stream, 8, name);
         Name(stream, text);
     }
 
-    private static void Number(Stream stream, byte kind, string name, long number)
+    internal static void Number(Stream stream, byte kind, string name, long number)
     {
         Header(stream, kind, name);
         Span<byte> bytes = stackalloc byte[8];

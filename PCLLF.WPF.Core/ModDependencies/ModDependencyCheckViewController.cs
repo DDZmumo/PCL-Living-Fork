@@ -35,11 +35,11 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
     where TEnable : DependencyActivationItemData<TMod>
     where TPlan : ModDependencyAutoFillPlanData<TReport, TDownload, TEnable>, new()
     where TCard : FrameworkElement {
-    public const double PreferredWidth = 740;
+    public const double PreferredWidth = 900;
 
     public static TCard? Build(Grid view, StackPanel groups, TReport report, TPlan? plan,
         ModDependencyCheckViewHost<TVersion, TIssue, TCard> host) {
-        view.Height = 430;
+        view.Height = 580;
         view.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         view.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         int files = report.Mods.Where(item => item.Enabled && !item.IsNested).Select(item => item.RootPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
@@ -61,9 +61,13 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
             if (environmentCount > 0) actions.Add(environmentCount + " 项运行环境要求未满足");
             if (modCount > 0 || environmentCount == 0) actions.Add(modCount + " 项模组问题需要处理");
         }
-        TextBlock summary = new() { Text = "已检查 " + files + " 个启用文件 · " + string.Join(" · ", actions),
-            Margin = new Thickness(3, 0, 3, 12), TextWrapping = TextWrapping.Wrap, FontSize = 13 };
-        summary.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush1");
+        // Lead: one headline for the whole check and each finding as a chip. Problems that can be fixed automatically
+        // (enable or download a prerequisite) read as caution; anything that needs the user's own fix reads as danger.
+        bool fixable = plan.Items.Count > 0 || plan.Enables.Count > 0;
+        ModDependencyTone tone = fixable ? ModDependencyTone.Caution : ModDependencyTone.Danger;
+        Border summary = ModDependencyVisuals.Lead("!", tone, "已检查 " + files + " 个启用文件",
+            actions.Select(action => ModDependencyVisuals.Chip(action, tone)),
+            fixable ? "可补全、可启用的前置能由启动器处理，其余问题需要手动调整。" : null);
         view.Children.Add(summary);
         ScrollViewer scroll = host.CreateScroll(groups);
         scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -133,13 +137,13 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
             if (report.MetadataIncomplete) notes.Insert(0, "部分模组声明未读完整，无法确认的项目不会自动安装。");
             details = host.CreateCard("检查说明（" + notes.Count + "）", new Thickness(3, 3, 7, 8));
             TextBlock text = new() { Text = string.Join("\r\n\r\n", notes), Margin = new Thickness(15, 40, 15, 15), TextWrapping = TextWrapping.Wrap, FontSize = 12 };
-            text.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray3");
+            text.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
             host.CollapseDetails(details, text);
             host.EnsureCaption(details);
             groups.Children.Add(details);
         }
         groups.Measure(new Size(PreferredWidth - 70, double.PositiveInfinity));
-        view.Height = Math.Min(430, Math.Max(110, groups.DesiredSize.Height + 36));
+        view.Height = Math.Min(580, Math.Max(260, groups.DesiredSize.Height + 120));
         return details;
     }
 
@@ -177,23 +181,11 @@ public static class ModDependencyCheckViewController<TContext, TMod, TDependency
         TCard card = host.CreateCard(title, new Thickness(3, 3, 7, 10));
         UniformGrid rows = new() { Columns = wide ? 1 : 2, Margin = new Thickness(9, 38, 9, 10) };
         rows.SizeChanged += (_, _) => rows.Columns = wide || rows.ActualWidth < 510 ? 1 : 2;
+        // Each finding is a card: a tone bar (red = needs your fix, accent = will be handled), name, and the reason.
         foreach (Tuple<string?, string?, TMod?> entry in entries) {
-            Grid content = new();
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             ImageSource? picture = entry.Item3 is null ? null : ModDependencyIconFiles.Read(entry.Item3.RootPath, entry.Item3.IconPath);
-            content.Children.Add(new Image { Source = picture ?? host.DefaultIcon(), Width = 28, Height = 28,
-                VerticalAlignment = VerticalAlignment.Top, Clip = new RectangleGeometry(new Rect(0, 0, 28, 28), 5, 5) });
-            StackPanel text = new() { Margin = new Thickness(9, 0, 0, 0) };
-            TextBlock name = new() { Text = entry.Item1, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, FontSize = 13 };
-            name.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush1"); text.Children.Add(name);
-            TextBlock reason = new() { Text = entry.Item2, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0), FontSize = 12 };
-            reason.SetResourceReference(TextBlock.ForegroundProperty, warning ? "ColorBrushRedLight" : "ColorBrush3"); text.Children.Add(reason);
-            Grid.SetColumn(text, 1); content.Children.Add(text);
-            Border box = new() { Child = content, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(10),
-                Margin = new Thickness(4), Background = ModDependencyVisualTheme.Brush("ColorBrushWhite"), ToolTip = entry.Item3?.RootPath };
-            box.SetResourceReference(Border.BorderBrushProperty, warning ? "ColorBrushRedLight" : "ColorBrush5");
-            rows.Children.Add(box);
+            rows.Children.Add(ModDependencyVisuals.Card(picture ?? host.DefaultIcon(), entry.Item1, entry.Item2,
+                warning ? ModDependencyTone.Danger : ModDependencyTone.Accent, null, entry.Item3?.RootPath));
         }
         host.AddCardChild(card, rows);
         host.EnsureCaption(card);

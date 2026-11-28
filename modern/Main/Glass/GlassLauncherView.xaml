@@ -417,6 +417,14 @@
                                 </Border>
                             </Grid>
                             <glass:GlassSurface x:Name="ApplicationBackdrop" Background="{DynamicResource GlassMainBrush}" BorderThickness="0" CornerRadius="11" BlurRadius="0" TintOpacity="1" HighlightOpacity="0" PaintsWallpaper="False" IsHitTestVisible="False" />
+                            <StackPanel x:Name="DevelopmentMark" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                        Margin="0,0,14,10" IsHitTestVisible="False" Visibility="Collapsed">
+                                <TextBlock Text="DevEdition" Style="{StaticResource GlassText}" FontSize="13" FontWeight="SemiBold" TextAlignment="Right" />
+                                <TextBlock x:Name="DevelopmentBaseline" Style="{StaticResource GlassText}" FontSize="10" TextAlignment="Right"
+                                           Foreground="{DynamicResource GlassSecondaryTextBrush}" />
+                                <TextBlock x:Name="DevelopmentBuildTime" Style="{StaticResource GlassText}" FontSize="10" TextAlignment="Right"
+                                           Foreground="{DynamicResource GlassSecondaryTextBrush}" />
+                            </StackPanel>
                         </Grid>
                         <!-- Startup splash: solid frosted glass in the theme's tone with the brand mark, name and a loader. Shown only while
                              GlassLauncherView.BeginSplash runs; it sits above all body content and leaves once loading has finished. -->
@@ -566,7 +574,17 @@
                                             <StackPanel>
                                                 <TextBlock Style="{StaticResource GlassText}" Text="启动前检查" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
                                                 <CheckBox x:Name="DependencyCheckBox" Style="{StaticResource GlassCheckBox}" Content="检查模组依赖" Checked="DependencyCheckBox_Changed" Unchecked="DependencyCheckBox_Changed" AutomationProperties.Name="启动时检查模组依赖" />
-                                                <CheckBox x:Name="AutoFillCheckBox" Style="{StaticResource GlassCheckBox}" Content="自动补全依赖" Checked="AutoFillCheckBox_Changed" Unchecked="AutoFillCheckBox_Changed" AutomationProperties.Name="自动补全模组依赖" />
+                                                <CheckBox x:Name="AutoFillCheckBox" Content="自动补全依赖" Checked="AutoFillCheckBox_Changed" Unchecked="AutoFillCheckBox_Changed" AutomationProperties.Name="自动补全模组依赖">
+                                                    <CheckBox.Style>
+                                                        <Style TargetType="CheckBox" BasedOn="{StaticResource GlassCheckBox}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsChecked, ElementName=DependencyCheckBox}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </CheckBox.Style>
+                                                </CheckBox>
                                             </StackPanel>
                                         </Border>
                                     </Grid>

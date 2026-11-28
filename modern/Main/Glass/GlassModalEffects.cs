@@ -81,7 +81,7 @@ internal sealed class GlassModalEffects : IDisposable {
         blurTarget.SizeChanged += OnBackgroundSizeChanged;
     }
 
-    internal static bool IsCrashReport(object? message) => message is MyMsgText text && text.LabTitle.Text == "Minecraft 出现错误";
+    internal static bool IsCrashReport(object? message) => message is GlassMessageDialog { Title: "Minecraft 出现错误" };
 
     internal void SetMessage(object? message) {
         if (_disposed || ReferenceEquals(_message, message)) return;

@@ -59,7 +59,7 @@ internal sealed class CloneFixture : IDisposable
 
         )
             Save(typeof(ModMinecraft), name);
-        Save(typeof(PageInstanceLeft), "Instance");
+        Save(typeof(LauncherInstanceContext), "Instance");
         foreach (Settings.Setting entry in Settings.Entries.Values)
         {
             IDictionary cache = (IDictionary)entry.ValueCache;
@@ -91,7 +91,7 @@ internal sealed class CloneFixture : IDisposable
         // Combo Update/Cancel have no public thread field. Observe the real
         // shared loader scheduling primitive without changing inline/new-thread
         // behavior, so a queued-but-not-started callback also holds this barrier.
-        var loaderHost = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var loaderHost = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action<Action> runInThread = loaderHost.RunInThread;
         restore.Push(() => loaderHost.RunInThread = runInThread);
         loaderHost.RunInThread = action =>

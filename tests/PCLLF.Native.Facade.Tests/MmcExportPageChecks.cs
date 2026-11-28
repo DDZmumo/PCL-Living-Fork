@@ -41,8 +41,8 @@ internal static class MmcExportPageChecks {
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceExportResult> publications = new();
         private readonly ConcurrentQueue<Exception> errors = new();
-        private readonly ModMinecraft.McInstance? oldOwner = PageInstanceLeft.Instance;
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly ModMinecraft.McInstance? oldOwner = LauncherInstanceContext.Instance;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action previousRefresh;
         private readonly List<PageInstanceExport> pages = [];
         private readonly int previousAnimation = ModAnimation.AniControlEnabled;
@@ -55,7 +55,7 @@ internal static class MmcExportPageChecks {
         internal Scope(FileTaskScope files) {
             this.files = files;
             ModAnimation.AniControlEnabled++;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             previousRefresh = scheduler.RefreshExtraDownload;
             scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); }));
@@ -98,7 +98,7 @@ internal static class MmcExportPageChecks {
             return new ModMinecraft.McInstance(source).Load();
         }
         private PageInstanceExport Open(ModMinecraft.McInstance owner) {
-            PageInstanceLeft.Instance = owner;
+            LauncherInstanceContext.Instance = owner;
             Guid id = owner.Config.ContextStamp.InstanceId;
             var page = (PageInstanceExport)Activator.CreateInstance(typeof(PageInstanceExport), BindingFlags.Instance | BindingFlags.NonPublic, null, [owner, id], null)!;
             pages.Add(page);
@@ -125,12 +125,12 @@ internal static class MmcExportPageChecks {
             Put(owner.PathVersion, "minecraft/servers.dat", "private-server");
             var page = Open(owner);
             WaitInventory(page);
-            Native.Check(Part<MyExtraTextButton>(page, "BtnExport").IsEnabled && Part<StackPanel>(page, "PanMmcPortability").Visibility == Visibility.Visible &&
+            Native.Check(Part<Button>(page, "BtnExport").IsEnabled && Part<StackPanel>(page, "PanMmcPortability").Visibility == Visibility.Visible &&
                 Part<StackPanel>(page, "PanAdvancedStandard").Visibility == Visibility.Collapsed,
                 "Managed mode did not use the original page's bottom action and targeted options.");
-            Native.Check(Part<StackPanel>(page, "PanOptions").Children.Contains(Part<MyCheckBox>(page, "CheckOptionsSaves")) &&
-                Part<MyCheckBox>(page, "CheckOptionsBasic").Checked && !Part<MyCheckBox>(page, "CheckOptionsBasic").IsEnabled &&
-                Part<MyCheckBox>(page, "CheckOptionsMod").Checked && !Part<MyCheckBox>(page, "CheckOptionsMod").IsEnabled,
+            Native.Check(Part<StackPanel>(page, "PanOptions").Children.Contains(Part<CheckBox>(page, "CheckOptionsSaves")) &&
+                Part<CheckBox>(page, "CheckOptionsBasic").IsChecked == true && !Part<CheckBox>(page, "CheckOptionsBasic").IsEnabled &&
+                Part<CheckBox>(page, "CheckOptionsMod").IsChecked == true && !Part<CheckBox>(page, "CheckOptionsMod").IsEnabled,
                 "Original selectors were replaced or required environment became optional.");
             Native.Check(Native.Field(typeof(PageInstanceExport), "PageController").GetValue(page) is null &&
                 Native.Field(typeof(PageInstanceExport), "Pipeline").GetValue(page) is null,
@@ -138,17 +138,17 @@ internal static class MmcExportPageChecks {
             Native.Check(Read(page) == new MmcInstanceExportOptions(), "Original export page opted into private data or a portable conversion without consent.");
             var required = (StackPanel)Native.Field(typeof(PageInstanceExport), "_mmcRequiredFiles").GetValue(page)!;
             Native.Check(AllText(required).Any(text => text.Contains("minecraft/config/owned.cfg", StringComparison.Ordinal)) &&
-                AllText(Part<StackPanel>(page, "PanOptionsSaves")).Any(text => text.Contains("world/level.dat", StringComparison.Ordinal)),
+                AllText(Part<Panel>(page, "PanOptionsSaves")).Any(text => text.Contains("world/level.dat", StringComparison.Ordinal)),
                 "Page did not display the real source file paths.");
 
-            Part<MyCheckBox>(page, "CheckMmcFixedMemory").Checked = true;
-            Part<MyTextBox>(page, "TextMmcMinimumMemory").Text = "2048";
-            Part<MyTextBox>(page, "TextMmcMaximumMemory").Text = "1024";
+            Part<CheckBox>(page, "CheckMmcFixedMemory").IsChecked = true;
+            Part<TextBox>(page, "TextMmcMinimumMemory").Text = "2048";
+            Part<TextBox>(page, "TextMmcMaximumMemory").Text = "1024";
             Start(page);
             Native.Check(errors.Count == 1 && pickerCalls == 0 && tasks.IsEmpty, "Invalid portable memory reached output selection or export.");
-            Part<MyCheckBox>(page, "CheckMmcFixedMemory").Checked = false;
-            Part<MyTextBox>(page, "TextExportName").Text = "Shared managed";
-            Part<MyTextBox>(page, "TextExportVersion").Text = "2.4";
+            Part<CheckBox>(page, "CheckMmcFixedMemory").IsChecked = false;
+            Part<TextBox>(page, "TextExportName").Text = "Shared managed";
+            Part<TextBox>(page, "TextExportVersion").Text = "2.4";
             Start(page);
             Native.Check(tasks.IsEmpty && defaultOutputName == "Shared managed-2.4", "Cancelling the picker created a task or version did not identify only the default ZIP filename.");
 
@@ -176,10 +176,10 @@ internal static class MmcExportPageChecks {
 
             Put(owner.PathVersion, "minecraft/personal-extra.txt", "explicit unknown file");
             page.RefreshAll(); WaitInventory(page);
-            Part<MyCheckBox>(page, "CheckOptionsSaves").Checked = true;
-            Part<MyCheckBox>(page, "CheckOptionsScreenshots").Checked = true;
-            Part<MyCheckBox>(page, "CheckOptionsServers").Checked = true;
-            Part<MyCheckBox>(page, "CheckMmcOtherGameFiles").Checked = true;
+            Part<CheckBox>(page, "CheckOptionsSaves").IsChecked = true;
+            Part<CheckBox>(page, "CheckOptionsScreenshots").IsChecked = true;
+            Part<CheckBox>(page, "CheckOptionsServers").IsChecked = true;
+            Part<CheckBox>(page, "CheckMmcOtherGameFiles").IsChecked = true;
             output = Path.Combine(files.Root, "managed-selected.zip");
             before = tasks.Count;
             Start(page); WaitForTask(before);
@@ -200,13 +200,13 @@ internal static class MmcExportPageChecks {
             Native.Check((bool)Native.Call(typeof(PageInstanceExport), "IsManagedOwner", page, second, originalId)!, "Navigation could not recognize the captured page owner.");
 
             page.RefreshAll();
-            PageInstanceLeft.Instance = first;
+            LauncherInstanceContext.Instance = first;
             WaitInventory(page);
             int before = pickerCalls;
             Start(page);
-            Native.Check(!Part<MyExtraTextButton>(page, "BtnExport").IsEnabled && pickerCalls == before && tasks.IsEmpty,
+            Native.Check(!Part<Button>(page, "BtnExport").IsEnabled && pickerCalls == before && tasks.IsEmpty,
                 "A stale file-list callback or action adopted the next owner.");
-            PageInstanceLeft.Instance = second;
+            LauncherInstanceContext.Instance = second;
             page.RefreshAll(); WaitInventory(page);
 
             string secondRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(second.PathVersion));
@@ -214,7 +214,7 @@ internal static class MmcExportPageChecks {
             byte[] projectionBytes = File.ReadAllBytes(projection);
             File.AppendAllText(projection, " ");
             page.RefreshAll(); Start(page);
-            Native.Check(!Part<MyExtraTextButton>(page, "BtnExport").IsEnabled && tasks.IsEmpty &&
+            Native.Check(!Part<Button>(page, "BtnExport").IsEnabled && tasks.IsEmpty &&
                 Native.Field(typeof(PageInstanceExport), "PageController").GetValue(page) is null, "Damaged MMC entered ordinary export.");
             File.WriteAllBytes(projection, projectionBytes);
             page.RefreshAll(); WaitInventory(page);
@@ -226,10 +226,10 @@ internal static class MmcExportPageChecks {
             replacementRoot = secondRoot;
             replacementFingerprint = TreeFingerprint(secondRoot);
             page.RefreshAll(); Start(page);
-            Native.Check(!Part<MyExtraTextButton>(page, "BtnExport").IsEnabled && pickerCalls == before && tasks.IsEmpty,
+            Native.Check(!Part<Button>(page, "BtnExport").IsEnabled && pickerCalls == before && tasks.IsEmpty,
                 "Refreshing the existing export page adopted the replacement identity.");
             var reopened = Open(second); WaitInventory(reopened); Start(reopened);
-            Native.Check(!Part<MyExtraTextButton>(reopened, "BtnExport").IsEnabled && tasks.IsEmpty,
+            Native.Check(!Part<Button>(reopened, "BtnExport").IsEnabled && tasks.IsEmpty,
                 "A newly opened page on an old attached owner adopted its replacement identity.");
             // Keep the two exact fixture trees until FileTaskScope drains every page/IO
             // producer and cleans its own root. Re-renaming a freshly copied tree in a
@@ -242,13 +242,13 @@ internal static class MmcExportPageChecks {
             File.WriteAllText(Path.Combine(ordinaryRoot, "ordinary.json"), """{"id":"ordinary","mainClass":"fixture.Main","libraries":[],"releaseTime":"2024-01-01T00:00:00Z"}""");
             var ordinary = new ModMinecraft.McInstance(ordinaryRoot);
             FileTaskScope.CacheInstance(ordinary);
-            PageInstanceLeft.Instance = ordinary;
+            LauncherInstanceContext.Instance = ordinary;
             var ordinaryPage = new PageInstanceExport();
             pages.Add(ordinaryPage);
             Native.Check(Part<StackPanel>(ordinaryPage, "PanAdvancedStandard").Visibility == Visibility.Visible &&
                 Part<StackPanel>(ordinaryPage, "PanMmcPortability").Visibility == Visibility.Collapsed &&
                 Native.Field(typeof(PageInstanceExport), "Pipeline").GetValue(ordinaryPage) is not null &&
-                Part<MyCheckBox>(ordinaryPage, "CheckOptionsJava").Tag is ExportOption,
+                Part<CheckBox>(ordinaryPage, "CheckOptionsJava").Tag is ExportOption,
                 "Ordinary versions lost their existing BAML controls or export pipeline.");
         }
 
@@ -283,7 +283,7 @@ internal static class MmcExportPageChecks {
             foreach (var task in tasks) ModLoader.LoaderTaskbar.Remove(task);
             scheduler.RefreshExtraDownload = previousRefresh;
             ModAnimation.AniControlEnabled = previousAnimation;
-            PageInstanceLeft.Instance = oldOwner;
+            LauncherInstanceContext.Instance = oldOwner;
         }
     }
 }

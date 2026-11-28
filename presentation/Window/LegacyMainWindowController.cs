@@ -19,13 +19,8 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
     private Window Window => view.Window;
     private LegacyMainAnimations<TAnimation> Animations => host.Animations;
-    private TStack PageCurrent { get => host.CurrentPage(); set => host.WriteCurrentPage(value); }
-    private TStack PageLast { get => host.LastPage(); set => host.WriteLastPage(value); }
-    private List<TStack> PageStack => host.PageStack();
-    private MyPageLeftView PageLeft { get => host.CurrentLeft(); set => host.WriteLeft(value); }
-    private MyPageRightView PageRight { get => host.CurrentRight(); set => host.WriteRight(value); }
+    private TStack PageCurrent => host.CurrentPage();
     private int AniControlEnabled { get => host.AnimationSuppression(); set => host.WriteAnimationSuppression(value); }
-    private LegacyMainLeftPage EnsureLeft(int page) { host.EnsureLeftPage(page); return host.LeftPage(page); }
     private static TStack Stack(int page) => new() { PageCode = page };
     private static bool Same(TStack? left, TStack? right) => EqualityComparer<TStack>.Default.Equals(left!, right!);
     private static bool IsPage(TStack stack, LegacyMainPage page) => Same(stack, Stack((int)page));
@@ -57,15 +52,5 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         LegacyMainPage.HelpDetail => host.HelpTitle(AdditionalAt(stack, 0)),
         _ => ""
     };
-    public void PageNameRefresh(TStack stack) => view.LabTitleInner().Text = PageNameGet(stack)!;
-    public void PageNameRefresh() => PageNameRefresh(PageCurrent);
-    public int PageCurrentSub {
-        get {
-            int page = PageCurrent.PageCode;
-            return (LegacyMainPage)page switch {
-                LegacyMainPage.Download or LegacyMainPage.Setup or LegacyMainPage.Other or LegacyMainPage.InstanceSetup or LegacyMainPage.Favorites => EnsureLeft(page).PageId(),
-                _ => 0
-            };
-        }
-    }
+    public int PageCurrentSub => host.OpenSubPage();
 }

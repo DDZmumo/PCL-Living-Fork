@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using PCLLF.Wpf.Motion;
 
@@ -20,8 +21,9 @@ internal static class FluidMotionChecks {
         CheckFrameRatesAndSuspension();
         CheckDriverLifecycle();
         CheckPressFeedback();
+        CheckVirtualizedWheel();
         CheckStaticHandlerRelease();
-        Console.WriteLine("PASS native fluid motion: exact 60/144 Hz trajectories, velocity-preserving rapid reversals, rest/suspension, accessibility fallback, unload/dispose and rendering-handler collection, native pointer press feedback.");
+        Console.WriteLine("PASS native fluid motion: exact 60/144 Hz trajectories, velocity-preserving rapid reversals, rest/suspension, accessibility fallback, unload/dispose and rendering-handler collection, native pointer press feedback, virtualized pixel and item wheel routing.");
     }
 
     private static void CheckRetargeting() {
@@ -189,6 +191,55 @@ internal static class FluidMotionChecks {
 
     private static void RaiseMouse(Button button, RoutedEvent routedEvent) => button.RaiseEvent(
         new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = routedEvent });
+
+    private static void CheckVirtualizedWheel() {
+        var list = (ItemsControl)XamlReader.Parse("""
+            <ItemsControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                          VirtualizingPanel.VirtualizationMode="Recycling">
+                <ItemsControl.Template>
+                    <ControlTemplate TargetType="ItemsControl">
+                        <ScrollViewer CanContentScroll="True"><ItemsPresenter /></ScrollViewer>
+                    </ControlTemplate>
+                </ItemsControl.Template>
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+            """);
+        for (int index = 0; index < 50; index++)
+            list.Items.Add(new Border { Height = 52 });
+        list.Measure(new Size(240, 208));
+        list.Arrange(new Rect(0, 0, 240, 208));
+        var scroll = (ScrollViewer)VisualTreeHelper.GetChild(list, 0);
+
+        bool RaiseWheel() {
+            list.UpdateLayout();
+            var panel = (VirtualizingStackPanel)VisualTreeHelper.GetChild((ItemsPresenter)scroll.Content, 0);
+            Require(ReferenceEquals(panel.ScrollOwner, scroll) && scroll.ScrollableHeight > 0 && panel.Children.Count < list.Items.Count,
+                "The test list must be scrollable and virtualized.");
+            var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120) { RoutedEvent = UIElement.PreviewMouseWheelEvent };
+            panel.Children[0].RaiseEvent(wheel);
+            return wheel.Handled;
+        }
+
+        SmoothScroll.SetIsEnabled(scroll, true);
+        try {
+            Require(!RaiseWheel(), "The item-based list should keep the default WPF wheel.");
+            VirtualizingPanel.SetScrollUnit(list, ScrollUnit.Pixel);
+            list.UpdateLayout();
+            scroll.ScrollToVerticalOffset(100);
+            list.UpdateLayout();
+            Require(scroll.VerticalOffset == 100 && RaiseWheel() == MotionPreferences.AllowsAnimation,
+                "The virtualized pixel list should glide when Windows animations are enabled.");
+            scroll.ScrollToTop();
+            list.UpdateLayout();
+            Require(scroll.VerticalOffset == 0 && !SmoothScroll.IsScrolling,
+                "A direct scroll should cancel a virtualized glide before its first frame.");
+        } finally {
+            SmoothScroll.SetIsEnabled(scroll, false);
+        }
+        Require(!SmoothScroll.IsScrolling, "Disabling a virtualized glide left its frame handler active.");
+    }
 
     private static void CheckStaticHandlerRelease() {
         WeakReference clock = CreateReleasedClock();

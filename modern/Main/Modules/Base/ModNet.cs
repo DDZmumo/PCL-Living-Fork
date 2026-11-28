@@ -30,9 +30,9 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
 using global::PCLCS.Network;
-using NetFileCore = global::PCLCS.Network.LegacyNetFile<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>;
-using NetManagerCore = global::PCLCS.Network.LegacyNetManager<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>;
-using NetworkCore = global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>;
+using NetFileCore = global::PCLCS.Network.LegacyNetFile<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>;
+using NetManagerCore = global::PCLCS.Network.LegacyNetManager<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>;
+using NetworkCore = global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>;
 using ThrottleDebounce;
 
 namespace PCL
@@ -79,7 +79,7 @@ namespace PCL
             CanceledMergeFinished = new Func<global::PCL.ModNet.NetFile, global::System.Action>(File => File.CanceledMergeFinished),
             AcceptLoginCertificate = global::PCL.LoginCertificatePolicy.Accept
         };
-        private readonly static global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState> NativeRuntime = new global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>(global::PCL.ModNet.NativeHost);
+        private readonly static global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState> NativeRuntime = new global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>(global::PCL.ModNet.NativeHost);
         public static global::PCL.ModNet.NetManagerClass NetManager = new global::PCL.ModNet.NetManagerClass();
 
         [global::System.Runtime.CompilerServices.MethodImplAttribute(global::System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -214,7 +214,7 @@ namespace PCL
                 return !((Left) == (Right));
             }
         }
-        public class NetFile : global::PCLCS.Network.LegacyNetFile<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>
+        public class NetFile : global::PCLCS.Network.LegacyNetFile<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>
         {
             internal global::System.Action CanceledMergeFinished;
             internal global::System.Boolean AllowCredentialHeaders = true;
@@ -260,7 +260,7 @@ namespace PCL
                 }
                 set
                 {
-                    global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>.RejectDownloadProgress(value);
+                    global::PCLCS.Network.LegacyNetworkRuntime<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>.RejectDownloadProgress(value);
                 }
             }
             public int FailCount
@@ -321,7 +321,7 @@ namespace PCL
                 global::PCL.ModNet.NativeRuntime.CancelDownload(this);
             }
         }
-        public class NetManagerClass : global::PCLCS.Network.LegacyNetManager<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.MyLoading.MyLoadingState>
+        public class NetManagerClass : global::PCLCS.Network.LegacyNetManager<global::PCL.ModNet.NetSource, global::PCL.ModNet.NetThread, global::PCL.ModNet.NetFile, global::PCL.ModNet.LoaderDownload, global::PCL.ModNet.NetManagerClass, global::PCL.ModLoader.LoaderBase, global::PCL.ModNet.NetState, global::PCL.ModBase.LoadState, global::PCL.LauncherLoadingState>
         {
             public NetManagerClass() : base(global::PCL.ModNet.NativeRuntime)
             {

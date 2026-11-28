@@ -41,10 +41,8 @@ internal static class DesktopCompatibilityChecks
                     Native.Check(source.IsFrozen && source.PixelWidth == 1, "WebP did not produce a frozen WPF image.");
                 }
                 finally { image.Pic?.Dispose(); }
-                MyImage thumbnail = new();
-                thumbnail.ActualSource = path;
-                VisualAssetChecks.Pump(() => ((System.Windows.Controls.Image)thumbnail).Source is BitmapSource, "Actual mod-thumbnail image did not complete.");
-                Native.Check(((BitmapSource)((System.Windows.Controls.Image)thumbnail).Source).PixelWidth == 1, "Actual cached mod-thumbnail decoder lost its image.");
+                var thumbnail = LauncherMarkupImages.ReadCacheAsync(path, default).GetAwaiter().GetResult();
+                Native.Check(thumbnail.Image is { PixelWidth: 1, IsFrozen: true }, "Actual cached image decoder lost its WebP image.");
                 using FileStream exclusive = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             }
             string[] arguments = Environment.GetCommandLineArgs();

@@ -89,7 +89,7 @@ internal static class MmcExportUi {
         var combo = new MmcOperationCombo<string>(fence, "导出 MMC 整合包：" + request.DisplayName, [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(request.SourceRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }
@@ -121,34 +121,44 @@ internal static class MmcExportUi {
     }
 }
 
-internal sealed class MmcExportOptionsView : StackPanel {
-    internal double PreferredWidth => 660;
-    internal readonly MyCheckBox Saves = Choice("包含存档"), Screenshots = Choice("包含截图"), Servers = Choice("包含服务器列表及自动加入设置");
-    internal readonly MyCheckBox OtherGameFiles = Choice("包含未识别的游戏文件（可能含个人数据）"), ExcludeInactive = Choice("不导出未启用的另一游戏目录");
-    internal readonly MyCheckBox PortableJava = Choice("移除本机 Java 选择，保留整合包的 Java 要求"), FixedMemory = Choice("将自动内存改为下方固定值（MiB）");
-    internal readonly MyTextBox Minimum = new() { Text = "0", Width = 90, Margin = new Thickness(8, 0, 20, 0) };
-    internal readonly MyTextBox Maximum = new() { Text = "4096", Width = 90, Margin = new Thickness(8, 0, 0, 0) };
+internal sealed class MmcExportOptionsView : StackPanel, IGlassDialogContent {
+    public double PreferredWidth => 660;
+    bool IGlassDialogContent.ShowRequestCaption => true;
+    internal readonly CheckBox Saves = Choice("包含存档"), Screenshots = Choice("包含截图"), Servers = Choice("包含服务器列表及自动加入设置");
+    internal readonly CheckBox OtherGameFiles = Choice("包含未识别的游戏文件（可能含个人数据）"), ExcludeInactive = Choice("不导出未启用的另一游戏目录");
+    internal readonly CheckBox PortableJava = Choice("移除本机 Java 选择，保留整合包的 Java 要求"), FixedMemory = Choice("将自动内存改为下方固定值（MiB）");
+    internal readonly TextBox Minimum = GlassDialogControls.TextBox("0");
+    internal readonly TextBox Maximum = GlassDialogControls.TextBox("4096");
     internal MmcExportOptionsView() {
         foreach (var check in new[] { Saves, Screenshots, Servers, OtherGameFiles, ExcludeInactive, PortableJava, FixedMemory }) Children.Add(check);
         var memory = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        Minimum.Width = Maximum.Width = 90;
+        Minimum.Margin = new Thickness(8, 0, 20, 0);
+        Maximum.Margin = new Thickness(8, 0, 0, 0);
         memory.Children.Add(new TextBlock { Text = "最小", VerticalAlignment = VerticalAlignment.Center }); memory.Children.Add(Minimum);
         memory.Children.Add(new TextBlock { Text = "最大", VerticalAlignment = VerticalAlignment.Center }); memory.Children.Add(Maximum); Children.Add(memory);
         Minimum.IsEnabled = Maximum.IsEnabled = false;
-        FixedMemory.Change += (_, _) => Minimum.IsEnabled = Maximum.IsEnabled = FixedMemory.Checked;
+        FixedMemory.Checked += (_, _) => Minimum.IsEnabled = Maximum.IsEnabled = true;
+        FixedMemory.Unchecked += (_, _) => Minimum.IsEnabled = Maximum.IsEnabled = false;
     }
     internal MmcInstanceExportOptions ReadOptions() {
         int? minimum = null, maximum = null;
-        if (FixedMemory.Checked) {
+        if (FixedMemory.IsChecked == true) {
             if (!int.TryParse(Minimum.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int min) ||
                 !int.TryParse(Maximum.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int max) || min < 0 || max < 16 || max > 1048576 || min > max)
                 throw new IOException("请填写有效的内存范围：最大值至少 16 MiB，最小值不能大于最大值。");
             minimum = min; maximum = max;
         }
-        return new(Saves.Checked, Screenshots.Checked, Servers.Checked) {
-            IncludeUnrecognizedGameFiles = OtherGameFiles.Checked,
-            InactiveGameTree = ExcludeInactive.Checked ? MmcExportInactiveTree.Exclude : MmcExportInactiveTree.RejectNonempty,
-            DiscardMachineJavaSelection = PortableJava.Checked, PortableMinimumMemoryMiB = minimum, PortableMaximumMemoryMiB = maximum
+        return new(Saves.IsChecked == true, Screenshots.IsChecked == true, Servers.IsChecked == true) {
+            IncludeUnrecognizedGameFiles = OtherGameFiles.IsChecked == true,
+            InactiveGameTree = ExcludeInactive.IsChecked == true ? MmcExportInactiveTree.Exclude : MmcExportInactiveTree.RejectNonempty,
+            DiscardMachineJavaSelection = PortableJava.IsChecked == true, PortableMinimumMemoryMiB = minimum, PortableMaximumMemoryMiB = maximum
         };
     }
-    private static MyCheckBox Choice(string text) => new() { Text = text, Checked = false, Margin = new Thickness(0, 6, 0, 6), HorizontalAlignment = HorizontalAlignment.Left };
+    private static CheckBox Choice(string text) {
+        var check = GlassDialogControls.Check(text, false);
+        check.Margin = new Thickness(0, 6, 0, 6);
+        check.HorizontalAlignment = HorizontalAlignment.Left;
+        return check;
+    }
 }

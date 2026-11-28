@@ -8,6 +8,12 @@ internal static class Native
     internal const BindingFlags Flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
     internal static readonly Assembly Main = typeof(PCL.Application).Assembly;
     internal static Type Type(string name) => Main.GetType(name, true)!;
+    internal static PCL.GlassMessageDialog Dialog(PCL.ModMain.MyMsgBoxConverter request)
+    {
+        if (request.ContentFactory is not null) request.UseNativeContent = true;
+        return new PCL.GlassMessageDialog(request, () => { }, _ => { });
+    }
+
     internal static void Check(bool condition, string message)
     {
         if (!condition)

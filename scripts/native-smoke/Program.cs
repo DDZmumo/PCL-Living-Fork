@@ -77,7 +77,7 @@ try {
 
  var wpf=resources.Where(pair=>pair.Key.EndsWith(".g.resources",StringComparison.Ordinal)).Select(pair=>pair.Value).Single();
  var normalized=new HashSet<string>(wpf.Select(key=>key.ToLowerInvariant()),StringComparer.Ordinal);
- string[] required={"application.baml","formmain.baml","pages/pagelaunch/pagelaunchleft.baml","pages/pagelaunch/pagelaunchright.baml","pages/pagesetup/pagesetupui.baml","resources/font.ttf","images/branding/livingpcl.ico"};
+ string[] required={"application.baml","formmain.baml","glass/glasslauncherview.baml","glass/glasspresentationresources.baml","themes/generic.baml","resources/font.ttf","images/branding/livingpcl.ico"};
  foreach(string key in required)if(!normalized.Contains(key))throw new InvalidDataException("Actual product BAML/font/brand resource missing: "+key);
  using FileStream file=File.OpenRead(path);string hash=Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
  if(startupSentinels) {

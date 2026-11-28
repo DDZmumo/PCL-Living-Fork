@@ -1,7 +1,0 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:PCLLF.Presentation.Controls">
- <local:AdditionConverter x:Key="AdditionConverter" />
- <local:MultiplicationConverter x:Key="MultiplicationConverter" />
- <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
- <local:InverseBooleanConverter x:Key="InverseBooleanConverter" />
-</ResourceDictionary>

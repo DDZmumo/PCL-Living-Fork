@@ -334,7 +334,14 @@ internal sealed class GlassSkinLibrary : IDisposable
     {
         var card = Card(new Thickness(12, 14, 12, 12));
         card.Width = 132; card.Margin = new Thickness(0, 0, 12, 12); card.Cursor = Cursors.Hand;
-        card.Child = content;
+        // GlassSurface paints nothing itself (its frost is a separate layer that ignores the pointer), so only the drawn
+        // parts of the content counted as "on the card": crossing a gap on the way to the hover tools left the card and
+        // hid them, and clicking a blank spot did nothing. A transparent backing over the whole card, padding included,
+        // makes every point of it hoverable and clickable.
+        Thickness padding = card.Padding;
+        if (content is FrameworkElement inner)
+            inner.Margin = new Thickness(inner.Margin.Left + padding.Left, inner.Margin.Top + padding.Top, inner.Margin.Right + padding.Right, inner.Margin.Bottom + padding.Bottom);
+        card.Child = new Grid { Background = Brushes.Transparent, Margin = new Thickness(-padding.Left, -padding.Top, -padding.Right, -padding.Bottom), Children = { content } };
         if (selected) { card.BorderThickness = new Thickness(2); card.SetResourceReference(Border.BorderBrushProperty, "GlassAccentBrush"); }
         var lift = new TranslateTransform();
         card.RenderTransform = lift;
@@ -816,8 +823,8 @@ internal sealed class GlassSkinLibrary : IDisposable
         {
             switch (provider)
             {
-                case AccountProvider.Offline: PageLaunchLeft.SkinLegacy.Start(IsForceRestart: true); break;
-                case AccountProvider.Microsoft: PageLaunchLeft.SkinMs.Start(IsForceRestart: true); break;
+                case AccountProvider.Offline: LauncherSkinLoaders.SkinLegacy.Start(IsForceRestart: true); break;
+                case AccountProvider.Microsoft: LauncherSkinLoaders.SkinMs.Start(IsForceRestart: true); break;
             }
         }
         catch (Exception error) { Logger.Info(error, "刷新账号皮肤失败"); }

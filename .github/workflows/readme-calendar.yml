@@ -30,7 +30,7 @@ jobs:
       - name: Generate dual-theme calendar SVGs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python docs/assets/Generate-ReadmeCalendar.py --style pulse --output-dir "$RUNNER_TEMP/readme-calendar"
+        run: python docs/assets/Generate-ReadmeCalendar.py --style blocks --output-dir "$RUNNER_TEMP/readme-calendar"
       - name: Publish generated calendars to their asset branch
         run: |
           set -euo pipefail

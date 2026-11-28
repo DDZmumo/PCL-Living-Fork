@@ -23,26 +23,24 @@ internal static class PersonalOptionsPageChecks {
         LocalFeatureChecks.Put(targetFile, "key_key.forward:17\nmouseSensitivity:0.2\nfov:0.0\ninvertYMouse:false\nbobView:false\nsoundCategory_master:1.0\nrenderDistance:8\n");
         scope.SetGlobal("LaunchPersonalOptionsSync", false); scope.SetGlobal("LaunchPersonalOptionsExcluded", "[]"); scope.SetGlobal("LaunchPersonalOptionsCapture", false);
         foreach (string category in new[] { "Keys", "Mouse", "View", "Accessibility", "Audio" }) scope.SetGlobal("LaunchPersonalOptions" + category, true);
-        var previousPage = ModMain.FrmSetupPersonal; var previousLeft = ModMain.FrmInstanceLeft; var previousContext = PageInstanceLeft.Instance;
         var selected = Native.State(typeof(ModMinecraft), "_McInstanceSelected"); object? oldSelected = selected.GetValue(null); selected.SetValue(null, source);
+        var previousInstance = LauncherInstanceContext.Instance;
+        LauncherInstanceContext.Instance = target;
         var app = System.Windows.Application.Current; var oldMain = app.MainWindow;
         var window = new Window { Width = 870, Height = 740, Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false };
         try {
-            var setupLeft = new PageSetupLeft();
-            Native.Check(((MyListItem)setupLeft.FindName("ItemPersonal")).Logo != ((MyListItem)setupLeft.FindName("ItemUpdate")).Logo, "Personal settings still repeats the update icon.");
-            var globalPage = (PageSetupPersonal)setupLeft.PageGet(FormMain.PageSubType.SetupPersonal);
-            var versionLeft = new PageInstanceLeft(); ModMain.FrmInstanceLeft = versionLeft; PageInstanceLeft.Instance = target;
-            var versionPage = (PageSetupPersonal)versionLeft.PageGet(FormMain.PageSubType.InstancePersonal);
+            var globalPage = new PageSetupPersonal();
+            var versionPage = new PageSetupPersonal { IsInstanceContext = true };
             foreach (var view in new[] { globalPage, versionPage }) {
                 Native.Set(view, "Confirm", new Func<string,string,bool>((_,_) => true)); Native.Set(view, "Notify", new Action<string>(_ => { }));
             }
-            Native.Check(!ReferenceEquals(globalPage, versionPage) && versionLeft.FindName("ItemPersonal") is MyListItem { Title: "基础设置同步" }, "Version sync entry or its separate view is missing.");
             PageSetupPersonal page = globalPage;
             void Show(PageSetupPersonal view) { window.Content = view; page = view; window.UpdateLayout(); VisualAssetChecks.Pump(() => view.IsLoaded, "Sync page did not load."); }
             void Refresh() { Native.Call(typeof(PageSetupPersonal), "RefreshPage", page); window.UpdateLayout(); }
-            void Search(string text) { ((MySearchBox)page.FindName("TextSearch")).Text = text; window.UpdateLayout(); }
+            void Search(string text) { ((TextBox)page.FindName("TextSearch")).Text = text; window.UpdateLayout(); }
             void ChangeSlider(string tag, int value) {
-                var slider = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag, tag));
+                window.UpdateLayout();
+                var slider = Walk(page).OfType<Slider>().Single(item => Equals(item.Tag, tag));
                 VisualAssetChecks.Pump(() => slider.IsLoaded && slider.ActualWidth > 30, "Native numeric editor did not load.");
                 int suppression = ModAnimation.AniControlEnabled; ModAnimation.AniControlEnabled = 0;
                 try { slider.Value = value; } finally { ModAnimation.AniControlEnabled = suppression; }
@@ -54,7 +52,7 @@ internal static class PersonalOptionsPageChecks {
             window.Content = globalPage; window.SetResourceReference(Window.BackgroundProperty, "ColorBrushBackground"); window.Show(); window.UpdateLayout();
             VisualAssetChecks.Pump(() => globalPage.IsLoaded, "Global page did not load.");
             Native.Check(globalPage.FindName("ComboInstance") is null && globalPage.FindName("LabInstance") is TextBlock &&
-                ((MyCheckBox)globalPage.FindName("CheckEnabled")).Visibility == Visibility.Visible && ((MyButton)globalPage.FindName("BtnApply")).Visibility == Visibility.Collapsed,
+                ((CheckBox)globalPage.FindName("CheckEnabled")).Visibility == Visibility.Visible && ((Button)globalPage.FindName("BtnApply")).Visibility == Visibility.Collapsed,
                 "Global page does not retain its master/import role.");
             Native.Check(((TextBlock)page.FindName("LabImportedInstance")).Text.Contains("来源未记录", StringComparison.Ordinal), "A profile without provenance guessed its source.");
             Native.Call(typeof(PageSetupPersonal), "ImportSelection", globalPage);
@@ -66,18 +64,26 @@ internal static class PersonalOptionsPageChecks {
             Native.Check(((TextBlock)page.FindName("LabImportedInstance")).Text == source.Name, "Changing the current version replaced the recorded import source.");
             byte[] sourceBefore = File.ReadAllBytes(sourceFile), targetBefore = File.ReadAllBytes(targetFile);
             Search("视场角");
-            var currentGlobalComparison = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag,"current-value:fov"));
-            var globalEditor = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag,"profile-value:fov"));
+            var currentGlobalComparison = Walk(page).OfType<Slider>().Single(item => Equals(item.Tag,"current-value:fov"));
+            var globalEditor = Walk(page).OfType<Slider>().Single(item => Equals(item.Tag,"profile-value:fov"));
             VisualAssetChecks.Pump(() => globalEditor.IsLoaded && globalEditor.ActualWidth > 30, "Global comparison did not load.");
             Native.Check(!currentGlobalComparison.IsEnabled && currentGlobalComparison.Value == 40 && globalEditor.Value == 60 &&
                 Math.Abs(currentGlobalComparison.ActualWidth-globalEditor.ActualWidth)<1, "Global comparison does not show the actual selected version and equal-width editable global scheme.");
             ChangeSlider("profile-value:fov", 75);
-            Native.Check((string?)Profile()["values"]!["fov"] == "90" && ((MyButton)page.FindName("BtnSaveGlobal")).IsEnabled &&
+            Native.Check((string?)Profile()["values"]!["fov"] == "90" && ((Button)page.FindName("BtnSaveGlobal")).IsEnabled &&
                 ((TextBlock)page.FindName("LabImportedInstance")).Text == "自定义（未保存）", "A global slider wrote before Save or failed to mark its draft.");
             Search("反转鼠标");
-            var globalToggle = Walk(page).OfType<MyCheckBox>().Single(item => Equals(item.Tag, "profile-value:invertYMouse"));
-            VisualAssetChecks.Pump(() => globalToggle.IsLoaded, "Global native toggle did not load."); globalToggle.SetChecked(true, true);
+            var globalToggle = Walk(page).OfType<CheckBox>().Single(item => Equals(item.Tag, "profile-value:invertYMouse"));
+            VisualAssetChecks.Pump(() => globalToggle.IsLoaded, "Global native toggle did not load."); globalToggle.IsChecked = true;
             Search("前进");
+            Native.Call(typeof(PageSetupPersonal), "BeginProfileCapture", page, "key_key.forward");
+            var captureDock = (GlassSelectionDock)page.FindName("CardCapture");
+            Native.Check(captureDock.Visibility == Visibility.Visible && captureDock.IsHitTestVisible &&
+                captureDock.Status.Text.Contains("前进", StringComparison.Ordinal), "The global key editor did not show the active binding.");
+            var cancel = (Button)page.FindName("BtnCancelBinding");
+            cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Native.Check(!captureDock.IsHitTestVisible && (string?)Profile()["values"]!["key_key.forward"] == "key.keyboard.k",
+                "Cancelling through the floating action changed the saved global binding.");
             Native.Call(typeof(PageSetupPersonal), "BeginProfileCapture", page, "key_key.forward"); Press(Key.Escape);
             Native.Check((string?)Profile()["values"]!["key_key.forward"] == "key.keyboard.k", "Esc altered global key settings.");
             Native.Call(typeof(PageSetupPersonal), "BeginProfileCapture", page, "key_key.forward"); Press(Key.R);
@@ -86,38 +92,45 @@ internal static class PersonalOptionsPageChecks {
             Native.Call(typeof(PageSetupPersonal), "SelectOptions", page, new[] { PersonalOptionsCatalog.Items.Single(item=>item.Key=="soundCategory_master") }, false);
             Native.Check(Settings.Get<string>("LaunchPersonalOptionsExcluded") == "[]", "Global participation wrote before Save.");
             Show(versionPage); Search("视场角");
-            Native.Check(Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"global-value:fov")).Value==60, "An unsaved global draft leaked into the version page.");
+            Native.Check(Walk(page).OfType<Slider>().Single(item=>Equals(item.Tag,"global-value:fov")).Value==60, "An unsaved global draft leaked into the version page.");
             Show(globalPage); Search("视场角");
-            Native.Check(Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"profile-value:fov")).Value==75 && (string?)Profile()["values"]!["fov"]=="90", "Navigating saved or discarded the global draft.");
+            Native.Check(Walk(page).OfType<Slider>().Single(item=>Equals(item.Tag,"profile-value:fov")).Value==75 && (string?)Profile()["values"]!["fov"]=="90", "Navigating saved or discarded the global draft.");
             Native.Call(typeof(PageSetupPersonal), "SaveGlobalSettings", page);
-            Native.Check((string?)Profile()["values"]!["fov"]=="105" && (string?)Profile()["values"]!["invertYMouse"]=="true" &&
-                (string?)Profile()["values"]!["key_key.forward"]=="key.keyboard.r" && (string?)Profile()["sourceKind"]=="custom" &&
-                ((TextBlock)page.FindName("LabImportedInstance")).Text=="自定义" && JToken.DeepEquals(origin,Profile()["importSource"]) &&
-                Settings.Get<string>("LaunchPersonalOptionsExcluded").Contains("soundCategory_master",StringComparison.Ordinal),
-                "Save did not commit the global draft or mark the source as custom.");
+            var committed = Profile();
+            foreach (var (option, expected) in new[] { ("fov", "105"), ("invertYMouse", "true"), ("key_key.forward", "key.keyboard.r") }) {
+                var actual = (string?)committed["values"]![option];
+                Native.Check(actual == expected, $"Save persisted {option} as {actual}; expected {expected}.");
+            }
+            Native.Check((string?)committed["sourceKind"] == "custom" && ((TextBlock)page.FindName("LabImportedInstance")).Text == "自定义",
+                "Saving the global draft did not update its source marker.");
+            Native.Check(JToken.DeepEquals(origin, committed["importSource"]) &&
+                Settings.Get<string>("LaunchPersonalOptionsExcluded").Contains("soundCategory_master", StringComparison.Ordinal),
+                "Saving the global draft lost its import origin or participation choices.");
             ChangeSlider("profile-value:fov",70); Native.Call(typeof(PageSetupPersonal),"DiscardDraft",page);
-            Native.Check((string?)Profile()["values"]!["fov"]=="105" && Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"profile-value:fov")).Value==75, "Discard changed stored settings or retained the draft.");
+            window.UpdateLayout();
+            Native.Check((string?)Profile()["values"]!["fov"]=="105" && Walk(page).OfType<Slider>().Single(item=>Equals(item.Tag,"profile-value:fov")).Value==75, "Discard changed stored settings or retained the draft.");
             byte[] globalBefore = File.ReadAllBytes(profileFile);
             Show(versionPage);
-            Native.Check(ReferenceEquals(((TextBlock)page.FindName("LabInstance")).Tag, target) && ((MyCheckBox)page.FindName("CheckEnabled")).Visibility == Visibility.Collapsed &&
-                ((MyButton)page.FindName("BtnImport")).Visibility == Visibility.Collapsed && page.FindName("ComboCapture") is null,
+            Native.Check(ReferenceEquals(((TextBlock)page.FindName("LabInstance")).Tag, target) && ((CheckBox)page.FindName("CheckEnabled")).Visibility == Visibility.Collapsed &&
+                ((Button)page.FindName("BtnImport")).Visibility == Visibility.Collapsed && page.FindName("ComboCapture") is null,
                 "Version page exposes global import/master/recapture controls or follows the wrong owner.");
             Search("视场角");
-            var localSlider = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag, "instance-value:fov"));
-            var readOnlyGlobal = Walk(page).OfType<MySlider>().Single(item => Equals(item.Tag, "global-value:fov"));
+            var localSlider = Walk(page).OfType<Slider>().Single(item => Equals(item.Tag, "instance-value:fov"));
+            var readOnlyGlobal = Walk(page).OfType<Slider>().Single(item => Equals(item.Tag, "global-value:fov"));
             VisualAssetChecks.Pump(() => localSlider.IsLoaded && localSlider.ActualWidth > 30, "Local slider did not load.");
             Native.Check(!localSlider.IsEnabled && !readOnlyGlobal.IsEnabled && !readOnlyGlobal.IsHitTestVisible && Math.Abs(localSlider.ActualWidth-readOnlyGlobal.ActualWidth) < 1 && readOnlyGlobal.Value == 75 &&
-                ((MyButton)page.FindName("BtnApply")).Text=="保存此版本个人设置" && !((MyButton)page.FindName("BtnApply")).IsEnabled,
+                ((Button)page.FindName("BtnApply")).Content?.ToString()=="保存此版本个人设置" && !((Button)page.FindName("BtnApply")).IsEnabled,
                 "A following version is editable or has an incorrect comparison/save button.");
             Native.Check(LocalFeatureChecks.Rejected(()=>Native.Call(typeof(PageSetupPersonal),"SaveInstanceSettings",page)) is InvalidOperationException, "A following version allowed a manual settings write.");
-            ((MyComboBox)page.FindName("ComboPolicy")).SelectedIndex=1;
-            Native.Check(Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"instance-value:fov")).IsEnabled, "Disabling following did not unlock local settings.");
+            ((ComboBox)page.FindName("ComboPolicy")).SelectedIndex=1;
+            window.UpdateLayout();
+            Native.Check(Walk(page).OfType<Slider>().Single(item=>Equals(item.Tag,"instance-value:fov")).IsEnabled, "Disabling following did not unlock local settings.");
             ChangeSlider("instance-value:fov", 60);
             Search("反转鼠标");
-            var localToggle = Walk(page).OfType<MyCheckBox>().Single(item => Equals(item.Tag, "instance-value:invertYMouse"));
-            VisualAssetChecks.Pump(() => localToggle.IsLoaded, "Local native toggle did not load."); localToggle.SetChecked(true, true);
+            var localToggle = Walk(page).OfType<CheckBox>().Single(item => Equals(item.Tag, "instance-value:invertYMouse"));
+            VisualAssetChecks.Pump(() => localToggle.IsLoaded, "Local native toggle did not load."); localToggle.IsChecked = true;
             Search("前进"); Native.Call(typeof(PageSetupPersonal), "BeginProfileCapture", page, "key_key.forward"); Press(Key.E);
-            Native.Check(File.ReadAllBytes(targetFile).SequenceEqual(targetBefore) && File.ReadAllBytes(profileFile).SequenceEqual(globalBefore) && ((MyButton)page.FindName("BtnApply")).IsEnabled,
+            Native.Check(File.ReadAllBytes(targetFile).SequenceEqual(targetBefore) && File.ReadAllBytes(profileFile).SequenceEqual(globalBefore) && ((Button)page.FindName("BtnApply")).IsEnabled,
                 "Version key/toggle/slider edits wrote before Save.");
             Native.Call(typeof(PageSetupPersonal), "SaveInstanceSettings", page);
             string local = File.ReadAllText(targetFile);
@@ -132,8 +145,8 @@ internal static class PersonalOptionsPageChecks {
             var annotations = (IReadOnlyDictionary<string, KeybindingPersonalState>)Native.Static("PCL.PersonalGameSettings", "BindingAnnotations", target)!;
             Native.Check(annotations["key_key.forward"] is { DisplayKey: "R", Participates: false } && !annotations.ContainsKey("key_mod.magic"),
                 "Basic key state lost the global binding or ignored this instance's sync policy.");
-            ((MyComboBox)page.FindName("ComboPolicy")).SelectedIndex=0; Search("视场角");
-            Native.Check(!Walk(page).OfType<MySlider>().Single(item=>Equals(item.Tag,"instance-value:fov")).IsEnabled &&
+            ((ComboBox)page.FindName("ComboPolicy")).SelectedIndex=0; Search("视场角");
+            Native.Check(!Walk(page).OfType<Slider>().Single(item=>Equals(item.Tag,"instance-value:fov")).IsEnabled &&
                 File.ReadAllBytes(profileFile).SequenceEqual(globalBefore), "Following global settings did not relock local editors.");
             string? proof = Environment.GetEnvironmentVariable("PCLLF_PERSONAL_OPTIONS_PREVIEW_DIR");
             if (!string.IsNullOrWhiteSpace(proof)) {
@@ -148,12 +161,12 @@ internal static class PersonalOptionsPageChecks {
                     }
                 }
             }
-            Show(versionPage); PageInstanceLeft.Instance = empty; Refresh();
-            Native.Check(!((MyButton)page.FindName("BtnApply")).IsEnabled, "A first-run version allows an invalid apply.");
-            ((MyComboBox)page.FindName("ComboPolicy")).SelectedIndex=1;
+            Show(versionPage); LauncherInstanceContext.Instance = empty; Refresh();
+            Native.Check(!((Button)page.FindName("BtnApply")).IsEnabled, "A first-run version allows an invalid apply.");
+            ((ComboBox)page.FindName("ComboPolicy")).SelectedIndex=1;
             Native.Check(Settings.Get<int>("VersionPersonalOptionsSync",Instance:empty)==1, "Version policy did not stay per-version.");
             Show(globalPage); selected.SetValue(null,null); Refresh(); Search("视场角");
-            Native.Check(Walk(page).OfType<MySlider>().Any(item=>Equals(item.Tag,"profile-value:fov") && item.IsEnabled && item.Value==75), "Global settings cannot be viewed/edited without a source version.");
+            Native.Check(Walk(page).OfType<Slider>().Any(item=>Equals(item.Tag,"profile-value:fov") && item.IsEnabled && item.Value==75), "Global settings cannot be viewed/edited without a source version.");
             selected.SetValue(null, target); Refresh();
             byte[] beforeImport = File.ReadAllBytes(profileFile);
             Native.Set(page, "Confirm", new Func<string,string,bool>((_,_) => false));
@@ -175,23 +188,24 @@ internal static class PersonalOptionsPageChecks {
             Native.Call(typeof(PageSetupPersonal),"SaveGlobalSettings",page);
             Native.Check((string?)Profile()["values"]!["fov"]=="100" && Profile()["conflicts"]!["fov"] is null &&
                 ((TextBlock)page.FindName("LabImportedInstance")).Text=="自定义", "Saving the conflict choice did not commit the custom scheme.");
-            PageInstanceLeft.Instance = target;
+            LauncherInstanceContext.Instance = target;
             Show(versionPage);
-            var policy = (MyComboBox)page.FindName("ComboPolicy");
+            var policy = (ComboBox)page.FindName("ComboPolicy");
             policy.SelectedIndex = 1; Refresh();
-            var push = (MyButton)page.FindName("BtnWriteBack");
-            var pull = (MyButton)page.FindName("BtnSyncFromGlobal");
+            var push = (Button)page.FindName("BtnWriteBack");
+            var pull = (Button)page.FindName("BtnSyncFromGlobal");
             Native.Check(push.IsEnabled && push.IsVisible && pull.IsEnabled && pull.IsVisible, "Independent instance did not expose both reconciliation actions.");
-            pull.PerformClick(); Refresh();
+            pull.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Refresh();
             Native.Check(policy.SelectedIndex == 0 && !pull.IsVisible, "Pulling the scheme did not restore the instance policy.");
             policy.SelectedIndex = 1; Refresh();
-            push.PerformClick(); Refresh();
+            push.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Refresh();
             Native.Check(policy.SelectedIndex == 0 && !push.IsVisible, "Writing back did not restore the instance policy.");
             environment.AssertNoForbiddenIo();
             Console.WriteLine("PASS personal settings: explicit global/local Save, retained/discarded drafts, import/custom source, separate current/source comparison, following locks local editors, native controls, matching tracks, conflict drafts, stale guards, backup and key annotations.");
         } finally {
             window.Content=null; window.Close(); app.MainWindow=oldMain;
-            selected.SetValue(null,oldSelected); ModMain.FrmSetupPersonal=previousPage; ModMain.FrmInstanceLeft=previousLeft; PageInstanceLeft.Instance=previousContext;
+            selected.SetValue(null, oldSelected);
+            LauncherInstanceContext.Instance = previousInstance;
         }
     }
     private static IEnumerable<DependencyObject> Walk(DependencyObject root) {

@@ -62,6 +62,7 @@ public sealed class KeybindingPageView<TEntry> where TEntry : InstanceKeybinding
     public Action ScrollHome = null!;
     public Func<TEntry, string, bool, string, Action, KeybindingPageButton> CreateButton = null!;
     public Func<string, string?, KeybindingPageGroup> CreateGroup = null!;
+    public Action<KeybindingPageRow>? PrepareRow;
     public Func<int, int, bool, int> RefreshCaptureBar = null!;
 }
 
@@ -190,6 +191,7 @@ public sealed class KeybindingPageController<TInstance, TEntry>
         Grid.SetColumn(button.Element, 1);
         KeyButtons.Add(entry.Key!, button);
         row.Children.Add(button.Element);
+        view.PrepareRow?.Invoke(row);
         return row;
     }
 

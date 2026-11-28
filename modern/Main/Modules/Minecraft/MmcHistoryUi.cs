@@ -60,10 +60,9 @@ internal static class MmcHistoryUi {
 
     private static void SelectRestore(MmcInstanceInspection source, ImmutableArray<MmcInstanceHistoryPoint> points) {
         if (points.IsEmpty) { ModMain.MyMsgBox("尚无可还原的 MMC 环境记录。", "MMC 环境记录"); return; }
-        int? selected = ModMain.MyMsgBoxSelect(points.Select(point => (IMyRadio)new MyRadioBox {
-            Text = point.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") + " · " + point.Label,
-            ToolTip = "环境文件：" + point.FileCount + "；记录代数：" + point.Generation
-        }), "选择 MMC 环境记录", "下一步", "取消");
+        int? selected = ModMain.SelectChoice(points.Select(point => new DialogChoice(
+            point.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") + " · " + point.Label,
+            "环境文件：" + point.FileCount + "；记录代数：" + point.Generation)), "选择 MMC 环境记录", "下一步", "取消");
         if (selected is null || selected < 0 || selected >= points.Length) return;
         var chosen = points[selected.Value];
         if (!RequestRestoreConfirmation(chosen)) return;
@@ -116,7 +115,7 @@ internal static class MmcHistoryUi {
         var combo = new MmcOperationCombo<string>(fence, name, [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(root); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

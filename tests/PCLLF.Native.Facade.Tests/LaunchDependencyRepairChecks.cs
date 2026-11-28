@@ -24,11 +24,10 @@ internal static partial class DependencyCases<TContext, TMod, TDependency, TEdge
         Native.Check(PlanList(plan, "Enables").Count == 1 && PlanList(plan, "Items").Count == 0,
             "Exact platform-required compatible disabled dependency has no enable action: " + string.Join("; ", PlanNotes(plan)));
         TReport evidence = PlanReport(plan);
-        FrameworkElement view = (FrameworkElement)LaunchConstruct("PCL.ModDependencyCheckView", evidence, plan);
-        var cards = ((System.Windows.Controls.Panel)Native.Get(view, "Groups")!).Children.OfType<MyCard>().ToArray();
-        Native.Check(cards.Any(card => card.Title.StartsWith("可启用", StringComparison.Ordinal)) &&
-            !cards.Any(card => card.Title.StartsWith("平台声明与本地状态", StringComparison.Ordinal)),
-            "A safely repairable platform dependency is still duplicated as manual review.");
+        string[] captions = LaunchViewText(LaunchCheckView(evidence, plan)).ToArray();
+        Native.Check(captions.Any(text => text.StartsWith("可启用", StringComparison.Ordinal)) &&
+            !captions.Any(text => text.StartsWith("平台声明与本地状态", StringComparison.Ordinal)),
+            "A safely repairable platform dependency is duplicated as manual review.");
         string duplicate = Path.Combine(f.Mods, "another-library.jar.disabled"); File.Copy(disabled, duplicate);
         Native.Check(PlanList(f.Plan(), "Enables").Count == 0, "Ambiguous disabled candidates were automatically enabled."); File.Delete(duplicate);
         File.AppendAllText(disabled, "changed-after-lookup");

@@ -15,89 +15,32 @@ internal static class GlassContextNavigationChecks
 {
     internal static void Run(FixtureEnvironment environment)
     {
-        using var scope = new VisualAssetChecks.Scope(environment, "glass-context-navigation");
-        ModAnimation.AniControlEnabled++;
-        try
+        using var view = new PCLLF.Wpf.Glass.GlassLauncherView();
+        var watermark = (StackPanel)view.FindName("DevelopmentMark");
+        Native.Check(ReferenceEquals(watermark.Parent, view.FindName("BodyBackdropLayer")) && !watermark.IsHitTestVisible,
+            "The development mark must stay on the noninteractive background.");
+        if (string.Equals(ModBase.VersionBaseName, "dev_edition", StringComparison.Ordinal))
         {
-            Projection();
-            RadioPreview();
-            SelectedInstallClick();
+            var text = watermark.Children.OfType<TextBlock>().Select(label => label.Text).ToArray();
+            Native.Check(watermark.Visibility == Visibility.Visible && text.Length == 3 && text[0] == "DevEdition" &&
+                text[1] == "基线版本 " + ModBase.ReleaseBaselineVersion &&
+                text[2].StartsWith("构建于 ", StringComparison.Ordinal) &&
+                DateTime.TryParseExact(text[2][4..], "yyyy.MM.dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out _), "The development mark lost its baseline or dot-separated build time.");
         }
-        finally
-        {
-            ModAnimation.AniControlEnabled--;
-        }
-        Console.WriteLine("PASS glass context navigation: actual visible rows/icons/selection; original Click/check/preview order, cancellation and selected install action; no pointer injection.");
-    }
-
-    private static IReadOnlyList<GlassSidebarItem> Build(MyPageLeft page) =>
-        (IReadOnlyList<GlassSidebarItem>)Native.Static("PCL.GlassContextNavigation", "Build", page)!;
-
-    private static void Projection()
-    {
-        var page = new MyPageLeft();
-        var panel = new StackPanel();
-        page.Children.Add(panel);
-        var first = new MyListItem { Title = "概览", ToolTip = "当前实例的概览", Type = MyListItem.CheckType.RadioBox, Logo = "M0,0 H10 V10 H0 Z" };
-        var second = new MyListItem { Title = "设置", Type = MyListItem.CheckType.RadioBox };
-        var disabled = new MyListItem { Title = "不可用", Type = MyListItem.CheckType.RadioBox, IsEnabled = false };
-        var hidden = new MyListItem { Title = "隐藏", Type = MyListItem.CheckType.RadioBox, Visibility = Visibility.Collapsed };
-        var heading = new TextBlock { Text = "版本工具", FontSize = 12, Opacity = .6 };
-        var action = new MyListItem { Title = "文件夹管理", Type = MyListItem.CheckType.Clickable };
-        panel.Children.Add(first); panel.Children.Add(second); panel.Children.Add(disabled); panel.Children.Add(hidden); panel.Children.Add(heading); panel.Children.Add(action);
-        first.SetChecked(true, false, false);
-        IReadOnlyList<GlassSidebarItem> items = Build(page);
-        Native.Check(items.Select(item => item.Label).SequenceEqual(new[] { "概览", "设置", "不可用", "版本工具", "文件夹管理" }), "Context navigation order/visibility/deduplication differs from real source rows.");
-        // Category captions and one-shot action rows now live in the sidebar (the all-page-options portal was removed).
-        Native.Check(items[3].IsHeader && !items[3].IsSelected && items[4].IsCommand && !items[4].IsSelected && ReferenceEquals(items[4].Source, action),
-            "Sidebar caption or action row lost its role.");
-        int actionClicks = 0; action.Click += (_, _) => actionClicks++;
-        items[4].Invoked();
-        Native.Check(actionClicks == 1 && first.Checked, "An action row did not reach its original Click or changed the selected page.");
-        Native.Check(items[0].IsSelected && items[0].ToolTip == "当前实例的概览" && !string.IsNullOrWhiteSpace(items[0].IconData), "Context projection lost the actual selection, tooltip or logo geometry.");
-        Native.Check(items[1].IconData is null && items[1].Image is null && !items[2].IsEnabled, "A missing logo was replaced with invented navigation data, or a disabled action was enabled.");
-        var events = new List<string>();
-        second.Click += (sender, args) => { Native.Check(ReferenceEquals(sender, second) && args is null, "Proxy click fabricated pointer input or changed its sender."); events.Add("click"); };
-        second.Check += (_, args) => { Native.Check(args.RaiseByMouse, "Proxy activation lost the user-action flag."); events.Add("check"); };
-        items[1].Invoked();
-        Native.Check(!first.Checked && second.Checked && events.SequenceEqual(new[] { "click", "check" }), "Context proxy bypassed the actual Click/check pipeline or sibling radio selection.");
-        events.Clear(); items[1].Invoked();
-        Native.Check(events.SequenceEqual(new[] { "click" }), "An already selected row lost its Click action or emitted another check.");
-        int unavailableClicks = 0; disabled.Click += (_, _) => unavailableClicks++;
-        items[2].Invoked();
-        Native.Check(unavailableClicks == 0 && !disabled.Checked, "A disabled original row was activated by its projection.");
-        page.Width = 0;
-        Native.Check(Build(page).Count == 0 && Build(new MyPageLeft()).Count == 0, "A blank/zero-width left page created a contextual rail.");
-    }
-
-    private static void RadioPreview()
-    {
-        var page = new MyPageLeft();
-        var panel = new StackPanel(); page.Children.Add(panel);
-        var first = new MyRadioButton { Text = "第一个", Logo = "M0,0 H10 V10 H0 Z" };
-        var second = new MyRadioButton { Text = "第二个", Logo = "M0,0 L10,5 0,10 Z" };
-        panel.Children.Add(first); panel.Children.Add(second); first.SetChecked(true, false, false);
-        bool cancel = true;
-        var events = new List<string>();
-        second.PreviewClick += (_, args) => { Native.Check(args.RaiseByMouse, "Proxy radio preview lost its user-action flag."); events.Add("preview"); args.Handled = cancel; };
-        second.Check += (_, user) => { Native.Check(user, "Proxy radio check lost its user-action flag."); events.Add("check"); };
-        IReadOnlyList<GlassSidebarItem> items = Build(page);
-        items[1].Invoked();
-        Native.Check(first.Checked && !second.Checked && events.SequenceEqual(new[] { "preview" }), "Radio preview cancellation did not preserve the original selection.");
-        cancel = false; events.Clear(); items[1].Invoked();
-        Native.Check(!first.Checked && second.Checked && events.SequenceEqual(new[] { "preview", "check" }), "Radio proxy bypassed original preview/check ordering.");
-    }
-
-    private static void SelectedInstallClick()
-    {
-        var page = new PageDownloadLeft();
-        object controller = Native.Property(typeof(PageDownloadLeft), "Service").GetValue(page)!;
-        object host = Native.Get(controller, "host")!;
-        int exits = 0;
-        Native.Set(host, "ExitInstallSelection", (Action)(() => exits++));
-        GlassSidebarItem install = Build(page).Single(item => item.Label == "原版游戏");
-        Native.Check(install.IsSelected, "Actual install row should be selected by its original BAML.");
-        install.Invoked(); install.Invoked();
-        Native.Check(exits == 2, "Already selected install clicks no longer execute the real exit-install-selection handler.");
+        else Native.Check(watermark.Visibility == Visibility.Collapsed, "The development mark appeared in an official build.");
+        int activations = 0;
+        view.SetSidebar(new[] {
+            new PCLLF.Wpf.Glass.GlassSidebarItem { Label = "版本配置", IsHeader = true },
+            new PCLLF.Wpf.Glass.GlassSidebarItem {
+                Label = "设置", IconData = PCL.ModBase.Logo.IconButtonSetup, IsSelected = true, Invoked = () => activations++
+            }
+        });
+        var panel = (System.Windows.Controls.StackPanel)view.FindName("SidebarPanel");
+        var button = panel.Children.OfType<Grid>().SelectMany(row => row.Children.OfType<Button>())
+            .Single(action => System.Windows.Automation.AutomationProperties.GetName(action) == "设置");
+        button.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent, button));
+        Native.Check(activations == 1, "Native contextual navigation did not invoke one route.");
+        environment.AssertNoForbiddenIo();
     }
 }

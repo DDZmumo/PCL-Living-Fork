@@ -13,7 +13,10 @@ public sealed class ModpackExportPageView<TCheck> where TCheck : FrameworkElemen
     public Func<string> NameHint = null!;
     public Action<string> SetNameHint = null!, SetVersionHint = null!;
     public TCheck Basic = null!, Java = null!, Launcher = null!, Custom = null!, ModpackMode = null!, Isolation = null!, IncludeAssets = null!, Modrinth = null!, ShaderSettings = null!;
-    public StackPanel Options = null!, ResourcePacks = null!, Saves = null!, Shaders = null!;
+    public StackPanel Options = null!;
+    public Panel ResourcePacks = null!, Saves = null!, Shaders = null!;
+    public Func<bool, IEnumerable<TCheck>> ReadOptions = null!;
+    public Action RefreshGroups = null!;
     public FrameworkElement OverrideCancel = null!, CardOptions = null!, HintOptiFine = null!, HintJava = null!, HintModrinth = null!, Export = null!;
     public Func<InlineCollection> CardInlines = null!;
     public Action ScrollHome = null!;

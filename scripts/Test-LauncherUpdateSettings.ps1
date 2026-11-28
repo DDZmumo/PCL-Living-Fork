@@ -33,7 +33,7 @@ public static class SourceSettingsCheck {
  static Color ColorOf(Brush value){Require(value is SolidColorBrush,"Expected a solid semantic brush");return ((SolidColorBrush)value).Color;}
  static double Contrast(Color a,Color b){return (Math.Max(Lum(a),Lum(b))+0.05)/(Math.Min(Lum(a),Lum(b))+0.05);}
  static void CheckDarkChrome(Application app,Window window,string root,string preview){
-  var xml=new XmlDocument();xml.Load(Path.Combine(root,"Plain Craft Launcher 2/FormMain.xaml"));
+  var xml=new XmlDocument();xml.Load(Path.Combine(root,"modern/Main/FormMain.xaml"));
   var ns=new XmlNamespaceManager(xml.NameTable);ns.AddNamespace("x","http://schemas.microsoft.com/winfx/2006/xaml");
   var node=(XmlElement)xml.SelectSingleNode("//*[@x:Name='PanTitle']",ns);
   node.SetAttribute("xmlns:local","clr-namespace:PCL;assembly=LivingPCL");node.SetAttribute("xmlns:x","http://schemas.microsoft.com/winfx/2006/xaml");node.SetAttribute("xmlns","http://schemas.microsoft.com/winfx/2006/xaml/presentation");

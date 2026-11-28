@@ -73,6 +73,8 @@ public sealed partial class LegacyLaunchEngine<TInstance, TState, TCard, TOption
         host.RecoverWorlds(McInstanceSelected.PathIndie, token);
         using var localSkin = host.PrepareLocalSkin?.Invoke(McLoginLoader.Output, McLaunchJavaSelected, start, token);
         LegacyJavaLaunchIdentity? sessionIdentity = LegacyJavaLaunchIdentity.Prepare(start);
+        if (launchFreeTypeLibraries.Length > 0)
+            LegacyFreeTypeSecurityPatch.VerifyBeforeLaunch(launchFreeTypeLibraries, GetNativesFolder());
         token.ThrowIfCancellationRequested();
         Process game = host.StartProcess(start); McLaunchLog("已启动游戏进程：" + McLaunchJavaSelected.JavaExePath);
         sessionIdentity?.Bind(game);

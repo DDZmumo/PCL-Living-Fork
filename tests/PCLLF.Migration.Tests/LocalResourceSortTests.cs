@@ -8,6 +8,7 @@ internal static class LocalResourceSortTests {
         yield return ("local mod same-time and missing candidates have deterministic filename/path ties", StableTies);
         yield return ("local mod time sort refreshes cached metadata and handles disabled rename", CachedAndDisabled);
         yield return ("local mod sorting preserves bytes, metadata and source collection", ReadOnly);
+        yield return ("local resource file-name sort compares numbers by value, ignores case and reverses exactly", NameOrder);
         yield return ("local mod sort rejects invalid orders before enumerating or reading files", InvalidOrder);
         yield return ("local resource timestamp keys sort known values first with stable ties and single reads", TimestampKeys);
         yield return ("local resource creation sorting accepts real directories and missing directory entries", DirectoryEntries);
@@ -118,8 +119,17 @@ internal static class LocalResourceSortTests {
         Require(Directory.GetFiles(f.Root).Length == source.Length, "Sorting created a cache or metadata file.");
     }
 
+    private static void NameOrder() {
+        string[] names = ["mod10.jar", "Mod2.jar", "alpha.jar", "mod1.jar", "beta.jar.disabled"];
+        var ascending = LocalResourceSort.ByName(names, true, name => name, name => name);
+        Require(ascending.SequenceEqual(["alpha.jar", "beta.jar.disabled", "mod1.jar", "Mod2.jar", "mod10.jar"]),
+            "File-name order did not compare numbers by value or ignore case: " + string.Join(", ", ascending));
+        var descending = LocalResourceSort.ByName(names, false, name => name, name => name);
+        Require(descending.SequenceEqual(ascending.Reverse()), "Reverse file-name order was not the exact reverse.");
+    }
+
     private static void InvalidOrder() {
-        foreach (int value in new[] { -1, 3, int.MaxValue })
+        foreach (int value in new[] { -1, 5, int.MaxValue })
             Throws<ArgumentOutOfRangeException>(() => LocalResourceSort.Order(new[] { "anything" }, (LocalResourceSortOrder)value, _ => throw new Exception("Invalid mode read metadata.")));
         Throws<ArgumentNullException>(() => LocalResourceSort.Order<string>(null!, LocalResourceSortOrder.Default, _ => null!));
         Throws<ArgumentNullException>(() => LocalResourceSort.Order(new[] { "anything" }, LocalResourceSortOrder.Default, null!));

@@ -47,7 +47,12 @@ public class ModpackDialogController<TButton, TScroll> : Grid where TButton : Fr
         Filters.Columns = filterCount; Filters.Margin = new Thickness(0, 13, 4, 7);
         Filters.SizeChanged += (_, _) => {
             int count = Filters.Children.Count;
-            Filters.Columns = count == 5 ? Filters.ActualWidth < 600 ? 3 : 5 : count == 4 && Filters.ActualWidth < 420 ? 2 : count == 3 && Filters.ActualWidth < 430 ? 1 : Math.Max(1, count);
+            Filters.Columns = count switch {
+                5 when Filters.ActualWidth < 600 => 3,
+                4 when Filters.ActualWidth < 420 => 2,
+                3 when Filters.ActualWidth < 430 => 2,
+                _ => Math.Max(1, count)
+            };
         };
         SetRow(Filters, 1); Children.Add(Filters);
         Scroller = host.CreateScroll(); Scroller.Content = Rows; Scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto; Scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;

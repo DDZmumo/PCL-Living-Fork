@@ -40,89 +40,51 @@ namespace PCL
         private static ConcurrentQueue<MainHintData<HintType>> HintWaiting = new ConcurrentQueue<MainHintData<HintType>>();
         public static ConcurrentQueue<MyMsgBoxConverter> WaitingMyMsgBox = new ConcurrentQueue<MyMsgBoxConverter>();
         public static bool IsAprilGiveup = false;
-        public static object DragControl = null;
         // 窗体声明
         public static FormMain FrmMain;
         public static SplashScreen FrmStart;
 
         // 页面声明（出于单元测试考虑，初始化页面已转入 FormMain 中）
-        public static PageLaunchLeft FrmLaunchLeft;
-        public static PageLaunchRight FrmLaunchRight;
-        public static PageSelectLeft FrmSelectLeft;
-        public static PageSelectRight FrmSelectRight;
-        public static PageSpeedLeft FrmSpeedLeft;
-        public static PageSpeedRight FrmSpeedRight;
 
         // 联机页面声明
 #if LEGACY_LINK
-        public static PageLinkMain FrmLinkMain;
 #endif
         // 下载页面声明
-        public static PageDownloadLeft FrmDownloadLeft;
         public static PageDownloadInstall FrmDownloadInstall;
-        public static PageDownloadMod FrmDownloadMod;
-        public static PageDownloadPack FrmDownloadPack;
-        public static PageDownloadDataPack FrmDownloadDataPack;
-        public static PageDownloadShader FrmDownloadShader;
-        public static PageDownloadResourcePack FrmDownloadResourcePack;
 
         // 设置页面声明
-        public static PageSetupLeft FrmSetupLeft;
-        public static PageSetupLaunch FrmSetupLaunch;
-        public static PageSetupUI FrmSetupUI;
         public static PageSetupSystem FrmSetupSystem;
-        public static PageSetupUpdate FrmSetupUpdate;
         public static PageSetupPersonal FrmSetupPersonal;
 #if LEGACY_LINK
-        public static PageSetupLink FrmSetupLink;
 #endif
         // 其他页面声明
-        public static PageOtherLeft FrmOtherLeft;
-        public static PageOtherHelp FrmOtherHelp;
-        public static PageOtherAbout FrmOtherAbout;
         public static PageOtherTest FrmOtherTest;
 
         // 登录页面声明
-        public static PageLoginLegacy FrmLoginLegacy;
-        public static PageLoginNide FrmLoginNide;
-        public static PageLoginNideSkin FrmLoginNideSkin;
-        public static PageLoginAuth FrmLoginAuth;
-        public static PageLoginAuthSkin FrmLoginAuthSkin;
-        public static PageLoginMs FrmLoginMs;
-        public static PageLoginMsSkin FrmLoginMsSkin;
 
         // 版本设置页面声明
-        public static PageInstanceLeft FrmInstanceLeft;
         public static PageInstanceOverall FrmInstanceOverall;
         public static PageInstanceMod FrmInstanceMod;
         public static PageInstanceModDisabled FrmInstanceModDisabled;
-        public static PageInstanceSetup FrmInstanceSetup;
         public static PageInstanceExport FrmInstanceExport;
         public static PageDownloadModify FrmDownloadModify;
 
         // 资源信息分页声明
-        public static PageDownloadResourceDetail FrmDownloadResourceDetail;
-        public static PageFavorites FrmFavorites;
-        public static PageDownloadLeft FrmFavoritesLeft;
 
         private readonly static MainHintRuntime<HintType> NativeHints = new MainHintRuntime<HintType>(new MainHintHost<HintType>()
         {
             Queue = new Func<ConcurrentQueue<MainHintData<HintType>>>(() => HintWaiting),
-            Panel = new Func<Panel>(() => FrmMain.PanHint),
-            NewUuid = ModBase.GetUuid,
-            Animations = ReadAnimations,
-            IsAnimationRunning = ModAnimation.AniIsRun,
-            Blue = HintType.Blue,
-            Green = HintType.Green
+            Deliver = current => FrmMain?.TryShowGlassHint(current.Text, current.Type) == true,
+            DismissAll = () => FrmMain?.TryDismissGlassHints()
         });
 
-        // Same LF single queue/model and actual constructors, now ordinary C# initializers.
         private static readonly MainMessageRuntime<MyMsgBoxConverter, MyMsgBoxType, Validate> NativeMessages = new(new MainMessageHost<MyMsgBoxConverter, MyMsgBoxType> {
-            Window = () => FrmMain, Panel = () => FrmMain?.PanMsg, DragStop = () => FrmMain.DragStop(), IsUiThread = () => ModBase.RunInUi(),
+            Window = () => FrmMain, CanPresent = () => FrmMain?.CanPresentGlassMessage == true,
+            DragStop = () => FrmMain?.DragStop(), IsUiThread = () => ModBase.RunInUi(),
+            IsDirectMessageActive = () => FrmMain?.GlassMessageActive == true,
+            PresentDirectMessage = message => FrmMain?.TryPresentGlassMessage(message) == true,
             Queue = () => WaitingMyMsgBox, Create = () => new MyMsgBoxConverter(),
-            Text = MyMsgBoxType.Text, Select = MyMsgBoxType.Select, Input = MyMsgBoxType.Input, Login = MyMsgBoxType.Login,
-            CreateInput = value => new MyMsgInput(value), CreateSelect = value => new MyMsgSelect(value),
-            CreateText = value => new MyMsgText(value), CreateLogin = value => new MyMsgLogin(value)
+            Text = MyMsgBoxType.Text, Select = MyMsgBoxType.Select, Input = MyMsgBoxType.Input, Login = MyMsgBoxType.Login
         });
         private static readonly MainArgumentRuntime NativeArguments = new(new MainArgumentHost {
             VersionName = () => ModBase.VersionBaseName, VersionCode = () => ModBase.VersionCode,
@@ -151,7 +113,7 @@ namespace PCL
         {
             HintTick = HintTick,
             MessageTick = MyMsgBoxTick,
-            DragTick = new Action(() => FrmMain.DragTick()),
+            DragTick = () => { },
             TaskbarRefresh = ModLoader.LoaderTaskbarProgressRefresh,
             Ui = new Action<Action>(Work => ModBase.RunInUi(Work)),
             UiWait = new Action<Action>(Work => ModBase.RunInUiWait(Work)),
@@ -159,18 +121,18 @@ namespace PCL
             Window = new Func<Window>(() => FrmMain),
             Hidden = new Func<bool>(() => FrmMain.Hidden),
             ShowAprilButton = new Func<bool>(() => FrmMain.BtnExtraApril_ShowCheck()),
-            AprilRibble = new Action(() => FrmMain.BtnExtraApril.Ribble()),
+            AprilRibble = new Action(() => FrmMain.PulseGiveUpButton()),
             AprilYear = new Func<int>(() => Settings.Get<int>("AprilYear")),
             AprilGiveUp = new Func<bool>(() => IsAprilGiveup),
-            HasLaunchPage = new Func<bool>(() => FrmLaunchLeft is not null),
+            HasLaunchPage = new Func<bool>(() => FrmMain.GlassView?.IsLoaded == true),
             IsLaunchPage = new Func<bool>(() => FrmMain.PageCurrent == (FormMain.PageStackData)FormMain.PageType.Launch),
             AnimationControl = new Func<int>(() => ModAnimation.AniControlEnabled),
             LastMouse = new Func<MouseEventArgs>(() => FrmMain.lastMouseArg),
-            LaunchButton = new Func<FrameworkElement>(() => FrmLaunchLeft.BtnLaunch),
-            MainPanel = new Func<FrameworkElement>(() => FrmMain.PanMain),
-            FormPanel = new Func<FrameworkElement>(() => FrmMain.PanForm),
-            AprilPosition = new Func<TranslateTransform>(() => FrmLaunchLeft.AprilPosTrans),
-            AprilScale = new Func<ScaleTransform>(() => FrmLaunchLeft.AprilScaleTrans),
+            LaunchButton = new Func<FrameworkElement>(() => FrmMain.GlassView.AprilLaunchButton),
+            MainPanel = new Func<FrameworkElement>(() => FrmMain.GlassView),
+            FormPanel = new Func<FrameworkElement>(() => FrmMain.GlassView),
+            AprilPosition = new Func<TranslateTransform>(() => FrmMain.GlassView.AprilPosition),
+            AprilScale = new Func<ScaleTransform>(() => FrmMain.GlassView.AprilScale),
             RandomInteger = ModBase.RandomInteger,
             RedHint = new Action<string>(Text => Hint(Text, HintType.Red))
         });
@@ -197,16 +159,13 @@ namespace PCL
             Website = new Action<string>(Address => ModBase.OpenWebsite(Address))
         });
 
-        private static ControlAnimations ReadAnimations()
-        {
-            PresentationRuntime.EnsureConfigured();
-            return ControlServices.Current.Animations;
-        }
         private static MainHelpHost<CustomEvent.EventType> CreateHelpHost()
         {
             return new MainHelpHost<CustomEvent.EventType>()
             {
-                ArgumentReplace = new Func<string, Func<string, string>, string>((Text, Escape) => ArgumentReplace(Text, Escape)),
+                ArgumentReplace = LauncherMarkup.ExpandPublicTokens,
+                ReadContent = (path, metadata) => LauncherContentDownload.ReadFile(path,
+                    metadata ? LauncherContentDownload.HelpMetadataBytes : LauncherContentDownload.MarkupBytes),
                 BasePath = new Func<string>(() => Paths.Base),
                 TempPath = new Func<string>(() => ModBase.PathTemp),
                 ImagePath = new Func<string>(() => ModBase.PathImage),
@@ -214,15 +173,6 @@ namespace PCL
                 HelpVersion = new Func<int>(() => Settings.Get<int>("SystemHelpVersion")),
                 SetHelpVersion = new Action<int>(Value => Settings.Set("SystemHelpVersion", Value)),
                 ExtractResources = new Action<string, string>((Path, Name) => ModBase.ExtractResources(Path, Name)),
-                PopupEvent = CustomEvent.EventType.弹出窗口,
-                CreateRow = new Func<MyListItemView>(() => new MyListItem()),
-                ClearCustomEvent = new Action<MyListItemView>(Row =>
-                    {
-                        CustomEventService.SetEventType(Row, CustomEvent.EventType.None);
-                        CustomEventService.SetEventData(Row, null);
-                    }),
-                ConnectClick = new Action<MyListItemView, Action<object>>((Row, Handler) => ((MyListItem)Row).Click += (Sender, Args) => Handler(Sender)),
-                OpenEntry = new Action<object>(Entry => PageOtherHelp.OnItemClick((HelpEntry)Entry))
             };
         }
         public class HelpEntry : MainHelpEntryData<CustomEvent.EventType>
@@ -230,14 +180,10 @@ namespace PCL
             public HelpEntry(string FilePath) : base(FilePath, NativeHelpHost)
             {
             }
-            public new MyListItem ToListItem()
-            {
-                return (MyListItem)base.ToListItem();
-            }
-            public MyListItem SetToListItem(MyListItem Item)
-            {
-                return (MyListItem)base.SetToListItem(Item);
-            }
+
+            internal HelpEntry(string source, Func<string> readMetadata, Func<string> readMarkup)
+                : base(source, NativeHelpHost, readMetadata, readMarkup) { }
+
         }
         private static void HelpLoad(ModLoader.LoaderTask<int, List<HelpEntry>> Loader)
         {
@@ -267,21 +213,22 @@ namespace PCL
         {
             return ModMain.NativeMessages.Input(Title, Text, DefaultInput, ValidateRules, HintText, Button1, Button2, IsWarn);
         }
-        public static int? MyMsgBoxSelect(IEnumerable<IMyRadio> Selections, string Title = "提示", string Button1 = "确定", string Button2 = "", bool IsWarn = false)
-        {
-            return ModMain.NativeMessages.Select(Selections, Title, Button1, Button2, IsWarn);
-        }
+        internal static int? SelectChoice(IEnumerable<DialogChoice> choices, string title, string confirm = "确定", string cancel = "")
+            => NativeMessages.Select(choices.ToArray(), title, confirm, cancel);
         public static void MyMsgBoxTick()
         {
             ModMain.NativeMessages.Tick();
         }
-        internal static void MyMsgBoxContent(string Caption, string Title, Func<FrameworkElement> Factory)
+        internal static void MyMsgBoxContent<TContent>(string Caption, string Title, Func<TContent> Factory) where TContent : FrameworkElement
         {
-            ModMain.NativeMessages.Content(Caption, Title, Factory);
+            ModMain.NativeMessages.Content(Caption, Title, Factory, typeof(IGlassDialogContent).IsAssignableFrom(typeof(TContent)));
         }
-        internal static int MyMsgBoxConfirmContent(string Caption, string Title, string ConfirmText, Func<FrameworkElement> Factory, string CancelText = "取消", string ThirdText = "", int WarningButton = 1, bool IsWarn = true)
+        internal static int MyMsgBoxConfirmContent<TContent>(string Caption, string Title, string ConfirmText,
+            Func<TContent> Factory, string CancelText = "取消", string ThirdText = "", int WarningButton = 1, bool IsWarn = true)
+            where TContent : FrameworkElement
         {
-            return ModMain.NativeMessages.ConfirmContent(Caption, Title, ConfirmText, Factory, CancelText, ThirdText, WarningButton, IsWarn);
+            return ModMain.NativeMessages.ConfirmContent(Caption, Title, ConfirmText, Factory, CancelText, ThirdText, WarningButton, IsWarn,
+                typeof(IGlassDialogContent).IsAssignableFrom(typeof(TContent)));
         }
         public static bool IsAprilEnabled
         {

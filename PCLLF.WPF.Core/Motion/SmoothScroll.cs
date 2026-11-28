@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace PCLLF.Wpf.Motion;
@@ -16,7 +17,7 @@ namespace PCLLF.Wpf.Motion;
 /// Inertial wheel scrolling for pixel-based <see cref="ScrollViewer"/>s: each notch moves a target offset and the
 /// viewport glides towards it with an exponential ease (fast start, soft landing). Consecutive notches accumulate,
 /// so flicking the wheel builds speed. Nested scrollers hand the wheel to their parent at either end. Reduced motion,
-/// item-based scrolling (CanContentScroll) and touchpad horizontal input keep the default behaviour.
+/// item-based scrolling and touchpad horizontal input keep the default behaviour.
 /// </summary>
 public static class SmoothScroll {
     public static readonly DependencyProperty IsEnabledProperty = DependencyProperty.RegisterAttached(
@@ -42,10 +43,22 @@ public static class SmoothScroll {
         if ((bool)args.NewValue) scroll.SetValue(StateProperty, new State(scroll));
     }
 
+    private static bool UsesPixelOffsets(ScrollViewer scroll) {
+        if (!scroll.CanContentScroll) return true;
+        // A recycling items host can expose pixel offsets while owning the scrolling itself.
+        if (scroll.Content is not ItemsPresenter presenter ||
+            VisualTreeHelper.GetChildrenCount(presenter) == 0 ||
+            VisualTreeHelper.GetChild(presenter, 0) is not VirtualizingStackPanel panel ||
+            !ReferenceEquals(panel.ScrollOwner, scroll))
+            return false;
+        return ItemsControl.GetItemsOwner(panel) is { } items &&
+            VirtualizingPanel.GetScrollUnit(items) == ScrollUnit.Pixel;
+    }
+
     private sealed class State : IDisposable {
         private readonly ScrollViewer _scroll;
         private readonly Stopwatch _clock = new();
-        private double _target, _position, _last, _written = double.NaN;
+        private double _target, _position, _last, _written;
         private bool _running, _writing;
 
         internal State(ScrollViewer scroll) {
@@ -56,11 +69,16 @@ public static class SmoothScroll {
         }
 
         private void OnWheel(object sender, MouseWheelEventArgs args) {
-            if (args.Handled || _scroll.CanContentScroll || !MotionPreferences.AllowsAnimation || _scroll.ScrollableHeight <= 0) return;
+            if (args.Handled || !MotionPreferences.AllowsAnimation || _scroll.ScrollableHeight <= 0 ||
+                !UsesPixelOffsets(_scroll)) return;
             if (Keyboard.Modifiers != ModifierKeys.None) return;
+            // A popup can route input through its placement target in another HWND.
+            var source = args.OriginalSource as DependencyObject;
+            if (source is not null && PresentationSource.FromDependencyObject(source) is HwndSource inputWindow &&
+                PresentationSource.FromVisual(_scroll) is HwndSource scrollWindow && inputWindow != scrollWindow) return;
             // Preview events tunnel outer-first: leave the wheel to a nested scroller under the pointer.
             // An inner scroller already at its end in the wheel direction passes the wheel on to this one.
-            if (NearestScroller(args.OriginalSource as DependencyObject, args.Delta) is { } inner && !ReferenceEquals(inner, _scroll)) return;
+            if (NearestScroller(source, args.Delta) is { } inner && !ReferenceEquals(inner, _scroll)) return;
             double start = _running ? _target : _scroll.VerticalOffset;
             double next = Math.Clamp(start - args.Delta / 120d * NotchDistance, 0, _scroll.ScrollableHeight);
             // At an end, let an outer scroller take the wheel instead of swallowing it.
@@ -68,7 +86,7 @@ public static class SmoothScroll {
             args.Handled = true;
             _target = next;
             if (!_running) {
-                _position = _scroll.VerticalOffset;
+                _position = _written = _scroll.VerticalOffset;
                 _running = true;
                 _activeCount++;
                 _clock.Restart(); _last = 0;
@@ -89,7 +107,7 @@ public static class SmoothScroll {
 
         // Scrollbar drags, keyboard and programmatic scrolls take over immediately.
         private void OnScrollChanged(object sender, ScrollChangedEventArgs args) {
-            if (_writing || !_running || Math.Abs(args.VerticalChange) < .01) return;
+            if (!ReferenceEquals(args.OriginalSource, _scroll) || _writing || !_running || Math.Abs(args.VerticalChange) < .01) return;
             // Offsets apply on the next layout pass, so compare with what this glide last wrote.
             if (Math.Abs(_scroll.VerticalOffset - _written) > 1) { _position = _target = _scroll.VerticalOffset; Stop(); }
         }

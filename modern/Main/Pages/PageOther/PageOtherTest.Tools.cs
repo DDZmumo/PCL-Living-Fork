@@ -2,7 +2,8 @@ using System;
 using System.Threading;
 using System.Windows.Input;
 using PCLCS;
-using PCLLF.Presentation.Controls;
+using PCLLF.Wpf.Glass;
+using System.Windows.Controls;
 
 namespace PCL
 {
@@ -18,7 +19,7 @@ namespace PCL
             get
             {
                 if (_controller is null)
-                    _controller = new LegacyToolboxPageController<PCL.ModNet.NetFile, PCL.ModNet.LoaderDownload, PCL.ModLoader.LoaderTask<int, int>, PCL.ModLoader.LoaderCombo<int>>(AuxiliaryPageRuntime.Tools, new LegacyToolboxPageView() { Url = new Func<MyTextBoxView>(() => this.TextDownloadUrl), Folder = new Func<MyTextBoxView>(() => this.TextDownloadFolder), Name = new Func<MyTextBoxView>(() => this.TextDownloadName), Start = new Func<MyButtonView>(() => this.BtnDownloadStart), Open = new Func<MyButtonView>(() => this.BtnDownloadOpen), Clear = new Func<MyButtonView>(() => this.BtnClear), Loaded = new Func<bool>(() => PageLoaded), SetLoaded = new Action<bool>(Value => PageLoaded = Value) });
+                    _controller = new LegacyToolboxPageController<PCL.ModNet.NetFile, PCL.ModNet.LoaderDownload, PCL.ModLoader.LoaderTask<int, int>, PCL.ModLoader.LoaderCombo<int>>(AuxiliaryPageRuntime.Tools, new LegacyToolboxPageView() { Url = new Func<GlassValidatedTextBox>(() => this.TextDownloadUrl), Folder = new Func<GlassValidatedTextBox>(() => this.TextDownloadFolder), Name = new Func<GlassValidatedTextBox>(() => this.TextDownloadName), Start = new Func<Button>(() => this.BtnDownloadStart), Open = new Func<Button>(() => this.BtnDownloadOpen), Clear = new Func<Button>(() => this.BtnClear), Loaded = new Func<bool>(() => PageLoaded), SetLoaded = new Action<bool>(Value => PageLoaded = Value) });
                 return _controller;
             }
         }
@@ -58,9 +59,20 @@ namespace PCL
 
         public PageOtherTest()
         {
-            __LfAttachOwnHandles();
-            this.InitializeComponent();
+            InitializeComponent();
+            AttachScroll(PanBack);
             Controller.InitializeValidation();
+            Loaded += (_, _) => MeLoaded();
+            TextDownloadUrl.TextChanged += (_, _) => { TextDownloadUrl_TextChanged(); StartButtonRefresh(); };
+            TextDownloadFolder.TextChanged += (_, _) => { SaveCacheDownloadFolder(); StartButtonRefresh(); };
+            TextDownloadName.TextChanged += (_, _) => StartButtonRefresh();
+            TextDownloadUrl.KeyDown += TextDownloadUrl_KeyDown;
+            TextDownloadName.KeyDown += TextDownloadUrl_KeyDown;
+            BtnDownloadStart.Click += (_, _) => BtnDownloadStart_Click();
+            BtnDownloadSelect.Click += (_, _) => BtnDownloadSelect_Click();
+            BtnDownloadOpen.Click += (_, _) => BtnDownloadOpen_Click();
+            BtnClear.Click += (_, _) => BtnClear_Click();
+            BtnMemory.Click += (_, _) => BtnMemory_Click();
         }
 
         private void MeLoaded()

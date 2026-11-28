@@ -107,7 +107,7 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
     private IResourcePageBackupGroup<TInstance> BackupGroup(string name) {
         if (!BackupGroups.TryGetValue(name, out IResourcePageBackupGroup<TInstance>? group)) {
             group = View.CreateBackupGroup(BackupSelectionChanged, () => View.CommitBackupSettings());
-            group.Element.Margin = new Thickness(39, 5, 0, 10);
+            group.Element.Margin = new Thickness(View.ToolbarWrapsContent ? 24 : 39, 5, 0, 10);
             BackupGroups.Add(name, group);
         }
         group.Bind(Owner!, name, WorldBackupPoints.Where(point => string.Equals(point["world"]?.ToString(), name, StringComparison.OrdinalIgnoreCase)).ToList());
@@ -178,6 +178,16 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
             desired.Add(OrphanBackupCard.Element);
             View.LabEmpty.Visibility = Visibility.Collapsed;
         }
+        if (View.ToolbarWrapsContent && Owner is not null)
+        {
+            foreach (TEntry entry in visible)
+            {
+                var group = BackupGroups[entry.Name!].Element;
+                var margin = group.Margin;
+                double gap = names.Count == 0 && ReferenceEquals(entry, visible[^1]) ? 0 : 10;
+                if (margin.Bottom != gap) group.Margin = new Thickness(margin.Left, margin.Top, margin.Right, gap);
+            }
+        }
         foreach (UIElement element in View.PanWorlds.Children.OfType<UIElement>().Where(item => !desired.Contains(item)).ToList())
             View.PanWorlds.Children.Remove(element);
         for (int index = 0; index < desired.Count; index++) {
@@ -207,7 +217,6 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline>
         }
         int count = isBackup ? ids.Count : SelectedPaths.Count;
         View.LabSelect.Text = isBackup ? "已选择 " + count + " 份存档备份" : "已选择 " + count + " 个资源";
-        View.CardList.Element.Margin = new Thickness(0, 0, 0, count > 0 ? 95 : 15);
         BottomBarShownCount = View.RefreshSelectionBar(count, BottomBarShownCount, View.Root.IsLoaded && Host.AnimationEnabled());
     }
 

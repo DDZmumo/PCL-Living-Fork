@@ -17,23 +17,13 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     public void KeyDown(KeyEventArgs args) {
         if (args.IsRepeat) return;
         if (args.SystemKey is Key.LeftAlt or Key.RightAlt) args.Handled = true;
-        if (view.PanMsg().Children.Count > 0) {
-            if (args.Key == Key.Enter) host.FirstDialog().First();
-            else if (args.Key == Key.Escape) {
-                LegacyMainDialog dialog = host.FirstDialog();
-                if (!dialog.IsInputOrSelect && dialog.ThirdVisibility() == Visibility.Visible) dialog.Third();
-                else if (dialog.SecondVisibility() == Visibility.Visible) dialog.Second();
-                else dialog.First();
-            }
-            return;
-        }
+        if (view.HandleDirectMessageKey?.Invoke(args.Key) == true) return;
         if (args.Key == Key.Escape) {
             if (IsPage(PageCurrent, LegacyMainPage.Launch) && host.IsLaunching()) { host.CancelLaunch(); return; }
             TriggerPageBack();
         }
         if (args.Key == Key.F11 && IsPage(PageCurrent, LegacyMainPage.InstanceSelect)) { host.WriteHiddenVersions(!host.HiddenVersions()); host.ReloadInstanceList(true); return; }
-        if (args.Key == Key.F12 && view.UsesGlassShell?.Invoke() != true) { host.WriteHiddenForceShow(!host.HiddenForceShow()); Hint(host.HiddenForceShow() ? "功能隐藏设置已暂时关闭！" : "功能隐藏设置已重新开启！", LegacyMainHint.Green); host.RefreshHidden(); return; }
-        if (args.Key == Key.F5) { if (host.CanRefresh(PageLeft)) host.Refresh(PageLeft); if (host.CanRefresh(PageRight)) host.Refresh(PageRight); return; }
+        if (args.Key == Key.F5) { view.RefreshDirectPage?.Invoke(); return; }
         if (args.Key == Key.Enter && IsPage(PageCurrent, LegacyMainPage.Launch) && view.SuppressesLaunchKey?.Invoke() != true) { if (host.AprilEnabled() && !host.AprilGivenUp()) Hint("木大！"); else host.LaunchButton(); }
     }
     public void MouseDown(MouseButtonEventArgs args) {
@@ -42,12 +32,12 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
     }
     public void TriggerPageBack() {
         if (IsPage(PageCurrent, LegacyMainPage.Download) && PageCurrentSub == 0 && host.IsInstallSelection()) host.ExitInstallSelection();
-        else PageBack();
+        else host.NavigateBack();
     }
     public void Activated() {
         try {
             if (IsPage(PageCurrent, LegacyMainPage.InstanceSetup) && PageCurrentSub == 3) host.ReloadMods();
-            else if (IsPage(PageCurrent, LegacyMainPage.InstanceSetup) && (PageCurrentSub == 1 || PageCurrentSub == 5)) host.ReloadCurrentJava();
+            else if (IsPage(PageCurrent, LegacyMainPage.InstanceSetup) && PageCurrentSub == 19) host.ReloadCurrentJava();
             else if (IsPage(PageCurrent, LegacyMainPage.InstanceSelect)) host.ReloadInstanceList(false);
         } catch (Exception ex) { Logger.Error(ex, "切回窗口时出错"); }
         // LF's LEGACY_LINK clipboard-autojoin block returns unconditionally here (its revival TODO).
@@ -77,22 +67,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
                     string text = Conversions.ToString(args.Data.GetData(DataFormats.Text))!; Logger.Info($"接受文本拖拽：{text}");
                     if (text.StartsWithF("authlib-injector:yggdrasil-server:")) {
                         args.Handled = true; args.Effects = DragDropEffects.Copy;
-                        if (host.UsesGlobalAccounts) { Hint("请在账号页的外置登录中添加验证服务器。", LegacyMainHint.Red); return; }
-                        string server = StringUtils.FormUrlUnescape(text.Substring("authlib-injector:yggdrasil-server:".Length)); Logger.Info($"Authlib 拖拽：{server}");
-                        if (!string.IsNullOrEmpty(host.ValidateHttp(server))) { Hint($"输入的 Authlib 验证服务器不符合网址格式（{server}）！", LegacyMainHint.Red); return; }
-                        TInstance? target = IsPage(PageCurrent, LegacyMainPage.InstanceSetup) ? host.SettingsInstance() : host.SelectedInstance();
-                        if (target is null) { Hint("请先下载游戏，再设置第三方登录！", LegacyMainHint.Red); return; }
-                        if (server == "https://littleskin.cn/api/yggdrasil") {
-                            if (Message($"是否要在版本 {host.InstanceName(target)} 中开启 LittleSkin 登录？\r\n你可以在 版本设置 → 设置 → 服务器选项 中修改登录方式。", "第三方登录开启确认", second: "取消") == 2) return;
-                            host.WriteInstanceSetting("VersionServerLogin", 4, target); host.WriteInstanceSetting("VersionServerAuthServer", "https://littleskin.cn/api/yggdrasil", target);
-                            host.WriteInstanceSetting("VersionServerAuthRegister", "https://littleskin.cn/auth/register", target); host.WriteInstanceSetting("VersionServerAuthName", "LittleSkin 登录", target);
-                        } else {
-                            if (Message($"是否要在版本 {host.InstanceName(target)} 中开启第三方登录？\r\n登录服务器：{server}\r\n\r\n你可以在 版本设置 → 设置 → 服务器选项 中修改登录方式。", "第三方登录开启确认", second: "取消") == 2) return;
-                            host.WriteInstanceSetting("VersionServerLogin", 4, target); host.WriteInstanceSetting("VersionServerAuthServer", server, target);
-                            host.WriteInstanceSetting("VersionServerAuthRegister", server.Replace("api/yggdrasil", "auth/register"), target); host.WriteInstanceSetting("VersionServerAuthName", "", target);
-                        }
-                        if (IsPage(PageCurrent, LegacyMainPage.InstanceSetup) && PageCurrentSub == 1) host.ReloadInstanceSetup();
-                        else if (IsPage(PageCurrent, LegacyMainPage.Launch)) host.RefreshLaunchPage();
+                        Hint("请在账号页的外置登录中添加验证服务器。", LegacyMainHint.Red);
                     } else if (text.StartsWithF("file:///")) {
                         string file = WebUtility.UrlDecode(text)!.Substring("file:///".Length).Replace("/", @"\"); args.Handled = true; args.Effects = DragDropEffects.Copy; FileDrag(new List<string> { file });
                     }
@@ -129,8 +104,5 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         } catch (Exception ex) { Logger.Error(ex, "自主错误报告分析失败"); }
         Hint("PCL 无法确定适合的操作……", LegacyMainHint.Red);
     }, "文件拖拽");
-    public void DragTick() { if (host.DragControl() is null) return; if (Mouse.LeftButton != MouseButtonState.Pressed) DragStop(); }
-    public void DragDoing() { if (host.DragControl() is null) return; if (Mouse.LeftButton == MouseButtonState.Pressed) host.DragControl()!.DragDoing(); else DragStop(); }
-    public void DragStop() => host.Ui(() => { if (host.DragControl() is null) return; var control = host.DragControl(); host.ClearDragControl(); control!.DragStop(); });
     public void MouseMove(MouseEventArgs args) => host.WriteLastMouseArg(args);
 }

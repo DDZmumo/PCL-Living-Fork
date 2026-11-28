@@ -174,14 +174,10 @@ namespace PCL
                 AddAnimationSuppression = delta => global::PCL.ModAnimation.AniControlEnabled += delta,
                 LoadBackgroundResource = resource => (global::System.Windows.Media.ImageBrush)new global::PCL.MyBitmap(global::PCL.ModBase.PathImage + resource),
                 InstallTooltipTheme = global::PCL.ModernTooltipTheme.Install,
-                MainLoaded = new Func<global::System.Boolean>(() => (global::PCL.ModMain.FrmMain is not null && (global::PCL.ModMain.FrmMain.IsLoaded))),
+                MainLoaded = () => false,
                 Colorful = new Func<global::System.Boolean>(() => global::PCL.Settings.Get<bool>("UiBackgroundColorful")),
                 BackgroundMode = new Func<global::System.Int32>(() => global::PCL.Settings.Get<int>("UiBackgroundMode")),
-                SetTitleBackground = new Action<global::System.Windows.Media.Brush>(Brush => global::PCL.ModMain.FrmMain.PanTitle.Background = Brush),
-                TitleBackground = new Func<global::System.Windows.Media.Brush>(() => global::PCL.ModMain.FrmMain.PanTitle.Background),
-                MainPanel = new Func<global::System.Windows.Controls.Panel>(() => global::PCL.ModMain.FrmMain.PanForm),
-                BackgroundImage = new Func<global::System.Windows.UIElement>(() => global::PCL.ModMain.FrmMain.ImgBack),
-                ErrorToast = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text, global::MeloongCore.LogBehavior.Toast))
+                                                                                ErrorToast = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text, global::MeloongCore.LogBehavior.Toast))
             };
         }
         public static void ThemeRefresh(global::System.Int32 NewTheme = -(1))
@@ -195,9 +191,7 @@ namespace PCL
             bool dark = Settings.Get<int>("UiLauncherColorMode") == 1;
             void ApplyPalette() => PaletteService.Refresh(NewTheme);
             if (main?.TryRefreshGlassTheme(dark, ApplyPalette) == true) return;
-            if (main?.PanForm is { IsLoaded: true } root && ModTheme.IsDarkTheme != dark)
-                ThemeTransition.Apply(root, ApplyPalette);
-            else ApplyPalette();
+            ApplyPalette();
         }
         internal static global::System.Windows.Media.Brush CreateTitleBackground() => PaletteService.CreateTitleBackground();
         public static void ThemeRefreshMain()
@@ -216,14 +210,9 @@ namespace PCL
             {
                 var main = ModMain.FrmMain;
                 if (main is null) return;
-                if (main.PageRight is PageSetupUpdate update)
-                {
-                    update.RefreshReleases();
-                    return;
-                }
+                bool alreadyOpen = main.PageCurrent == FormMain.PageType.Setup && main.PageCurrentSub == FormMain.PageSubType.SetupUpdate;
                 main.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUpdate);
-                if (!ModLauncherUpdate.AutomaticCheckEnabled && main.PageRight is PageSetupUpdate opened)
-                    opened.RefreshReleases();
+                if (alreadyOpen || !ModLauncherUpdate.AutomaticCheckEnabled) main.CheckGlassLauncherUpdates();
             }
             if (dispatcher.CheckAccess()) Open(); else dispatcher.InvokeAsync(Open);
         }

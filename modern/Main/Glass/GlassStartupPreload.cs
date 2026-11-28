@@ -86,7 +86,7 @@ internal static class GlassStartupPreload
                 return;
             }
             // Pages the user most often opens next: built now (one per step) so the first visit does not stall.
-            if (_warmStep < WarmPages.Length) FormMain.PrewarmPage(WarmPages[_warmStep++]);
+            if (_warmStep < WarmPages.Length) ModMain.FrmMain?.PrepareWorkspacePage(WarmPages[_warmStep++]);
         }
         catch (Exception error) { Logger.Warn(error, "启动预加载步骤失败"); }
     }

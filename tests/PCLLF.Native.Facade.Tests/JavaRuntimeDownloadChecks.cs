@@ -27,15 +27,13 @@ internal static class JavaRuntimeDownloadChecks
             InstalledRuntimeIdentity(scope.Root, sample);
             ExpandedVendorChecksums(scope.Root, sample);
             SearchView(sample);
-            DistributionPicker();
-            ChoiceContrast();
             TaskStepsAndLayout();
             if (Environment.GetEnvironmentVariable("PCLLF_JAVA_RUNTIME_LIVE") is { Length: > 0 } vendor)
                 OfficialPackage(scope.Root, vendor).GetAwaiter().GetResult();
             environment.AssertNoForbiddenIo();
             Console.WriteLine("PASS Java runtime download: catalogue constraints, archive digest, bounded ZIP installation, reuse, cancellation, pinned nested JRE, removal and search lifecycle.");
         }
-        finally { ConfigProviders.Default = previous; }
+        finally { try { ConfigProviders.Default.Save(); } finally { ConfigProviders.Default = previous; } }
     }
 
     private static JavaRuntimePackage RoundTrip(string root)
@@ -68,15 +66,15 @@ internal static class JavaRuntimeDownloadChecks
         Java Install(JavaRuntimePackage candidate, JavaRuntimeArchive archive, CancellationToken token = default, Action<double>? progress = null) =>
             ((Task<Java>)Native.Call(typeof(ManagedJavaRuntimeStore), "InstallCoreAsync", store, candidate, archive,
                 token, progress, null, (Func<Java, CancellationToken, Task<bool>>)SyntheticProbe)!).GetAwaiter().GetResult();
-        long downloadedBefore = FileTaskProgress.DownloadedBytes, writtenBefore = FileTaskProgress.WrittenBytes;
+        long downloadedBefore = PCLCS.FileTaskProgress.DownloadedBytes, writtenBefore = PCLCS.FileTaskProgress.WrittenBytes;
         var downloadProgress = new List<double>();
         var progress = new List<double>();
         Java installed;
         using (var prepared = store.PrepareInstallAsync(package, source, CancellationToken.None, downloadProgress.Add).GetAwaiter().GetResult())
         {
             Native.Check(Configs.JavaList.Get()!.SequenceEqual(new[] { manual }) &&
-                FileTaskProgress.DownloadedBytes - downloadedBefore == zip.Length &&
-                FileTaskProgress.WrittenBytes == writtenBefore && FileTaskProgress.ActiveDownloads == 0 &&
+                PCLCS.FileTaskProgress.DownloadedBytes - downloadedBefore == zip.Length &&
+                PCLCS.FileTaskProgress.WrittenBytes == writtenBefore && PCLCS.FileTaskProgress.ActiveDownloads == 0 &&
                 downloadProgress.Count > 0 && downloadProgress[^1] == 1,
                 "Downloading Java changed the installed catalogue or reported ZIP bytes as installation writes.");
             installed = ((Task<Java>)Native.Call(typeof(ManagedJavaRuntimeStore), "InstallPreparedCoreAsync", store, prepared,
@@ -199,102 +197,19 @@ internal static class JavaRuntimeDownloadChecks
             "java.vm.name = OpenJDK 64-Bit Server VM\nos.arch = amd64\nsun.arch.data.model = 64\n");
     });
 
-    private static void SearchView(JavaRuntimePackage package)
-    {
-        var page = new PageSetupLaunch();
-        Native.Call(typeof(PageSetupLaunch), "BtnToggleJavaDownload_Click", page, null, null);
-        var results = (StackPanel)page.FindName("PanJavaDownloadResults");
-        var major = (MyTextBox)page.FindName("TextJavaDownloadMajor");
-        var stale = new TaskCompletionSource<IReadOnlyList<JavaRuntimePackage>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        CancellationToken first = default;
-        Task Search(Func<int, string, string, string, CancellationToken, Task<IReadOnlyList<JavaRuntimePackage>>> fetch) =>
-            (Task)Native.Call(typeof(PageSetupLaunch), "SearchJavaDownloadCatalogAsync", page, fetch)!;
-        Task initial = Search((_, _, _, _, token) => { first = token; return stale.Task; });
-        major.Text = "17";
-        Native.Check(first.IsCancellationRequested, "Changing the Java download filter did not cancel the earlier query.");
-        stale.SetResult([package]);
-        VisualAssetChecks.Pump(() => initial.IsCompleted, "discard the stale Java download result");
-        Native.Check(results.Children.Count == 0, "An obsolete catalogue request repopulated the Java panel.");
-        Search((_, _, _, _, _) => Task.FromResult<IReadOnlyList<JavaRuntimePackage>>([package]))
-            .GetAwaiter().GetResult();
-        Native.Check(results.Children is { Count: 1 } && results.Children[0] is MyListItem { Tag: JavaRuntimePackage displayed } &&
-            displayed.Id == package.Id, "The download panel lost the selected package identity.");
-        Native.Call(typeof(PageSetupLaunch), "BtnToggleJavaDownload_Click", page, null, null);
-    }
-
-    private static void DistributionPicker()
-    {
-        var page = new PageSetupLaunch();
-        Native.Call(typeof(PageSetupLaunch), "BtnToggleJavaDownload_Click", page, null, null);
-        ((FrameworkElement)page.FindName("BtnSearchJavaDownload")).IsEnabled = false;
-        var original = (ComboBox)page.FindName("ComboJavaDownloadDistribution");
-        var downloadPage = (PageSetupJavaDownload)Native.Property(typeof(PageSetupLaunch), "JavaDownloadPage").GetValue(page)!;
-        using var session = GlassPresentation.Create(downloadPage);
-        var window = new Window { Content = session.View, Width = 925, Height = 680, Left = -30000, Top = -30000,
-            ShowActivated = false, ShowInTaskbar = false };
-        try
-        {
-            window.Show(); window.UpdateLayout(); VisualAssetChecks.Drain();
-            Button FindButton(string label) => Children(session.View).OfType<Button>().Single(button => AutomationProperties.GetName(button) == label);
-            var all = FindButton("全部可下载");
-            var choose = FindButton("选择发行版");
-            var picker = Children(session.View).OfType<Expander>().Single(element => element.Name == "JavaVendorPicker");
-            var viewport = (FrameworkElement)picker.Template.FindName("PART_BodyViewport", picker);
-            var vendors = (Panel)picker.Content;
-            void Click(Button action) => action.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, action));
-            Native.Check(all.IsVisible && choose.IsVisible && Equals(all.Tag, true) && !viewport.IsVisible && vendors.Children.Count == 0,
-                "The default download view laid out the distribution list instead of its two filter actions.");
-
-            Click(choose);
-            if (PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) {
-                var tiles = vendors.Children.Cast<Button>().ToArray();
-                Native.Check(tiles.Length > 16 && tiles.All(tile => tile.Opacity == 0), "Some vendor tiles appeared before their entrance began.");
-                VisualAssetChecks.Pump(() => tiles[^1].Opacity is > .01 and < .99, "animate the last vendor card");
-                VisualAssetChecks.Pump(() => tiles.All(tile => tile.Opacity >= .999), "finish the full vendor cascade");
-            }
-            VisualAssetChecks.Pump(() => picker.IsExpanded && viewport.ActualHeight > 160, "reveal the vendor list beneath its buttons");
-            var ordered = vendors.Children.Cast<Button>().Select(AutomationProperties.GetName).ToArray();
-            Native.Check(ordered.Take(3).SequenceEqual(new[] { "Eclipse Temurin", "Microsoft Build of OpenJDK", "Azul Zulu" }) &&
-                ordered.Last() == "OJDKBuild" && ordered.Length == JavaRuntimeCatalog.Distributions.Count &&
-                ordered.ToHashSet().SetEquals(JavaRuntimeCatalog.Distributions.Values), "Vendor choices lost their common-first order or omitted a catalogue entry.");
-            Native.Check(viewport.TranslatePoint(new Point(0, 0), choose).Y >= choose.ActualHeight - 1 && original.SelectedIndex == 0,
-                "Opening the list overlaid the header or changed the filter early.");
-            Click((Button)vendors.Children[1]);
-            Native.Check(picker.IsExpanded && Equals((original.SelectedItem as ComboBoxItem)?.Tag, "microsoft") && Equals(choose.Tag, true) &&
-                AutomationProperties.GetName(choose).Contains("Microsoft Build of OpenJDK"), "Selecting a sorted card applied the wrong distribution or lost its selected label.");
-            Click((Button)vendors.Children[vendors.Children.Count - 1]);
-            Native.Check(picker.IsExpanded && Equals((original.SelectedItem as ComboBoxItem)?.Tag, "ojdk_build"),
-                "Selecting a second vendor required reopening the list.");
-            Click(choose);
-            VisualAssetChecks.Pump(() => !viewport.IsVisible, "manually collapse the vendor list");
-            Click(choose); Click(all);
-            VisualAssetChecks.Pump(() => !viewport.IsVisible, "collapse the vendor picker when returning to all distributions");
-            Native.Check(original.SelectedIndex == 0 && Equals(all.Tag, true) && Equals(choose.Tag, false), "All downloads did not clear the distribution filter.");
-        }
-        finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
-    }
-
-    private static void ChoiceContrast()
-    {
-        using GlassPresentationSession session = GlassPresentation.Create(new Grid());
-        var choice = (Button)Native.Call(typeof(GlassPresentationSession), "JavaChoice", session, "全部", (Action)(() => { }))!;
-        var host = new Border { Child = choice };
-        host.Resources["GlassPresentationText"] = Brushes.SlateGray;
-        foreach ((Brush fill, Brush ink) in new[] { (Brushes.White, Brushes.Black), (Brushes.Black, Brushes.White) })
-        {
-            host.Resources["GlassPresentationAccent"] = fill;
-            host.Resources["GlassPresentationOnAccent"] = ink;
-            Native.Static("PCL.GlassPresentationSession", "SetChoiceChosen", choice, true);
-            host.Measure(new Size(200, 80));
-            host.Arrange(new Rect(0, 0, 200, 80));
-            var surface = (Border)VisualTreeHelper.GetChild(choice, 0);
-            var label = surface.Child as TextBlock ?? (TextBlock)VisualTreeHelper.GetChild(surface.Child, 0);
-            Native.Check(label.Text == "全部" && ReferenceEquals(surface.Background, fill) && ReferenceEquals(label.Foreground, ink),
-                "The selected Java download filter did not render the matching foreground for its accent fill.");
-            Native.Static("PCL.GlassPresentationSession", "SetChoiceChosen", choice, false);
-            Native.Check(ReferenceEquals(label.Foreground, Brushes.SlateGray),
-                "The Java download filter did not restore its normal foreground when deselected.");
-        }
+    private static void SearchView(JavaRuntimePackage package) {
+        using var page = new GlassJavaDownloadPage();
+        page.Open(loadData: false);
+        var controls = Children(page).ToArray();
+        Button Action(string name) => controls.OfType<Button>().Single(button => AutomationProperties.GetName(button) == name);
+        var picker = controls.OfType<Expander>().Single();
+        Native.Check(!picker.IsExpanded, "Distribution choices should initially be collapsed.");
+        Action("选择发行版").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Native.Check(picker.IsExpanded, "Could not open the distribution choices.");
+        Action("Eclipse Temurin").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Native.Check(picker.IsExpanded, "Choosing a distribution unexpectedly closed the list.");
+        Action("全部可下载").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Native.Check(!picker.IsExpanded, "Showing all downloads did not close the chooser.");
     }
 
     private static void TaskStepsAndLayout()
@@ -320,8 +235,11 @@ internal static class JavaRuntimeDownloadChecks
         try
         {
             VisualAssetChecks.Pump(() => Volatile.Read(ref stage) == 2, "start the second Java task");
-            using GlassPresentationSession session = GlassPresentation.Create(new PageSpeedRight());
-            var view = session.View;
+            Type service = typeof(LauncherApplicationServices);
+            object manager = Native.Property(service, "TaskManager").GetValue(null)!;
+            Type viewType = Native.Type("PCL.GlassTaskManagerPage");
+            var view = (FrameworkElement)Activator.CreateInstance(viewType, Native.Flags, null, [manager], null)!;
+            Native.Call(viewType, "Open", view);
             view.Measure(new Size(265, 240));
             view.Arrange(new Rect(0, 0, 265, 240));
             var button = Children(view).OfType<Button>().Single(button => Equals(button.Content, "取消"));
@@ -344,10 +262,17 @@ internal static class JavaRuntimeDownloadChecks
 
     private static IEnumerable<DependencyObject> Children(DependencyObject element)
     {
-        yield return element;
-        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
-            foreach (DependencyObject child in Children(VisualTreeHelper.GetChild(element, index)))
-                yield return child;
+        var visited = new HashSet<DependencyObject>();
+        var pending = new Stack<DependencyObject>();
+        pending.Push(element);
+        while (pending.TryPop(out var item))
+        {
+            if (!visited.Add(item)) continue;
+            yield return item;
+            foreach (var child in LogicalTreeHelper.GetChildren(item).OfType<DependencyObject>()) pending.Push(child);
+            if (item is Visual)
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(item); index++) pending.Push(VisualTreeHelper.GetChild(item, index));
+        }
     }
 
     private static async Task OfficialPackage(string root, string vendor)

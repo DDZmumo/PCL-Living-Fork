@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,6 +19,7 @@ public class MainMessageData<TKind, TValidation> {
     public string? Title, Text;
     public object? Content;
     public Func<FrameworkElement>? ContentFactory;
+    public bool UseNativeContent;
     public Collection<TValidation>? ValidateRules;
     public string HintText = "";
     public bool HighLight;
@@ -31,17 +31,25 @@ public class MainMessageData<TKind, TValidation> {
     public DispatcherFrame WaitFrame = new(true);
     public bool IsExited;
     public object? Result;
+
+    public void Dismiss(Exception? error = null) {
+        if (IsExited) return;
+        Result = error;
+        IsExited = true;
+        WaitFrame.Continue = false;
+    }
 }
 
 public sealed class MainMessageHost<TMessage, TKind> {
     public Func<Window?> Window = null!;
-    public Func<Panel?> Panel = null!;
+    public Func<bool> CanPresent = null!;
+    public Func<bool> IsDirectMessageActive = null!;
+    public Func<TMessage, bool> PresentDirectMessage = null!;
     public Action DragStop = null!;
     public Func<bool> IsUiThread = null!;
     public Func<ConcurrentQueue<TMessage>> Queue = null!;
     public Func<TMessage> Create = null!;
     public TKind Text = default!, Select = default!, Input = default!, Login = default!;
-    public Func<TMessage, UIElement> CreateInput = null!, CreateSelect = null!, CreateText = null!, CreateLogin = null!;
 }
 
 public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
@@ -58,19 +66,9 @@ public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
         converter.Text = caption; converter.IsWarn = isWarn; converter.Title = title;
         converter.HighLight = highLight; converter.ForceWait = true;
         converter.Button1Action = button1Action; converter.Button2Action = button2Action; converter.Button3Action = button3Action;
-        if (button2.Length > 0 || forceWait) {
-            // Preserve LF's exact precedence and background-thread fallback boundary.
-            if (host.Window() is null || host.Panel() is null && host.IsUiThread()) {
-                if (button2.Length > 0) {
-                    MsgBoxResult result = Interaction.MsgBox(caption,
-                        (button3.Length > 0 ? MsgBoxStyle.YesNoCancel : MsgBoxStyle.YesNo) +
-                        (isWarn ? (int)MsgBoxStyle.Critical : (int)MsgBoxStyle.Question), title);
-                    switch (result) {
-                        case MsgBoxResult.Yes: converter.Result = 1; break;
-                        case MsgBoxResult.No: converter.Result = 2; break;
-                        case MsgBoxResult.Cancel: converter.Result = 3; break;
-                    }
-                } else {
+        if (button2.Length > 0 || button3.Length > 0 || forceWait) {
+            if (host.Window() is null || !host.CanPresent() && host.IsUiThread()) {
+                if (button2.Length == 0 && button3.Length == 0 && button1Action is null) {
                     Interaction.MsgBox(caption, MsgBoxStyle.OkOnly + (isWarn ? (int)MsgBoxStyle.Critical : (int)MsgBoxStyle.Question), title);
                     converter.Result = 1;
                 }
@@ -93,6 +91,7 @@ public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
 
     public string? Input(string? title, string? text = null, string? defaultInput = null,
         Collection<TValidation>? validateRules = null, string? hintText = "", string? button1 = "确定", string? button2 = "取消", bool isWarn = false) {
+        if (host.IsUiThread() && !host.CanPresent()) return null;
         TMessage converter = host.Create();
         converter.Text = text ?? ""; converter.HintText = hintText ?? ""; converter.Type = host.Input;
         converter.ValidateRules = validateRules ?? new Collection<TValidation>();
@@ -104,8 +103,8 @@ public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
         return Conversions.ToString(converter.Result);
     }
 
-    // The actual IEnumerable<IMyRadio> reference is stored as Content without enumerating/copying it.
     public int? Select(object? selections, string? title = "提示", string? button1 = "确定", string? button2 = "", bool isWarn = false) {
+        if (host.IsUiThread() && !host.CanPresent()) return null;
         TMessage converter = host.Create();
         converter.Type = host.Select; converter.Button1 = button1; converter.Button2 = button2;
         converter.Content = selections; converter.IsWarn = isWarn; converter.Title = title;
@@ -124,20 +123,22 @@ public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
         } finally { ComponentDispatcher.PopModal(); }
     }
 
-    public void Content(string? caption, string? title, Func<FrameworkElement>? factory) {
+    public void Content(string? caption, string? title, Func<FrameworkElement>? factory, bool useNativeContent = false) {
         TMessage converter = host.Create();
         converter.Type = host.Text; converter.Text = caption ?? ""; converter.Title = title ?? "提示";
-        converter.ContentFactory = factory; converter.HighLight = true; converter.ForceWait = true;
+        converter.ContentFactory = factory; converter.UseNativeContent = useNativeContent;
+        converter.HighLight = true; converter.ForceWait = true;
         host.Queue().Enqueue(converter);
     }
 
     public int ConfirmContent(string? caption, string? title, string? confirmText, Func<FrameworkElement>? factory,
-        string? cancelText = "取消", string? thirdText = "", int warningButton = 1, bool isWarn = true) {
-        if (host.Panel() is null) return Show(caption, title, confirmText, cancelText, thirdText, isWarn);
+        string? cancelText = "取消", string? thirdText = "", int warningButton = 1, bool isWarn = true, bool useNativeContent = false) {
+        if (!host.CanPresent()) return 0;
         TMessage converter = host.Create();
         converter.Type = host.Text; converter.Text = caption; converter.Title = title;
         converter.Button1 = confirmText; converter.Button2 = cancelText; converter.Button3 = thirdText;
         converter.IsWarn = isWarn; converter.WarningButton = warningButton; converter.ForceWait = true; converter.ContentFactory = factory;
+        converter.UseNativeContent = useNativeContent;
         host.Queue().Enqueue(converter);
         try {
             host.DragStop();
@@ -145,24 +146,21 @@ public sealed class MainMessageRuntime<TMessage, TKind, TValidation>
             ComponentDispatcher.PushModal();
             Dispatcher.PushFrame(converter.WaitFrame);
         } finally { ComponentDispatcher.PopModal(); }
-        return Conversions.ToInteger(converter.Result ?? 2);
+        return Conversions.ToInteger(converter.Result);
     }
 
     public void Tick() {
+        TMessage? target = null;
         try {
-            if (host.Panel() is null || host.Window()!.WindowState == WindowState.Minimized) return;
-            if (host.Panel()!.Children.Count > 0) {
-                host.Panel()!.Visibility = Visibility.Visible;
-            } else if (host.Queue().TryDequeue(out TMessage? target)) {
-                host.Panel()!.Visibility = Visibility.Visible;
-                if (Same(target.Type, host.Input)) host.Panel()!.Children.Add(host.CreateInput(target));
-                else if (Same(target.Type, host.Select)) host.Panel()!.Children.Add(host.CreateSelect(target));
-                else if (Same(target.Type, host.Text)) host.Panel()!.Children.Add(host.CreateText(target));
-                else if (Same(target.Type, host.Login)) host.Panel()!.Children.Add(host.CreateLogin(target));
-            } else if (host.Panel()!.Visibility != Visibility.Collapsed) {
-                host.Panel()!.Visibility = Visibility.Collapsed;
-            }
-        } catch (Exception ex) { Logger.Error(ex, "处理等待中的弹窗失败"); }
+            if (!host.CanPresent() || host.Window() is not { WindowState: not WindowState.Minimized } || host.IsDirectMessageActive()) return;
+            if (!host.Queue().TryDequeue(out target) || host.PresentDirectMessage(target)) return;
+            Dismiss(target);
+        } catch (Exception ex) {
+            if (target is not null) Dismiss(target);
+            Logger.Error(ex, "处理等待中的弹窗失败");
+        }
     }
-    private static bool Same(TKind first, TKind second) => EqualityComparer<TKind>.Default.Equals(first, second);
+
+    private void Dismiss(TMessage target) => target.Dismiss(
+        Equals(target.Type, host.Login) ? new OperationCanceledException() : null);
 }

@@ -46,10 +46,12 @@ public void McLaunchJava(LegacyLaunchTask<int, int> Task)
 
 
     private int? launchRamMiB;
+    private LegacyMinecraftLibrary[] launchFreeTypeLibraries = [];
 
     public void McLaunchArgumentMain(LegacyLaunchTask<string, int> Loader)
     {
         launchRamMiB = null;
+        launchFreeTypeLibraries = [];
         // 获取基础参数
         var Arguments = new List<string>();
         McLaunchLog("参数获取开始");
@@ -570,7 +572,9 @@ public IEnumerable<(string Key, string Value)> McLaunchArgumentsReplace(List<str
         // 支持库
         var Cps = new List<string>();
         string OptiFineCp = null;
-        foreach (LegacyMinecraftLibrary Library in SelectedJavaLibraries(true))
+        var libraries = SelectedJavaLibraries(true).ToArray();
+        launchFreeTypeLibraries = libraries.Where(library => library.RequiredSecuritySha256 is not null).ToArray();
+        foreach (LegacyMinecraftLibrary Library in libraries)
         {
             if (Library.IsNatives)
                 continue;

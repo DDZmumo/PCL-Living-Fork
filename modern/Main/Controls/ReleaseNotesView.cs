@@ -16,12 +16,12 @@ using Wpf = System.Windows.Documents;
 
 namespace PCL;
 
-internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
+internal sealed class ReleaseNotesView : FlowDocumentScrollViewer, IGlassDialogContent
 {
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
         .UsePipeTables().UseEmphasisExtras().UseAutoLinks().UseTaskLists().DisableHtml().Build();
     private readonly Action<string> openLink;
-    internal double PreferredWidth => 720;
+    public double PreferredWidth => 720;
 
     internal ReleaseNotesView(string markdown, Action<string> openLink = null)
     {
@@ -33,7 +33,7 @@ internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
         Height = Math.Clamp((ModMain.FrmMain?.ActualHeight ?? 640) - 220, 180, 440);
         Document = new FlowDocument { FontSize = 14, FontFamily = new FontFamily("Microsoft YaHei UI"), PagePadding = new Thickness(0, 0, 10, 0),
             ColumnWidth = double.PositiveInfinity, Background = Brushes.Transparent };
-        Document.SetResourceReference(TextElement.ForegroundProperty, "ColorBrush1");
+        Document.SetResourceReference(TextElement.ForegroundProperty, "GlassPresentationText");
         AppendBlocks(Document.Blocks, Markdown.Parse(string.IsNullOrWhiteSpace(markdown) ? "该版本暂无更新说明。" : markdown, Pipeline));
     }
 
@@ -67,18 +67,18 @@ internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
                     break;
                 case Md.QuoteBlock quote:
                     var section = new Section { BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(12, 3, 0, 3), Margin = new Thickness(0, 4, 0, 12) };
-                    section.SetResourceReference(Block.BorderBrushProperty, "ColorBrush5");
+                    section.SetResourceReference(Block.BorderBrushProperty, "GlassPresentationEdge");
                     AppendBlocks(section.Blocks, quote); target.Add(section);
                     break;
                 case Md.CodeBlock code:
                     var codeText = new Paragraph(new Run(code.Lines.ToString())) { FontFamily = new FontFamily("Consolas"), FontSize = 13,
                         Padding = new Thickness(10, 8, 10, 8), Margin = new Thickness(0, 4, 0, 12) };
-                    codeText.SetResourceReference(TextElement.BackgroundProperty, "ColorBrushGray8");
+                    codeText.SetResourceReference(TextElement.BackgroundProperty, "GlassPresentationField");
                     target.Add(codeText);
                     break;
                 case Md.ThematicBreakBlock:
                     var line = new Paragraph { BorderThickness = new Thickness(0, 0, 0, 1), Margin = new Thickness(0, 8, 0, 12) };
-                    line.SetResourceReference(Block.BorderBrushProperty, "ColorBrushGray5"); target.Add(line);
+                    line.SetResourceReference(Block.BorderBrushProperty, "GlassPresentationSeparator"); target.Add(line);
                     break;
                 case Markdig.Extensions.Tables.Table table:
                     var grid = new Wpf.Table { CellSpacing = 0, Margin = new Thickness(0, 4, 0, 12) };
@@ -86,11 +86,11 @@ internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
                     foreach (Markdig.Extensions.Tables.TableRow row in table)
                     {
                         var renderedRow = new Wpf.TableRow();
-                        if (row.IsHeader) { renderedRow.FontWeight = FontWeights.SemiBold; renderedRow.SetResourceReference(TextElement.BackgroundProperty, "ColorBrush8"); }
+                        if (row.IsHeader) { renderedRow.FontWeight = FontWeights.SemiBold; renderedRow.SetResourceReference(TextElement.BackgroundProperty, "GlassPresentationSelected"); }
                         foreach (Markdig.Extensions.Tables.TableCell cell in row)
                         {
                             var renderedCell = new Wpf.TableCell { Padding = new Thickness(8, 5, 8, 5), BorderThickness = new Thickness(0.5) };
-                            renderedCell.SetResourceReference(TableCell.BorderBrushProperty, "ColorBrushGray5");
+                            renderedCell.SetResourceReference(TableCell.BorderBrushProperty, "GlassPresentationSeparator");
                             AppendBlocks(renderedCell.Blocks, cell); renderedRow.Cells.Add(renderedCell);
                         }
                         group.Rows.Add(renderedRow);
@@ -123,7 +123,7 @@ internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
                 case Mi.LiteralInline literal: target.Add(new Run(literal.Content.ToString())); break;
                 case Mi.CodeInline code:
                     var codeText = new Run(code.Content) { FontFamily = new FontFamily("Consolas"), FontSize = 13 };
-                    codeText.SetResourceReference(TextElement.BackgroundProperty, "ColorBrushGray8"); target.Add(codeText);
+                    codeText.SetResourceReference(TextElement.BackgroundProperty, "GlassPresentationField"); target.Add(codeText);
                     break;
                 case Mi.LineBreakInline line: target.Add(line.IsHard ? new LineBreak() : new Run(" ")); break;
                 case Mi.EmphasisInline emphasis:
@@ -155,7 +155,7 @@ internal sealed class ReleaseNotesView : FlowDocumentScrollViewer
         if (string.IsNullOrWhiteSpace(address)) return new Span();
         if (!Uri.TryCreate(new Uri(ModBase.LauncherRepositoryUrl + "/"), address, out Uri uri) || (uri.Scheme != "https" && uri.Scheme != "http")) return new Span();
         var link = new Hyperlink { NavigateUri = uri };
-        link.SetResourceReference(TextElement.ForegroundProperty, "ColorBrush3");
+        link.SetResourceReference(TextElement.ForegroundProperty, "GlassPresentationAccent");
         link.RequestNavigate += (_, args) => { args.Handled = true; openLink(uri.AbsoluteUri); };
         return link;
     }

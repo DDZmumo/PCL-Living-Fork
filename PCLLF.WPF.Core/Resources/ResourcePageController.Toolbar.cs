@@ -16,9 +16,9 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline> {
     private void ApplyResourceLayout() {
         View.CardList.Title = " ";
         if (View.SortHeader is not null) {
-            View.SortHeader.Margin = new Thickness(15, 13, 15, 0);
+            View.SortHeader.Margin = new Thickness(15, View.ToolbarWrapsContent ? 0 : 13, 15, 0);
             View.PanFilter.Margin = new Thickness(0);
-            View.PanResourceList.Margin = new Thickness(20, 7, 18, 22);
+            View.PanResourceList.Margin = new Thickness(20, 7, 18, View.ToolbarWrapsContent ? 0 : 22);
         } else {
             View.PanFilter.Margin = new Thickness(15, 13, 0, 0);
             View.PanResourceList.Margin = new Thickness(20, 48, 18, 22);
@@ -26,13 +26,14 @@ public sealed partial class ResourcePageController<TInstance, TEntry, TOnline> {
         if (View.SortControl is not null) {
             View.SortControl.IsEnabled = true;
             View.SortControl.ToolTip = Kind == 0
-                ? "点击切换最后游玩时间的正序／倒序；倒序为最近游玩在前。时间取 level.dat 的 LastPlayed，未知时间排在最后。"
-                : "点击切换添加时间的正序／倒序；倒序为最近添加在前。时间取本地创建时间，复制、解压和迁移可能改变它。";
+                ? "选择排序方式：最后游玩时间（取 level.dat 的 LastPlayed，未知时间排在最后）或文件名。"
+                : "选择排序方式：添加时间（取本地创建时间，复制、解压和迁移可能改变它）或文件名。";
         }
         RefreshResourceToolbar();
     }
 
     public void RefreshResourceToolbar() {
+        if (View.ToolbarWrapsContent) return;
         Grid grid = View.PanManageButtons;
         if (toolbarLayoutActive || grid.ActualWidth <= 0) return;
         toolbarLayoutActive = true;

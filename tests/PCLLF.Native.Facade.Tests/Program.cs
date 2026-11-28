@@ -11,14 +11,20 @@ internal static class Program
         ["application-services"] = ApplicationServiceChecks.Run,
         ["glass-context-navigation"] = GlassContextNavigationChecks.Run,
         ["glass-shell"] = GlassShellChecks.Run,
+        ["glass-toast-reading"] = GlassFeedbackChecks.Toast,
+        ["glass-favorite-note-motion"] = GlassFeedbackChecks.Note,
+        ["glass-choice-menu"] = GlassFeedbackChecks.ChoiceMenu,
         ["glass-window"] = GlassWindowIntegrationChecks.Run,
         ["glass-tooltip-hover"] = _ => GlassWindowIntegrationChecks.CheckScrollingToolTip(),
         ["terracotta-lobby"] = TerracottaLobbyChecks.Run,
         ["glass-portals"] = GlassPortalChecks.Run,
         ["glass-presentation"] = GlassPresentationChecks.Run,
+        ["latest-download-tiles"] = GlassPresentationChecks.LatestDownloadTiles,
+        ["freetype-security"] = FreeTypeSecurityChecks.Run,
         ["glass-projection-regressions"] = GlassProjectionRegressionChecks.Run,
         ["glass-reported-regressions"] = GlassProjectionRegressionChecks.ReportedRegressions,
         ["glass-modal-lifecycle"] = GlassModalLifecycleChecks.Run,
+        ["custom-content-security"] = CustomContentSecurityChecks.Run,
         ["workbench-commands"] = WorkbenchCommandChecks.Run,
         ["instance-delete"] = InstanceDeletionChecks.Run,
         ["launcher-update-page"] = LauncherUpdatePageChecks.Run,
@@ -32,6 +38,7 @@ internal static class Program
         ["world-details"] = WorldChecks.Run,
         ["registry-names"] = RegistryChecks.Run,
         ["registry-data"] = RegistryDataChecks.Run,
+        ["credential-persistence"] = CredentialPersistenceChecks.Run,
         ["theme"] = environment => { ThemeColdSettingsChecks.Run(environment); TooltipThemeChecks.Run(environment); ThemeScenarios.Run(Application.Current, Path.Combine(AppContext.BaseDirectory, "assets")); },
         ["file-tasks"] = FileTaskScenarios.Run,
         ["mod-dependencies"] = NativeDependencyChecks.Local,
@@ -39,6 +46,9 @@ internal static class Program
         ["mod-download-dependencies"] = _ => ModpackDownloadProcess.RunDependencyParent(),
         ["updater"] = NativeUpdateChecks.Run,
         ["backup-resources"] = BackupResourceChecks.Run,
+        ["instance-resource-sort"] = ResourceSortChecks.Run,
+        ["schematic-preview"] = SchematicPreviewChecks.Run,
+        ["local-mod-update-marker"] = LocalModUpdateMarkerChecks.Run,
         ["world-backup-global"] = BackupResourceWorldChecks.RunGlobal,
         ["backup-preferences"] = BackupPreferenceChecks.Run,
         ["instance-list-scan"] = InstanceListScanChecks.Run,
@@ -55,7 +65,6 @@ internal static class Program
         ["launcher-lifecycle"] = LauncherLifecycleChecks.Run,
         ["modpack-mode"] = environment => { ModpackExportChecks.Run(environment); ModpackModeChecks.Run(environment); },
         ["review-fixes"] = ReviewFixesChecks.Run,
-        ["migrated-controls"] = ControlOriginalChecks.Run,
         ["map-install-recycle"] = MapInstallChecks.Run,
         ["resource-updates"] = ResourceUpdateChecks.Run,
         ["mmc-import-contract"] = MmcImportChecks.Run,
@@ -65,6 +74,7 @@ internal static class Program
         ["mmc-launch-preferences"] = MmcLaunchPreferenceChecks.Run,
         ["mmc-lifecycle"] = MmcLifecycleChecks.Run,
         ["mmc-quarantine-list"] = MmcQuarantineListChecks.Run,
+        ["mmc-quarantine-cleanup"] = MmcQuarantineCleanupChecks.Run,
         ["mmc-import-private-list"] = MmcImportVisibilityChecks.Run,
         ["mmc-selection-groups"] = MmcSelectionGroupingChecks.Run,
         ["mmc-import-progress-ui"] = MmcImportRecoveryUiChecks.RunProgress,
@@ -141,8 +151,9 @@ internal static class Program
         ["mmc-sidebar-visuals"] = MmcSidebarChecks.RunVisuals,
         ["mmc-sidebar-admission"] = MmcSidebarChecks.RunAdmission
     };
-    // Requires explicit locally installed JDKs; keep these out of the normal CI/default registry.
+    // These groups use a fresh profile or other explicit fixture inputs.
     private static readonly Dictionary<string, Action<FixtureEnvironment>> ExplicitCases = new(StringComparer.Ordinal) {
+        ["launch-settings-reset"] = LaunchOptionsResetChecks.Run,
         ["launch-relaunch"] = LaunchRelaunchChecks.Run,
         ["mmc-authentication"] = MmcLaunchChecks.RunAuthentication,
         ["mmc-import-java-current-catalogue"] = MmcImportJavaSelectionChecks.Run,
@@ -212,7 +223,8 @@ internal static class Program
                 return NativeDependencyChecks.IndexChild(environment, args);
             foreach (string group in selected)
             {
-                (Cases.TryGetValue(group, out var run) ? run : ExplicitCases[group])(environment);
+                try { (Cases.TryGetValue(group, out var run) ? run : ExplicitCases[group])(environment); }
+                finally { FileTaskShell.CloseUnshownHosts(); }
                 environment.AssertNoForbiddenIo();
                 Console.WriteLine("PASS native facade " + group);
             }
@@ -251,6 +263,8 @@ internal static class Program
                 throw new ArgumentException("Unknown facade group: " + item);
         if (selected.Contains("registry-data", StringComparer.Ordinal) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
             throw new ArgumentException("Select registry-data alone in its fresh hosted-profile process.");
+        if (selected.Contains("launch-settings-reset", StringComparer.Ordinal) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
+            throw new ArgumentException("Select launch-settings-reset alone in its fresh Java profile process.");
         if ((selected.Contains("account-ui", StringComparer.Ordinal) || selected.Contains("glass-account-ui", StringComparer.Ordinal)) && selected.Distinct(StringComparer.Ordinal).Count() != 1)
             throw new ArgumentException("Select account-ui alone in its fresh guarded Shared configuration process.");
         return selected.Distinct(StringComparer.Ordinal).ToArray();

@@ -28,13 +28,13 @@ internal static class InstanceDeletionChecks
 
     private static void Bindings()
     {
-        object selection = Native.Call(typeof(PageSelectRight), "CreateHost", null, new object?[] { null })!;
+        object selection = Native.Call(typeof(GlassInstanceSelectionPage), "CreateHost", new GlassInstanceSelectionPage(FileTaskShell.Install()))!;
         object page = RuntimeHelpers.GetUninitializedObject(typeof(PageInstanceOverall));
         object overall = Native.Call(typeof(PageInstanceOverall), "CreateHost", page)!;
         foreach (object host in new[] { selection, overall })
         {
             var action = (Delegate)Native.Get(host, "DeleteConfirmed")!;
-            Native.Check(action.Method.DeclaringType == typeof(PageSelectRight) && action.Method.Name == "DeleteInstanceInBackground", "A deletion entry bypasses the real background operation.");
+            Native.Check(action.Method.DeclaringType == typeof(LauncherInstanceDeletion) && action.Method.Name == "Start", "A deletion entry bypasses the real background operation.");
         }
     }
 
@@ -51,7 +51,7 @@ internal static class InstanceDeletionChecks
         IWorker? active = null;
         try
         {
-            var worker = (IWorker?)Native.Static("PCL.PageSelectRight", "BeginInstanceDeletion", instance, false, (Action)(() =>
+            var worker = (IWorker?)Native.Static("PCL.LauncherInstanceDeletion", "Begin", instance, false, (Action)(() =>
             {
                 completionThread = Environment.CurrentManagedThreadId;
                 releasedAtCompletion = !ModMinecraft.McInstanceLock.IsLocked(instance);
@@ -61,7 +61,7 @@ internal static class InstanceDeletionChecks
             Native.Check(worker is not null && ModMinecraft.McInstanceLock.IsLocked(instance), "Deletion did not reserve its exact instance.");
             Native.Check(InstanceDeletionOperation.HasActiveOperations && InstanceDeletionOperation.TryReserveShutdown() is null, "Shutdown/update reserved an active deletion.");
             CloseWhileDeleting();
-            Native.Check(Native.Static("PCL.PageSelectRight", "BeginInstanceDeletion", instance, false, (Action)(() => { })) is null, "Duplicate deletion acquired an occupied instance.");
+            Native.Check(Native.Static("PCL.LauncherInstanceDeletion", "Begin", instance, false, (Action)(() => { })) is null, "Duplicate deletion acquired an occupied instance.");
             Application.Current.Dispatcher.BeginInvoke((Action)(() => heartbeat = true), DispatcherPriority.Normal);
             VisualAssetChecks.Pump(() => heartbeat, "Deletion blocked dispatcher heartbeat.");
             Native.Check(!completed && Directory.Exists(target) && ModMinecraft.McInstanceLock.IsLocked(instance), "File workload or its reservation ended before the locked file was released.");

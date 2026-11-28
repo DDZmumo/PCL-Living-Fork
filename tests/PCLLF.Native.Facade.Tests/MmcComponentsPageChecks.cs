@@ -34,9 +34,8 @@ internal static class MmcComponentsPageChecks {
         private readonly List<ModLoader.LoaderCombo<string>> tasks = [];
         private readonly List<MmcInstanceDefinitionChangeResult> publications = [];
         private readonly List<PageInstanceMmcComponents> pages = [];
-        private readonly ModMinecraft.McInstance? oldOwner = PageInstanceLeft.Instance;
-        private readonly PageInstanceLeft? oldLeft = ModMain.FrmInstanceLeft;
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly ModMinecraft.McInstance? oldOwner = LauncherInstanceContext.Instance;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private readonly int oldAnimation = ModAnimation.AniControlEnabled;
         private int decision = 1, confirmations, choiceDialogs;
@@ -49,7 +48,7 @@ internal static class MmcComponentsPageChecks {
             data = new(Path.Combine(files.Root, "components-page"));
             files.SelectMinecraft(data.Game);
             ModAnimation.AniControlEnabled++;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("ServicesFactory", new Func<ModMinecraft.McInstance, MmcComponentEditorServices>(_ => new() {
                 Metadata = data.Metadata, CacheRoots = data.Caches,
@@ -91,7 +90,7 @@ internal static class MmcComponentsPageChecks {
         private static void Start(PageInstanceMmcComponents page) => Native.Call(typeof(PageInstanceMmcComponents), "StartChange", page);
         private static FrameworkElement Editor(PageInstanceMmcComponents page) => Part<FrameworkElement>(page, "MmcComponentEditor");
         private PageInstanceMmcComponents Open(ModMinecraft.McInstance owner) {
-            PageInstanceLeft.Instance = owner;
+            LauncherInstanceContext.Instance = owner;
             var page = (PageInstanceMmcComponents)Activator.CreateInstance(typeof(PageInstanceMmcComponents), Native.Flags, null,
                 [owner, owner.Config.ContextStamp.InstanceId], null)!;
             pages.Add(page); WaitModel(page); return page;
@@ -107,32 +106,32 @@ internal static class MmcComponentsPageChecks {
             var kind = type.GetNestedType("EditKind", BindingFlags.NonPublic)!;
             Native.Set(editor, "kind", Enum.Parse(kind, "Patch"));
             Native.Call(type, "Show", editor, 1);
-            var input = Descendants(editor).OfType<MyTextBox>().Single(value => value.AcceptsReturn);
+            var input = Descendants(editor).OfType<TextBox>().Single(value => value.AcceptsReturn);
             input.Text = data.CustomPatch("1", "custom one", main, "-Dembedded=true");
-            Native.Check(Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled &&
+            Native.Check(Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled &&
                 ((MmcComponentEditorChoice)Native.Call(type, "ReadChoice", editor)!).Edit.PatchContentUtf8!.Contains(main, StringComparison.Ordinal),
                 "Original component/patch inputs did not control the embedded page choice.");
         }
 
         internal void Page() {
-            var owner = data.Owner(); PageInstanceLeft.Instance = owner;
-            var left = new PageInstanceLeft(); ModMain.FrmInstanceLeft = left;
-            var page = (PageInstanceMmcComponents)left.PageGet(FormMain.PageSubType.InstanceModify);
+            var owner = data.Owner(); LauncherInstanceContext.Instance = owner;
+            var left = FileTaskShell.Install().GlassInstanceNavigation;
+            var page = (PageInstanceMmcComponents)left.GetPage(FormMain.PageSubType.InstanceModify);
             pages.Add(page); WaitModel(page);
             var editor = Editor(page);
             Native.Check(editor.GetType() == Native.Type("PCL.MmcComponentEditorView") && double.IsNaN(editor.Height) &&
                 page.FindName("BtnPrimaryAction") is null && ReferenceEquals(page.FindName("PanBack"), Native.Property(editor.GetType().BaseType!, "PageScroller").GetValue(editor)),
                 "Actual sidebar route did not embed the existing view/scroller, or retained an intermediate action button.");
-            Native.Check(!Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled, "Component page silently selected a modification.");
+            Native.Check(!Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled, "Component page silently selected a modification.");
             Native.Call(editor.GetType(), "Show", editor, 2);
-            var inputButtons = Descendants(editor).OfType<MyButton>().Select(value => value.Text).ToArray();
+            var inputButtons = Descendants(editor).OfType<Button>().Select(value => value.Content?.ToString()).ToArray();
             Native.Check(inputButtons.Contains("选择真实本地 JAR…") && !inputButtons.Any(value => value?.Contains("选择本机 Java", StringComparison.Ordinal) == true || value == "沿用已发布环境"),
                 "Local JAR input was removed or an independent Java selector remained.");
             ChoosePatch(page);
             string beforeHash = data.Primary.PrimarySha256!;
             decision = 3;
             int before = tasks.Count; Start(page); Wait(before, ModBase.LoadState.Canceled);
-            Native.Check(ReferenceEquals(editor, Editor(page)) && Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled &&
+            Native.Check(ReferenceEquals(editor, Editor(page)) && Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled &&
                 data.Primary.PrimarySha256 == beforeHash && choiceDialogs == 0,
                 "Returning from the real preview reopened a choice dialog, lost the embedded selection or published a change.");
             decision = 2;
@@ -163,11 +162,11 @@ internal static class MmcComponentsPageChecks {
             var originalModel = (MmcComponentEditorModel)Native.Get(page, "_model")!;
             ChoosePatch(page);
             page.Refresh();
-            PageInstanceLeft.Instance = new ModMinecraft.McInstance(data.Version).Load();
+            LauncherInstanceContext.Instance = new ModMinecraft.McInstance(data.Version).Load();
             WaitModel(page);
             Start(page);
-            Native.Check(!Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Old page/async callback adopted another owner object.");
-            PageInstanceLeft.Instance = owner; page.Refresh(); WaitModel(page); ChoosePatch(page);
+            Native.Check(!Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Old page/async callback adopted another owner object.");
+            LauncherInstanceContext.Instance = owner; page.Refresh(); WaitModel(page); ChoosePatch(page);
 
             using var replacement = new MmcComponentEditorUiChecks.Fixture(Path.Combine(files.Root, "components-replacement"));
             string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(data.Version)), retained = target + "-retained";
@@ -178,9 +177,9 @@ internal static class MmcComponentsPageChecks {
                 Native.Check(MmcInstanceInspector.Read(target).IsConsistent && replacement.Primary.Definition!.InstanceId != originalModel.Source.Definition!.InstanceId,
                     "Replacement fixture must have a different valid identity.");
                 page.Refresh(); Start(page);
-                Native.Check(!Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Refresh adopted the replacement identity.");
+                Native.Check(!Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Refresh adopted the replacement identity.");
                 var reopened = Open(owner); Start(reopened);
-                Native.Check(!Part<MyExtraTextButton>(reopened, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Reopening an old attached owner adopted a replacement identity.");
+                Native.Check(!Part<System.Windows.Controls.Button>(reopened, "BtnPreviewChanges").IsEnabled && tasks.Count == 0, "Reopening an old attached owner adopted a replacement identity.");
                 try {
                     Native.Static("PCL.MmcComponentEditorUi", "StartWithChoice", owner, originalModel, new MmcComponentEditorChoice(new("net.minecraftforge", Enabled: false)));
                     throw new IOException("A stale source model reached a new identity.");
@@ -193,7 +192,7 @@ internal static class MmcComponentsPageChecks {
             string projection = data.PathOf("managed.json"); byte[] kept = File.ReadAllBytes(projection);
             try {
                 File.AppendAllText(projection, " "); page.Refresh(); Start(page);
-                Native.Check(!Part<MyExtraTextButton>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0,
+                Native.Check(!Part<System.Windows.Controls.Button>(page, "BtnPreviewChanges").IsEnabled && tasks.Count == 0,
                     "Damaged MMC management fell through to another component writer.");
             } finally { File.WriteAllBytes(projection, kept); }
         }
@@ -214,7 +213,6 @@ internal static class MmcComponentsPageChecks {
             foreach (var item in previous) item.Key.SetValue(null, item.Value);
             foreach (var task in tasks) ModLoader.LoaderTaskbar.Remove(task);
             scheduler.RefreshExtraDownload = oldRefresh; ModAnimation.AniControlEnabled = oldAnimation;
-            PageInstanceLeft.Instance = oldOwner; ModMain.FrmInstanceLeft = oldLeft; data.Dispose();
         }
     }
 }

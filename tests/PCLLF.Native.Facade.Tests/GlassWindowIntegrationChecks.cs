@@ -17,6 +17,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using Newtonsoft.Json.Linq;
 using PCL;
 using PCLLF.Presentation.Controls;
 using PCLLF.Presentation.Windowing;
@@ -60,22 +61,12 @@ internal static class GlassWindowIntegrationChecks {
         bool previewMotion = interactive;
         bool previewDarkText = true;
         try {
-            var left = new MyPageLeft();
-            var contextRows = new StackPanel(); left.Children.Add(contextRows);
-            contextRows.Children.Add(new MyListItem { Title = "界面预览", Type = MyListItem.CheckType.RadioBox, Logo = "M2,2 H18 V18 H2 Z" });
-            var right = new MyPageRight {
-                Child = new TextBlock { Name = "WorkspaceFixtureContent", Text = "原生页面容器预览\n\n此测试保留真正的 FormMain 页面、任务与提示容器。\n预览数据不连接账号、游戏或下载服务。", Margin = new Thickness(28), TextWrapping = TextWrapping.Wrap }
-            };
             Action<MainHost> configure = host => {
                 windowPorts = host;
                 void Unexpected(string port) { unexpectedPorts.Add(port); throw new InvalidOperationException("Glass fixture attempted a forbidden startup/platform port: " + port); }
                 long tick = 0;
                 host.Clock = () => Environment.TickCount64;
                 host.StartTick = () => tick; host.WriteStartTick = value => tick = value;
-                host.CreateLaunchLeft = () => { }; host.CreateLaunchRight = () => { };
-                host.LeftPage = _ => new LegacyMainLeftPage { Element = left };
-                var productRightPage = host.RightPage;
-                host.RightPage = page => page == (int)FormMain.PageType.Link ? productRightPage(page) : right;
                 host.ReadInteger = key => key == "SystemLastVersionReg" ? ModBase.VersionCode : Settings.Get<int>(key);
                 host.HasSaved = _ => true; host.ThemeRefresh = _ => { };
                 host.IsAdmin = () => false; host.IsDebug = () => false;
@@ -158,83 +149,15 @@ internal static class GlassWindowIntegrationChecks {
             previewResizer = windowPorts!.CreateResizer(window);
             RegisterResizeGrips(window, previewResizer);
             window.UpdateLayout(); VisualAssetChecks.Observe(550); Refresh(window); VisualAssetChecks.Drain();
-            VerifyHiddenShortcut(window, windowPorts!);
             environment.AssertNoForbiddenIo();
             Native.Check(window.IsLoaded && window.AllowsTransparency && window.Opacity == 1,
                 "Actual glass FormMain lost its alpha-enabled HWND or opaque foreground content.");
-            Native.Check(view.PageContentHost.Content is FrameworkElement &&
-                !ReferenceEquals(view.PageContentHost.Content, Part<Border>(window, "PanMainRight")) && right.IsLoaded && left.IsLoaded,
-                "The new presentation must be distinct while the command/state sources stay loaded.");
-            Native.Check(!Part<Border>(window, "PanMainRight").IsVisible && !right.IsVisible && !left.IsVisible,
-                "An original page is visible inside the new glass presentation.");
-            if (!interactive && PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) {
-                previewMotion = true;
-                var legacyRight = Part<Border>(window, "PanMainRight");
-                ContentControl departingHost = view.PageContentHost;
-                var departing = (ContentControl)departingHost.Content;
-                TextBlock departingText = Descendants<TextBlock>(departing).Single(text => text.Name == "WorkspaceFixtureContent");
-                var replacement = new MyPageRight { Child = new TextBlock { Text = "右侧页面切换测试" } };
-                void RequestReplacement()
-                {
-                    previewPage = 1;
-                    window.PageCurrent = FormMain.PageType.Download;
-                    window.PageRight = replacement;
-                    right.PageOnExit();
-                    right.PageOnForceExit();
-                    legacyRight.Child = null;
-                    Refresh(window);
-                }
-                void ReturnHome()
-                {
-                    previewPage = 0;
-                    window.PageCurrent = FormMain.PageType.Launch;
-                    window.PageRight = right;
-                    legacyRight.Child = right;
-                    right.PageOnEnter();
-                    Refresh(window);
-                }
-                RequestReplacement();
-                Native.Check(right.Child.Visibility == Visibility.Collapsed && departingText.Visibility == Visibility.Visible,
-                    "The original page's exit hid the content inside the departing WPF projection.");
-                Native.Check(ReferenceEquals(departingHost.Content, departing) && departingHost.Opacity > .99,
-                    "The shell replaced the outgoing projection during the legacy page's empty interval.");
-                VisualAssetChecks.Pump(() => departingHost.Opacity is > .2 and < .9,
-                    "the right page starts exiting before its replacement is available", timeout: 1500);
-                Native.Check(!departingHost.IsHitTestVisible && departingHost.RenderTransform is TransformGroup exit &&
-                    exit.Children.OfType<ScaleTransform>().Single().ScaleX < .999 &&
-                    Math.Abs(exit.Children.OfType<TranslateTransform>().Single().Y) > 1,
-                    "The pending right-page exit lost depth, travel or input isolation.");
-                double departingOpacity = departingHost.Opacity;
-                ReturnHome();
-                Native.Check(ReferenceEquals(departingHost.Content, departing) && departingHost.IsHitTestVisible &&
-                    departingHost.Opacity == departingOpacity, "Canceling a pending replacement did not reverse the same page from its current pose.");
-                VisualAssetChecks.Pump(() => departingHost.Opacity > .999 && !view.IsTransitioning, "the restored page returns to rest");
-
-                RequestReplacement();
-                legacyRight.Child = replacement;
-                Refresh(window);
-                Native.Check(ReferenceEquals(view.PageContentHost.Content, departing),
-                    "Cold page projection ran in the navigation feedback pass.");
-                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, departing), "queued right page projection");
-                Native.Check(ReferenceEquals(departingHost.Content, departing) &&
-                    departing.Content is not null && !departingHost.IsHitTestVisible,
-                    "The shell disposed the outgoing right-page projection before its animation.");
-                var interrupted = (ContentControl)view.PageContentHost.Content;
-                ReturnHome();
-                Native.Check(ReferenceEquals(view.PageContentHost.Content, departing) && departingHost.IsHitTestVisible,
-                    "Returning Home must start the right-page transition in the same pass as the sidebar.");
-                VisualAssetChecks.Pump(() => interrupted.Content is null && !view.IsTransitioning,
-                    "rapid A to B to A settles and the interrupted page is disposed");
-                Native.Check(departing.Content is not null,
-                    "Returning to an outgoing page constructed another projection or disposed the restored one.");
-                previewMotion = false;
-                previewPage = 0;
-                window.PageCurrent = FormMain.PageType.Launch;
-                Refresh(window); VisualAssetChecks.Drain();
-            }
+            var home = (ContentControl)view.PageContentHost.Content;
+            Native.Check(home.GetType().Name == "GlassHomePage" && ReferenceEquals(home, window.PageRight),
+                "The actual window should host the new homepage.");
             if (!interactive) {
                 CheckStartupWithRestoredInstance(window, view, animate => { previewMotion = animate; Refresh(window); });
-                CheckInstanceProjectionCache(window, view, scope.Root);
+                CheckDirectTransitions(window, view, home);
             }
             if (!interactive) {
                 var launchPage = view.PageContentHost.Content;
@@ -254,15 +177,18 @@ internal static class GlassWindowIntegrationChecks {
                 previewPage = 0;
                 window.PageChange(FormMain.PageType.Launch);
                 Refresh(window);
-                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, lobby), "the lobby returns to Home");
+                VisualAssetChecks.Pump(() => ReferenceEquals(view.PageContentHost.Content, home), "the lobby returns to the same native Home");
+                CheckDirectSettings(window, view, page => { previewPage = page; Refresh(window); });
+                CheckDirectResources(window, view, page => { previewPage = page; Refresh(window); });
+                CheckDirectInstallation(window, view, scope.Root, page => { previewPage = page; Refresh(window); });
+                CheckDirectInstanceSelection(window, view, scope.Root, page => { previewPage = page; Refresh(window); });
+                CheckMoreAndJava(window, view, page => { previewPage = page; Refresh(window); });
             }
             var root = (Grid)window.Content;
-            foreach (string part in new[] { "PanHint", "PanMsg" })
-                Native.Check(!ReferenceEquals(VisualTreeHelper.GetParent(Part<FrameworkElement>(window, part)), root) &&
-                    !Part<FrameworkElement>(window, part).IsVisible, "An original overlay is still visible: " + part);
-            Native.Check(IsDescendant(Part<FrameworkElement>(window, "BtnExtraDownload"), root), "Actual download/task button was dropped.");
-            Native.Check(((UIElement)Native.Get(integration, "_legacyRoot")!).Visibility == Visibility.Hidden,
-                "Original BAML root must remain loaded and hidden beneath the shell.");
+            Native.Check(new[] { "PanHint", "PanMsg", "PanMainLeft", "PanMainRight" }.All(name => window.FindName(name) is null),
+                "The actual window still creates retired shell controls.");
+            Native.Check(Descendants<Button>(root).Any(button => button.Name == "TasksButton"),
+                "The visible task action is absent from the workbench.");
             CheckSurfaces(view);
             double allowance = view.LeftExpansionAllowance;
             view.SetLeftExpansionAllowance(GlassLauncherView.RailExpandDelta + GlassLauncherView.RailOvershootHeadroom);
@@ -278,12 +204,14 @@ internal static class GlassWindowIntegrationChecks {
             window.Width = 1110; window.Height = 740;
             window.UpdateLayout(); VisualAssetChecks.Drain(); Refresh(window);
             CheckSurfaces(view);
-            previewPage = 1; window.PageCurrent = FormMain.PageType.Download; Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
+            previewPage = 1; window.PageChange(FormMain.PageType.Download);
+            Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
             CheckSurfaces(view);
             Native.Check(Part<StackPanel>(view, "SidebarPanel").Children.Count > 0 && view.FindName("NavigationPopover") is null &&
-                !Part<Border>(window, "PanMainLeft").IsVisible,
+                window.FindName("PanMainLeft") is null,
                 "Context navigation must use new sidebar elements with the original state source hidden.");
-            previewPage = 0; window.PageCurrent = FormMain.PageType.Launch; Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
+            previewPage = 0; window.PageChange(FormMain.PageType.Launch);
+            Refresh(window); window.UpdateLayout(); VisualAssetChecks.Observe(300);
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows,
                 "The workspace created a native desktop-blur companion without a wallpaper.");
             Console.WriteLine("Actual workspace FormMain: launcher-owned background; no native desktop backdrop.");
@@ -302,17 +230,13 @@ internal static class GlassWindowIntegrationChecks {
             var boundedBrush = (ImageBrush)Native.Call(Native.Type("PCL.SetupPageRuntime"), "LoadBoundedBackgroundBrush", null, wallpaper)!;
             Native.Check(!boundedBrush.IsFrozen && boundedBrush.ImageSource is { IsFrozen: true },
                 "Pictures background brush must remain mutable for suit/alignment updates while keeping a frozen BitmapSource.");
-            Canvas imgBack = Part<Canvas>(window, "ImgBack");
-            Brush? oldImgBack = imgBack.Background;
-            try {
-                imgBack.Background = boundedBrush;
-                PageSetupUI.BackgroundRefresh(false, true);
-                Native.Check(ReferenceEquals(imgBack.Background, boundedBrush), "Glass refreshed a wallpaper from the legacy folder.");
-                Native.Cache("UiGlassWallpaperPath", "");
-                window.UpdateBackgroundAndTitleBar();
-                Native.Check(Part<Image>(view, "WallpaperImage").Source is null,
-                    "Clearing the selection exposed the wallpaper from the legacy folder.");
-            } finally { imgBack.Background = oldImgBack; }
+            LauncherAppearanceSettings.BackgroundRefresh(false, true);
+            Native.Check(ReferenceEquals(Part<Image>(view, "WallpaperImage").Source, source),
+                "Refreshing the configured wallpaper replaced it with the image in the legacy Pictures folder.");
+            Native.Cache("UiGlassWallpaperPath", "");
+            window.UpdateBackgroundAndTitleBar();
+            Native.Check(Part<Image>(view, "WallpaperImage").Source is null,
+                "Clearing the selection exposed the wallpaper from the legacy folder.");
             Refresh(window); VisualAssetChecks.Drain();
             var refreshTimer = (System.Windows.Threading.DispatcherTimer)Native.Get(Native.Get(window, "glassShell")!, "_refreshTimer")!;
             window.WindowState = WindowState.Minimized; VisualAssetChecks.Observe(100);
@@ -325,17 +249,23 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(!refreshTimer.IsEnabled, "The minimized workspace kept polling its UI state.");
             window.WindowState = WindowState.Normal; window.UpdateLayout();
             long? restoredSince = null;
-            VisualAssetChecks.Pump(() => {
-                if (window.WindowState != WindowState.Normal || IsIconic(mainHandle) || !IsWindowVisible(mainHandle) || !IsWindowEnabled(mainHandle)) {
-                    restoredSince = null;
-                    return false;
-                }
-                restoredSince ??= Environment.TickCount64;
-                return Environment.TickCount64 - restoredSince.Value >= 150;
-            }, "stable actual FormMain native restore completion", 5000);
+            try {
+                VisualAssetChecks.Pump(() => {
+                    if (window.WindowState != WindowState.Normal || IsIconic(mainHandle) || !IsWindowVisible(mainHandle) || !IsWindowEnabled(mainHandle)) {
+                        restoredSince = null;
+                        return false;
+                    }
+                    restoredSince ??= Environment.TickCount64;
+                    return Environment.TickCount64 - restoredSince.Value >= 150;
+                }, "stable actual FormMain native restore completion", 5000);
+            } catch (InvalidOperationException error) {
+                throw new InvalidOperationException($"Restore ended with WPF state={window.WindowState}, iconic={IsIconic(mainHandle)}, " +
+                    $"visible={IsWindowVisible(mainHandle)}, enabled={IsWindowEnabled(mainHandle)}, timer={refreshTimer.IsEnabled}.", error);
+            }
             Native.Check(refreshTimer.IsEnabled, "The restored workspace did not resume refreshing its UI state.");
             Native.Check(CountDesktopBackdropWindows() == initialBackdropWindows, "Restore created a desktop backdrop.");
             CheckSurfaces(view);
+            if (!interactive) CheckNativeContentDialog(window, integration);
             if (interactive) {
                 bool closed = false; window.Closed += (_, _) => closed = true;
                 window.SizeChanged += (_, args) => Console.WriteLine(FormattableString.Invariant(
@@ -371,7 +301,7 @@ internal static class GlassWindowIntegrationChecks {
             Native.State(typeof(ModMain), "FrmMain").SetValue(null, previousMain);
             environment.AssertNoForbiddenIo();
         }
-        Console.WriteLine("PASS workspace FormMain: independent presentation over hidden state sources; original commands and resize handlers, launcher wallpaper/opaque background, zero desktop composition windows, minimize/restore and cleanup; startup/account/game/profile access guarded.");
+        Console.WriteLine("PASS workspace FormMain: single native workspace; original commands and resize handlers, launcher wallpaper/opaque background, zero desktop composition windows, minimize/restore and cleanup; startup/account/game/profile access guarded.");
     }
 
     private static void CheckTerracottaStages(FormMain window, GlassLauncherView view, FrameworkElement lobby,
@@ -391,7 +321,8 @@ internal static class GlassWindowIntegrationChecks {
             Native.Check(Descendants<System.Windows.Shapes.Path>(SidebarAction(action))
                 .Any(icon => icon.Data is not null && icon.Width == 16), "A 联机 sidebar action lost its icon.");
 
-        var source = window.PageRight;
+        var source = Native.Property(lobby.GetType(), "Controller").GetValue(lobby)!;
+        Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content), "Opening multiplayer created a transitional page source.");
         ((System.Windows.Threading.DispatcherTimer)Native.Get(source, "_poll")!).Stop();
         using var http = new HttpClient();
         using var connection = (IDisposable)Native.Type("PCL.TerracottaConnection")
@@ -477,10 +408,8 @@ internal static class GlassWindowIntegrationChecks {
     private static void CheckStartupWithRestoredInstance(FormMain window, GlassLauncherView view, Action<bool> animate)
     {
         if (!PCLLF.Wpf.Motion.MotionPreferences.AllowsAnimation) return;
-        var previousPage = ModMain.FrmLaunchLeft;
-        var launchPage = new PageLaunchLeft();
-        var launchController = Native.Get(launchPage, "Native")!;
-        var selectionComplete = Native.Field(launchController.GetType(), "loadFinished");
+        var selectionComplete = Native.Property(typeof(FormMain), "GlassInitialSelectionComplete");
+        object? previousSelection = selectionComplete.GetValue(window);
         var list = ModMinecraft.McInstanceListLoader;
         var previousListState = list.State;
         Type preload = Native.Type("PCL.GlassStartupPreload");
@@ -488,7 +417,7 @@ internal static class GlassWindowIntegrationChecks {
         var releaseSlot = Native.Field(preload, "_release");
         object? previousRelease = releaseSlot.GetValue(null);
         try {
-            ModMain.FrmLaunchLeft = launchPage;
+            selectionComplete.SetValue(window, false);
             list.State = ModBase.LoadState.Waiting;
             animate(true);
             view.BeginSplash();
@@ -498,7 +427,7 @@ internal static class GlassWindowIntegrationChecks {
             clock.Restart(); // Optional preloads have only just begun.
             var fetched = new TaskCompletionSource<Newtonsoft.Json.Linq.JObject>(TaskCreationOptions.RunContinuationsAsynchronously);
             releaseSlot.SetValue(null, fetched.Task);
-            selectionComplete.SetValue(launchController, true);
+            selectionComplete.SetValue(window, true);
             Refresh(window);
             Native.Check(view.SplashProgress == 1 && list.State == ModBase.LoadState.Waiting,
                 "A restored instance still held the splash for an unused list scan or other preloads.");
@@ -511,119 +440,54 @@ internal static class GlassWindowIntegrationChecks {
             clock.Reset();
             releaseSlot.SetValue(null, previousRelease);
             if (view.IsSplashing) Native.Call(typeof(GlassLauncherView), "FinishSplash", view);
-            ModMain.FrmLaunchLeft = previousPage;
+            selectionComplete.SetValue(window, previousSelection);
             list.State = previousListState;
             animate(false);
         }
     }
 
-    private static void CheckInstanceProjectionCache(FormMain window, GlassLauncherView view, string root)
+    private static void CheckDirectTransitions(FormMain window, GlassLauncherView view, ContentControl home)
     {
-        var legacy = Part<Border>(window, "PanMainRight");
-        var previous = window.PageCurrent;
-        var previousPage = window.PageRight;
-        var previousChild = legacy.Child;
-        var previousInstance = PageInstanceLeft.Instance;
-        try {
-            PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-one"));
-            window.PageCurrent = FormMain.PageType.InstanceSetup;
-            var pages = Enumerable.Range(0, 5).Select(index => new MyPageRight { Child = new TextBlock { Text = "实例页 " + index } }).ToArray();
-            ContentControl Mount(MyPageRight page, FormMain.PageType route = FormMain.PageType.InstanceSetup) {
-                object displayed = view.PageContentHost.Content;
-                window.PageCurrent = route;
-                window.PageRight = page;
-                legacy.Child = page;
-                Refresh(window);
-                VisualAssetChecks.Pump(() => !ReferenceEquals(view.PageContentHost.Content, displayed), "queued instance page projection");
-                return (ContentControl)view.PageContentHost.Content;
-            }
-            var first = Mount(pages[0]);
-            var second = Mount(pages[1]);
-            VisualAssetChecks.Drain();
-            Native.Check(ReferenceEquals(Mount(pages[0]), first), "Switching back to the same instance rebuilt its detached page.");
-            Mount(pages[2]); Mount(pages[3]); Mount(pages[4]);
-            VisualAssetChecks.Pump(() => second.Content is null, "Old instance pages exceeded the bounded cache.");
-            var old = (ContentControl)view.PageContentHost.Content;
-            PageInstanceLeft.Instance = new ModMinecraft.McInstance(Path.Combine(root, "versions", "cache-two"));
-            Native.Check(!ReferenceEquals(Mount(pages[4]), old), "A different instance reused the old instance's page projection.");
-
-            var resources = new PageInstanceResources();
-            resources.Loaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), resources,
-                Native.Method(typeof(PageInstanceResources), "__LfHandle_6"));
-            resources.Unloaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), resources,
-                Native.Method(typeof(PageInstanceResources), "__LfHandle_7"));
-            Part<Grid>(resources, "PanAllBack").Visibility = Visibility.Visible;
-            Part<FrameworkElement>(resources, "PanLoad").Visibility = Visibility.Collapsed;
-            var rows = new StackPanel();
-            for (int index = 0; index < 80; index++) rows.Children.Add(new TextBlock { Text = "实例资源 " + index, FontSize = 18 });
-            Part<ScrollViewer>(resources, "PanBack").Content = rows;
-            var backSource = Part<MyExtraButton>(window, "BtnExtraBack");
-            object integration = Native.Get(window, "glassShell")!;
-            object adapter = ((System.Collections.IEnumerable)Native.Get(integration, "_extraButtons")!).Cast<object>()
-                .Single(value => ReferenceEquals(Native.Get(value, "_source"), backSource));
-            var back = (Button)Native.Property(adapter.GetType(), "View").GetValue(adapter)!;
-            ScrollViewer Viewport(ContentControl page) {
-                window.UpdateLayout();
-                return Descendants<ScrollViewer>(page).First();
-            }
-            void CheckBackToTop(ScrollViewer viewport, int offset) {
-                viewport.ScrollToVerticalOffset(offset);
-                VisualAssetChecks.Pump(() => viewport.VerticalOffset >= offset - 1 && backSource.Show && back.IsVisible,
-                    "show the back-to-top button for the active page");
-                back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, back));
-                VisualAssetChecks.Pump(() => viewport.VerticalOffset < 1 && !backSource.Show,
-                    "click back to top and hide the button once the page reaches the top");
-            }
-            var resourceView = Mount(resources);
-            var scroll = Viewport(resourceView);
-            CheckBackToTop(scroll, 260);
-            scroll.ScrollToVerticalOffset(260);
-            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 259, "scroll away from the top");
-            Mount(new MyPageRight { Child = new TextBlock { Text = "资源详情" } }, FormMain.PageType.ResourceDetail);
-            scroll = Viewport(Mount(resources));
-            VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 259 && backSource.Show, "Returning from details lost the resource offset or the back-to-top action.");
-            Mount(pages[0]);
-            scroll = Viewport(Mount(resources));
-            VisualAssetChecks.Pump(() => scroll.VerticalOffset < 1 && !backSource.Show, "Returning from another instance tab restored a stale resource offset.");
-
-            var settings = new PageSetupLaunch();
-            var java = (PageSetupJava)Native.Property(typeof(PageSetupLaunch), "JavaPage").GetValue(settings)!;
-            var javaDownload = (PageSetupJavaDownload)Native.Property(typeof(PageSetupLaunch), "JavaDownloadPage").GetValue(settings)!;
-            foreach (var (page, route) in new (MyPageRight, FormMain.PageType)[] { (java, FormMain.PageType.Setup), (javaDownload, FormMain.PageType.HelpDetail) }) {
-                var javaScroll = Viewport(Mount(page, route));
-                javaScroll.Height = 135;
-                window.UpdateLayout();
-                CheckBackToTop(javaScroll, 32);
-            }
-        } finally {
-            PageInstanceLeft.Instance = previousInstance;
-            window.PageCurrent = previous;
-            window.PageRight = previousPage;
-            legacy.Child = previousChild;
-            Refresh(window);
-            VisualAssetChecks.Drain();
-        }
+        window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUI);
+        VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassPersonalizationPage",
+            "mount the personalization workspace");
+        var personalization = view.PageContentHost.Content;
+        window.PageChange(FormMain.PageType.Launch);
+        VisualAssetChecks.Pump(() => ReferenceEquals(view.PageContentHost.Content, home), "return to the same home");
+        window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUI);
+        VisualAssetChecks.Pump(() => ReferenceEquals(view.PageContentHost.Content, personalization), "reopen the same personalization workspace");
+        window.PageChange(FormMain.PageType.Launch);
+        VisualAssetChecks.Pump(() => ReferenceEquals(view.PageContentHost.Content, home), "restore the home workspace");
     }
 
-    private static void VerifyHiddenShortcut(FormMain window, MainHost host) {
-        object controller = Native.Get(window, "Controller")!;
-        FieldInfo viewField = controller.GetType().GetFields(Native.Flags).Single(field => field.FieldType == typeof(LegacyMainWindowView));
-        var view = (LegacyMainWindowView)viewField.GetValue(controller)!;
-        Func<bool>? previousMode = view.UsesGlassShell;
-        bool previousHidden = host.HiddenForceShow();
-        void Press() => Native.Call(controller.GetType(), "KeyDown", controller,
-            new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, Environment.TickCount, Key.F12) { RoutedEvent = Keyboard.KeyDownEvent });
+    private static void CheckNativeContentDialog(FormMain window, object integration) {
+        var body = (FrameworkElement)Activator.CreateInstance(Native.Type("PCL.ReleaseNotesPromptView"), Native.Flags, null,
+            ["# 测试说明", false, (Func<bool, bool>)(_ => true), (Action<string>)(_ => { })], null)!;
+        int created = 0;
+        var message = new ModMain.MyMsgBoxConverter {
+            Title = "fixture native dialog", Button1 = "确定", Button2 = "取消", UseNativeContent = true,
+            ContentFactory = () => { created++; return body; }
+        };
+        ModMain.WaitingMyMsgBox.Enqueue(message);
+        ModMain.MyMsgBoxTick();
         try {
-            view.UsesGlassShell = () => true; Press();
-            Native.Check(host.HiddenForceShow() == previousHidden, "F12 still changed the removed visibility feature in the modern shell.");
-            view.UsesGlassShell = () => false; Press();
-            Native.Check(host.HiddenForceShow() != previousHidden, "The classic shell lost its original F12 visibility shortcut.");
+            object dialog = Native.Get(integration, "_directMessage")!;
+            Native.Check(dialog is FrameworkElement && created == 1 &&
+                ReferenceEquals(((ContentControl)Native.Get(dialog, "_nativeContentHost")!).Content, body),
+                "The message queue did not mount the actual native content once.");
+            Native.Check(window.FindName("PanMsg") is null,
+                "A native custom dialog initialized the old overlay.");
+            Native.Call(integration.GetType(), "HandleDirectMessageKey", integration, Key.Escape);
+            VisualAssetChecks.Pump(() => Native.Get(integration, "_directMessage") is null, "native content dialog closes");
+            Native.Check(message.IsExited && message.Result is null && !message.WaitFrame.Continue && body.Parent is null,
+                "Closing the native dialog did not release its request and content.");
+        } finally {
+            if (Native.Get(integration, "_directMessage") is { } direct)
+                Native.Call(integration.GetType(), "RemoveDirectMessage", integration, direct);
         }
-        finally { view.UsesGlassShell = previousMode; host.WriteHiddenForceShow(previousHidden); }
     }
 
     private static void CheckCrashDialog(FormMain window, object integration) {
-        var panel = Part<Grid>(window, "PanMsg");
         var projection = (FrameworkElement)Native.Get(integration, "_modalView")!;
         var effects = Native.Get(integration, "_modalEffects")!;
         PropertyInfo progress = Native.Property(effects.GetType(), "Progress");
@@ -634,7 +498,6 @@ internal static class GlassWindowIntegrationChecks {
             Text = string.Join("\n", Enumerable.Range(1, 48).Select(i => $"- 配置 / 环境资源 · 修改 · config/fixture-{i}.json")),
             Button1 = "确定", Button2 = "最近变更", Button3 = "导出错误报告"
         };
-        var modal = new MyMsgText(message);
         double previousHeight = window.Height;
         int marginChanges = 0;
         var margin = DependencyPropertyDescriptor.FromProperty(FrameworkElement.MarginProperty, typeof(FrameworkElement));
@@ -645,7 +508,10 @@ internal static class GlassWindowIntegrationChecks {
             window.Height = 680;
             window.UpdateLayout();
             margin.AddValueChanged(projection, observeMargin);
-            panel.Children.Add(modal);
+            ModMain.WaitingMyMsgBox.Enqueue(message);
+            ModMain.MyMsgBoxTick();
+            Native.Check(Native.Get(integration, "_directMessage") is not null, "The message queue did not open the crash report in the glass shell.");
+            Native.Check(window.FindName("PanMsg") is null, "Opening a crash report created a retired message container.");
             Refresh(window);
             VisualAssetChecks.Pump(() => Native.Get(integration, "_crashBanner") is not null && Progress() > .999, "long crash report opens");
             int settledInsets = marginChanges;
@@ -672,16 +538,266 @@ internal static class GlassWindowIntegrationChecks {
                 "crash backdrop closes during wallpaper playback");
         } finally {
             margin.RemoveValueChanged(projection, observeMargin);
-            panel.Children.Remove(modal);
+            if (Native.Get(integration, "_directMessage") is { } direct)
+                Native.Call(integration.GetType(), "RemoveDirectMessage", integration, direct);
             window.Height = previousHeight;
             Refresh(window);
             VisualAssetChecks.Drain();
         }
     }
 
+    private static void CheckDirectSettings(FormMain window, GlassLauncherView view, Action<int> setPreviewPage) {
+        bool automatic = Settings.Get<bool>("ToolLauncherUpdateAutoCheck");
+        Native.Cache("ToolLauncherUpdateAutoCheck", false);
+        try {
+            setPreviewPage((int)FormMain.PageType.Setup);
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUpdate);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassLauncherUpdatePage",
+                "the native update page opens");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content), "Opening updates created a hidden page or sidebar.");
+
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUI);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassPersonalizationPage",
+                "the native personalization page opens");
+            var page = (FrameworkElement)view.PageContentHost.Content;
+            window.UpdateLayout();
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && Descendants<TrackDragSlider>(page).Any(),
+                "Personalization did not use native glass editors.");
+
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupLaunch);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassLaunchOptionsPage",
+                "the native launch options open");
+            window.UpdateLayout();
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && Descendants<TrackDragSlider>((FrameworkElement)view.PageContentHost.Content).Any(),
+                "Launch options constructed an old page or lost its memory editor.");
+
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupSystem);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content is PageSetupSystem, "the native system settings open");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && ((FrameworkElement)view.PageContentHost.Content).FindName("TextBackupStoragePath") is TextBox,
+                "System settings constructed an old page or lost its backup directory editor.");
+
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupPersonal);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content is PageSetupPersonal, "the native synchronization settings open");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && ((FrameworkElement)view.PageContentHost.Content).FindName("TextSearch") is TextBox,
+                "Synchronization settings constructed an old page or lost its native search field.");
+
+            window.PageChange(FormMain.PageType.Setup, FormMain.PageSubType.SetupUpdate);
+            Refresh(window);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassLauncherUpdatePage",
+                "returning from personalization opens the native update page");
+        } finally {
+            Native.Cache("ToolLauncherUpdateAutoCheck", automatic);
+            window.PageChange(FormMain.PageType.Launch);
+            setPreviewPage((int)FormMain.PageType.Launch);
+        }
+    }
+
+    private static void CheckDirectResources(FormMain window, GlassLauncherView view, Action<int> preview)
+    {
+        try
+        {
+            window.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadMod);
+            preview((int)FormMain.PageType.Download);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassResourceBrowserPage",
+                "the resource center mounts its glass search page");
+            var results = view.PageContentHost.Content;
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) &&
+                window.PageCurrentSub == FormMain.PageSubType.DownloadMod,
+                "Opening the glass search page created an original download page or selected the wrong category.");
+
+            var project = new ResourceProject(new Newtonsoft.Json.Linq.JObject {
+                ["Platform"] = (int)PCLCS.ResourcePlatforms.Modrinth, ["Types"] = (int)PCLCS.ResourceTypes.Mod,
+                ["Id"] = "FixtureProject", ["RawName"] = "测试资源", ["Description"] = "简介样本", ["DownloadCount"] = 3,
+                ["LastUpdate"] = new DateTime(2025, 2, 3), ["Drops"] = new Newtonsoft.Json.Linq.JArray(210),
+                ["Tags"] = new Newtonsoft.Json.Linq.JArray()
+            });
+            window.PageChange(new FormMain.PageStackData { Page = FormMain.PageType.ResourceDetail,
+                Additional = new object[] { project, new List<string>(), "", PCLCS.ModLoaders.None, PCLCS.ResourceTypes.Mod, null! } });
+            preview((int)FormMain.PageType.ResourceDetail);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassResourceDetailPage",
+                "resource details are built in the glass page");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content),
+                "Opening direct resource details constructed the old detail page.");
+            window.PageBack();
+            preview((int)FormMain.PageType.Download);
+            VisualAssetChecks.Pump(() => ReferenceEquals(results, view.PageContentHost.Content),
+                "back from resource details returns to the same search page");
+            Native.Check(window.PageCurrentSub == FormMain.PageSubType.DownloadMod, "Back lost the active download category.");
+
+            window.PageChange(FormMain.PageType.Favorites, FormMain.PageSubType.DownloadDataPack);
+            preview((int)FormMain.PageType.Favorites);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassResourceBrowserPage" &&
+                !ReferenceEquals(results, view.PageContentHost.Content), "favorites open a native local-search page");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) &&
+                window.PageCurrentSub == FormMain.PageSubType.DownloadDataPack, "Favorites reused the classic page or lost the selected category.");
+        }
+        finally
+        {
+            window.PageChange(FormMain.PageType.Launch);
+            preview((int)FormMain.PageType.Launch);
+        }
+    }
+
+    private static void CheckDirectInstallation(FormMain window, GlassLauncherView view, string root, Action<int> preview)
+    {
+        var priorClient = ModDownload.DlClientListLoader;
+        var priorInstall = ModMain.FrmDownloadInstall;
+        var priorModify = ModMain.FrmDownloadModify;
+        var priorOwner = LauncherInstanceContext.Instance;
+        string? pending = PageDownloadInstall.VersionWaitingSelect;
+        int starts = 0;
+        var catalog = new ModLoader.LoaderTask<string, ModDownload.DlClientListResult>("Install navigation fixture", _ => {
+            starts++;
+            throw new InvalidOperationException("A direct route started a network request.");
+        });
+        catalog.Output = new ModDownload.DlClientListResult { Value = new JObject {
+            ["versions"] = new JArray(new JObject {
+                ["id"] = "1.21.1", ["type"] = "release", ["releaseTime"] = DateTime.UtcNow,
+                ["url"] = "https://example.invalid/test.json"
+            })
+        } };
+        catalog.State = ModBase.LoadState.Finished;
+        try {
+            ModDownload.DlClientListLoader = catalog;
+            PageDownloadInstall.VersionWaitingSelect = null;
+            var install = ModMain.FrmDownloadInstall = new PageDownloadInstall();
+            GlassPresentationChecks.FreezeInstallFeeds(GlassPresentationChecks.InstallHost(install));
+            window.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadInstall);
+            preview((int)FormMain.PageType.Download);
+            VisualAssetChecks.Pump(() => ReferenceEquals(install, view.PageContentHost.Content), "the installer mounts as its own WPF page");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && window.FindName("PanMainRight") is null && starts == 0,
+                "Opening the installer populated a hidden source host.");
+
+            var versionFolder = Path.Combine(root, "install-navigation", "versions", "Example");
+            Directory.CreateDirectory(versionFolder);
+            LauncherInstanceContext.Instance = new ModMinecraft.McInstance(versionFolder);
+            object navigation = Native.Property(typeof(FormMain), "GlassInstanceNavigation").GetValue(window)!;
+            var modify = (PageDownloadModify)Native.Call(navigation.GetType(), "GetPage", navigation, FormMain.PageSubType.InstanceModify)!;
+            GlassPresentationChecks.FreezeInstallFeeds(GlassPresentationChecks.InstallHost(modify));
+            object service = Native.Property(typeof(PageDownloadModify), "ModifyService").GetValue(modify)!;
+            Native.Set(Native.Get(service, "host")!, "InitializeLoader", (Action)(() => { }));
+            window.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceModify);
+            preview((int)FormMain.PageType.InstanceSetup);
+            VisualAssetChecks.Pump(() => ReferenceEquals(modify, view.PageContentHost.Content), "ordinary modification mounts its own WPF page");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content) && window.FindName("PanMainRight") is null && starts == 0,
+                "Opening ordinary modification populated a hidden source host.");
+        }
+        finally {
+            window.PageChange(FormMain.PageType.Launch);
+            preview((int)FormMain.PageType.Launch);
+            LauncherInstanceContext.Instance = priorOwner;
+            ModDownload.DlClientListLoader = priorClient;
+            ModMain.FrmDownloadInstall = priorInstall;
+            ModMain.FrmDownloadModify = priorModify;
+            PageDownloadInstall.VersionWaitingSelect = pending;
+        }
+    }
+
+    private static void CheckDirectInstanceSelection(FormMain window, GlassLauncherView view, string root, Action<int> preview)
+    {
+        var priorOwner = LauncherInstanceContext.Instance;
+        try
+        {
+            window.PageChange(FormMain.PageType.InstanceSelect);
+            preview((int)FormMain.PageType.InstanceSelect);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassInstanceSelectionPage",
+                "selecting a game instance mounts the direct page");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content),
+                "The glass instance chooser created the classic folder sidebar or right page.");
+            Native.Check(Descendants<TextBlock>(Part<StackPanel>(view, "SidebarPanel")).Any(text => text.Text == "文件夹列表"),
+                "The native instance chooser lost the file-folder sidebar.");
+
+            var game = Path.Combine(root, "glass-managed-resources");
+            Directory.CreateDirectory(game);
+            LauncherInstanceContext.Instance = new ModMinecraft.McInstance(game);
+            window.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceResourcePacks);
+            preview((int)FormMain.PageType.InstanceSetup);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassLocalResourcesPage",
+                "a local resource tab opens directly from instance management");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content),
+                "The instance resource tab created a hidden legacy sidebar or list.");
+            var local = (FrameworkElement)view.PageContentHost.Content;
+            var resourceType = Native.Type("PCL.InstanceResourceEntry");
+            var entry = Activator.CreateInstance(resourceType, nonPublic: true)!;
+            Native.Set(entry, "Name", "本地资源样本");
+            Native.Set(entry, "Description", "直接页面行");
+            string folder = Path.Combine(game, "resourcepacks");
+            Native.Set(entry, "FullPath", Path.Combine(folder, "sample.zip"));
+            var items = Array.CreateInstance(resourceType, 1);
+            items.SetValue(entry, 0);
+            object body = Native.Get(local, "_controller")!;
+            Native.Call(body.GetType(), "ShowResources", body, folder, folder, items);
+            window.UpdateLayout(); VisualAssetChecks.Drain();
+            Native.Check(Descendants<TextBlock>(local).Any(label => label.Text == "本地资源样本"),
+                "The native local-resource controller failed to render an item.");
+            window.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceJava);
+            preview((int)FormMain.PageType.InstanceSetup);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassInstanceJavaPage",
+                "the instance Java options mount directly");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content),
+                "Instance Java created the classic settings page.");
+        }
+        finally
+        {
+            window.PageChange(FormMain.PageType.Launch);
+            LauncherInstanceContext.Instance = priorOwner;
+            preview((int)FormMain.PageType.Launch);
+        }
+    }
+
+    private static void CheckMoreAndJava(FormMain window, GlassLauncherView view, Action<int> preview)
+    {
+        try
+        {
+            Show(FormMain.PageType.Other, FormMain.PageSubType.OtherAbout, "GlassAboutPage");
+            var about = (FrameworkElement)view.PageContentHost.Content;
+            Native.Check(Descendants<TextBlock>(about).Any(text => text.Text == "龙腾猫跃"),
+                "The native About page lost the original credits.");
+            var licenses = Descendants<Expander>(about).Single(expander => expander.Header is TextBlock { Text: "许可与版权声明" });
+            licenses.IsExpanded = true;
+            VisualAssetChecks.Pump(() => Descendants<Button>(about).Any(button => Equals(button.Content, "保存对应源码")),
+                "the native About page retains the bundled software source action");
+            Show(FormMain.PageType.Other, FormMain.PageSubType.OtherHelp, "GlassHelpPage");
+
+            Show(FormMain.PageType.Setup, FormMain.PageSubType.SetupJava, "GlassJavaManagementPage");
+            var installed = (FrameworkElement)view.PageContentHost.Content;
+            Descendants<Button>(installed).Single(button => Equals(button.Content, "下载 Java"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            preview((int)FormMain.PageType.HelpDetail);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == "GlassJavaDownloadPage",
+                "download opens the independent Java catalogue");
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content),
+                "Java settings mounted the original launch settings page.");
+            window.PageBack();
+            preview((int)FormMain.PageType.Setup);
+            VisualAssetChecks.Pump(() => ReferenceEquals(installed, view.PageContentHost.Content), "return from the catalogue to the same Java management view");
+        }
+        finally
+        {
+            window.PageChange(FormMain.PageType.Launch);
+            preview((int)FormMain.PageType.Launch);
+        }
+
+        void Show(FormMain.PageType page, FormMain.PageSubType sub, string expected)
+        {
+            window.PageChange(page, sub);
+            preview((int)page);
+            VisualAssetChecks.Pump(() => view.PageContentHost.Content?.GetType().Name == expected, $"the product window opens {expected}");
+            window.UpdateLayout();
+            VisualAssetChecks.Drain();
+            Native.Check(ReferenceEquals(window.PageRight, view.PageContentHost.Content), $"{expected} mounted a legacy wrapper.");
+        }
+    }
+
     private static void CheckWallpaperToolTip(FormMain window, GlassLauncherView view, ImageSource wallpaper) {
         var owner = Part<Button>(view, "NavDownload");
-        Native.Check(!MeloongCore.Wpf.ModernTooltipService.GetUseModernTooltip(owner),
+        bool legacyTooltipActive = (bool)Native.Field(typeof(MeloongCore.Wpf.ModernTooltipService), "initialized").GetValue(null)!;
+        Native.Check(!legacyTooltipActive || !MeloongCore.Wpf.ModernTooltipService.GetUseModernTooltip(owner),
             "The legacy hover renderer still overrides workbench tooltips.");
         int previousMode = Settings.Get<int>("UiLauncherColorMode");
         try {
@@ -753,16 +869,12 @@ internal static class GlassWindowIntegrationChecks {
             Content = scroll, Width = 320, Height = 200, Left = -30000, Top = -30000,
             ShowActivated = false, ShowInTaskbar = false
         };
-        var tooltip = new ToolTip {
-            Content = "跟随全局设置",
-            Style = (Style)Native.Static("PCL.GlassCommandChrome", "ToolTipStyle", false)!
-        };
+        var tooltip = new ToolTip { Content = "跟随全局设置", Style = (Style)Native.Static("PCL.GlassCommandChrome", "ToolTipStyle", false)! };
         owner.ToolTip = tooltip;
         var nextTooltip = new ToolTip { Content = "尽量使用官方源", Style = tooltip.Style };
         nextOwner.ToolTip = nextTooltip;
         ToolTipService.SetInitialShowDelay(owner, 0);
         ToolTipService.SetInitialShowDelay(nextOwner, 0);
-        MeloongCore.Wpf.ModernTooltipService.SetUseModernTooltip(scroll, false);
         Native.Static("PCL.GlassCommandChrome", "SetToolTipScrollTracking", scroll, true);
         void Hover(Button target) => Native.Call(popupServiceType, "BeginShowToolTip", popupService, target, mouse);
         int opened = 0;
@@ -782,12 +894,18 @@ internal static class GlassWindowIntegrationChecks {
             VisualAssetChecks.Observe(180);
             Hover(owner);
             VisualAssetChecks.Pump(() => opened == 1, "The tooltip did not open over scrollable content.");
+            Native.Static("PCL.GlassCommandChrome", "PositionToolTipAtPointer", tooltip, new Point(24, 16));
+            Rect firstAnchor = tooltip.PlacementRectangle;
+            Native.Static("PCL.GlassCommandChrome", "PositionToolTipAtPointer", tooltip, new Point(240, 16));
+            Native.Check(tooltip.IsOpen && tooltip.PlacementRectangle.X - firstAnchor.X == 216 && tooltip.PlacementRectangle.Y == firstAnchor.Y,
+                "Moving across the same tooltip owner kept the original pointer anchor.");
             scrollContent.Height += 100;
             VisualAssetChecks.Drain();
             Native.Check(tooltip.IsOpen, "An extent change closed a tooltip without scrolling.");
             scroll.ScrollToVerticalOffset(8);
             VisualAssetChecks.Pump(() => scroll.VerticalOffset >= 8, "The tooltip test did not scroll vertically.");
-            Native.Check(!tooltip.IsOpen, "The workbench tooltip stayed open as the page scrolled vertically.");
+            VisualAssetChecks.Pump(() => !tooltip.IsOpen && tooltip.PlacementRectangle.IsEmpty,
+                "Scrolling did not close the pointer tooltip and release its mouse anchor.");
 
             for (int offset = 16; offset <= 40; offset += 8) {
                 scroll.ScrollToVerticalOffset(offset);
@@ -868,20 +986,24 @@ internal static class GlassWindowIntegrationChecks {
 
     private static void Refresh(FormMain window) => Native.Call(typeof(FormMain), "RefreshGlassShell", window);
     private static void RegisterResizeGrips(FormMain window, WindowResizer resizer) {
-        resizer.addResizerDown(Part<FrameworkElement>(window, "ResizerB"));
-        resizer.addResizerLeft(Part<FrameworkElement>(window, "ResizerL"));
-        resizer.addResizerLeftDown(Part<FrameworkElement>(window, "ResizerLB"));
-        resizer.addResizerLeftUp(Part<FrameworkElement>(window, "ResizerLT"));
-        resizer.addResizerRight(Part<FrameworkElement>(window, "ResizerR"));
-        resizer.addResizerRightDown(Part<FrameworkElement>(window, "ResizerRB"));
-        resizer.addResizerRightUp(Part<FrameworkElement>(window, "ResizerRT"));
-        resizer.addResizerUp(Part<FrameworkElement>(window, "ResizerT"));
+        var shell = Native.Get(window, "glassShell")!;
+        UIElement Grip(int index) => (UIElement)Native.Call(shell.GetType(), "ResizeGrip", shell, index)!;
+        resizer.addResizerDown(Grip(0));
+        resizer.addResizerLeft(Grip(1));
+        resizer.addResizerLeftDown(Grip(2));
+        resizer.addResizerLeftUp(Grip(3));
+        resizer.addResizerRight(Grip(4));
+        resizer.addResizerRightDown(Grip(5));
+        resizer.addResizerRightUp(Grip(6));
+        resizer.addResizerUp(Grip(7));
     }
     private static void CheckResizeGrips(FormMain window, GlassLauncherView view) {
         PropertyInfo storeProperty = typeof(UIElement).GetProperty("EventHandlersStore", Native.Flags)
             ?? throw new MissingMemberException("UIElement.EventHandlersStore");
+        var shell = (GlassShellIntegration)Native.Get(window, "glassShell")!;
+        int index = 0;
         foreach (string name in new[] { "ResizerB", "ResizerL", "ResizerLB", "ResizerLT", "ResizerR", "ResizerRB", "ResizerRT", "ResizerT" }) {
-            FrameworkElement grip = Part<FrameworkElement>(window, name);
+            var grip = (FrameworkElement)shell.ResizeGrip(index++);
             object store = storeProperty.GetValue(grip) ?? throw new InvalidOperationException("Resize grip has no actual routed handlers: " + name);
             var handlers = (Array?)Native.Call(store.GetType(), "GetRoutedEventHandlers", store, UIElement.MouseLeftButtonDownEvent);
             bool actual = handlers?.Cast<object>().Any(info => Native.Property(info.GetType(), "Handler").GetValue(info) is Delegate handler &&
@@ -896,8 +1018,8 @@ internal static class GlassWindowIntegrationChecks {
         Point top = view.TranslatePoint(new Point((body.Left + controls.Left) / 2, body.Top + 2), window);
         Point bottom = view.TranslatePoint(new Point(body.Left + body.Width / 2, body.Bottom - 2), window);
         Point topRight = view.TranslatePoint(new Point(controls.Right - 2, controls.Top + 2), window);
-        foreach (var (point, name) in new[] { (right, "ResizerR"), (left, "ResizerL"), (top, "ResizerT"), (bottom, "ResizerB"), (topRight, "ResizerRT") })
-            Native.Check(ReferenceEquals(window.InputHitTest(point), Part<FrameworkElement>(window, name)),
+        foreach (var (point, name, grip) in new[] { (right, "ResizerR", 4), (left, "ResizerL", 1), (top, "ResizerT", 7), (bottom, "ResizerB", 0), (topRight, "ResizerRT", 6) })
+            Native.Check(ReferenceEquals(window.InputHitTest(point), shell.ResizeGrip(grip)),
                 "Actual glass inner edge is not hit-testable by its original resize grip: " + name);
         var account = Part<Button>(view, "AccountButton");
         Rect avatar = account.TransformToAncestor(view).TransformBounds(new Rect(account.RenderSize));

@@ -13,14 +13,14 @@ using ImpactController = PCLCS.ModDependencyImpactViewController<PCL.ModDependen
 namespace PCL
 {
 
-    internal sealed class ModDependencyImpactView : Grid
+    internal sealed class ModDependencyImpactView : Grid, IGlassDialogContent
     {
 
         internal class Item : ModDependencyImpactItemData
         {
         }
         internal readonly Grid Cards = new Grid();
-        internal double PreferredWidth { get; private set; } = ImpactController.PreferredWidth;
+        public double PreferredWidth => ImpactController.PreferredWidth;
 
         internal static List<Item> Collect(Inspector.InspectionReport Report, IEnumerable<string> Paths)
         {

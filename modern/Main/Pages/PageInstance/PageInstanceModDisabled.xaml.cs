@@ -15,12 +15,12 @@ namespace PCL
                     Version = BtnVersion,
                     Modpack = new Func<bool>(() => ModModpackMode.Enabled),
                     DownloadHidden = new Func<bool>(() => Settings.Get<bool>("UiHiddenPageDownload")),
-                    HiddenForceShow = new Func<bool>(() => PageSetupUI.HiddenForceShow),
-                    SelectShowHidden = new Func<bool>(() => ModMain.FrmSelectRight is null ? false : ModMain.FrmSelectRight.ShowHidden),
+                    HiddenForceShow = new Func<bool>(() => LauncherAppearanceSettings.HiddenForceShow),
+                    SelectShowHidden = () => ModMain.FrmMain?.ShowHiddenInstances == true,
                     DownloadPage = new Action(() => ModMain.FrmMain.PageChange((FormMain.PageStackData)FormMain.PageType.Download, FormMain.PageSubType.DownloadInstall)),
                     LaunchPage = new Action(() => ModMain.FrmMain.PageChange((FormMain.PageStackData)FormMain.PageType.Launch)),
                     SelectPage = new Action(() => ModMain.FrmMain.PageChange((FormMain.PageStackData)FormMain.PageType.InstanceSelect)),
-                    Resize = new Action(() => this.PanMain.TriggerForceResize())
+                    Resize = PanMain.InvalidateMeasure
                 };
             }
         }
@@ -43,6 +43,9 @@ namespace PCL
         public PageInstanceModDisabled()
         {
             this.InitializeComponent();
+            BtnDownload.Click += BtnDownload_Click;
+            BtnVersion.Click += BtnVersion_Click;
+            Loaded += (_, _) => BtnDownload_Loaded();
         }
     }
 }

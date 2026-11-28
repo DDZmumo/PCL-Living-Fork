@@ -36,7 +36,7 @@ public static partial class ModLauncherUpdate {
         RefreshDeferredUpdateIndicator();
     }
     private static void RefreshDeferredUpdateIndicator() => ModBase.RunInUi(() => {
-        if (ModMain.FrmMain?.BtnTitleUpdate is MyIconButton button) FormMain.RefreshDeferredUpdateButton(button);
+        ModMain.FrmMain?.RefreshGlassShell();
     });
     internal static void ReopenDeferredUpdate() {
         var pending = Volatile.Read(ref deferredRelease);

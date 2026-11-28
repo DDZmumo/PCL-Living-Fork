@@ -15,17 +15,21 @@ internal static partial class MmcImportRecoveryUiChecks {
         scope.RealStageDetails(); scope.Finish();
         Console.WriteLine("PASS mmc-import-stage-details: actual Main tiny ZIP/native ZIP/cached asset import displays genuine runtime substeps and sticky asset-copy details; real inventory, manifest, placement and verification counts stay distinct from bytes, including a zero-byte file. Held producer boundaries keep future stages waiting and total progress monotonic; unknown totals show no invented percentage. No game launch, network transfer or desktop interaction.");
     }
-    private static string VisibleDetail(MyCard card, string stage) => Rows(card).Children.OfType<StackPanel>()
-        .Single(value => value.Tag?.ToString() == stage).Children.OfType<TextBlock>().Single(value => Equals(value.Tag, "mmc-import-detail")).Text;
+    private static string VisibleDetail(object card, string stage)
+    {
+        var items = (System.Collections.IList)Native.Get(card, "_stages")!;
+        object row = items[(int)Enum.Parse<MmcImportStage>(stage)]!;
+        return Text(row, "_detail").Text;
+    }
 
     private sealed partial class Scope {
         private sealed record DetailEvent(MmcInstanceBackendProgress Event, double Fraction, StageView[] Stages);
         internal void RealStageDetails() {
-            AddDetailSources(); var (left, right) = TaskPages();
+            AddDetailSources(); var page = TaskPage();
             using ManualResetEventSlim native = new(), nativeRelease = new(), plan = new(), planRelease = new(),
                 manifest = new(), manifestRelease = new(), placement = new(), placementRelease = new();
             var events = new ConcurrentQueue<DetailEvent>();
-            var task = StartProgressImport("actual-stage-details", left, value => {
+            var task = StartProgressImport("actual-stage-details", page, value => {
                 events.Enqueue(new(value, current!.Progress, Stages(current!)));
                 if (value.Phase == "native-extract" && !native.IsSet) Hold(native, nativeRelease, "native extraction");
                 if (value.Phase == "private-payload-plan" && value.CompletedFiles == 1) Hold(plan, planRelease, "inventory");
@@ -33,22 +37,22 @@ internal static partial class MmcImportRecoveryUiChecks {
                 if (value.Phase == "private-payload-install" && value.CompletedFiles == 1) Hold(placement, placementRelease, "placement");
             });
             try {
-                Until(() => native.IsSet, "Actual local native ZIP did not reach its real extraction callback."); left.TaskRefresh(task);
+                Until(() => native.IsSet, "Actual local native ZIP did not reach its real extraction callback."); page.Refresh();
                 var runtimeStage = Stage(task, "PrepareRuntime");
                 Native.Check(runtimeStage is { State: "Running", Progress: null, TotalBytes: 0, CompletedBytes: > 0, Detail: "解压本地运行库" } &&
-                    VisibleDetail(Cards(right).Single(), "PrepareRuntime").StartsWith("解压本地运行库", StringComparison.Ordinal),
+                    VisibleDetail(Cards(page).Single(), "PrepareRuntime").StartsWith("解压本地运行库", StringComparison.Ordinal),
                     "Native extraction remained hidden in a tooltip/generic runtime title or showed an invented total percentage.");
-                nativeRelease.Set(); Until(() => plan.IsSet, "Actual import did not reach its first real inventory member."); left.TaskRefresh(task);
+                nativeRelease.Set(); Until(() => plan.IsSet, "Actual import did not reach its first real inventory member."); page.Refresh();
                 var planning = Stage(task, "InstallPackage");
                 Native.Check(planning is { State: "Running", CompletedFiles: 1, TotalFiles: 3, CompletedBytes: 0, TotalBytes: 0, Progress: > 0 and < .35 } &&
-                    Stage(task, "PublishInstance").State == "Waiting" && VisibleDetail(Cards(right).Single(), "InstallPackage").Contains("核对文件清单 1/3", StringComparison.Ordinal),
+                    Stage(task, "PublishInstance").State == "Waiting" && VisibleDetail(Cards(page).Single(), "InstallPackage").Contains("核对文件清单 1/3", StringComparison.Ordinal),
                     "Real preflight counts did not advance visibly, became bytes, or completed the install/publication prematurely.");
-                planRelease.Set(); Until(() => manifest.IsSet, "Actual import did not reach manifest persistence."); left.TaskRefresh(task);
+                planRelease.Set(); Until(() => manifest.IsSet, "Actual import did not reach manifest persistence."); page.Refresh();
                 Native.Check(Stage(task, "InstallPackage") is { State: "Running", Progress: null, Detail: "保存文件清单", TotalBytes: > 0 } &&
-                    VisibleDetail(Cards(right).Single(), "InstallPackage").StartsWith("保存文件清单", StringComparison.Ordinal),
+                    VisibleDetail(Cards(page).Single(), "InstallPackage").StartsWith("保存文件清单", StringComparison.Ordinal),
                     "Manifest boundary reused the finished plan percentage or hid its current work.");
-                manifestRelease.Set(); Until(() => placement.IsSet, "Actual import did not place its first real payload file."); left.TaskRefresh(task);
-                var installing = Stage(task, "InstallPackage"); string placementText = VisibleDetail(Cards(right).Single(), "InstallPackage");
+                manifestRelease.Set(); Until(() => placement.IsSet, "Actual import did not place its first real payload file."); page.Refresh();
+                var installing = Stage(task, "InstallPackage"); string placementText = VisibleDetail(Cards(page).Single(), "InstallPackage");
                 Native.Check(installing is { State: "Running", CompletedFiles: 1, TotalFiles: 3, CompletedBytes: > 0, TotalBytes: > 0, Progress: > .40 and < 1 } &&
                     Stage(task, "PublishInstance").State == "Waiting" && placementText.Contains("放置文件 1/3", StringComparison.Ordinal) && placementText.Contains(" / ", StringComparison.Ordinal),
                     "Actual placement did not show independent file counts and byte progress before publication.");
@@ -78,7 +82,7 @@ internal static partial class MmcImportRecoveryUiChecks {
             string dll = Directory.EnumerateFiles(Path.Combine(finalRoot, "PCL", "MmcRuntime"), "fixture.dll", SearchOption.AllDirectories).Single();
             Native.Check(File.ReadAllBytes(dll).SequenceEqual(new byte[] { 1, 2, 3 }) && MmcInstanceInspector.Read(finalRoot).IsConsistent,
                 "Actual native ZIP fixture was not extracted and published through the genuine backend.");
-            left.TaskRefresh(task); ModLoader.LoaderTaskbar.Remove(task);
+            page.Refresh(); ModLoader.LoaderTaskbar.Remove(task);
 
             static void Hold(ManualResetEventSlim entered, ManualResetEventSlim release, string stage) {
                 entered.Set(); if (!release.Wait(10000)) throw new TimeoutException("Owned " + stage + " detail barrier was not released.");

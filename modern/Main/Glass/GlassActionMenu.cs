@@ -44,9 +44,9 @@ internal sealed class GlassActionMenu : ContextMenu {
         Opened += OnOpened;
         Closed += OnClosed;
     }
-    internal MenuItem AddCommand(string text, Action action, bool enabled = true, string? iconData = null, bool check = false) {
+    internal MenuItem AddCommand(string text, Action action, bool enabled = true, string? iconData = null, bool check = false, bool allowServerAction = false) {
         ArgumentNullException.ThrowIfNull(action);
-        if (GlassClientUiPolicy.ServerAction(text)) return new MenuItem { Header = text, Visibility = Visibility.Collapsed, IsEnabled = false };
+        if (!allowServerAction && GlassClientUiPolicy.ServerAction(text)) return new MenuItem { Header = text, Visibility = Visibility.Collapsed, IsEnabled = false };
         var item = new LifetimeMenuItem(OwnerIsLive) { Header = text, IsEnabled = enabled, IsChecked = check, Style = (Style)Resources[typeof(MenuItem)] };
         if (!string.IsNullOrWhiteSpace(iconData)) {
             try { item.Icon = MakeIcon(Geometry.Parse(iconData)); }

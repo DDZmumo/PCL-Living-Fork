@@ -16,11 +16,7 @@ public sealed class MainHelpHost<TEvent> {
     public Func<int> VersionCode = null!, HelpVersion = null!;
     public Action<int> SetHelpVersion = null!;
     public Action<string, string> ExtractResources = null!;
-    public TEvent PopupEvent = default!;
-    public Func<MyListItemView> CreateRow = null!;
-    public Action<MyListItemView> ClearCustomEvent = null!;
-    public Action<MyListItemView, Action<object>> ConnectClick = null!;
-    public Action<object> OpenEntry = null!;
+    public Func<string, bool, string> ReadContent = (path, _) => FileUtils.ReadAsString(path);
 }
 
 public class MainHelpEntryData<TEvent> {
@@ -34,11 +30,13 @@ public class MainHelpEntryData<TEvent> {
     public string? EventData, XamlContent;
     private readonly MainHelpHost<TEvent> host;
 
-    public MainHelpEntryData(string filePath, MainHelpHost<TEvent> host) {
+    public MainHelpEntryData(string filePath, MainHelpHost<TEvent> host) : this(filePath, host,
+        () => host.ReadContent(filePath, true), () => host.ReadContent(Path.ChangeExtension(filePath, ".xaml"), false)) { }
+
+    protected MainHelpEntryData(string filePath, MainHelpHost<TEvent> host, Func<string> readMetadata, Func<string> readMarkup) {
         this.host = host;
         RawPath = filePath;
-        if (!FileUtils.Exists(filePath)) throw new FileNotFoundException("未找到帮助文件：" + filePath, filePath);
-        JObject json = (JObject)host.ArgumentReplace(FileUtils.ReadAsString(filePath), StringUtils.XmlEscape).DeserializeJson()!;
+        JObject json = (JObject)host.ArgumentReplace(readMetadata(), StringUtils.XmlEscape).DeserializeJson()!;
         if (json["Title"] is not null) Title = (string?)json["Title"];
         else throw new ArgumentException("未找到 Title 项");
         Desc = (string?)(json["Description"] ?? "");
@@ -54,25 +52,12 @@ public class MainHelpEntryData<TEvent> {
             EventData = (string?)(json["EventData"] ?? "");
             IsEvent = true;
         } else {
-            string xamlAddress = Path.ChangeExtension(filePath, ".xaml");
-            if (!FileUtils.Exists(xamlAddress)) throw new FileNotFoundException("未找到帮助条目 .json 对应的 .xaml 文件（" + xamlAddress + "）");
-            XamlContent = FileUtils.ReadAsString(xamlAddress);
+            XamlContent = readMarkup();
             IsEvent = false;
         }
     }
 
-    public MyListItemView ToListItem() => SetToListItem(host.CreateRow());
-    public MyListItemView SetToListItem(MyListItemView item) {
-        string logo = IsEvent
-            ? (EqualityComparer<TEvent>.Default.Equals(EventType, host.PopupEvent) ? "Blocks/GrassPath.png" : "Blocks/CommandBlock.png")
-            : "Blocks/Grass.png";
-        logo = host.ImagePath() + logo;
-        item.SnapsToDevicePixels = true; item.Title = Title!; item.Info = Desc!; item.Logo = Logo ?? logo;
-        item.Height = 42; item.Type = MyListItemView.CheckType.Clickable; item.Tag = this;
-        host.ClearCustomEvent(item);
-        host.ConnectClick(item, sender => host.OpenEntry(((FrameworkElement)sender).Tag));
-        return item;
-    }
+
 }
 
 public sealed class MainHelpRuntime<TEntry, TEvent> where TEntry : MainHelpEntryData<TEvent> {

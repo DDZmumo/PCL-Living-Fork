@@ -15,7 +15,7 @@ internal static class MmcRenameAdmissionChecks {
         var ui = Native.Type("PCL.MmcLifecycleUi");
         var select = Native.Property(ui, "SelectRenameName"); var register = Native.Property(ui, "RegisterTask"); var published = Native.Property(ui, "Published");
         object? previousSelect = select.GetValue(null), previousRegister = register.GetValue(null), previousPublished = published.GetValue(null);
-        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action oldRefresh = scheduler.RefreshExtraDownload; using ManualResetEventSlim refreshed = new(false);
         ModLoader.LoaderCombo<string>? actual = null; Guid replacementId = Guid.Empty; string replacementHash = ""; bool wasPublished = false;
         try {

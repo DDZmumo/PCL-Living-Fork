@@ -11,7 +11,7 @@ using MeloongCore;
 using PCLCS;
 using PCLLF.MMCC.Core;
 using DownloadRuntime = PCLCS.Network.LegacyNetworkRuntime<PCL.ModNet.NetSource, PCL.ModNet.NetThread, PCL.ModNet.NetFile,
-    PCL.ModNet.LoaderDownload, PCL.ModNet.NetManagerClass, PCL.ModLoader.LoaderBase, PCL.ModNet.NetState, PCL.ModBase.LoadState, PCL.MyLoading.MyLoadingState>;
+    PCL.ModNet.LoaderDownload, PCL.ModNet.NetManagerClass, PCL.ModLoader.LoaderBase, PCL.ModNet.NetState, PCL.ModBase.LoadState, PCL.LauncherLoadingState>;
 
 namespace PCL;
 

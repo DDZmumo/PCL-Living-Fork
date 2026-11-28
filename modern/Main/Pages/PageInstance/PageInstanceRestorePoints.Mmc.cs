@@ -41,14 +41,12 @@ public partial class PageInstanceRestorePoints {
     }
 
     private void InitMmcHistory() {
-        SearchBox.HintText = "搜索环境记录 / 备注 / 时间";
-        BtnCreate.Text = "创建环境记录";
+        BtnCreate.Content = "创建环境记录";
         CardRetention.Visibility = Visibility.Collapsed;
         FilterHealthy.Visibility = Visibility.Collapsed;
         BtnDelete.Visibility = Visibility.Collapsed;
         BtnMmcUndo.Visibility = Visibility.Visible;
         BtnMmcUndo.Click += (_, _) => UndoMmcRestore();
-        Load.Text = "正在读取 MMC 环境记录";
         HintMmcHistory.Visibility = Visibility.Visible;
         RefreshMmcState();
     }
@@ -77,7 +75,7 @@ public partial class PageInstanceRestorePoints {
             : "当前环境记录不可用。请核对实例状态后重新打开此页面。"
     };
 
-    private bool IsCurrentMmcOwner() => ReferenceEquals(PageInstanceLeft.Instance, MmcOwner)
+    private bool IsCurrentMmcOwner() => ReferenceEquals(LauncherInstanceContext.Instance, MmcOwner)
         && MmcOwner is not null && PathUtils.IsSame(MmcOwner.PathVersion, MmcRoot);
 
     private bool MmcAttachmentMatches() {
@@ -90,10 +88,10 @@ public partial class PageInstanceRestorePoints {
     private bool RefreshMmcState() {
         MmcMayRead = MmcStateWritable = false;
         string reason;
-        var theme = MyHint.Themes.Yellow;
+        var theme = DialogTone.Warning;
         if (!IsCurrentMmcOwner()) {
             reason = "当前页面对应的实例已变更，请重新进入实例设置。此页面不会操作其他实例。";
-            theme = MyHint.Themes.Red;
+            theme = DialogTone.Error;
         } else if (MmcInstanceId == Guid.Empty) {
             reason = "打开页面时未能确认 MMC 实例身份，当前为只读状态。请恢复管理记录后重新选择实例。";
         } else {
@@ -106,7 +104,7 @@ public partial class PageInstanceRestorePoints {
                     : MmcState.InstanceId == Guid.Empty
                     ? "无法确认原 MMC 实例的管理记录，已停止环境操作。请恢复记录后重新选择实例。"
                     : "此目录中的实例已被替换。当前页面仍属于原实例，刷新不会接管新实例；请重新选择实例。";
-                theme = MmcState.IsPendingTransaction ? MyHint.Themes.Yellow : MyHint.Themes.Red;
+                theme = MmcState.IsPendingTransaction ? DialogTone.Warning : DialogTone.Error;
             } else {
                 MmcMayRead = true;
                 MmcStateWritable = MmcState.IsConsistent && MmcAttachmentMatches() && !string.IsNullOrEmpty(MmcState.Inspection?.PrimarySha256);
@@ -114,15 +112,15 @@ public partial class PageInstanceRestorePoints {
                     !string.Equals(MmcLoadedPrimary, MmcState.Inspection?.PrimarySha256, StringComparison.OrdinalIgnoreCase))) MmcReadReady = false;
                 if (MmcStateWritable) {
                     reason = "环境记录保存组件、补丁、运行库和环境文件。还原前自动保存当前环境；当前存档、截图、地图标记及实例偏好会保留。";
-                    theme = MyHint.Themes.Blue;
+                    theme = DialogTone.Information;
                 } else if (MmcState.IsConsistent) {
                     reason = "此页面绑定的配置身份已失效，环境记录仅供查看。请重新选择实例后再操作。";
-                    theme = MyHint.Themes.Red;
+                    theme = DialogTone.Error;
                 } else if (MmcState.IsPendingTransaction) {
                     reason = "检测到未完成事务，环境记录仅供查看。请等待操作完成或先恢复事务，再重新检查。";
                 } else if (MmcState.IsRepairRequired) {
                     reason = "MMC 配置校验未通过，环境记录仅供查看。请先在“组件与补丁”中修复 MMC 实例，再重新检查。";
-                    theme = MyHint.Themes.Red;
+                    theme = DialogTone.Error;
                 } else if (MmcState.IsUnsupported) {
                     reason = "MMC 管理格式不受当前版本支持，环境记录仅供查看。请保留实例目录并使用兼容版本处理。";
                 } else {
@@ -130,8 +128,7 @@ public partial class PageInstanceRestorePoints {
                 }
             }
         }
-        HintMmcHistory.Text = reason;
-        HintMmcHistory.Theme = theme;
+        GlassDialogControls.UpdateNotice(HintMmcHistory, reason, theme);
         UpdateMmcCommands();
         return IsCurrentMmcOwner();
     }
@@ -145,8 +142,8 @@ public partial class PageInstanceRestorePoints {
         BtnFolder.IsEnabled = MmcMayRead && IsCurrentMmcOwner();
         BtnMmcUndo.IsEnabled = canWrite && MmcUndoPoint is not null;
         BtnRestore.IsEnabled = canWrite && Controller.SelectedIds.Count == 1;
-        foreach (MyLocalModItem row in PanEntries.Children.OfType<MyLocalModItem>())
-            if (row.Buttons.FirstOrDefault() is MyIconButton restore) restore.IsEnabled = canWrite;
+        foreach (GlassHistoryRow row in PanEntries.Children.OfType<GlassHistoryRow>())
+            if (row.Actions.Children.OfType<Button>().FirstOrDefault() is Button restore) restore.IsEnabled = canWrite;
     }
 
     private void StartMmcRead(string _) {

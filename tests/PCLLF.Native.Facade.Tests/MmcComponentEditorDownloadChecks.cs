@@ -51,7 +51,7 @@ internal static class MmcComponentEditorDownloadChecks {
         internal Scope(FixtureEnvironment environment) {
             this.environment = environment; files = new(environment);
             string root = Path.Combine(files.Root, "component-download"); data = new(root); files.SelectMinecraft(data.Game);
-            var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             scheduler.RefreshExtraDownload = () => { };
             byte[] bytes = Enumerable.Range(0, 2048).Select(value => (byte)value).ToArray(); server.Add("/component.jar", bytes, entered, release);
             var host = (LegacyNetworkHost<ModNet.NetFile, ModNet.LoaderDownload, ModNet.NetManagerClass, ModLoader.LoaderBase>)Native.Field(typeof(ModNet), "NativeHost").GetValue(null)!;

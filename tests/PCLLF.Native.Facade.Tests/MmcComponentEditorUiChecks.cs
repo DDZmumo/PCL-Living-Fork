@@ -45,7 +45,7 @@ internal static class MmcComponentEditorUiChecks {
         private readonly Dictionary<PropertyInfo, object?> previous = [];
         private readonly List<ModLoader.LoaderCombo<string>> tasks = [];
         private readonly List<MmcInstanceDefinitionChangeResult> published = [];
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action oldRefresh;
         private Fixture? fixture;
         private Func<MmcComponentEditorModel, MmcComponentEditorChoice?, MmcComponentEditorChoice?> choose = (_, _) => null;
@@ -59,7 +59,7 @@ internal static class MmcComponentEditorUiChecks {
         private bool Busy => (bool)Native.Property(ui, "HasActiveOperation").GetValue(null)!;
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             oldRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("ServicesFactory", new Func<ModMinecraft.McInstance, MmcComponentEditorServices>(_ => new() {
                 Metadata = fixture!.Metadata, CacheRoots = fixture.Caches,

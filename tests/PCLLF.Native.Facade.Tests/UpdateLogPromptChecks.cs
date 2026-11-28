@@ -14,7 +14,7 @@ using PCLLF.Presentation.Shell;
 
 namespace PCLLF.Native.Facade.Tests;
 
-// Genuine Main message factory, MyMsgText, Markdown, native MyCheckBox, settings
+// Genuine Main message factory, GlassMessageDialog, Markdown, native CheckBox, settings
 // cache and physical GUID-fixture Setup.ini. No launcher startup, HTTP or windows.
 internal static class UpdateLogPromptChecks
 {
@@ -35,13 +35,12 @@ internal static class UpdateLogPromptChecks
 
         object runtime = Native.Field(typeof(ModMain), "NativeMessages").GetValue(null)!;
         var host = (MainMessageHost<ModMain.MyMsgBoxConverter, ModMain.MyMsgBoxType>)Native.Get(runtime, "host")!;
-        var beforePanel = host.Panel;
+        var beforeCanPresent = host.CanPresent;
         var beforeQueue = host.Queue;
         var beforeUi = host.IsUiThread;
         var beforeDrag = host.DragStop;
         ConcurrentQueue<ModMain.MyMsgBoxConverter> queue = new();
-        Grid fakePanel = new();
-        host.Panel = () => fakePanel;
+        host.CanPresent = () => true;
         host.Queue = () => queue;
         host.IsUiThread = () => false;
         host.DragStop = () => { };
@@ -55,17 +54,17 @@ internal static class UpdateLogPromptChecks
             using (FileStream held = new(file, FileMode.Open, FileAccess.Read, FileShare.Read))
                 Dialog(true, (dialog, body, box) =>
                 {
-                    Native.Check(!box.Checked, "The legacy permanent false value suppressed the new notice.");
+                    Native.Check(box.IsChecked == false, "The legacy permanent false value suppressed the new notice.");
                     UserCheck(box, true);
-                    Native.Check(!box.Checked && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == "", "A failed notice write falsely changed its native checkbox/cache.");
+                    Native.Check(box.IsChecked == false && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == "", "A failed notice write falsely changed its native checkbox/cache.");
                 });
             Native.Check(File.ReadAllBytes(file).SequenceEqual(original), "A rejected dismissal changed the original Setup.ini bytes.");
 
             Dialog(true, (dialog, body, box) =>
             {
-                Native.Check(!box.Checked, "A failed dismissal leaked into the next dialog.");
+                Native.Check(box.IsChecked == false, "A failed dismissal leaked into the next dialog.");
                 UserCheck(box, true);
-                Native.Check(box.Checked && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == identity, "Checking did not persist the actual build identity.");
+                Native.Check(box.IsChecked == true && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == identity, "Checking did not persist the actual build identity.");
                 Preview(dialog);
             });
             Native.Check(ModBase.ReadIni("Setup", LegacyUpdateLogPrompt.Key, "") == identity && ModBase.ReadIni("Setup", "Keep", "") == "原设置", "A notice save lost its dismissal or another Setup.ini key.");
@@ -75,11 +74,11 @@ internal static class UpdateLogPromptChecks
 
             Dialog(false, (_, _, box) =>
             {
-                Native.Check(box.Checked, "Manual viewing must reflect the current build's saved dismissal.");
+                Native.Check(box.IsChecked == true, "Manual viewing must reflect the current build's saved dismissal.");
                 UserCheck(box, false);
-                Native.Check(!box.Checked && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == "", "Manual unchecking did not restore this version's automatic notes.");
+                Native.Check(box.IsChecked == false && Settings.Get<string>(LegacyUpdateLogPrompt.Key) == "", "Manual unchecking did not restore this version's automatic notes.");
             });
-            Dialog(true, (_, _, box) => Native.Check(!box.Checked, "Automatic viewing did not resume after manual unchecking."));
+            Dialog(true, (_, _, box) => Native.Check(box.IsChecked == false, "Automatic viewing did not resume after manual unchecking."));
             Native.Check(Settings.Get<string>("ToolLauncherUpdateIgnoredTag") == ignored, "Notice preferences changed the independent newer-version reminder.");
             bool published = (bool)Native.Static("PCL.ModLauncherUpdate", "UsesPublishedReleaseNotes", ModBase.VersionBaseName, ModBase.ReleaseBaselineIsPrerelease, ModBase.BuildType)!;
             Native.Check(published ? requests > 0 : requests == 0, "Development builds requested release metadata or official offline notices bypassed their lookup.");
@@ -104,22 +103,22 @@ internal static class UpdateLogPromptChecks
             foreach (string markdown in new[] { "# 正式发布说明\n\n**完整 Markdown**\n\n- 正式版功能\n", summary, "- 开发版基线说明" })
             {
                 FrameworkElement body = NewBody(markdown, false, _ => true);
-                MyMsgText modal = new(new ModMain.MyMsgBoxConverter { Title = "版本说明", Button1 = "确定", Button2 = "查看发布页", ContentFactory = () => body });
-                CheckLayout(modal, body, (MyCheckBox)Native.Get(body, "Suppress")!);
+                GlassMessageDialog modal = new(new ModMain.MyMsgBoxConverter { Title = "版本说明", Button1 = "确定", Button2 = "查看发布页", ContentFactory = () => body, UseNativeContent = true }, () => { }, _ => { });
+                CheckLayout(modal, body, (CheckBox)Native.Get(body, "Suppress")!);
             }
             CheckStartupPromptOrder(queue);
             environment.AssertNoForbiddenIo();
-            Console.WriteLine("PASS native update notes: genuine Main modal factory/Markdown/MyCheckBox with fixed footer, legacy false ignored, failed-save bytes/cache/UI rollback, current-build dismissal, manual restore, automatic resume and independent updater preference; GUID fixture only, no HTTP/browser/startup.");
+            Console.WriteLine("PASS native update notes: genuine Main modal factory/Markdown/CheckBox with fixed footer, legacy false ignored, failed-save bytes/cache/UI rollback, current-build dismissal, manual restore, automatic resume and independent updater preference; GUID fixture only, no HTTP/browser/startup.");
         }
         finally
         {
-            host.Panel = beforePanel;
+            host.CanPresent = beforeCanPresent;
             host.Queue = beforeQueue;
             host.IsUiThread = beforeUi;
             host.DragStop = beforeDrag;
         }
 
-        void Dialog(bool automatic, Action<MyMsgText, FrameworkElement, MyCheckBox> inspect)
+        void Dialog(bool automatic, Action<GlassMessageDialog, FrameworkElement, CheckBox> inspect)
         {
             Exception? callbackFailure = null;
             bool observed = false;
@@ -129,11 +128,12 @@ internal static class UpdateLogPromptChecks
                 try
                 {
                     Native.Check(queue.TryDequeue(out converter), "The actual Main route did not enqueue its native content dialog.");
-                    MyMsgText dialog = new(converter!);
-                    FrameworkElement body = (FrameworkElement)((ContentControl)dialog.FindName("PanCaption")).Content;
+                    using GlassMessageDialog dialog = new(converter!, () => { }, _ => { });
+                    FrameworkElement body = (FrameworkElement)((ContentControl)Native.Get(dialog, "_nativeContentHost")!).Content;
                     Native.Check(body.GetType() == Native.Type("PCL.ReleaseNotesPromptView"), "The actual notice route used a different content body.");
-                    MyCheckBox box = (MyCheckBox)Native.Get(body, "Suppress")!;
-                    Native.Check(converter!.Button3 == "" && converter.Button1 == "确定" && converter.Button2 == "查看发布页", "The notice still uses a third permanent opt-out button.");
+                    CheckBox box = (CheckBox)Native.Get(body, "Suppress")!;
+                    Native.Check(converter!.UseNativeContent && converter.Button3 == "" && converter.Button1 == "确定" && converter.Button2 == "查看发布页",
+                        "The notice missed the native content route or exposed the old third action.");
                     CheckLayout(dialog, body, box);
                     inspect(dialog, body, box);
                     observed = true;
@@ -195,38 +195,32 @@ internal static class UpdateLogPromptChecks
         (FrameworkElement)Activator.CreateInstance(Native.Type("PCL.ReleaseNotesPromptView"), Native.Flags, null,
             new object?[] { markdown, suppressed, persist, (Action<string>)(_ => throw new InvalidOperationException("Browser forbidden")) }, null)!;
 
-    private static void UserCheck(MyCheckBox box, bool value)
+    private static void UserCheck(CheckBox box, bool value)
     {
-        // Offscreen controls do not raise OnChange from the IsLoaded-only setter.
-        // Invoke that genuine event boundary after changing the actual native DP.
-        box.Checked = value;
-        Native.Call(typeof(MyCheckBox), "OnChange", box, true);
+        Native.Check(box.IsChecked != value, "The checkbox fixture did not start with the opposite value.");
+        Native.Call(typeof(CheckBox), "OnClick", box);
     }
 
-    private static void CheckLayout(MyMsgText dialog, FrameworkElement body, MyCheckBox box)
+    private static void CheckLayout(GlassMessageDialog dialog, FrameworkElement body, CheckBox box)
     {
-        Native.Check(box.GetType() == typeof(MyCheckBox) && box.Text == "下次更新前不再弹出" &&
-            ReferenceEquals(box.Parent, body) && Grid.GetRow(box) == 1, "The notice footer is not the original native checkbox/text outside the Markdown viewer.");
+        Native.Check(box.GetType() == typeof(CheckBox) && Equals(box.Content, "下次更新前不再弹出") &&
+            ReferenceEquals(box.Parent, body) && Grid.GetRow(box) == 1, "The notice footer is not a native checkbox and label outside the Markdown viewer.");
         var notes = Native.Get(body, "Notes") as FlowDocumentScrollViewer ?? throw new InvalidOperationException("Missing native Markdown viewer");
         Native.Check(ReferenceEquals(notes.Parent, body) && Grid.GetRow(notes) == 0 &&
             notes.VerticalScrollBarVisibility == ScrollBarVisibility.Auto, "The Markdown body lost its independent scrolling area.");
-        Native.Check(((MyButton)dialog.FindName("Btn3")).Visibility == Visibility.Collapsed, "The obsolete third opt-out button is still visible.");
-        dialog.Measure(new Size(760, 650)); dialog.Arrange(new Rect(0, 0, 760, 650)); dialog.UpdateLayout();
-        var caption = (ScrollViewer)dialog.FindName("PanCaption");
-        caption.ApplyTemplate();
-        var viewport = (FrameworkElement)caption.Template.FindName("PART_ScrollContentPresenter", caption);
-        Rect bounds = box.TransformToAncestor(viewport).TransformBounds(new Rect(box.RenderSize));
-        Native.Check(box.ActualHeight > 0 && bounds.Top >= -0.5 && bounds.Bottom <= viewport.ActualHeight + 0.5,
-            "The native checkbox's complete bounds do not fit the real content viewport.");
+        var buttons = (Button[])Native.Get(dialog, "_buttons")!;
+        Native.Check(buttons[2].Visibility == Visibility.Collapsed, "The obsolete third opt-out button is still visible.");
+        dialog.Measure(new Size(760, 650));
+        dialog.Arrange(new Rect(0, 0, 760, 650));
+        dialog.UpdateLayout();
+        Native.Check(box.ActualHeight > 0, "The native checkbox could not be laid out.");
     }
 
-    private static void Preview(MyMsgText dialog)
+    private static void Preview(GlassMessageDialog dialog)
     {
         string[] args = Environment.GetCommandLineArgs(); int index = Array.IndexOf(args, "--preview-path");
         if (index < 0 || index + 1 >= args.Length) return;
         dialog.Opacity = 1;
-        ((RotateTransform)dialog.FindName("TransformRotate")).Angle = 0;
-        ((TranslateTransform)dialog.FindName("TransformPos")).Y = 0;
         dialog.Measure(new Size(760, 650)); dialog.Arrange(new Rect(0, 0, 760, 650)); dialog.UpdateLayout();
         RenderTargetBitmap bitmap = new(760, 650, 96, 96, PixelFormats.Pbgra32); bitmap.Render(dialog);
         PngBitmapEncoder png = new(); png.Frames.Add(BitmapFrame.Create(bitmap));

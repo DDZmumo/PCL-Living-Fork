@@ -70,9 +70,9 @@ public sealed class LegacyToolboxPageRuntime<TFile, TDownload, TSave, TCombo>
             Common.InUi(() =>
             {
                 if (Host.HasMain())
-                    Host.ExtraDownload().ShowRefresh();
+                    Host.RefreshTaskButton(false);
                 if (Host.HasMain())
-                    Host.ExtraDownload().Ribble();
+                    Host.RefreshTaskButton(true);
             });
             return true;
         }

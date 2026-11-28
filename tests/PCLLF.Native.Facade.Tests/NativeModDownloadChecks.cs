@@ -32,21 +32,21 @@ internal static class NativeModDownloadChecks {
         var result=new ModFileInstall((path,token)=>(IReadOnlyCollection<string>?)Native.Call(installer,"ReadIds",null,path,context,token))
             .Install(incoming,Path.Combine(mods,"chosen.jar"));
         Native.Check(result.ReplacedFiles==1&&!File.Exists(old)&&File.Exists(extra)&&File.Exists(result.Destination),"Actual Main archive identities did not replace the explicit version or removed another mod.");
-        var before=LocalResourceLoaders.LocalResourceLoader.Output;var previousInstance=PageInstanceLeft.Instance;
+        var before=LocalResourceLoaders.LocalResourceLoader.Output;var previousInstance=LauncherInstanceContext.Instance;
         try {
             var owner=BackupResourceChecks.Instance(Path.Combine(root,"game","versions","fixture"));
-            owner.Version=new McVersion("1.20.1",true);PageInstanceLeft.Instance=owner;
+            owner.Version=new McVersion("1.20.1",true);LauncherInstanceContext.Instance=owner;
             string disabled=result.Destination+".disabled";File.Copy(result.Destination,disabled);
             var first=new LocalResourceFile(result.Destination){DeclaredModIds=new[]{"fixture_core"}};
             var second=new LocalResourceFile(disabled){DeclaredModIds=new[]{"fixture_core"}};
             var other=new LocalResourceFile(extra){DeclaredModIds=new[]{"unrelated"}};
             LocalResourceLoaders.LocalResourceLoader.Output=new(){first,second,other};
             var page=new PageInstanceMod();object controller=Native.Get(page,"Native")!;Native.Call(controller.GetType(),"LoadUI",controller);
-            Native.Check(page.ModItems.Count==3&&((Panel)page.FindName("PanList")).Children.Count==3,"Enabled and disabled files with the same basename collided in the real page row dictionary.");
+            Native.Check(page.ModItems.Count==3&&((ItemsControl)page.FindName("PanList")).Items.Count==3,"Enabled and disabled files with the same basename collided in the real page row dictionary.");
             var item=page.ModItems[first.StorageKey];item.Checked=true;page.CheckChanged(item,new ModBase.RouteEventArgs());
             Native.Check(page.SelectedMods.Count==1&&page.SelectedMods[0]==first.StorageKey,"Selecting one duplicate also selected its disabled sibling.");
-            var filter=(MyRadioButton)page.FindName("BtnFilterDuplicate");Native.Call(typeof(PageInstanceMod),"ChangeFilter",page,filter,true);
-            Native.Check(((Panel)page.FindName("PanList")).Children.Count==2,"Actual native duplicate filter missed root-ID conflicts.");
+            var filter=(RadioButton)page.FindName("BtnFilterDuplicate");Native.Call(typeof(PageInstanceMod),"ChangeFilter",page,filter,true);
+            Native.Check(((ItemsControl)page.FindName("PanList")).Items.Count==2,"Actual native duplicate filter missed root-ID conflicts.");
             var project=new ResourceProject(new JObject{["Platform"]=(int)ResourcePlatforms.Modrinth,["Types"]=(int)ResourceTypes.Mod,["Id"]="fixture-project",["Slug"]="fixture-project",["RawName"]="Fixture",["Description"]="Fixture summary",["Website"]="https://example.invalid",["LastUpdate"]=DateTime.UtcNow,["DownloadCount"]=0,["Tags"]=new JArray()});
             var version=(ResourceVersion)Activator.CreateInstance(typeof(ResourceVersion))!;
             version.Hash=Convert.ToHexString(SHA1.HashData(File.ReadAllBytes(first.File.FullName))).ToLowerInvariant();
@@ -67,19 +67,20 @@ internal static class NativeModDownloadChecks {
             var failed=(ModLoader.LoaderTask<string,string>)Native.Call(installer,"CreateInstallTask",null,project,chosen,Path.Combine(root,"missing.jar"),Path.Combine(taskRoot,"missing-target.jar"),null,false)!;
             bool rejected=false;try{failed.Start("");failed.WaitForExit();}catch(Exception){rejected=true;}
             Native.Check(rejected&&File.Exists(failedOld)&&!File.Exists(Path.Combine(taskRoot,"missing-target.jar")),"A failed post-download task removed an existing mod or published a partial file.");
-        } finally {LocalResourceLoaders.LocalResourceLoader.Output=before;PageInstanceLeft.Instance=previousInstance;}
+        } finally {LocalResourceLoaders.LocalResourceLoader.Output=before;LauncherInstanceContext.Instance=previousInstance;}
         SelectedDeletion(environment);
-        DragInstall(environment);
+        try { DragInstall(environment); }
+        finally { FileTaskShell.CloseUnshownHosts(); }
         environment.AssertNoForbiddenIo();
         Console.WriteLine("PASS native mod downloads: actual Main JAR parser and explicit version replacement, duplicate native rows/selection/filter and current-byte project proof; no live HTTP/game/account.");
     }
     private static void SelectedDeletion(FixtureEnvironment environment) {
-        var previousOutput=LocalResourceLoaders.LocalResourceLoader.Output;var previousInstance=PageInstanceLeft.Instance;
+        var previousOutput=LocalResourceLoaders.LocalResourceLoader.Output;var previousInstance=LauncherInstanceContext.Instance;
         try {
             foreach(string[] selection in new[]{new[]{".disabled"},new[]{".old"},new[]{""},new[]{"",".disabled"}}) {
                 string fixture=Path.Combine(environment.Data,"selected-mod-delete-"+Guid.NewGuid().ToString("N"));
                 var owner=BackupResourceChecks.Instance(Path.Combine(fixture,"game","versions","fixture"));owner.Version=new McVersion("1.20.1",true);
-                PageInstanceLeft.Instance=owner;string folder=Path.Combine(owner.PathIndie,"mods");Directory.CreateDirectory(folder);
+                LauncherInstanceContext.Instance=owner;string folder=Path.Combine(owner.PathIndie,"mods");Directory.CreateDirectory(folder);
                 Native.Check(Path.GetFullPath(folder).StartsWith(Path.GetFullPath(environment.Data)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase),"Deletion fixture escaped its owned root.");
                 var entries=new List<LocalResourceFile>();var bytes=new Dictionary<string,byte[]>();
                 foreach(string suffix in new[]{"",".disabled",".old"}) {
@@ -117,7 +118,7 @@ internal static class NativeModDownloadChecks {
                 Native.Check(inspected is not null&&inspected.Length==selected.Length&&selected.All(entry=>inspected.Any(path=>MeloongCore.PathUtils.IsSame(path,entry.File.FullName))),
                     "Dependency inspection expanded beyond the exact selected deletion paths.");
             }
-        } finally {LocalResourceLoaders.LocalResourceLoader.Output=previousOutput;PageInstanceLeft.Instance=previousInstance;}
+        } finally {LocalResourceLoaders.LocalResourceLoader.Output=previousOutput;LauncherInstanceContext.Instance=previousInstance;}
         Console.WriteLine("PASS selected mod deletion: actual permanent delete of disabled-only, old-only, enabled-only and mixed selections; unselected bytes and exact inspection scope preserved.");
     }
 
@@ -140,9 +141,8 @@ internal static class NativeModDownloadChecks {
         string disabled = Jar("drag.second.jar.disabled", "drag_second");
 
         FormMain main = FileTaskShell.Install();
-        PageInstanceLeft.Instance = owner;
-        ModMain.FrmInstanceLeft = new PageInstanceLeft { PageID = FormMain.PageSubType.InstanceMod };
-        main.PageCurrent = FormMain.PageType.InstanceSetup;
+        LauncherInstanceContext.Instance = owner;
+        main.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceMod);
         Native.Check(main.PageCurrentSub == FormMain.PageSubType.InstanceMod, "The real WPF fixture did not select Mod management.");
         var page = new PageInstanceMod();
         object modPage = Native.Get(page, "Native")!;
@@ -188,7 +188,8 @@ internal static class NativeModDownloadChecks {
                 "Dragged Mod bytes were not installed into the captured instance.");
         }
         expectConfirmation = true;
-        ModMain.FrmInstanceLeft.PageID = FormMain.PageSubType.InstanceOverall;
+        main.PageChange(FormMain.PageType.InstanceSetup, FormMain.PageSubType.InstanceOverall);
+        Native.Check(main.PageCurrentSub == FormMain.PageSubType.InstanceOverall, "The drag-cancel fixture did not leave Mod management.");
         Drop(Jar("canceled.jar", "drag_canceled"));
         Native.Check(confirmations == 1 && !File.Exists(Path.Combine(mods, "canceled.jar")) && refreshes == 1,
             "Canceling a drop outside the Mod page installed a file or refreshed the loader.");

@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 using Expression = System.Linq.Expressions.Expression;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -45,7 +46,7 @@ internal static class MmcPackUpdatePageChecks {
             Native.Check(originChoices == 1 && ordinaryReads == 0 && data.Primary.Definition.InstanceId == data.Selection().ExpectedInstanceId &&
                 data.Primary.Definition.InstanceId == originalId && MmcInstancePlatformOriginBackend.ReadVerified(data.Selection())?.Identity.ProjectId == "ProjectA" && Rows(page).Length == 2,
                 "The real page binding skipped exact ZIP evidence or failed to populate the shared version rows.");
-            Native.Check(Button(page, "BtnOrigin").Text == "重新核实来源" && Button(page, "BtnBackups").Text == "环境记录", "Bound MMC retained ordinary backup/source action labels.");
+            Native.Check(Button(page, "BtnOrigin").Content?.ToString() == "重新核实来源" && Button(page, "BtnBackups").Content?.ToString() == "环境记录", "Bound MMC retained ordinary backup/source action labels.");
             Native.Check(data.Read("minecraft/saves/world/level.dat") == "personal world", "Page source binding changed the controlled player world.");
         } finally { Close(scope, page); }
         scope.Finish(); environment.AssertNoForbiddenIo();
@@ -68,19 +69,19 @@ internal static class MmcPackUpdatePageChecks {
         try {
             Refresh(scope, page);
             var release = Radio(page, "RadioRelease"); var beta = Radio(page, "RadioBeta"); var alpha = Radio(page, "RadioAlpha"); var all = Radio(page, "RadioAll");
-            var search = (MySearchBox)page.FindName("TextSearchVersion");
-            Native.Check(release.Checked && Rows(page).Length == 2 && release.Text == "正式版（2）" && beta.Text == "测试版（2）" && alpha.Text == "早期测试版（2）" && all.Text == "全部（6）",
+            var search = (TextBox)page.FindName("TextSearchVersion");
+            Native.Check(release.IsChecked == true && Rows(page).Length == 2 && release.Content?.ToString() == "正式版（2）" && beta.Content?.ToString() == "测试版（2）" && alpha.Content?.ToString() == "早期测试版（2）" && all.Content?.ToString() == "全部（6）",
                 "Verified official release metadata did not drive the real channel counts/default.");
             var installed = Rows(page).Where(Current).ToArray();
-            Native.Check(installed.Length == 1 && installed[0].Info.Contains("VersionA.zip", StringComparison.Ordinal) && Text(page, "LabVersion") == "1.0", "The current marker identified a different file in the same release.");
-            beta.Checked = true; Native.Check(Rows(page).Length == 2 && Rows(page).All(row => row.Title == "2.0 beta"), "The real MMC page beta channel contains another release type.");
+            Native.Check(installed.Length == 1 && AutomationProperties.GetHelpText(installed[0]).Contains("VersionA.zip", StringComparison.Ordinal) && Text(page, "LabVersion") == "1.0", "The current marker identified a different file in the same release.");
+            beta.IsChecked = true; Native.Check(Rows(page).Length == 2 && Rows(page).All(row => AutomationProperties.GetName(row) == "2.0 beta"), "The real MMC page beta channel contains another release type.");
             search.Text = "VERSIONB.ZIP";
-            Native.Check(Rows(page).Length == 1 && beta.Text == "测试版（1）", "Filename search did not intersect the actual MMC channel.");
+            Native.Check(Rows(page).Length == 1 && beta.Content?.ToString() == "测试版（1）", "Filename search did not intersect the actual MMC channel.");
             search.Text = "no such release";
             Native.Check(Rows(page).Length == 0 && ((TextBlock)page.FindName("LabListEmpty")).Visibility == Visibility.Visible, "A searched MMC channel lost its empty state.");
-            search.Text = "1.7.10"; all.Checked = true;
-            Native.Check(Rows(page).Length == 6 && Current(Rows(page).Single(row => row.Info.Contains("VersionA.zip", StringComparison.Ordinal))), "Minecraft search lost the exact installed file marker.");
-            search.Text = "VersionB.zip"; beta.Checked = true;
+            search.Text = "1.7.10"; all.IsChecked = true;
+            Native.Check(Rows(page).Length == 6 && Current(Rows(page).Single(row => AutomationProperties.GetHelpText(row).Contains("VersionA.zip", StringComparison.Ordinal))), "Minecraft search lost the exact installed file marker.");
+            search.Text = "VersionB.zip"; beta.IsChecked = true;
             ModpackStageLayoutChecks.Save(page, Path.Combine(data.Root, "mmc-pack-update-bound.png"), 820, 820);
             using (var pause = new MmcRootUpdatePause(() => scope.Busy ? scope.Current : null)) {
                 ClickRow(Rows(page).Single());
@@ -111,11 +112,11 @@ internal static class MmcPackUpdatePageChecks {
         var page = Page(data, delayed);
         try {
             page.Refresh(); scope.Until(() => entered.IsSet, "delayed genuine catalog read");
-            var oldRead = Read(page); var otherOwner = new ModMinecraft.McInstance(data.Version).Load(); PageInstanceLeft.Instance = otherOwner;
+            var oldRead = Read(page); var otherOwner = new ModMinecraft.McInstance(data.Version).Load(); LauncherInstanceContext.Instance = otherOwner;
             page.Refresh(); released.SetResult(); scope.Until(() => oldRead.IsCompleted && Read(page).IsCompleted, "stale metadata producer drains");
             Native.Check(Rows(page).Length == 0 && !Button(page, "BtnLocal").IsEnabled && !Button(page, "BtnOrigin").IsEnabled &&
                 !(bool)Native.Call(typeof(PageInstancePackUpdate), "IsManagedOwner", page, otherOwner, data.Selection().ExpectedInstanceId)!, "Refreshing or a stale catalog adopted a different selected owner.");
-            PageInstanceLeft.Instance = data.Owner; Refresh(scope, page);
+            LauncherInstanceContext.Instance = data.Owner; Refresh(scope, page);
             string projection = Path.Combine(data.Version, "managed.json"); byte[] original = File.ReadAllBytes(projection);
             File.WriteAllText(projection, "{ corrupted owned projection");
             page.Refresh(); AwaitRead(scope, page);
@@ -124,7 +125,7 @@ internal static class MmcPackUpdatePageChecks {
 
             var files = (FileTaskScope)Native.Get(scope, "files")!;
             using var replacement = new MmcPlatformOriginUiTaskChecks.Data(files, "pack-page-replacement", null);
-            files.SelectMinecraft(data.Game); PageInstanceLeft.Instance = data.Owner;
+            files.SelectMinecraft(data.Game); LauncherInstanceContext.Instance = data.Owner;
             InstanceConfigProviders.FlushAndDisposeWithin(data.Version);
             string retained = Path.Combine(data.Root, "retained-original-instance");
             Native.Check(Native.Full(data.Version).StartsWith(Native.Full(files.Root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
@@ -144,7 +145,7 @@ internal static class MmcPackUpdatePageChecks {
     internal static void RunOrdinary(FixtureEnvironment environment) {
         using FileTaskScope files = new(environment);
         string path = Path.Combine(files.Root, "ordinary-pack-page"); Directory.CreateDirectory(path);
-        var owner = new ModMinecraft.McInstance(path); FileTaskScope.CacheInstance(owner); PageInstanceLeft.Instance = owner;
+        var owner = new ModMinecraft.McInstance(path); FileTaskScope.CacheInstance(owner); LauncherInstanceContext.Instance = owner;
         object package = Activator.CreateInstance(Native.Type("PCL.PackUpdatePackage"), true)!;
         Native.Set(package, "Name", "Ordinary pack"); Native.Set(package, "Version", "ordinary 1.0"); Native.Set(package, "Minecraft", "1.21.11");
         Native.Set(package, "Source", new JObject { ["platform"] = "Modrinth", ["project"] = "ordinary-project", ["version"] = "ordinary-current" });
@@ -157,7 +158,7 @@ internal static class MmcPackUpdatePageChecks {
         Native.Set(page, "ReadMmcCatalog", new Func<MmcPlatformOriginCatalog>(() => throw new IOException("Ordinary pages cannot enter MMC metadata.")));
         page.Refresh(); VisualAssetChecks.Pump(() => Text(page, "LabListStatus").StartsWith("已获取", StringComparison.Ordinal), "Ordinary page catalog did not finish.", 5000);
         Native.Check(reads == 1 && Button(page, "BtnOrigin").Visibility == Visibility.Collapsed && Button(page, "BtnOnline").IsEnabled &&
-            Button(page, "BtnLocal").IsEnabled && Button(page, "BtnBackups").Text == "更新备份" && Text(page, "LabVersion") == "ordinary 1.0" && Current(Rows(page).Single()),
+            Button(page, "BtnLocal").IsEnabled && Button(page, "BtnBackups").Content?.ToString() == "更新备份" && Text(page, "LabVersion") == "ordinary 1.0" && Current(Rows(page).Single()),
             "The shared MMC page changed ordinary update metadata, controls or current-version rendering.");
         page.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
         Native.Call(typeof(FileTaskScope), "FinishActualTasks", files); environment.AssertNoForbiddenIo();
@@ -165,7 +166,7 @@ internal static class MmcPackUpdatePageChecks {
     }
 
     private static PageInstancePackUpdate Page(MmcPlatformOriginUiTaskChecks.Data data, MmcPlatformOriginCatalog? catalog = null) {
-        PageInstanceLeft.Instance = data.Owner;
+        LauncherInstanceContext.Instance = data.Owner;
         var page = new PageInstancePackUpdate(data.Owner, data.Selection().ExpectedInstanceId);
         Native.Check(page.GetType().Assembly == Native.Main && page.FindName("PanVersions") is StackPanel && page.FindName("PanReleaseTypes") is WrapPanel, "The fixture is not the real compiled pack update page.");
         Native.Set(page, "ReadMmcCatalog", new Func<MmcPlatformOriginCatalog>(() => catalog ?? data.Catalog)); return page;
@@ -180,13 +181,15 @@ internal static class MmcPackUpdatePageChecks {
         scope.Until(() => Read(page).IsCompleted, "actual page metadata reader drain"); Read(page).GetAwaiter().GetResult();
     }
     private static void Close(MmcPlatformOriginUiTaskChecks.Scope scope, PageInstancePackUpdate page) { page.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent)); AwaitRead(scope, page); }
-    private static MyButton Button(PageInstancePackUpdate page, string name) => (MyButton)page.FindName(name);
-    private static MyRadioButton Radio(PageInstancePackUpdate page, string name) => (MyRadioButton)page.FindName(name);
+    private static Button Button(PageInstancePackUpdate page, string name) => (Button)page.FindName(name);
+    private static RadioButton Radio(PageInstancePackUpdate page, string name) => (RadioButton)page.FindName(name);
     private static string Text(PageInstancePackUpdate page, string name) => ((TextBlock)page.FindName(name)).Text;
-    private static MyListItem[] Rows(PageInstancePackUpdate page) => ((StackPanel)page.FindName("PanVersions")).Children.OfType<MyListItem>().ToArray();
-    private static bool Current(MyListItem row) => row.Children.OfType<Border>().Any(border => Equals(border.Tag, "current-pack-version")) && row.Inlines.OfType<InlineUIContainer>().Any(inline => inline.Child is Border { Child: TextBlock label } && label.Text == "当前版本");
-    private static void ClickButton(PageInstancePackUpdate page, string name) => Native.Call(typeof(MyButton), "OnClick", Button(page, name), Button(page, name), new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left));
-    private static void ClickRow(MyListItem row) => Native.Call(typeof(MyListItem), "OnClick", row, row, new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left));
+    private static Button[] Rows(PageInstancePackUpdate page) => ((StackPanel)page.FindName("PanVersions")).Children.OfType<Button>().ToArray();
+    private static bool Current(Button row) => Equals(row.Tag, "current-pack-version") &&
+        ((StackPanel)((DockPanel)row.Content).Children[1]).Children.OfType<WrapPanel>().Single().Children
+            .OfType<Border>().Any(badge => badge.Child is TextBlock { Text: "当前版本" });
+    private static void ClickButton(PageInstancePackUpdate page, string name) => Button(page, name).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+    private static void ClickRow(Button row) => row.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
     private static void Copy(string source, string destination) {
         Directory.CreateDirectory(destination);
         foreach (string directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories)) Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));

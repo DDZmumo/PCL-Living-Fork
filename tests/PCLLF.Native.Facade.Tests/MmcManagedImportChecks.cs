@@ -23,6 +23,7 @@ internal static class MmcManagedImportChecks {
             Native.Check(args.Length == 7 && args[0] == "--groups" && args[1] == Group && args[2] == ChildSwitch && args[4] == "--isolated" && args[5] == "--fixture" && Native.Full(args[6]) == Native.Full(environment.Root), "Managed MMC child identity differs.");
             ModpackUpdateCleanup.VerifyIsolatedChild(); retained = new(environment);
             retained.MixedRootRouting(); retained.UnstartedCancellation(); retained.Success(); retained.ScheduledCancellation(); retained.DecisionCancellation(); retained.UnsupportedAndMultipleRoots(); retained.Finish(); environment.AssertNoForbiddenIo();
+            FileTaskShell.CloseUnshownHosts();
             Native.Check(System.Windows.Application.Current.Windows.Count == 0, "Managed MMC opened a window.");
             File.WriteAllText(Path.Combine(environment.Root, Receipt), string.Join('\n', args[3], Environment.ProcessId, MainHash(), "published-and-drained"));
             Console.WriteLine("PASS mmc-managed-import: production Main callback/Loader/Java probe, owned HTTP NetFile download, missing cfg/name, full publication, pre/post-decision cancel fence and failed MMC refusal; no game launch.");

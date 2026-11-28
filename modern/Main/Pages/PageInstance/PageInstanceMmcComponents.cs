@@ -12,13 +12,14 @@ namespace PCL;
 // Original LF host integration; repository LICENCE applies.
 // The existing component editor itself is the page body. Only the actual backend
 // difference/commit confirmation is modal; the editable component choice stays here.
-public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
+public sealed class PageInstanceMmcComponents : GlassWorkspacePage, IRefreshable {
     private readonly ModMinecraft.McInstance _owner;
     private readonly string _root;
     private readonly Guid _instanceId;
-    private readonly MyHint _status;
+    private readonly Border _status;
     private readonly Border _editorHost;
-    private readonly MyExtraTextButton _preview;
+    private readonly Button _preview;
+    private readonly Grid _footer = new() { Margin = new Thickness(24, 0, 24, 0) };
     private long _generation;
     private string _primarySha256 = "";
     private int _revision;
@@ -28,31 +29,34 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
     private ModLoader.LoaderCombo<string> _operation;
     internal Task ModelTask { get; private set; } = Task.CompletedTask;
 
-    public PageInstanceMmcComponents() : this(PageInstanceLeft.Instance) { }
+    public PageInstanceMmcComponents() : this(LauncherInstanceContext.Instance) { }
     internal PageInstanceMmcComponents(ModMinecraft.McInstance owner, Guid expectedInstanceId = default) {
         _owner = owner ?? throw new ArgumentNullException(nameof(owner));
         _root = owner.PathVersion;
         var attached = owner.Config.ContextStamp;
         _instanceId = expectedInstanceId != Guid.Empty ? expectedInstanceId :
-            attached.Kind == MmcConfigurationContextKind.Managed ? attached.InstanceId : PageInstanceLeft.ObserveInstanceContext(owner).InstanceId;
+            attached.Kind == MmcConfigurationContextKind.Managed ? attached.InstanceId : LauncherInstanceContext.ObserveInstanceContext(owner).InstanceId;
         NameScope.SetNameScope(this, new NameScope());
         var all = new Grid { Name = "PanAllBack" };
         RegisterName(all.Name, all);
-        var body = new Grid { Margin = new Thickness(25, 25, 25, 65) };
+        var body = new Grid { Margin = new Thickness(24) };
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        _status = new MyHint { Name = "HintStatus", Theme = MyHint.Themes.Blue, Margin = new Thickness(0, 0, 0, 12) };
+        _status = GlassDialogControls.Notice("", DialogTone.Information);
+        _status.Margin = new Thickness(0, 0, 0, 12);
+        _status.Name = "HintStatus";
         _editorHost = new Border { Name = "PanEditor" };
         Grid.SetRow(_editorHost, 1);
         body.Children.Add(_status); body.Children.Add(_editorHost); all.Children.Add(body);
-        _preview = new MyExtraTextButton {
-            Name = "BtnPreviewChanges", Text = "预览组件修改", IsEnabled = false, Show = true,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
-            Logo = ModBase.Logo.IconButtonCheck
-        };
+        _preview = GlassPageResources.Pill("预览组件修改", primary: true, readableWhenDisabled: true);
+        _preview.Name = "BtnPreviewChanges";
+        _preview.IsEnabled = false;
+        _preview.HorizontalAlignment = HorizontalAlignment.Center;
+        _preview.VerticalAlignment = VerticalAlignment.Bottom;
+        _preview.Margin = new Thickness(0, 0, 0, 12);
         _preview.Click += (_, _) => StartChange();
-        all.Children.Add(_preview); Child = all;
-        PanScroll = "PanBack";
+        _footer.Children.Add(_preview);
+        all.Children.Add(_footer); Child = all;
         RegisterName(_status.Name, _status); RegisterName(_editorHost.Name, _editorHost); RegisterName(_preview.Name, _preview);
         Loaded += (_, _) => Refresh();
         Unloaded += (_, _) => { Interlocked.Increment(ref _revision); _loadCancellation?.Cancel(); _preview.IsEnabled = false; };
@@ -63,18 +67,18 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
         owner is not null && PathUtils.IsSame(owner.PathVersion, _root) && instanceId == _instanceId;
 
     private void Block(string message) {
-        _status.Text = message; _status.Theme = MyHint.Themes.Red;
+        GlassDialogControls.UpdateNotice(_status, message, DialogTone.Error);
         _preview.IsEnabled = false;
         if (_editor is not null) _editor.IsEnabled = false;
     }
 
     private bool VerifyOwner(bool updateBaseline, out InstanceSidebarState state) {
         state = null;
-        var active = PageInstanceLeft.Instance;
+        var active = LauncherInstanceContext.Instance;
         if (!ReferenceEquals(active, _owner) || active is null || !PathUtils.IsSame(active.PathVersion, _root)) {
             Block("当前组件页对应的实例已切换，请重新进入对应实例设置。"); return false;
         }
-        state = PageInstanceLeft.ObserveInstanceContext(_owner);
+        state = LauncherInstanceContext.ObserveInstanceContext(_owner);
         if (_instanceId == Guid.Empty || state.InstanceId != _instanceId || _owner.Config.ContextStamp.Kind != MmcConfigurationContextKind.Managed ||
             _owner.Config.ContextStamp.InstanceId != _instanceId) {
             Block("实例身份已变化或尚未确认，请重新选择实例。刷新不会接管另一个实例。"); return false;
@@ -96,7 +100,7 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
         _preview.IsEnabled = false;
         if (_editor is not null) _editor.IsEnabled = false;
         if (!VerifyOwner(updateBaseline: true, out var state)) return;
-        _status.Text = "正在读取当前组件、作者声明和个人覆盖……"; _status.Theme = MyHint.Themes.Blue;
+        GlassDialogControls.UpdateNotice(_status, "正在读取当前组件、作者声明和个人覆盖……", DialogTone.Information);
         var selection = new MmcInstanceRepairSelection(state.Inspection.Paths.InstanceRoot, _instanceId, _generation, _primarySha256);
         ModelTask = LoadEditorAsync(selection, revision, _loadCancellation.Token);
     }
@@ -106,8 +110,8 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
             var model = await MmcComponentEditorUi.LoadModelAsync(_owner, selection, token).ConfigureAwait(false);
             ModBase.RunInUi(() => {
                 if (revision != _revision || token.IsCancellationRequested || !VerifyOwner(updateBaseline: false, out _)) return;
-                var editor = new MmcComponentEditorView(model);
-                editor.FitToPage();
+                var editor = new MmcComponentEditorView(model, null, instancePage: true);
+                editor.FitToPage(_status, _footer);
                 editor.ConfirmationChanged += (_, _) => {
                     if (ReferenceEquals(_editor, editor) && revision == _revision && _operation is null && VerifyOwner(updateBaseline: false, out _))
                         _preview.IsEnabled = editor.IsEnabled && editor.CanConfirm;
@@ -115,9 +119,9 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
                 if (_editor is not null) { UnregisterName("MmcComponentEditor"); UnregisterName("PanBack"); }
                 _model = model; _editor = editor;
                 RegisterName("MmcComponentEditor", editor); RegisterName("PanBack", editor.PageScroller); _editorHost.Child = editor;
-                _status.Text = "在下方选择已有组件并编辑本次修改，再预览实际差异。Java 统一使用“实例设置 → Java”中的选择。";
-                _status.Theme = MyHint.Themes.Blue;
+                GlassDialogControls.UpdateNotice(_status, "在下方选择已有组件并编辑本次修改，再预览实际差异。Java 统一使用“实例设置 → Java”中的选择。", DialogTone.Information);
                 _preview.IsEnabled = editor.CanConfirm && _operation is null;
+                AttachScroll(editor.PageScroller, fadeEdges: false);
             });
         } catch (OperationCanceledException) { }
         catch (Exception error) {
@@ -145,8 +149,8 @@ public sealed class PageInstanceMmcComponents : MyPageRight, IRefreshable {
                 else {
                     if (!VerifyOwner(updateBaseline: false, out _)) return;
                     _editor.IsEnabled = true; _preview.IsEnabled = _editor.CanConfirm;
-                    _status.Text = "本次尚未提交，可在当前页面继续修改后重新预览。需要更换 Java 时请进入“实例设置 → Java”。";
-                    _status.Theme = operation.State == ModBase.LoadState.Failed ? MyHint.Themes.Yellow : MyHint.Themes.Blue;
+                    GlassDialogControls.UpdateNotice(_status, "本次尚未提交，可在当前页面继续修改后重新预览。需要更换 Java 时请进入“实例设置 → Java”。",
+                        operation.State == ModBase.LoadState.Failed ? DialogTone.Warning : DialogTone.Information);
                 }
             }
             operation.OnStateChangedUi += (_, state, _) => {

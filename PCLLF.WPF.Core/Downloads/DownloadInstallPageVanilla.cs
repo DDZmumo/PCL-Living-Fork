@@ -25,9 +25,9 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
                         string id = version["id"]!.ToString();
                         if (id.StartsWithF("1.") && !id.Lower().Contains("combat") && !id.Lower().Contains("rc") && !id.Lower().Contains("experimental") && !id.Lower().Contains("pre")) { type = "正式版"; version["type"] = "release"; }
                         switch (version["id"]!.ToString().Lower()) {
-                            case "20w14infinite": case "20w14∞": type = "愚人节版"; version["id"] = "20w14∞"; version["type"] = "special"; version.Add("lore", host.FoolName(version["id"]!)); break;
+                            case "20w14infinite": case "20w14∞": type = "愚人节版"; version["id"] = "20w14∞"; version["type"] = "special"; version["lore"] = host.FoolName(version["id"]!); break;
                             case "3d shareware v1.34": case "1.rv-pre1": case "15w14a": case "2.0": case "22w13oneblockatatime": case "23w13a_or_b": case "24w14potato": case "25w14craftmine": case "26w14a":
-                                type = "愚人节版"; version["type"] = "special"; version.Add("lore", host.FoolName(version["id"]!)); break;
+                                type = "愚人节版"; version["type"] = "special"; version["lore"] = host.FoolName(version["id"]!); break;
                             default: DateTime date = version["releaseTime"]!.Value<DateTime>().ToUniversalTime().AddHours(2); if (date.Month == 4 && date.Day == 1) { type = "愚人节版"; version["type"] = "special"; } break;
                         }
                         break;
@@ -39,17 +39,23 @@ public sealed partial class DownloadInstallPageController<TOptiFine, TForgeLike,
             foreach (var pair in groups.ToList()) groups[pair.Key] = pair.Value.OrderByDescending(value => value["releaseTime"]!.Value<DateTime>()).ToList();
             DownloadInstallPageView view = host.View(); view.Minecraft.Children.Clear();
             List<JObject> pinned = new();
-            JObject release = (JObject)groups["正式版"][0].DeepClone(); release["lore"] = "最新正式版，发布于 " + release["releaseTime"]!.Value<DateTime>().ToString("yyyy'/'MM'/'dd HH':'mm"); pinned.Add(release);
-            if (groups["正式版"][0]["releaseTime"]!.Value<DateTime>() < groups["预览版"][0]["releaseTime"]!.Value<DateTime>()) {
-                JObject snapshot = (JObject)groups["预览版"][0].DeepClone(); snapshot["lore"] = "最新预览版，发布于 " + snapshot["releaseTime"]!.Value<DateTime>().ToString("yyyy'/'MM'/'dd HH':'mm"); pinned.Add(snapshot);
+            JObject? release = groups["正式版"].FirstOrDefault();
+            JObject? snapshot = groups["预览版"].FirstOrDefault();
+            void AddPinned(JObject version, string channel) {
+                var row = (JObject)version.DeepClone();
+                row["lore"] = "最新" + channel + "，发布于 " + version["releaseTime"]!.Value<DateTime>().ToString("yyyy'/'MM'/'dd HH':'mm");
+                pinned.Add(row);
             }
-            FrameworkElement latest = host.MinecraftCard("最新版本", view.Minecraft, pinned, (row, args) => host.SelectMinecraft(row, args), true);
-            view.Minecraft.Children.Insert(0, latest);
+            if (release is not null) AddPinned(release, "正式版");
+            if (snapshot is not null && (release is null || snapshot["releaseTime"]!.Value<DateTime>() > release["releaseTime"]!.Value<DateTime>()))
+                AddPinned(snapshot, "预览版");
+            if (pinned.Count != 0)
+                view.Minecraft.Children.Add(host.MinecraftCard("最新版本", view.Minecraft, pinned, (row, args) => host.SelectMinecraft(row, args), true));
             foreach (var pair in groups) if (pair.Value.Any()) view.Minecraft.Children.Add(host.MinecraftCard(pair.Key, view.Minecraft, pair.Value, (row, args) => host.SelectMinecraft(row, args), false));
         } catch (Exception error) { Logger.Error(error, "可视化安装版本列表出错"); }
     }
     public void TrySelectWaitingVersion() {
-        if (State.VersionWaitingSelect is null) return;
+        if (State.VersionWaitingSelect is null || State.MinecraftVersions is null) return;
         foreach (JObject version in State.MinecraftVersions!) if (Same(version["id"]!.ToString(), State.VersionWaitingSelect)) {
             Logger.Info("自动选择 MC 版本：" + State.VersionWaitingSelect); host.SelectMinecraft(host.Materialize(host.MinecraftRow(version, null)), null); State.VersionWaitingSelect = null; return;
         }

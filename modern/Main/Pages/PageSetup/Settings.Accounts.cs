@@ -24,6 +24,12 @@ namespace PCL
         {
             Backend.WriteAccountValues(Values);
         }
+
+        internal static void WriteSkinSiteAccounts(string value)
+        {
+            try { WriteAccountValues(new Dictionary<string, object> { ["LfSkinSites"] = value }); }
+            catch { throw new InvalidOperationException("保存外置登录账号失败。"); }
+        }
         public static JObject UpdateMicrosoftAccounts(Action<JObject> Change)
         {
             return Backend.UpdateMicrosoftAccounts(Change);

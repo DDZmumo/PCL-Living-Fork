@@ -13,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using MeloongCore;
 using PCLCS;
+using PCLLF.Wpf.Glass;
 
 namespace PCL;
 
@@ -23,19 +24,22 @@ public partial class PageSetupPersonal {
     private ModMinecraft.McInstance pendingOwner, captureOwner;
     private Window editorWindow;
     private string captureKey, captureExpected;
-    private int captureBarCount;
     private bool flushing;
 
     private void InitializeEditors() {
-        DisabledPageAnimControls.Add(CardCapture);
-        BtnClearBinding.Logo = ModBase.Logo.IconButtonDelete;
-        BtnCancelBinding.Logo = ModBase.Logo.IconButtonCross;
         BtnClearBinding.Click += (_, _) => SaveCapturedBinding("key.keyboard.unknown");
         BtnCancelBinding.Click += (_, _) => CancelProfileCapture();
         editTimer.Tick += (_, _) => {
-            if (Mouse.LeftButton == MouseButtonState.Pressed && ModMain.DragControl is MySlider) return;
+            if (Mouse.LeftButton == MouseButtonState.Pressed && Mouse.Captured is DependencyObject captured && FindSlider(captured) is not null) return;
             FlushPendingEdits();
         };
+    }
+    private static Slider FindSlider(DependencyObject element) {
+        while (element is System.Windows.Media.Visual) {
+            if (element is Slider slider) return slider;
+            element = System.Windows.Media.VisualTreeHelper.GetParent(element);
+        }
+        return null;
     }
     private void AttachEditors() {
         if (editorWindow is not null) return;
@@ -54,7 +58,6 @@ public partial class PageSetupPersonal {
     private void CancelEditorState() { editTimer.Stop(); pendingEdits.Clear(); pendingOwner = null; CancelProfileCapture(); }
     private static Grid EditorRow() {
         var row = new Grid { Margin = new Thickness(0, 2, 0, 4) };
-        Grid.SetIsSharedSizeScope(row, true);
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition());
@@ -62,14 +65,8 @@ public partial class PageSetupPersonal {
     }
     private static void AddEditorText(Grid row, string text, int column) {
         var label = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 10, 0) };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
+        label.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
         Grid.SetColumn(label, column); row.Children.Add(label);
-    }
-    private static void ProtectHeaderToggle(MyCheckBox toggle) {
-        // Keep the checkbox's own input handlers; stop the header click before
-        // it also reaches the card's expand/collapse handlers.
-        toggle.AddHandler(UIElement.MouseLeftButtonDownEvent, new MouseButtonEventHandler((_, args) => args.Handled = true), true);
-        toggle.AddHandler(UIElement.MouseLeftButtonUpEvent, new MouseButtonEventHandler((_, args) => args.Handled = true), true);
     }
     private void AddCurrentValue(Grid row, PersonalOptionDefinition definition, string text) {
         AddReadOnlyValue(row, definition, (string)CurrentPreview?.Current[definition.Key], 1, "current-value:", text);
@@ -79,7 +76,7 @@ public partial class PageSetupPersonal {
         if (raw is null) { AddEditorText(row, text, column); return; }
         if (PersonalOptionsCatalog.IsToggle(definition.Key)) {
             if (!bool.TryParse(raw, out bool value)) { AddEditorText(row, text, column); return; }
-            var toggle = new MyCheckBox { Text = "启用", Checked = value, IsEnabled = false, IsHitTestVisible = false,
+            var toggle = new CheckBox { Style = Theme.Style("GlassPresentationCheckBox"), Content = "启用", IsChecked = value, IsEnabled = false, IsHitTestVisible = false,
                 Focusable = false, Height = 24, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), Tag = tagPrefix + definition.Key };
             Grid.SetColumn(toggle, column); row.Children.Add(toggle); return;
         }
@@ -87,16 +84,10 @@ public partial class PageSetupPersonal {
             int value;
             try { value = PersonalOptionsCatalog.SliderValue(definition.Key, raw); }
             catch { AddEditorText(row, text, column); return; }
-            var panel = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SyncValue" });
-            var slider = new MySlider { MaxValue = PersonalOptionsCatalog.SliderMaximum(definition.Key), Value = value,
+            var slider = new TrackDragSlider { Style = Theme.Style("GlassPresentationSlider"), Maximum = PersonalOptionsCatalog.SliderMaximum(definition.Key), Value = value,
                 IsEnabled = false, IsHitTestVisible = false, Focusable = false, VerticalAlignment = VerticalAlignment.Center,
                 Tag = tagPrefix + definition.Key };
-            var label = new TextBlock { Text = PersonalOptionsCatalog.SliderText(definition.Key, value), HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
-            Grid.SetColumn(label, 1); panel.Children.Add(slider); panel.Children.Add(label);
+            var (panel, _) = SliderField(slider, definition.Key, PersonalOptionsCatalog.SliderText(definition.Key, value));
             Grid.SetColumn(panel, column); row.Children.Add(panel); return;
         }
         var entry = new InstanceKeybinding { Key = definition.Key, Name = definition.Title, Owners = "Minecraft" };
@@ -104,6 +95,24 @@ public partial class PageSetupPersonal {
         button.Element.IsEnabled = false;
         FitKeyButton(button.Element);
         Grid.SetColumn(button.Element, column); row.Children.Add(button.Element);
+    }
+    private static (Grid Panel, TextBlock Label) SliderField(TrackDragSlider slider, string key, string text) {
+        var panel = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        panel.ColumnDefinitions.Add(new ColumnDefinition());
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SyncValue" });
+        var label = new TextBlock { Text = text, HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
+
+        // Reserve the full-scale label and any initial status in the same font used for display.
+        var reserve = new TextBlock { Text = PersonalOptionsCatalog.SliderText(key, (int)slider.Maximum) + "\n" + text,
+            Visibility = Visibility.Hidden, Height = 0, Margin = label.Margin };
+        Grid.SetColumn(label, 1);
+        Grid.SetColumn(reserve, 1);
+        panel.Children.Add(slider);
+        panel.Children.Add(label);
+        panel.Children.Add(reserve);
+        return (panel, label);
     }
     private static void FitKeyButton(FrameworkElement button) {
         button.Width = double.NaN;
@@ -132,34 +141,35 @@ public partial class PageSetupPersonal {
         }
         if (PersonalOptionsCatalog.IsToggle(key)) {
             bool valid = bool.TryParse(saved ?? current, out bool on);
-            var toggle = new MyCheckBox { Text = saved is not null && !valid ? "重新设置" : "启用", Checked = on, IsEnabled = enabled, Height = 24,
+            var toggle = new CheckBox { Style = Theme.Style("GlassPresentationCheckBox"), Content = saved is not null && !valid ? "重新设置" : "启用", IsChecked = on, IsEnabled = enabled, Height = 24,
                 Tag = valuePrefix + key, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
                 ToolTip = "点击保存后生效。" };
-            toggle.Change += (_, user) => { if (user && !refreshing) SaveSchemeValue(key, toggle.Checked ? "true" : "false", saved); };
+            void ToggleChanged(object sender, RoutedEventArgs args) {
+                if (toggle.IsLoaded && !refreshing) SaveSchemeValue(key, toggle.IsChecked == true ? "true" : "false", saved);
+            }
+            toggle.Checked += ToggleChanged;
+            toggle.Unchecked += ToggleChanged;
             return toggle;
         }
         string fallback = key == "fov" ? "70" : key == "mouseSensitivity" ? "0.5" : "1";
         int initial; bool invalid = false;
         try { initial = PersonalOptionsCatalog.SliderValue(key, saved ?? current ?? fallback); }
         catch { initial = PersonalOptionsCatalog.SliderValue(key, fallback); invalid = true; }
-        var panel = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SyncValue" });
-        var slider = new MySlider { MaxValue = PersonalOptionsCatalog.SliderMaximum(key), Value = initial, ValueByKey = 1,
+        var slider = new TrackDragSlider { Style = Theme.Style("GlassPresentationSlider"), Maximum = PersonalOptionsCatalog.SliderMaximum(key), Value = initial, SmallChange = 1, LargeChange = 10, TickFrequency = 1, IsSnapToTickEnabled = true,
             IsEnabled = enabled, Tag = valuePrefix + key, VerticalAlignment = VerticalAlignment.Center,
             ToolTip = "调整后点击保存才会生效。" };
-        slider.GetHintText = new Func<int, string>(value => PersonalOptionsCatalog.SliderText(key, value));
-        var valueLabel = new TextBlock { Text = invalid ? "无效值" : saved is null ? "未保存" : PersonalOptionsCatalog.SliderText(key, initial),
-            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8, 0, 0, 0) };
-        valueLabel.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
-        Grid.SetColumn(valueLabel, 1); panel.Children.Add(slider); panel.Children.Add(valueLabel);
-        // LF's native slider reports false for both drag and keyboard changes;
-        // initialization happens before this subscription and never writes a value.
-        slider.Change += (_, _) => {
+        var dragHint = new GlassPageResources.SliderDragHint(slider);
+        slider.Unloaded += (_, _) => dragHint.Dispose();
+        dragHint.SetText(PersonalOptionsCatalog.SliderText(key, initial));
+        string text = invalid ? "无效值" : saved is null ? "未保存" : PersonalOptionsCatalog.SliderText(key, initial);
+        var (panel, valueLabel) = SliderField(slider, key, text);
+        slider.ValueChanged += (_, _) => {
             if (refreshing || !slider.IsLoaded || !slider.IsEnabled) return;
-            valueLabel.Text = PersonalOptionsCatalog.SliderText(key, slider.Value);
+            int value = (int)Math.Round(slider.Value);
+            valueLabel.Text = PersonalOptionsCatalog.SliderText(key, value);
+            dragHint.SetText(valueLabel.Text);
             if (pendingEdits.Count == 0) pendingOwner = Target;
-            pendingEdits[key] = new PersonalOptionEdit(key, PersonalOptionsCatalog.FromSlider(key, slider.Value),
+            pendingEdits[key] = new PersonalOptionEdit(key, PersonalOptionsCatalog.FromSlider(key, value),
                 pendingEdits.TryGetValue(key, out var previous) ? previous.Expected : saved);
             editTimer.Stop(); editTimer.Start();
         };
@@ -192,10 +202,12 @@ public partial class PageSetupPersonal {
         CancelProfileCapture();
         captureKey = key; captureExpected = (string)EditorValues[key]; captureOwner = Target;
         button.Text = "请按键…"; button.State = KeybindingPageButtonState.Capturing;
-        LabCapture.Text = PersonalOptionsCatalog.Title(key) + "：按下新按键，Esc 取消";
-        LocalResourceUi.RefreshSelectionBar(CardCapture, TransCapture, 1, ref captureBarCount, "Personal key capture", IsLoaded && ModAnimation.AniControlEnabled == 0);
+        CardCapture.Status.Text = PersonalOptionsCatalog.Title(key) + "：按下新按键，Esc 取消";
+        CardCapture.ShowSelection(1, IsLoaded && ModAnimation.AniControlEnabled == 0);
     }
-    private bool CanCapture => captureKey is not null && IsLoaded && (ModMain.FrmMain is null || ReferenceEquals(ModMain.FrmMain.PageRight, this));
+    private bool CanCapture => captureKey is not null && IsLoaded &&
+        (ModMain.FrmMain is not { } window || !window.HasOpenGlassDialog &&
+            (ReferenceEquals(window.PageRight, this) || window.IsCurrentGlassPage(this)));
     private void CaptureProfileKeyboard(object sender, KeyEventArgs args) {
         if (!CanCapture) return;
         args.Handled = true;
@@ -230,7 +242,7 @@ public partial class PageSetupPersonal {
             button.Text = captureExpected is null ? "设置按键" : InstanceKeybindingView.DisplayKey(captureExpected);
             button.State = button.Element.Tag is InstanceKeybindingData entry && entry.SharedCount > 1 ? KeybindingPageButtonState.Conflict : KeybindingPageButtonState.Normal;
         }
+        if (captureKey is not null) CardCapture.ShowSelection(0, IsLoaded && ModAnimation.AniControlEnabled == 0);
         captureKey = null; captureExpected = null; captureOwner = null;
-        if (captureBarCount != 0) LocalResourceUi.RefreshSelectionBar(CardCapture, TransCapture, 0, ref captureBarCount, "Personal key capture", IsLoaded && ModAnimation.AniControlEnabled == 0);
     }
 }

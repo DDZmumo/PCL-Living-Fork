@@ -229,9 +229,9 @@ namespace PCL
                 ResetSettingsCache = new Action<global::PCL.ModMinecraft.McInstance>(Instance => Instance.ResetSettingsCache()),
                 CreateLoadedInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(VersionFolder => new global::PCL.ModMinecraft.McInstance(VersionFolder).Load()),
                 ClearIniCache = new Action<global::System.String>(FileName => global::PCL.ModBase.IniClearCache(FileName)),
-                PageInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
+                PageInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.LauncherInstanceContext.Instance),
                 SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
-                SetPageInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.PageInstanceLeft.Instance = Value),
+                SetPageInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.LauncherInstanceContext.Instance = Value),
                 SetSelectedInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.ModMinecraft.McInstanceSelected = Value),
                 RefreshPageName = new Action(() => global::PCL.ModMain.FrmMain.PageNameRefresh()),
                 StartWork = global::PCL.EnvironmentHistoryUi.StartWork
@@ -240,7 +240,8 @@ namespace PCL
         private static global::System.Int32? SelectPoint(global::System.Collections.Generic.IEnumerable<global::PCLCS.EnvironmentHistoryChoice> Choices)
         {
             global::System.Int32? Choice = (global::System.Int32?)(default(global::System.Int32?));
-            global::PCL.ModBase.RunInUiWait(() => Choice = global::PCL.ModMain.MyMsgBoxSelect(Choices.Select(Item => ((global::PCL.IMyRadio)(new global::PCL.MyRadioBox() { Text = Item.Text, ToolTip = Item.ToolTip }))), "选择环境还原点", "下一步", "取消"));
+            ModBase.RunInUiWait(() => Choice = ModMain.SelectChoice(Choices.Select(item => new DialogChoice(item.Text, item.ToolTip)),
+                "选择环境还原点", "下一步", "取消"));
             return Choice;
         }
         private static void PublishChanged()
@@ -266,7 +267,7 @@ namespace PCL
             Worker.Stopped += () => Work.Stopped();
             Worker.Start();
             global::PCL.ModLoader.LoaderTaskbarAdd(Loader);
-            global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh();
+            global::PCL.ModMain.FrmMain.RefreshTaskButton();
             return true;
         }
     }

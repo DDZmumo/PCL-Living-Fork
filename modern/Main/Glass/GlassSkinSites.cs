@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
@@ -110,7 +111,7 @@ internal static class GlassSkinSites
     {
         lock (StoreGate) {
             sites.RemoveAll(site => site.Accounts.Count == 0);
-            Settings.Set("LfSkinSites", sites.Count == 0 ? "" : JsonConvert.SerializeObject(sites, Formatting.None));
+            Settings.WriteSkinSiteAccounts(sites.Count == 0 ? "" : JsonConvert.SerializeObject(sites, Formatting.None));
         }
     }
 
@@ -157,7 +158,7 @@ internal static class GlassSkinSites
     }
 
     /// <summary>Selects a saved character independently of the instance-specific login cache.</summary>
-    internal static void Activate(SkinSiteCharacter character)
+    private static void Activate(SkinSiteCharacter character)
     {
         RequireSecureUri(character.Site.Server);
         lock (StoreGate) {
@@ -168,28 +169,32 @@ internal static class GlassSkinSites
 
     internal static void Deactivate() { lock (StoreGate) Settings.Set("LfSkinSiteActive", 0); }
 
-    internal static async Task<ModLaunch.McLoginResult> LoginForLaunch(SkinSiteCharacter requested, Func<bool> canceled) {
+    internal static async Task<ModLaunch.McLoginResult> LoginForLaunch(SkinSiteCharacter requested, Func<bool> canceled, HttpClient? transport = null) {
         var character = CurrentForLaunch();
         if (character is null || !SameCharacter(character, requested)) throw new SkinSiteException("外置登录角色已改变，请重新启动。");
         if (canceled()) throw new OperationCanceledException();
         string previousAccess = character.Account.AccessToken, previousClient = character.Account.ClientToken;
-        await Select(character.Site, character.Account, character.Profile).ConfigureAwait(false);
+        await Select(character.Site, character.Account, character.Profile, transport).ConfigureAwait(false);
         CommitCharacter(character, previousAccess, previousClient, activate: false, canceled);
         return new ModLaunch.McLoginResult { Type = "Auth", Name = character.Profile.Name, Uuid = character.Profile.Id,
             AccessToken = character.Account.AccessToken, ClientToken = character.Account.ClientToken };
     }
 
-    internal static async Task UseCharacter(SkinSiteCharacter requested) {
+    internal static async Task UseCharacter(SkinSiteCharacter requested, Dispatcher dispatcher, Func<bool> canceled, HttpClient? transport) {
         RequireSecureUri(requested.Site.Server);
         var character = Find(Load(), Identity(requested)) ?? throw new SkinSiteException("找不到该站点的角色，请重新登录。");
         string previousAccess = character.Account.AccessToken, previousClient = character.Account.ClientToken;
-        await Select(character.Site, character.Account, character.Profile).ConfigureAwait(false);
-        CommitCharacter(character, previousAccess, previousClient, activate: true);
+        await Select(character.Site, character.Account, character.Profile, transport).ConfigureAwait(false);
+        // Launch admission also takes place on this dispatcher. Publish both parts of the selection before it can run again.
+        await dispatcher.InvokeAsync(() => {
+            CommitCharacter(character, previousAccess, previousClient, activate: true, canceled);
+            LauncherAccountSession.ApplyExternalSelection();
+        }).Task.ConfigureAwait(false);
     }
 
-    private static void CommitCharacter(SkinSiteCharacter character, string previousAccess, string previousClient, bool activate, Func<bool>? canceled = null) {
+    private static void CommitCharacter(SkinSiteCharacter character, string previousAccess, string previousClient, bool activate, Func<bool> canceled) {
         lock (StoreGate) {
-            if (canceled?.Invoke() == true) throw new OperationCanceledException();
+            if (canceled()) throw new OperationCanceledException();
             var sites = Load();
             var saved = activate ? Find(sites, Identity(character)) : Current(sites);
             if (saved is null || !SameCharacter(saved, character)) throw new SkinSiteException("外置登录角色已改变，请重试。");
@@ -289,31 +294,31 @@ internal static class GlassSkinSites
     }
 
     /// <summary>Binds the account's token to <paramref name="profile"/> (refresh with a selected profile); signs in again when the token has expired.</summary>
-    private static async Task Select(SkinSite site, SkinSiteAccount account, SkinSiteProfile profile)
+    private static async Task Select(SkinSite site, SkinSiteAccount account, SkinSiteProfile profile, HttpClient? transport)
     {
         RequireSecureUri(site.Server);
-        if (account.SelectedId == profile.Id && account.AccessToken.Length > 0 && await Validate(site.Server, account).ConfigureAwait(false)) return;
+        if (account.SelectedId == profile.Id && account.AccessToken.Length > 0 && await Validate(site.Server, account, transport).ConfigureAwait(false)) return;
         try
         {
-            await Refresh(site.Server, account, profile).ConfigureAwait(false);
+            await Refresh(site.Server, account, profile, transport).ConfigureAwait(false);
         }
         catch (SkinSiteException) when (account.Password.Length > 0)
         {
-            SkinSiteAccount fresh = await Authenticate(site.Server, account.Username, account.Password).ConfigureAwait(false);
+            SkinSiteAccount fresh = await Authenticate(site.Server, account.Username, account.Password, transport).ConfigureAwait(false);
             account.AccessToken = fresh.AccessToken; account.ClientToken = fresh.ClientToken; account.SelectedId = fresh.SelectedId;
             account.Profiles = fresh.Profiles;
-            if (account.SelectedId != profile.Id) await Refresh(site.Server, account, profile).ConfigureAwait(false);
+            if (account.SelectedId != profile.Id) await Refresh(site.Server, account, profile, transport).ConfigureAwait(false);
         }
     }
 
-    private static async Task Refresh(string server, SkinSiteAccount account, SkinSiteProfile profile)
+    private static async Task Refresh(string server, SkinSiteAccount account, SkinSiteProfile profile, HttpClient? transport)
     {
         var request = new JObject
         {
             ["accessToken"] = account.AccessToken, ["clientToken"] = account.ClientToken, ["requestUser"] = true,
             ["selectedProfile"] = new JObject { ["id"] = profile.Id, ["name"] = profile.Name }
         };
-        JObject response = await Post(server, "refresh", request).ConfigureAwait(false);
+        JObject response = await Post(server, "refresh", request, transport).ConfigureAwait(false);
         string? selected = response["selectedProfile"]?["id"]?.ToString();
         if (!string.IsNullOrEmpty(selected) && selected != profile.Id) throw new SkinSiteException("验证服务器没有绑定所选角色。");
         account.AccessToken = response["accessToken"]?.ToString() ?? account.AccessToken;
@@ -321,12 +326,12 @@ internal static class GlassSkinSites
         account.SelectedId = profile.Id;
     }
 
-    private static async Task<bool> Validate(string server, SkinSiteAccount account)
+    private static async Task<bool> Validate(string server, SkinSiteAccount account, HttpClient? transport)
     {
         try
         {
             using var content = new StringContent(new JObject { ["accessToken"] = account.AccessToken, ["clientToken"] = account.ClientToken }.ToString(Formatting.None), Encoding.UTF8, "application/json");
-            using HttpResponseMessage response = await Http.PostAsync(CredentialUri(server, "validate"), content).ConfigureAwait(false);
+            using HttpResponseMessage response = await (transport ?? Http).PostAsync(CredentialUri(server, "validate"), content).ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception) { return false; }

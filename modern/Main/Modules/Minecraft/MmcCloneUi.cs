@@ -49,7 +49,7 @@ internal static class MmcCloneUi {
         var combo = new MmcOperationCombo<string>(fence, "克隆 MMC 实例：" + name, [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(source.Paths.InstanceRoot);
             return combo;
         } catch { fence.AbandonUnstarted(); throw; }

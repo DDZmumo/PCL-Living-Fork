@@ -30,7 +30,7 @@ internal sealed class GlassSceneFrost : Canvas
     }
 
     // The surface shares this canvas's bounds. The frame and scene must be in a separate visual subtree.
-    internal void UpdateBackdrop(FrameworkElement surface, Border frame, FrameworkElement scene, double radius)
+    internal void UpdateBackdrop(FrameworkElement surface, FrameworkElement frame, FrameworkElement scene, double radius)
     {
         if (!surface.IsVisible || surface.Opacity <= .01 || surface.ActualWidth <= 0 || surface.ActualHeight <= 0)
         {
@@ -56,7 +56,7 @@ internal sealed class GlassSceneFrost : Canvas
         if (_slice.Height != crop.Height) _slice.Height = crop.Height;
         bool left = Math.Abs(crop.Left - body.Left) < .01, top = Math.Abs(crop.Top - body.Top) < .01;
         bool right = Math.Abs(crop.Right - body.Right) < .01, bottom = Math.Abs(crop.Bottom - body.Bottom) < .01;
-        CornerRadius corners = frame.CornerRadius;
+        CornerRadius corners = frame is Border border ? border.CornerRadius : default;
         var sliceCorners = new CornerRadius(left && top ? corners.TopLeft : 0, right && top ? corners.TopRight : 0,
             right && bottom ? corners.BottomRight : 0, left && bottom ? corners.BottomLeft : 0);
         if (_slice.CornerRadius != sliceCorners) _slice.CornerRadius = sliceCorners;

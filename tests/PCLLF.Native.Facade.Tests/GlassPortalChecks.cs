@@ -29,14 +29,13 @@ internal static class GlassPortalChecks
         try
         {
             ViewboxAndRenderedPortalTransfers();
-            OriginalAccountParts();
             environment.AssertNoForbiddenIo();
         }
         finally
         {
             ModAnimation.AniControlEnabled = suppression;
         }
-        Console.WriteLine("PASS glass portals: actual Main detachment of Viewbox/internal visual and rendered ContentControl owners; idempotent/repeated transfers preserve live presenter bindings and rendered content; distinct native account/provider presentation; original semantic owners/name scope retained without login/startup input.");
+        Console.WriteLine("PASS glass portals: actual Main detachment of Viewbox/internal visual and rendered ContentControl owners; idempotent/repeated transfers preserve live presenter bindings and rendered content.");
     }
 
     private static Type Integration => Native.Type("PCL.GlassShellIntegration");
@@ -117,63 +116,6 @@ internal static class GlassPortalChecks
         }
     }
 
-    private static void OriginalAccountParts()
-    {
-        var source = new PageLaunchLeft();
-        var login = (Grid)source.FindName("PanLogin");
-        var type = (Grid)source.FindName("PanType");
-        var singleType = (Grid)source.FindName("PanTypeOne");
-        var microsoft = (MyRadioButton)source.FindName("RadioLoginType5");
-        var offline = (MyRadioButton)source.FindName("RadioLoginType0");
-        var originalViewbox = login.Parent as Viewbox ??
-            throw new InvalidOperationException("Actual account BAML no longer exercises a Viewbox-owned PanLogin.");
-        DependencyObject typeOwner = type.Parent, singleOwner = singleType.Parent;
-        var marker = new TextBlock { Text = "ACCOUNT_PROJECTION_MARKER", Width = 210, Height = 40 };
-        login.Children.Add(marker);
-        var host = Host();
-        GlassAccountPanel? panel = null;
-        try
-        {
-            panel = (GlassAccountPanel)Native.Call(Integration, "CreateAccountPortal", null, source)!;
-            Native.Check(panel.Children.Count == 3 && panel.Children.Cast<UIElement>().All(child =>
-                !ReferenceEquals(child, singleType) && !ReferenceEquals(child, type) && !ReferenceEquals(child, login)),
-                "Account presentation did not create three distinct new provider/form roots.");
-            Native.Check(ReferenceEquals(originalViewbox.Child, login) && ReferenceEquals(login.Parent, originalViewbox) &&
-                ReferenceEquals(type.Parent, typeOwner) && ReferenceEquals(singleType.Parent, singleOwner),
-                "Creating the new account presentation moved an original semantic control.");
-            Native.Check(ReferenceEquals(source.FindName("RadioLoginType5"), microsoft) &&
-                ReferenceEquals(source.FindName("RadioLoginType0"), offline) &&
-                ReferenceEquals(microsoft.Parent, type) && ReferenceEquals(offline.Parent, type),
-                "New presentation changed the original provider identity, grouping or source name scope.");
-            singleType.Visibility = Visibility.Collapsed; type.Visibility = Visibility.Visible; panel.Refresh();
-            Ensure(panel, host); Layout(host);
-            var newMicrosoft = Visuals(panel).OfType<RadioButton>().Single(control => control.Name == "RadioLoginType5");
-            var newOffline = Visuals(panel).OfType<RadioButton>().Single(control => control.Name == "RadioLoginType0");
-            Native.Check(newMicrosoft.GetType() == typeof(RadioButton) && newOffline.GetType() == typeof(RadioButton) &&
-                Visuals(panel).OfType<TextBlock>().Any(text => text.Text == marker.Text),
-                "New account roots did not render native provider choices and live source form text.");
-            var originals = Visuals(source).ToHashSet(ReferenceEqualityComparer.Instance);
-            Native.Check(Visuals(panel).All(element => !originals.Contains(element)), "An original account UIElement was inserted into the visible presentation.");
-            ContentPresenter presenter = Presenter(host); BindingExpression binding = Binding(presenter);
-            int changes = host.ContentChanges;
-            for (int index = 0; index < 4; index++) { Ensure(panel, host); panel.Refresh(); Layout(host); }
-            Native.Check(host.ContentChanges == changes && ReferenceEquals(Presenter(host), presenter) && ReferenceEquals(Binding(presenter), binding),
-                "Repeating a new account presentation request replaced its owning presenter/binding.");
-            Native.Check(!source.IsLoaded && PageLaunchLeft.SkinLoaders.All(loader =>
-                loader.State != ModBase.LoadState.Loading && loader.LastRunningThread is not { IsAlive: true }),
-                "Projecting the unhosted account semantics started an original login/skin producer.");
-        }
-        finally
-        {
-            host.Content = null; panel?.Dispose(); login.Children.Remove(marker);
-        }
-    }
-    private static IEnumerable<DependencyObject> Visuals(DependencyObject root)
-    {
-        yield return root;
-        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-            foreach (DependencyObject child in Visuals(VisualTreeHelper.GetChild(root, index))) yield return child;
-    }
     private static PortalHost Host()
     {
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter), "PortalPresenter");

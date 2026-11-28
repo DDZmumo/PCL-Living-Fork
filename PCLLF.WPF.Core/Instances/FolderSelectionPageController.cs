@@ -153,10 +153,14 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
         host.SetSelectedFolder(host.BaseFolder() + ".minecraft\\"); if (!DirectoryUtils.Exists(host.SelectedFolder())) { DirectoryUtils.Create(host.SelectedFolder() + "versions\\"); host.CreateProfiles(host.SelectedFolder()); }
         AddFolder(host.SelectedFolder(), PathUtils.GetLastPart(host.BaseFolder()), false, host);
     }
-    public static void Remove(object sender, FolderSelectionPageHost<TFolder, TInstance> host) {
+    public static void Remove(object sender, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        RemoveCore(() => (TFolder)host.MenuRow(sender).Tag, host);
+    public static void RemoveFolder(TFolder folder, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        RemoveCore(() => folder, host);
+    private static void RemoveCore(Func<TFolder> resolve, FolderSelectionPageHost<TFolder, TInstance> host) {
         if (host.ModpackEnabled()) return;
         try {
-            TFolder target = (TFolder)host.MenuRow(sender).Tag;
+            TFolder target = resolve();
             if (Kind(target) == 2) {
                 if (host.AnyLocked() || host.Downloading(false)) { host.Hint("请在其他任务完成后，再移除游戏文件夹！", SelectionPageHint.Red); return; }
                 switch (host.Message(new SelectionPageMessage { Text = "是否需要清理 PCL 在该文件夹中的配置文件？\r\n这包括各个版本的独立设置（如自定义图标、第三方登录配置）等，对游戏本身没有影响。", Title = "配置文件清理", Button1 = "删除", Button2 = "保留", Button3 = "取消" })) {
@@ -174,10 +178,14 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
             string? deleted = RemoveFromSetup(target, host); host.Hint(Kind(target) == 2 ? "文件夹 " + deleted + " 已从列表中移除！" : "文件夹名称已复原！", SelectionPageHint.Green); host.RefreshFolders();
         } catch (Exception error) { Logger.Error(error, "从列表中移除游戏文件夹失败"); }
     }
-    public static void Delete(object sender, FolderSelectionPageHost<TFolder, TInstance> host) {
+    public static void Delete(object sender, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        DeleteCore(() => (TFolder)host.MenuRow(sender).Tag, host);
+    public static void DeleteFolder(TFolder folder, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        DeleteCore(() => folder, host);
+    private static void DeleteCore(Func<TFolder> resolve, FolderSelectionPageHost<TFolder, TInstance> host) {
         if (host.ModpackEnabled()) return;
         if (host.AnyLocked() || host.Downloading(false)) { host.Hint("请在其他任务完成后，再删除游戏文件夹！", SelectionPageHint.Red); return; }
-        TFolder target = (TFolder)host.MenuRow(sender).Tag;
+        TFolder target = resolve();
         try { MmcInstanceCapabilities.RequireLegacyGameFolder(target.Location,"删除或清空游戏文件夹"); }
         catch (Exception error) { host.Hint(error.Message,SelectionPageHint.Red); return; }
         string text = (Kind(target) == 0 || Kind(target) == 1) && Same(target.Location, host.BaseFolder() + ".minecraft\\") && host.Folders().IsSingle() ? "清空" : "删除";
@@ -198,8 +206,12 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
     public static void Open(object sender, FolderSelectionPageHost<TFolder, TInstance> host) => host.OpenExplorer(host.RowInfo(host.MenuRow(sender)));
     public static void RefreshClick(object sender, FolderSelectionPageHost<TFolder, TInstance> host) { TFolder data = (TFolder)host.MenuRow(sender).Tag; Refresh(data.Location, host); }
     public static void Refresh(string folder, FolderSelectionPageHost<TFolder, TInstance> host) { host.WriteIni(folder + "PCL.ini", "InstanceCache", ""); if (PathUtils.IsSame(folder, host.SelectedFolder())) host.RefreshInstances(true); }
-    public static void Rename(object sender, FolderSelectionPageHost<TFolder, TInstance> host) {
-        if (host.ModpackEnabled()) return; TFolder folder = (TFolder)host.MenuRow(sender).Tag;
+    public static void Rename(object sender, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        RenameCore(() => (TFolder)host.MenuRow(sender).Tag, host);
+    public static void RenameFolder(TFolder folder, FolderSelectionPageHost<TFolder, TInstance> host) =>
+        RenameCore(() => folder, host);
+    private static void RenameCore(Func<TFolder> resolve, FolderSelectionPageHost<TFolder, TInstance> host) {
+        if (host.ModpackEnabled()) return; TFolder folder = resolve();
         try {
             string? name = host.Input(new SelectionPageInput { Title = "输入新名称", Default = folder.Name! }); if (string.IsNullOrWhiteSpace(name)) return;
             List<string> folders = new(host.ReadFolders().Split('|')); bool added = false;
@@ -210,6 +222,14 @@ public sealed partial class FolderSelectionPageController<TFolder, TKind, TInsta
     public static void ChangeFolder(FrameworkElement sender, bool mouse, Action cancel, FolderSelectionPageHost<TFolder, TInstance> host) {
         if (host.ModpackEnabled()) return; if (!mouse || !host.RowChecked(sender)) return;
         if (host.AnyLocked() || host.Downloading(true)) { host.Hint("请在其他任务完成后，再切换游戏文件夹！", SelectionPageHint.Red); cancel(); return; }
-        host.SetSelectedFolder(((TFolder)sender.Tag).Location); host.RefreshFolders(); host.RefreshInstances(false);
+        ApplyFolder((TFolder)sender.Tag, host);
+    }
+    public static void SelectFolder(TFolder folder, FolderSelectionPageHost<TFolder, TInstance> host) {
+        if (host.ModpackEnabled() || PathUtils.IsSame(host.SelectedFolder(), folder.Location)) return;
+        if (host.AnyLocked() || host.Downloading(true)) { host.Hint("请在其他任务完成后，再切换游戏文件夹！", SelectionPageHint.Red); return; }
+        ApplyFolder(folder, host);
+    }
+    private static void ApplyFolder(TFolder folder, FolderSelectionPageHost<TFolder, TInstance> host) {
+        host.SetSelectedFolder(folder.Location); host.RefreshFolders(); host.RefreshInstances(false);
     }
 }

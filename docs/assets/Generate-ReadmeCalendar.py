@@ -897,14 +897,244 @@ def render_pulse(
     return "\n".join(out) + "\n"
 
 
-RENDERERS = {"pulse": render_pulse, "timeline": render_timeline}
+# 5x7 bitmap numerals: the big figures are built from blocks, echoing the launcher's block world.
+PIXEL_GLYPHS = {
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
+    "6": ("00110", "01000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00010", "01100"),
+}
+
+BLOCK_THEMES = {
+    False: {
+        "paper": "#f4f1e8", "frame": "#e2dccd", "ink": "#1c1c1e", "muted": "#6b675e", "faint": "#a9a396",
+        "rule": "#d6cfbf", "empty": "#e8e3d6", "blue": "#2f55d4", "orange": "#ff6a2b",
+    },
+    True: {
+        "paper": "#141518", "frame": "#26272c", "ink": "#ecebe6", "muted": "#a3a199", "faint": "#64635e",
+        "rule": "#2e2f35", "empty": "#202228", "blue": "#7089ff", "orange": "#ff8a4c",
+    },
+}
+
+
+def render_blocks(
+    commits: dict[str, int],
+    releases: list[dict],
+    today: dt.date,
+    dark: bool,
+    stars: dict[str, int] | None = None,
+) -> str:
+    """Block poster: bitmap numerals, a stacked-block commit skyline (one block = 2x commits) and a two-ink riso palette."""
+    import math
+
+    t = BLOCK_THEMES[dark]
+    width, height = 920, 644
+    m = 40
+    inner_w = width - 2 * m
+    stars = stars or {}
+    weeks = 5
+    monday = today - dt.timedelta(days=today.weekday(), weeks=weeks - 1)
+    days = [monday + dt.timedelta(days=i) for i in range(weeks * 7)]
+    by_day: dict[str, list[dict]] = {}
+    for release in releases:
+        by_day.setdefault(release["date"], []).append(release)
+    in_30 = lambda iso_day: 0 <= (today - dt.date.fromisoformat(iso_day)).days < 30
+    last_30 = sum(c for d, c in commits.items() if in_30(d))
+    total_commits = sum(commits.values())
+    total_stars = sum(stars.values())
+    stars_30 = sum(c for d, c in stars.items() if in_30(d))
+    counts = [0 if d > today else commits.get(d.isoformat(), 0) for d in days]
+    peak = max(counts, default=0)
+    latest_stable = next((r["tag"] for r in releases if not r["prerelease"]), releases[0]["tag"] if releases else "—")
+
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" fill="none" role="img" aria-labelledby="calendar-title calendar-description">',
+        '<title id="calendar-title">PCL Living Fork · 开发脉搏</title>',
+        '<desc id="calendar-description">以方块堆叠呈现的近 5 周每日提交、像素数字仓库统计、Star 增长与最近发布，由 GitHub Actions 自动同步。</desc>',
+        '<style>',
+        "  .ui { font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', -apple-system, sans-serif; }",
+        "  .mono { font-family: 'JetBrains Mono', 'Cascadia Mono', 'SF Mono', Consolas, ui-monospace, monospace; font-variant-numeric: tabular-nums; }",
+        '</style>',
+        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="10" fill="{t["paper"]}" stroke="{t["frame"]}"/>',
+    ]
+
+    def txt(x: float, y: float, value: str, size: float = 12, color: str | None = None, weight: int = 400, cls: str = "ui", anchor: str = "start", spacing: float = 0) -> None:
+        ls = f' letter-spacing="{spacing}"' if spacing else ""
+        out.append(
+            f'<text x="{x:.1f}" y="{y:.1f}" class="{cls}" font-size="{size}" font-weight="{weight}" '
+            f'fill="{color or t["ink"]}" text-anchor="{anchor}"{ls}>{html.escape(str(value))}</text>'
+        )
+
+    def dotted_h(y: float, x1: float = m, x2: float = width - m) -> None:
+        out.append(f'<line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}" stroke="{t["rule"]}" stroke-width="2" stroke-dasharray="2 4"/>')
+
+    def dotted_v(x: float, y1: float, y2: float) -> None:
+        out.append(f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" stroke="{t["rule"]}" stroke-width="2" stroke-dasharray="2 4"/>')
+
+    def pixel_number(x: float, y: float, value: str, color: str, px: float = 5.0) -> float:
+        """Draw a bitmap numeral; returns its width."""
+        cell = px * 0.84
+        d = []
+        for ci, ch in enumerate(value):
+            glyph = PIXEL_GLYPHS.get(ch)
+            if not glyph:
+                continue
+            gx = x + ci * 6 * px
+            for ry, row in enumerate(glyph):
+                for rx, bit in enumerate(row):
+                    if bit == "1":
+                        d.append(f"M{gx + rx * px:.1f} {y + ry * px:.1f}h{cell:.1f}v{cell:.1f}h{-cell:.1f}z")
+        out.append(f'<path d="{"".join(d)}" fill="{color}"/>')
+        return len(value) * 6 * px - px
+
+    def release_mark(x: float, y: float, stable: bool, size: float = 8) -> None:
+        if stable:
+            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{size}" height="{size}" fill="{t["orange"]}"/>')
+        else:
+            out.append(f'<rect x="{x + 0.75:.1f}" y="{y + 0.75:.1f}" width="{size - 1.5}" height="{size - 1.5}" stroke="{t["orange"]}" stroke-width="1.5"/>')
+
+    # --- Masthead: a 3x3 block emblem + wordmark ---
+    emblem = ("bbo", "b.b", "obb")
+    for ry, row in enumerate(emblem):
+        for rx, c in enumerate(row):
+            if c != ".":
+                out.append(f'<rect x="{m + rx * 6}" y="{36 + ry * 6}" width="5" height="5" fill="{t["blue"] if c == "b" else t["orange"]}"/>')
+    out.append(
+        f'<text x="{m + 28}" y="52" class="ui" font-size="20" font-weight="700" fill="{t["ink"]}">PCL Living Fork'
+        f'<tspan dx="12" font-size="13" font-weight="400" fill="{t["muted"]}">开发脉搏</tspan></text>'
+    )
+    txt(width - m, 52, f"{today:%Y.%m.%d} · GitHub Actions 自动同步", 11, t["faint"], anchor="end")
+    dotted_h(76)
+
+    # --- Pixel KPIs ---
+    col_w = inner_w / 4
+    cum_days = [monday + dt.timedelta(days=i) for i in range((today - monday).days + 1)]
+    run = sum(c for d, c in stars.items() if d < monday.isoformat())
+    cum = []
+    for d in cum_days:
+        run += stars.get(d.isoformat(), 0)
+        cum.append(run)
+    kpis = [
+        ("30 日提交", last_30, t["blue"], f"近 5 周峰值 {peak} / 日", t["faint"]),
+        ("累计提交", total_commits, t["ink"], "自首次提交起", t["faint"]),
+        ("Star", total_stars, t["orange"], f"近 30 日 +{stars_30}", t["orange"] if stars_30 else t["faint"]),
+        ("发布版本", len(releases), t["ink"], f"最新正式版 {latest_stable}", t["faint"]),
+    ]
+    for idx, (label, value, color, sub, sub_color) in enumerate(kpis):
+        cx = m + idx * col_w
+        x = cx + (0 if idx == 0 else 22)
+        if idx:
+            dotted_v(cx, 98, 184)
+        txt(x, 106, label, 11, t["muted"], 600, spacing=0.4)
+        num_w = pixel_number(x, 118, str(value), color)
+        txt(x, 178, sub, 11, sub_color, 600 if sub_color == t["orange"] else 400)
+        if idx == 2 and len(cum) > 1:
+            # Cumulative stars as a staircase of blocks on the same 5px grid as the numeral
+            sx0 = x + num_w + 18
+            sx1 = cx + col_w - 16
+            ncols = max(2, int((sx1 - sx0) // 5))
+            lo, hi = min(cum), max(cum)
+            for c in range(ncols):
+                v = cum[round(c * (len(cum) - 1) / (ncols - 1))]
+                n = 1 + round((v - lo) / max(1, hi - lo) * 6)
+                for b in range(n):
+                    out.append(f'<rect x="{sx0 + c * 5:.1f}" y="{118 + 30 - b * 5:.1f}" width="4.2" height="4.2" fill="{t["orange"]}" fill-opacity="{0.45 + 0.55 * (b + 1) / 7:.2f}"/>')
+    dotted_h(204)
+
+    # --- Commit skyline ---
+    txt(m, 236, "提交日历", 13, t["ink"], 700)
+    txt(m + 66, 236, f"{monday:%m/%d} – {days[-1]:%m/%d}", 11, t["faint"], cls="mono")
+    lg = width - m - 372
+    release_mark(lg, 227, True)
+    txt(lg + 14, 236, "正式版", 11, t["muted"])
+    release_mark(lg + 70, 227, False)
+    txt(lg + 84, 236, "预发布", 11, t["muted"])
+    out.append(f'<rect x="{lg + 140}" y="232" width="12" height="3" fill="{t["orange"]}"/>')
+    txt(lg + 158, 236, "今天", 11, t["muted"])
+    for b in range(4):
+        for k in range(b + 1):
+            out.append(f'<rect x="{lg + 206 + b * 6}" y="{233 - k * 6}" width="5" height="5" fill="{t["blue"]}" fill-opacity="{0.5 + 0.5 * (k + 1) / 4:.2f}"/>')
+    txt(lg + 238, 236, "每高一格，提交翻倍", 11, t["muted"])
+
+    week_gap, block, step, max_blocks = 14.0, 16.0, 18.0, 9
+    pitch = (inner_w - week_gap * (weeks - 1)) / len(days)
+    lane_y, base = 256.0, 274.0 + max_blocks * step
+    for i, day in enumerate(days):
+        week = i // 7
+        col_x = m + i * pitch + week * week_gap
+        bx = col_x + (pitch - block) / 2
+        future = day > today
+        count = counts[i]
+        level = 0 if count <= 0 else min(max_blocks, math.ceil(math.log2(count + 1)))
+        out.append(f'<g><title>{day.isoformat()} · {count} 次提交</title>')
+        if future:
+            out.append(f'<rect x="{bx + 0.5:.1f}" y="{base - block + 0.5:.1f}" width="{block - 1}" height="{block - 1}" stroke="{t["rule"]}" stroke-dasharray="2 2"/>')
+        elif level == 0:
+            out.append(f'<rect x="{bx:.1f}" y="{base - block:.1f}" width="{block}" height="{block}" fill="{t["empty"]}"/>')
+        for b in range(level):
+            shade = mix(t["empty"], t["blue"], 0.42 + 0.58 * (b + 1) / max_blocks)
+            out.append(f'<rect x="{bx:.1f}" y="{base - block - b * step:.1f}" width="{block}" height="{block}" fill="{shade}"/>')
+        if count:
+            is_peak = count == peak
+            txt(bx + block / 2, base - level * step - 5, str(count), 9.5, t["blue"] if is_peak else t["muted"], 700 if is_peak else 500, cls="mono", anchor="middle")
+        events = [] if future else by_day.get(day.isoformat(), [])
+        if events:
+            release_mark(bx + 4, lane_y - 4, any(not r["prerelease"] for r in events))
+        is_today = day == today
+        if is_today:
+            out.append(f'<rect x="{bx:.1f}" y="{base + 4:.1f}" width="{block}" height="3" fill="{t["orange"]}"/>')
+        label_col = t["orange"] if is_today else (t["faint"] if future else t["muted"])
+        txt(bx + block / 2, base + 20, "一二三四五六日"[day.weekday()], 9.5, t["orange"] if is_today else t["faint"], 700 if is_today else 400, anchor="middle")
+        txt(bx + block / 2, base + 34, day.strftime("%d"), 9.5, label_col, 700 if is_today else 400, cls="mono", anchor="middle")
+        out.append('</g>')
+    for w in range(weeks):
+        start = monday + dt.timedelta(weeks=w)
+        gx0 = m + w * 7 * pitch + w * week_gap
+        gx1 = gx0 + 7 * pitch
+        out.append(f'<line x1="{gx0 + 4:.1f}" y1="{base + 44}" x2="{gx1 - 4:.1f}" y2="{base + 44}" stroke="{t["rule"]}"/>')
+        txt((gx0 + gx1) / 2, base + 58, f"{start:%m/%d} – {start + dt.timedelta(days=6):%m/%d}", 9.5, t["faint"], cls="mono", anchor="middle")
+    dotted_h(base + 74)
+
+    # --- Releases: three columns ---
+    ry = base + 100
+    txt(m, ry, "最近发布", 13, t["ink"], 700)
+    txt(width - m, ry, f"共 {len(releases)} 个版本", 11, t["faint"], anchor="end")
+    rcol = inner_w / 3
+    for j, rel in enumerate(releases[:3]):
+        cx = m + j * rcol
+        x = cx + (0 if j == 0 else 22)
+        right = cx + rcol - 22 if j < 2 else width - m
+        stable = not rel["prerelease"]
+        if j:
+            dotted_v(cx, ry + 16, ry + 90)
+        out.append(f'<g><title>{html.escape(rel["tag"] + " · " + rel["title"])}</title>')
+        txt(x, ry + 30, f"{j + 1:02d}", 10, t["faint"], 500, cls="mono")
+        txt(x + 24, ry + 30, rel["tag"], 15, t["ink"], 700, cls="mono")
+        release_mark(x + 24, ry + 42, stable)
+        txt(x + 38, ry + 50, "正式版" if stable else "预发布", 11, t["muted"])
+        txt(right, ry + 50, rel["date"].replace("-", "."), 10.5, t["faint"], cls="mono", anchor="end")
+        for li, line in enumerate(wrap_text(rel["title"], 11.5, right - x - 24, 2)):
+            txt(x + 24, ry + 72 + li * 17, line, 11.5, t["muted"])
+        out.append('</g>')
+
+    out.append('</svg>')
+    return "\n".join(out) + "\n"
+
+
+RENDERERS = {"pulse": render_pulse, "timeline": render_timeline, "blocks": render_blocks}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "DDZmumo/PCL-Living-Fork"))
     parser.add_argument("--output-dir", type=Path, default=ROOT / "docs/assets")
-    parser.add_argument("--style", choices=sorted(RENDERERS), default="pulse")
+    parser.add_argument("--style", choices=sorted(RENDERERS), default="blocks")
     parser.add_argument("--date", help="Override today's YYYY-MM-DD date")
     args = parser.parse_args()
 
@@ -915,7 +1145,7 @@ def main() -> None:
     render = RENDERERS[args.style]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    if args.style == "pulse":
+    if args.style in ("pulse", "blocks"):
         light_svg = render(commits, releases, today, dark=False, stars=stars)
         dark_svg = render(commits, releases, today, dark=True, stars=stars)
     else:

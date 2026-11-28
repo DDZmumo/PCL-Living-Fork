@@ -8,9 +8,9 @@ using PCLCS;
 namespace PCL;
 
 // Original LF view; repository LICENCE applies.
-internal sealed class MmcProjectionReviewView : Grid {
+internal sealed class MmcProjectionReviewView : Grid, IGlassDialogContent {
     private const int MaximumDisplayedCharacters = 131072;
-    internal double PreferredWidth => 760;
+    public double PreferredWidth => 760;
     internal MmcProjectionReviewView(MmcProjectionDivergence inspected) {
         RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -32,8 +32,11 @@ internal sealed class MmcProjectionReviewView : Grid {
         if (value.Length > MaximumDisplayedCharacters) {
             value = value[..MaximumDisplayedCharacters] + "\n…显示内容已截断；完整当前文件会按摘要保存在上述私有副本中。";
         }
-        panel.Children.Add(new MyTextBox { Text = value, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MinHeight = 220, MaxHeight = 420 });
+        var text = new TextBox { Text = value, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 420 };
+        System.Windows.Automation.AutomationProperties.SetName(text, caption);
+        panel.Children.Add(text);
         Children.Add(panel); SetRow(panel, 1); SetColumn(panel, column);
     }
 }

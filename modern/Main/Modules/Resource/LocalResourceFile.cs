@@ -14,7 +14,8 @@ namespace PCL
             ReadProject = new Func<JObject, ResourceProject>(Data => new ResourceProject(Data)),
             ReadVersion = ResourceVersion.FromCacheJson,
             HideUpdates = new Func<bool>(() => Settings.Get<bool>("UiHiddenFunctionModUpdate")),
-            DisableInstanceUpdates = new Func<bool>(() => Settings.Get<bool>("VersionAdvanceDisableModUpdate", Instance: PageInstanceLeft.Instance)),
+            DisableInstanceUpdates = () => LauncherInstanceContext.Instance is { } instance &&
+                Settings.Get<bool>("VersionAdvanceDisableModUpdate", Instance: instance),
             ReadHashCache = new Func<string, string>(Key => ModBase.ReadIni(ModBase.PathTemp + @"Cache\ModHash.ini", Key)),
             WriteHashCache = new Action<string, string>((Key, Value) => ModBase.WriteIni(ModBase.PathTemp + @"Cache\ModHash.ini", Key, Value)),
             ReadBytes = new Func<string, byte[]>(Path => FileUtils.ReadAsBytes(Path)),

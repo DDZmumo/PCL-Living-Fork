@@ -69,7 +69,7 @@ internal sealed class PackRootInstallChecksScope
         // Pause only a selected real root's original Update action at the
         // existing scheduling boundary. Keep the original FileTaskScope observer
         // and scheduler, every platform guard and all actual loader work intact.
-        var scheduler=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
+        var scheduler=(LegacyLoaderHost<ModLoader.LoaderBase,ModBase.LoadState,LauncherLoadingState>)Native.Field(typeof(ModLoader),"NativeLoaderHost").GetValue(null)!;
         Action<Action> run=scheduler.RunInThread;
         scheduler.RunInThread=work=>{
             Type? target=work.Target?.GetType();

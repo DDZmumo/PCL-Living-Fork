@@ -44,6 +44,14 @@
       <HintPath>$(LauncherMainOutputDirectory)/MeloongCore.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="SchematicKit">
+      <HintPath>$(LauncherMainOutputDirectory)/SchematicKit.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="fNbt">
+      <HintPath>$(LauncherMainOutputDirectory)/fNbt.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />

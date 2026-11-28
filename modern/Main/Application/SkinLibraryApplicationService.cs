@@ -67,7 +67,7 @@ public sealed class SkinLibraryApplicationService {
         });
         if (avatar is not null) return avatar;
         try {
-            var path = new Uri(LaunchPageRuntime.Skins.OfflineDefaultSkin(player));
+            var path = new Uri(LauncherSkinSessions.Skins.OfflineDefaultSkin(player));
             using var stream = System.Windows.Application.GetResourceStream(path)?.Stream;
             return stream is null ? null : RenderAvatar(BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad));
         } catch (Exception error) when (error is IOException or NotSupportedException or ArgumentException or InvalidOperationException) {
@@ -87,8 +87,8 @@ public sealed class SkinLibraryApplicationService {
         if (selected != active)
             return new(selected, null, Store.FindOfflineSkinFile(selected.Name) is not null, appearance, null);
         string kind = LoaderKind(selected.Provider);
-        var request = LaunchPageRuntime.Skins.Input(kind);
-        return new(selected, LaunchPageRuntime.Avatar(kind, request), LaunchPageRuntime.Skin(kind)?.TextureFileFor(request) is not null,
+        var request = LauncherSkinSessions.Skins.Input(kind);
+        return new(selected, LauncherSkinSessions.Avatar(kind, request), LauncherSkinSessions.TextureFile(kind, request) is not null,
             appearance, WardrobeFor(selected));
     }
 
@@ -97,7 +97,7 @@ public sealed class SkinLibraryApplicationService {
         if (Settings.Get<ModLaunch.McLoginType>("LoginType") != ModLaunch.McLoginType.Legacy) return [];
         return (Settings.Get<string>("LoginLegacyName") ?? "")
             .Split('¨', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Prepend(LaunchPageRuntime.Skins.OfflineAccountName())
+            .Prepend(LauncherSkinSessions.Skins.OfflineAccountName())
             .Where(player => player.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -111,7 +111,7 @@ public sealed class SkinLibraryApplicationService {
             if (ReadTarget() != target) throw new InvalidOperationException("这个离线角色还没有设置自定义皮肤。");
         }
         string kind = LoaderKind(target.Provider);
-        string path = LaunchPageRuntime.Skin(kind)?.TextureFileFor(LaunchPageRuntime.Skins.Input(kind))
+        string path = LauncherSkinSessions.TextureFile(kind, LauncherSkinSessions.Skins.Input(kind))
             ?? throw new InvalidOperationException("当前角色的原始皮肤还没有加载完成。");
         using var input = path.StartsWith("pack://", StringComparison.OrdinalIgnoreCase)
             ? System.Windows.Application.GetResourceStream(new Uri(path))?.Stream ?? throw new FileNotFoundException("当前皮肤资源未找到。")
@@ -145,7 +145,7 @@ public sealed class SkinLibraryApplicationService {
             var active = (profile["skins"] as JArray)?.OfType<JObject>().FirstOrDefault(skin => (string?)skin["state"] == "ACTIVE");
             if (SafeHttps((string?)active?["url"]) is { } url)
                 ModBase.WriteIni(Path.Combine(ModBase.PathTemp, "Cache", "Skin", "IndexMs.ini"), target.ProfileId, url.AbsoluteUri);
-            PageLaunchLeft.SkinMs.Start(IsForceRestart: true);
+            LauncherSkinLoaders.SkinMs.Start(IsForceRestart: true);
             return true;
         }, cancellationToken);
         return null;
@@ -183,11 +183,11 @@ public sealed class SkinLibraryApplicationService {
     private static SkinLibraryTarget? ReadTarget() {
         var account = LauncherApplicationServices.Accounts.ReadSnapshot();
         if (account.Provider == AccountProvider.Offline) {
-            string player = LaunchPageRuntime.Skins.OfflineAccountName();
+            string player = LauncherSkinSessions.Skins.OfflineAccountName();
             return player.Length > 0 ? OfflineTarget(player) : null;
         }
         if (!account.Authenticated || account.Provider == AccountProvider.Auth && GlassSkinSites.RoleSelectionPending) return null;
-        var request = LaunchPageRuntime.Skins.Input(LoaderKind(account.Provider));
+        var request = LauncherSkinSessions.Skins.Input(LoaderKind(account.Provider));
         return request.Name is { Length: > 0 } && Guid.TryParse(request.Id, out Guid profile) && profile != Guid.Empty
             ? new(account.Provider, request.Name, request.Id, request.Server) : null;
     }
@@ -215,7 +215,7 @@ public sealed class SkinLibraryApplicationService {
 
     private static void RefreshOfflineAvatar() {
         if (Settings.Get<ModLaunch.McLoginType>("LoginType") == ModLaunch.McLoginType.Legacy)
-            PageLaunchLeft.SkinLegacy.Start(IsForceRestart: true);
+            LauncherSkinLoaders.SkinLegacy.Start(IsForceRestart: true);
     }
 
     private static BitmapSource Decode(byte[] png) {

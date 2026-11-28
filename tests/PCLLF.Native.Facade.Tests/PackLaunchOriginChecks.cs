@@ -120,8 +120,8 @@ internal static class PackLaunchOriginChecks
         (LegacyLaunchDependencyReport)Native.Static("PCL.ModLaunch", "DependencyReport", mods, report)!;
     private static FrameworkElement View(object report, object? plan)
     {
-        Type type = Native.Type("PCL.ModDependencyCheckView");
-        return (FrameworkElement)Activator.CreateInstance(type, Native.Flags, null, new[] { report, plan }, null)!;
+        Type type = Native.Type("PCL.GlassModDependencyCheckView");
+        return (FrameworkElement)Activator.CreateInstance(type, Native.Flags, null, new object?[] { "启动前模组检查", report, plan }, null)!;
     }
     private static string Text(FrameworkElement root)
     {
@@ -129,7 +129,7 @@ internal static class PackLaunchOriginChecks
         // unmeasured visual tree would omit the actual confirmation groups.
         root.Measure(new Size(740, 500)); root.Arrange(new Rect(0, 0, 740, 500)); root.UpdateLayout();
         return string.Join("\n", Descendants(root).OfType<TextBlock>().Select(block => block.Text)
-            .Concat(Descendants(root).OfType<MyHint>().Select(hint => hint.Text)));
+            .Concat(Descendants(root).OfType<TextBlock>().Select(hint => hint.Text)));
     }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {

@@ -39,7 +39,7 @@ internal static class MmcHistoryPageChecks {
         private readonly List<PageInstanceRestorePoints> pages = [];
         private readonly List<string> errors = [];
         private readonly List<(string Text, string Title)> details = [];
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly string root, game, source, legacyHistory;
         private readonly ModMinecraft.McInstance owner;
         private readonly MmcInstanceInspection initial;
@@ -49,9 +49,9 @@ internal static class MmcHistoryPageChecks {
 
         internal Scope(FileTaskScope files) {
             this.files = files;
-            var oldOwner = PageInstanceLeft.Instance;
-            restore.Push(() => PageInstanceLeft.Instance = oldOwner);
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            var oldOwner = LauncherInstanceContext.Instance;
+            restore.Push(() => LauncherInstanceContext.Instance = oldOwner);
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             Action previousRefresh = scheduler.RefreshExtraDownload;
             restore.Push(() => scheduler.RefreshExtraDownload = previousRefresh);
             scheduler.RefreshExtraDownload = () => { };
@@ -66,7 +66,7 @@ internal static class MmcHistoryPageChecks {
             Directory.CreateDirectory(game); files.SelectMinecraft(game);
             source = (string)Native.Call(typeof(MmcLifecycleChecks), "ImportOwned", null, root, game)!;
             owner = new ModMinecraft.McInstance(source).Load(); FileTaskScope.CacheInstance(owner);
-            PageInstanceLeft.Instance = owner; initial = MmcInstanceInspector.Read(source);
+            LauncherInstanceContext.Instance = owner; initial = MmcInstanceInspector.Read(source);
             legacyHistory = Path.Combine(root, "must-not-use-ordinary-history");
             var legacyRoot = Native.Property(Native.Type("PCL.EnvironmentHistory"), "TestRoot");
             object? previousLegacyRoot = legacyRoot.GetValue(null);
@@ -80,9 +80,10 @@ internal static class MmcHistoryPageChecks {
         }
         private bool Busy => (bool)Native.Property(ui, "HasActiveOperation").GetValue(null)!;
         private static T Part<T>(FrameworkElement page, string name) where T : class => (T)page.FindName(name);
-        private static void Click(MyButton button) => Native.Call(typeof(MyButton), "OnClick", button, button, null);
-        private static void Click(MyIconTextButton button) => Native.Call(typeof(MyIconTextButton), "OnClick", button);
-        private static void Click(MyIconButton button) => Native.Call(typeof(MyIconButton), "OnClick", button, button, EventArgs.Empty);
+        private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        private static Button[] Actions(IEnvironmentHistoryPageRow row) =>
+            ((Grid)row.Element).Children.OfType<StackPanel>().Single().Children.OfType<Button>().ToArray();
+        private static string Notice(PageInstanceRestorePoints page) => ((TextBlock)Part<Border>(page, "HintMmcHistory").Child).Text;
         private static List<JObject> Entries(PageInstanceRestorePoints page) => (List<JObject>)Native.Property(page.GetType(), "Entries").GetValue(page)!;
         private static object Loader(PageInstanceRestorePoints page) => Native.Get(page, "PointsLoader")!;
         private static void CopyFixtureTree(string from, string to) {
@@ -126,8 +127,8 @@ internal static class MmcHistoryPageChecks {
                 // No read authority is a successful empty, read-only page model. A finished
                 // loader alone never grants read or mutation capability.
                 Native.Check(!Ready(page) && Entries(page).Count == 0 && Part<StackPanel>(page, "PanEntries").Children.Count == 0 &&
-                    !Part<MyButton>(page, "BtnCreate").IsEnabled && !Part<MyIconTextButton>(page, "BtnRestore").IsEnabled &&
-                    !Part<MyButton>(page, "BtnMmcUndo").IsEnabled && !Part<MyButton>(page, "BtnFolder").IsEnabled,
+                    !Part<Button>(page, "BtnCreate").IsEnabled && !Part<Button>(page, "BtnRestore").IsEnabled &&
+                    !Part<Button>(page, "BtnMmcUndo").IsEnabled && !Part<Button>(page, "BtnFolder").IsEnabled,
                     "An unverified/old owner read external history or retained a mutating/folder action.");
             }
         }
@@ -142,42 +143,42 @@ internal static class MmcHistoryPageChecks {
             object controller = Native.Get(page, "Controller")!;
             var rows = Part<StackPanel>(page, "PanEntries");
             Native.Check(controller.GetType().Assembly.GetName().Name == "PCLLF.WPF.Core" && ReferenceEquals(Native.Get(controller, "Entries"), Entries(page)) &&
-                rows.Children.Count == 0 && Part<MyButton>(page, "BtnCreate").Text == "创建环境记录" &&
+                rows.Children.Count == 0 && Part<Button>(page, "BtnCreate").Content?.ToString() == "创建环境记录" &&
                 Part<FrameworkElement>(page, "CardRetention").Visibility == Visibility.Collapsed &&
                 Part<FrameworkElement>(page, "FilterHealthy").Visibility == Visibility.Collapsed &&
                 Part<FrameworkElement>(page, "BtnDelete").Visibility == Visibility.Collapsed &&
-                Part<MyHint>(page, "HintMmcHistory").Text.Contains("当前存档", StringComparison.Ordinal),
+                Notice(page).Contains("当前存档", StringComparison.Ordinal),
                 "Managed history did not reuse actual original page/controller controls with accurate environment semantics.");
             string world = Path.Combine(source, "minecraft", "saves", "current", "level.dat");
             Directory.CreateDirectory(Path.GetDirectoryName(world)!); File.WriteAllText(world, "current world v1", new UTF8Encoding(false));
-            Click(Part<MyButton>(page, "BtnCreate")); WaitOperation(page, 1);
+            Click(Part<Button>(page, "BtnCreate")); WaitOperation(page, 1);
             var point = captures.Single().Point!;
             Native.Check(point.FullSafeEnvironment && rows.Children.Count == 1 && Entries(page).Count == 1 &&
-                ((MyLocalModItem)rows.Children[0]).Buttons.Count() == 3 &&
-                ReferenceEquals(Native.Get(rows.Children[0], "RestorePoint"), Entries(page)[0]),
+                Actions((IEnvironmentHistoryPageRow)rows.Children[0]).Length == 3 &&
+                ReferenceEquals(((IEnvironmentHistoryPageRow)rows.Children[0]).Point, Entries(page)[0]),
                 "Creating an MMC record did not publish and render its genuine complete record in the original list.");
-            var row = (MyLocalModItem)rows.Children[0];
-            Click(row.Buttons.ElementAt(1));
+            var row = (IEnvironmentHistoryPageRow)rows.Children[0];
+            Click(Actions(row)[1]);
             Native.Check(details.Count == 1 && details[0].Title == "MMC 环境记录详情" && details[0].Text.Contains("当前存档", StringComparison.Ordinal) &&
                 details[0].Text.Contains("会保留", StringComparison.Ordinal) && !details[0].Text.Contains("正常运行记录", StringComparison.Ordinal),
                 "MMC details used ordinary-world/launch-health semantics.");
             row.Checked = true;
-            Native.Check(Part<MyIconTextButton>(page, "BtnRestore").IsEnabled && Part<TextBlock>(page, "LabSelect").Text.Contains("环境记录", StringComparison.Ordinal),
+            Native.Check(Part<Button>(page, "BtnRestore").IsEnabled && Part<TextBlock>(page, "LabSelect").Text.Contains("环境记录", StringComparison.Ordinal),
                 "Original real selection footer did not expose the managed restore command.");
-            Part<MySearchBox>(page, "SearchBox").Text = "missing-point-query";
+            Part<TextBox>(page, "SearchBox").Text = "missing-point-query";
             Native.Check(rows.Children.Count == 0 && Part<FrameworkElement>(page, "CardSelect").Visibility == Visibility.Collapsed,
                 "Search retained invisible MMC restore targets.");
-            Part<MySearchBox>(page, "SearchBox").Text = "";
-            ((MyLocalModItem)rows.Children[0]).Checked = true;
+            Part<TextBox>(page, "SearchBox").Text = "";
+            ((IEnvironmentHistoryPageRow)rows.Children[0]).Checked = true;
             string config = Path.Combine(source, "minecraft", "config", "owned.cfg");
             File.WriteAllText(config, "current environment B"); File.WriteAllText(world, "current world v2");
-            Click(Part<MyIconTextButton>(page, "BtnRestore")); WaitOperation(page, 2);
+            Click(Part<Button>(page, "BtnRestore")); WaitOperation(page, 2);
             var restored = MmcInstanceInspector.Read(source);
             Native.Check(restores.Count == 1 && restored.Definition!.InstanceId == initial.Definition!.InstanceId &&
                 restored.Definition.Generation == initial.Definition.Generation + 1 && File.ReadAllText(config) == "author data" &&
-                File.ReadAllText(world) == "current world v2" && Part<MyButton>(page, "BtnMmcUndo").IsEnabled,
+                File.ReadAllText(world) == "current world v2" && Part<Button>(page, "BtnMmcUndo").IsEnabled,
                 "Actual page restore lost monotonic identity, environment bytes, preserved current worlds, or its undo command.");
-            Click(Part<MyButton>(page, "BtnMmcUndo")); WaitOperation(page, 3);
+            Click(Part<Button>(page, "BtnMmcUndo")); WaitOperation(page, 3);
             Native.Check(restores.Count == 2 && MmcInstanceInspector.Read(source).Definition!.Generation == initial.Definition!.Generation + 2 &&
                 File.ReadAllText(config) == "current environment B" && File.ReadAllText(world) == "current world v2" && confirmations.SequenceEqual(new[] { false, true }),
                 "Actual undo did not restore environment B while retaining the current world and explicit confirmation.");
@@ -191,23 +192,23 @@ internal static class MmcHistoryPageChecks {
                 ["description"] = "ordinary environment", ["healthy"] = true, ["files"] = new JObject() } };
             Native.Property(typeof(PageInstanceRestorePoints), "Entries").SetValue(ordinary, points);
             Native.Call(typeof(PageInstanceRestorePoints), "RenderList", ordinary);
-            Native.Check(Part<MyButton>(ordinary, "BtnCreate").Text == "创建还原点" && Part<FrameworkElement>(ordinary, "CardRetention").Visibility == Visibility.Visible &&
+            Native.Check(Part<Button>(ordinary, "BtnCreate").Content?.ToString() == "创建还原点" && Part<FrameworkElement>(ordinary, "CardRetention").Visibility == Visibility.Visible &&
                 Part<FrameworkElement>(ordinary, "FilterHealthy").Visibility == Visibility.Visible && Part<FrameworkElement>(ordinary, "BtnDelete").Visibility == Visibility.Visible &&
                 Part<FrameworkElement>(ordinary, "BtnMmcUndo").Visibility == Visibility.Collapsed && Part<FrameworkElement>(ordinary, "HintMmcHistory").Visibility == Visibility.Collapsed &&
-                ((MyLocalModItem)Part<StackPanel>(ordinary, "PanEntries").Children[0]).Buttons.Count() == 4 &&
+                Actions((IEnvironmentHistoryPageRow)Part<StackPanel>(ordinary, "PanEntries").Children[0]).Length == 4 &&
                 ReferenceEquals(Native.Get(Native.Get(ordinary, "Controller")!, "Entries"), points),
                 "Managed adapters changed ordinary restore-point controls, actions, or shared-controller state.");
         }
 
         internal void Admission() {
-            var page = Open(); Click(Part<MyButton>(page, "BtnCreate")); WaitOperation(page, 1);
+            var page = Open(); Click(Part<Button>(page, "BtnCreate")); WaitOperation(page, 1);
             string projection = Path.Combine(source, "managed.json"); byte[] projectionBytes = File.ReadAllBytes(projection);
             File.AppendAllText(projection, " "); page.Refresh(); Read(page);
-            Native.Check(Entries(page).Count == 1 && !Part<MyButton>(page, "BtnCreate").IsEnabled &&
-                !((MyLocalModItem)Part<StackPanel>(page, "PanEntries").Children[0]).Buttons.First().IsEnabled &&
-                Part<MyHint>(page, "HintMmcHistory").Text.Contains("修复", StringComparison.Ordinal),
+            Native.Check(Entries(page).Count == 1 && !Part<Button>(page, "BtnCreate").IsEnabled &&
+                !Actions((IEnvironmentHistoryPageRow)Part<StackPanel>(page, "PanEntries").Children[0]).First().IsEnabled &&
+                Notice(page).Contains("修复", StringComparison.Ordinal),
                 "Damaged management lost readable history or retained a mutation capability.");
-            Click(Part<MyButton>(page, "BtnCreate")); Native.Check(tasks.Count == 1, "Damaged page queued a task.");
+            Click(Part<Button>(page, "BtnCreate")); Native.Check(tasks.Count == 1, "Damaged page queued a task.");
             File.WriteAllBytes(projection, projectionBytes); page.Refresh(); Read(page);
             string journal = Path.Combine(source, "PCL", "MmcTransactions", "unrecognized-history-page-journal"); Directory.CreateDirectory(journal);
             // This unrecognized journal has no verified instance envelope. The page must not
@@ -215,18 +216,18 @@ internal static class MmcHistoryPageChecks {
             string unreadableIndex = Path.Combine(source, "PCL", "MmcHistory", "index", Guid.NewGuid().ToString("N") + ".record");
             File.WriteAllText(unreadableIndex, "{must-not-read-without-owner-authority}");
             page.Refresh(); Read(page, false);
-            Native.Check(!Part<MyButton>(page, "BtnCreate").IsEnabled && Part<MyHint>(page, "HintMmcHistory").Text.Contains("事务", StringComparison.Ordinal),
+            Native.Check(!Part<Button>(page, "BtnCreate").IsEnabled && Notice(page).Contains("事务", StringComparison.Ordinal),
                 "Pending transaction did not lock the original history page.");
             File.Move(unreadableIndex, Path.Combine(root, "retained-unreadable-history-index.record"));
             Directory.Move(journal, Path.Combine(root, "retained-unrecognized-history-page-journal")); page.Refresh(); Read(page);
             string primary = Path.Combine(source, "PCL", "InstanceDefinition.json"); byte[] primaryBytes = File.ReadAllBytes(primary);
             File.WriteAllText(primary, """{"schemaVersion":99,"managementKind":"Mmc","formatProfile":"prism-v1"}""", new UTF8Encoding(false));
             page.Refresh(); Read(page, false);
-            Native.Check(!Part<MyButton>(page, "BtnCreate").IsEnabled && Part<MyHint>(page, "HintMmcHistory").Text.Contains("格式", StringComparison.Ordinal),
+            Native.Check(!Part<Button>(page, "BtnCreate").IsEnabled && Notice(page).Contains("格式", StringComparison.Ordinal),
                 "An unknown management format retained a mutation or silently fell back to ordinary history.");
             File.WriteAllBytes(primary, primaryBytes); page.Refresh(); Read(page);
             var unknown = Open(Guid.Empty);
-            Native.Check(!Part<MyButton>(unknown, "BtnCreate").IsEnabled && Entries(unknown).Count == 0,
+            Native.Check(!Part<Button>(unknown, "BtnCreate").IsEnabled && Entries(unknown).Count == 0,
                 "An initially unknown identity adopted the directory's current valid instance.");
             unknown.Refresh(); Read(unknown, false);
             Native.Call(typeof(PageInstanceRestorePoints), "PageUnloaded", unknown);
@@ -248,17 +249,17 @@ internal static class MmcHistoryPageChecks {
                 swapped = true; return true;
             };
             try {
-                ((MyLocalModItem)Part<StackPanel>(page, "PanEntries").Children[0]).Checked = true;
-                Click(Part<MyIconTextButton>(page, "BtnRestore")); WaitOperation(page, 2, false);
+                ((IEnvironmentHistoryPageRow)Part<StackPanel>(page, "PanEntries").Children[0]).Checked = true;
+                Click(Part<Button>(page, "BtnRestore")); WaitOperation(page, 2, false);
                 Native.Check(swapped && restores.IsEmpty && MmcInstanceInspector.Read(source).Definition!.InstanceId != initial.Definition!.InstanceId,
                     "A stale confirmation changed or adopted the replacement instance.");
                 int taskCount = tasks.Count; page.Refresh(); Read(page, false);
-                Click(Part<MyButton>(page, "BtnCreate"));
-                Native.Check(tasks.Count == taskCount && !Part<MyButton>(page, "BtnCreate").IsEnabled && Entries(page).Count == 0 &&
-                    Part<MyHint>(page, "HintMmcHistory").Text.Contains("替换", StringComparison.Ordinal),
+                Click(Part<Button>(page, "BtnCreate"));
+                Native.Check(tasks.Count == taskCount && !Part<Button>(page, "BtnCreate").IsEnabled && Entries(page).Count == 0 &&
+                    Notice(page).Contains("替换", StringComparison.Ordinal),
                     "Refresh or an old control click adopted a different identity at the same directory.");
-                PageInstanceLeft.Instance = new ModMinecraft.McInstance(replacement).Load(); page.Refresh();
-                Click(Part<MyButton>(page, "BtnCreate"));
+                LauncherInstanceContext.Instance = new ModMinecraft.McInstance(replacement).Load(); page.Refresh();
+                Click(Part<Button>(page, "BtnCreate"));
                 Native.Check(tasks.Count == taskCount, "An old page followed the newly selected owner.");
             } finally {
                 confirm = (_, _) => true;
@@ -266,7 +267,7 @@ internal static class MmcHistoryPageChecks {
                     if (Directory.Exists(source)) Directory.Move(source, replaced);
                     Directory.Move(held, source);
                 }
-                PageInstanceLeft.Instance = owner;
+                LauncherInstanceContext.Instance = owner;
             }
         }
 

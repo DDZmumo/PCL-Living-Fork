@@ -13,7 +13,7 @@ internal sealed partial class LaunchProcessChecksScope
 
     private void InstallObservers()
     {
-        var loaderHost = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var loaderHost = (PCLCS.Loaders.LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action<Action> loaderSchedule = loaderHost.RunInThread;
         Set(loaderHost, "RunInThread", new Action<Action>(work => Schedule(loaderSchedule, work, true)));
         foreach (string name in new[] { "Request", "SelectJava", "AvailablePhysicalMemory", "SetGpuPreference", "RunAdminTaskDone", "OAuthClientId", "OpenWebsite", "OpenExplorer", "LoadImage", "ClientFix", "MemoryOptimize" }) Guard(launch, name);

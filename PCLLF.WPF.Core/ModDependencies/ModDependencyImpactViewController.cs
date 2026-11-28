@@ -29,7 +29,7 @@ public static class ModDependencyImpactViewController<TContext, TMod, TDependenc
     where TOnlineDependency : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.OnlineDependencyData, new()
     where TOnlineFile : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.OnlineFileData, new()
     where TItem : ModDependencyImpactItemData, new() {
-    public const double PreferredWidth = 760;
+    public const double PreferredWidth = 880;
 
     public static List<TItem> Collect(TReport report, IEnumerable<string> paths) {
         HashSet<string> removed = new(paths.Select(FilePathKey), StringComparer.OrdinalIgnoreCase);
@@ -64,31 +64,25 @@ public static class ModDependencyImpactViewController<TContext, TMod, TDependenc
     }
 
     public static void Build(Grid view, Grid cards, List<TItem> items, string actionName, Func<ImageSource> defaultIcon) {
-        view.Height = Math.Min(440, 55 + Math.Ceiling(items.Count / 2.0) * 100);
+        view.Height = Math.Min(600, Math.Max(300, 130 + Math.Ceiling(items.Count / 2.0) * 96));
         view.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         view.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        view.Children.Add(new TextBlock { Text = "以下 " + items.Count + " 个模组可能受影响。仍然" + actionName + "所选模组吗？", TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(4, 0, 4, 10), FontSize = 13, Foreground = ModDependencyVisualTheme.Brush("ColorBrushTextSecondary") });
+        // Lead: the question being asked, with how many mods are affected directly and only indirectly.
+        int indirect = items.Count(item => item.Reasons.All(reason => reason.StartsWith("间接受影响", StringComparison.Ordinal)));
+        var chips = new List<Border> { ModDependencyVisuals.Chip("直接依赖 " + (items.Count - indirect) + " 个", ModDependencyTone.Danger) };
+        if (indirect > 0) chips.Add(ModDependencyVisuals.Chip("间接影响 " + indirect + " 个", ModDependencyTone.Caution));
+        view.Children.Add(ModDependencyVisuals.Lead("!", ModDependencyTone.Danger, "以下 " + items.Count + " 个模组可能受影响。仍然" + actionName + "所选模组吗？", chips,
+            "它们需要所选模组作为前置，" + actionName + "后可能无法加载。"));
         cards.ColumnDefinitions.Add(new ColumnDefinition()); cards.ColumnDefinitions.Add(new ColumnDefinition());
         ScrollViewer scroll = new() { Content = cards, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        scroll.SetResourceReference(FrameworkElement.StyleProperty, "GlassPresentationScrollViewer");
         Grid.SetRow(scroll, 1); view.Children.Add(scroll);
         for (int index = 0; index < items.Count; index++) {
             if (index % 2 == 0) cards.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             TItem entry = items[index];
-            Grid content = new();
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            content.Children.Add(new Image { Source = entry.Icon ?? defaultIcon(), Width = 28, Height = 28, Stretch = Stretch.Uniform,
-                VerticalAlignment = VerticalAlignment.Top, Clip = new RectangleGeometry(new Rect(0, 0, 28, 28), 5, 5) });
-            StackPanel text = new();
-            text.Children.Add(new TextBlock { Text = entry.Name, TextWrapping = TextWrapping.Wrap, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = ModDependencyVisualTheme.Brush("ColorBrushTextSecondary") });
-            TextBlock reason = new() { Text = string.Join("\r\n", entry.Reasons), TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 5, 0, 0) };
-            reason.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushRedDark"); text.Children.Add(reason);
-            Grid.SetColumn(text, 2); content.Children.Add(text);
-            Border box = new() { Child = content, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6),
-                Background = ModDependencyVisualTheme.Brush("ColorBrushWhite"), Padding = new Thickness(9), Margin = new Thickness(4), MinHeight = 64, Tag = entry, ToolTip = entry.FileName };
-            box.SetResourceReference(Border.BorderBrushProperty, "ColorBrushRedLight");
+            bool onlyIndirect = entry.Reasons.All(reason => reason.StartsWith("间接受影响", StringComparison.Ordinal));
+            Border box = ModDependencyVisuals.Card(entry.Icon ?? defaultIcon(), entry.Name, string.Join("\r\n", entry.Reasons),
+                onlyIndirect ? ModDependencyTone.Caution : ModDependencyTone.Danger, entry, entry.FileName);
             Grid.SetColumn(box, index % 2); Grid.SetRow(box, index / 2); cards.Children.Add(box);
         }
     }

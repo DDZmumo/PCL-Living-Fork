@@ -56,10 +56,12 @@ def main() -> None:
     assert "else { $coreGroups }" in facade["run"] and "$groups += $javaGroups" in facade["run"]
     assert reusable["jobs"]["select"]["outputs"]["public_slim_run"] == "${{ steps.scope.outputs.public_slim_run }}"
     assert "needs.select.outputs.public_slim_run == 'true'" in steps_by_id["public_slim"]["if"]
-    assert "-OfficialRelease" in steps_by_id["public_slim"]["run"] and "if ($publishPreview)" in steps_by_id["public_slim"]["run"]
-    preview_upload = next(step for step in native["steps"] if step.get("with", {}).get("name") == "public-prerelease-${{ github.run_attempt }}")
-    assert preview_upload["if"] == "steps.public_slim.outputs.ready == 'true'"
-    assert preview_upload["with"]["path"] == "artifacts/native-main/Release/public-prerelease/"
+    package = steps_by_id["public_slim"]["run"]
+    assert "-OfficialRelease" in package and "if ($publishPackage)" in package
+    assert "'public-prerelease'" in package and "'public-release'" in package and "'refs/heads/main'" in package
+    package_upload = next(step for step in native["steps"] if step.get("with", {}).get("name") == "${{ steps.public_slim.outputs.package_name }}-${{ github.run_attempt }}")
+    assert package_upload["if"] == "steps.public_slim.outputs.ready == 'true'"
+    assert package_upload["with"]["path"] == "artifacts/native-main/Release/${{ steps.public_slim.outputs.package_name }}/"
     checks += 6
     ps5_scripts = {
         path

@@ -23,7 +23,7 @@ internal static class MmcExportUiChecks {
         private readonly Dictionary<PropertyInfo, object?> previous = [];
         private readonly ConcurrentQueue<ModLoader.LoaderCombo<string>> tasks = new();
         private readonly ConcurrentQueue<MmcInstanceExportResult> results = new();
-        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState> scheduler;
+        private readonly LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState> scheduler;
         private readonly Action previousRefresh;
         private Func<MmcInstanceExportPreview, bool> confirm = _ => true;
         private Action<ModLoader.LoaderCombo<string>>? registered;
@@ -31,7 +31,7 @@ internal static class MmcExportUiChecks {
         private Action? published;
         internal Scope(FileTaskScope files) {
             this.files = files;
-            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+            scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
             previousRefresh = scheduler.RefreshExtraDownload; scheduler.RefreshExtraDownload = () => { };
             Set("RegisterTask", new Action<ModLoader.LoaderCombo<string>>(task => { tasks.Enqueue(task); ModLoader.LoaderTaskbar.Add(task); registered?.Invoke(task); }));
             Set("ConfirmPreview", new Func<MmcInstanceExportPreview, bool>(preview => confirm(preview)));
@@ -55,7 +55,7 @@ internal static class MmcExportUiChecks {
             object view = Activator.CreateInstance(viewType, BindingFlags.Instance | BindingFlags.NonPublic, null, [], null)!;
             var defaults = (MmcInstanceExportOptions)Native.Call(viewType, "ReadOptions", view)!;
             Native.Check(defaults == new MmcInstanceExportOptions(), "Export view silently opted into personal files, machine conversion or inactive-tree omission.");
-            ((MyCheckBox)Native.Field(viewType, "FixedMemory").GetValue(view)!).Checked = true;
+            ((System.Windows.Controls.CheckBox)Native.Field(viewType, "FixedMemory").GetValue(view)!).IsChecked = true;
             ((System.Windows.Controls.TextBox)Native.Field(viewType, "Minimum").GetValue(view)!).Text = "2048";
             ((System.Windows.Controls.TextBox)Native.Field(viewType, "Maximum").GetValue(view)!).Text = "1024";
             try { Native.Call(viewType, "ReadOptions", view); throw new Exception("Invalid portable memory choice was accepted."); }
@@ -70,18 +70,17 @@ internal static class MmcExportUiChecks {
                 inspection.Definition.Generation, inspection.PrimarySha256!, defaults);
 
             // Overview no longer duplicates MMC export; real sidebar routes Tag 5 to the original PageInstanceExport in MMC mode.
-            var oldPage = PageInstanceLeft.Instance;
+            var oldPage = LauncherInstanceContext.Instance;
             try {
-                PageInstanceLeft.Instance = instance;
+                LauncherInstanceContext.Instance = instance;
                 var overview = new PageInstanceOverall(); Native.Check(overview.FindName("BtnMmcExport") is null, "Duplicate BtnMmcExport remained in Overview.");
-                var left = new PageInstanceLeft();
-                Native.Check(((FrameworkElement)left.FindName("ItemExport")).Visibility == Visibility.Visible, "Managed sidebar export entry stayed hidden.");
-                var mmcTool = (PageInstanceExport)left.PageGet(FormMain.PageSubType.InstanceExport);
+                var left = FileTaskShell.Install().GlassInstanceNavigation;
+                var mmcTool = (PageInstanceExport)left.GetPage(FormMain.PageSubType.InstanceExport);
                 Native.Check((bool)Native.Call(typeof(PageInstanceExport), "IsManagedOwner", mmcTool, instance, inspection.Definition.InstanceId)!,
                     "Original export page did not bind its MMC owner.");
-                PageInstanceLeft.Instance = null; Native.Call(left.GetType(), "SyncInstanceContext", left);
-                Native.Check(left.PageGet(FormMain.PageSubType.InstanceExport) is PageInstanceExport, "Ordinary instance did not retain PageInstanceExport.");
-            } finally { PageInstanceLeft.Instance = oldPage; }
+                LauncherInstanceContext.Instance = null; left.ContextChanged();
+                Native.Check(left.GetPage(FormMain.PageSubType.InstanceExport) is PageInstanceExport, "Ordinary instance did not retain PageInstanceExport.");
+            } finally { LauncherInstanceContext.Instance = oldPage; }
 
             registered = task => task.Cancel(); Native.Static("PCL.MmcExportUi", "Start", request); Wait();
             Native.Check(Current.State == ModBase.LoadState.Canceled && !File.Exists(request.OutputZipPath) && !Busy &&
@@ -103,12 +102,12 @@ internal static class MmcExportUiChecks {
             Set("SelectOptions", new Func<MmcInstanceExportOptions>(() => defaults));
             Set("SelectOutput", new Func<string, string>(_ => request.OutputZipPath));
             int previousCount = tasks.Count;
-            var previousPage = PageInstanceLeft.Instance;
+            var previousPage = LauncherInstanceContext.Instance;
             try {
-                PageInstanceLeft.Instance = instance;
-                var left = new PageInstanceLeft();
+                LauncherInstanceContext.Instance = instance;
+                var left = FileTaskShell.Install().GlassInstanceNavigation;
                 Native.Static("PCL.MmcExportUi", "Prompt", instance);
-            } finally { PageInstanceLeft.Instance = previousPage; }
+            } finally { LauncherInstanceContext.Instance = previousPage; }
             Wait(previousCount);
             Native.Check(Current.State == ModBase.LoadState.Finished && results.Single().Status == MmcInstanceExportStatus.Completed && File.Exists(request.OutputZipPath), "Late cancellation erased a completed publication outcome.");
             using (var zip = ZipFile.OpenRead(request.OutputZipPath)) {

@@ -54,14 +54,15 @@ $version151Highlights='- 整合包更新支持配置键值合并，同一键冲�
 $firstWpfPreviewHighlights='- 新的 WPF 工作台覆盖首页、账号、资源中心和实例设置'+$nl+'- 支持动态壁纸、磨砂材质、深浅色切换和页面过渡'+$nl+'- 预发布版适用于 Windows x64，运行前需 .NET 10 Desktop Runtime'
 $secondWpfPreviewHighlights='- 修复资源中心和收藏的中文输入，搜索先展示已返回的结果'+$nl+'- 改善动态壁纸、页面过渡和崩溃提示的流畅度'+$nl+'- 更新背景音乐设置、播放器和音频可视化'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
 $thirdWpfPreviewHighlights='- 新增可选陶瓦联机，支持创建房间和通过房间码加入'+$nl+'- 修复部分外置登录启动被取消的问题，改善游戏进程识别'+$nl+'- 优化实例资源列表滚动和页面切换，修正联机按钮字色'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
-$latestHighlights='- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java'+$nl+'- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例'+$nl+'- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
+$preview4Highlights='- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java'+$nl+'- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例'+$nl+'- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包'+$nl+'- Windows x64 预发布版需 .NET 10 Desktop Runtime'
+$latestHighlights='- 新版 WPF 工作台正式上线，支持深浅外观、动态壁纸与背景音乐'+$nl+'- 改进资源排序和收藏备注，新增带贴图的 3D 投影预览'+$nl+'- 完善 Java 管理、可选陶瓦联机和自定义主页兼容'+$nl+'- Windows x64 正式版需 .NET 10 Desktop Runtime'
 $repository=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $sourceSummary=[regex]::Match([IO.File]::ReadAllText((Join-Path $repository 'presentation/Window/LegacyMainWindowLifecycle.cs')),'private const string ForkReleaseHighlights = "([^"\r\n]*)";')
 $reviewSummary=[regex]::Match([IO.File]::ReadAllText((Join-Path $repository 'scripts/native-smoke/interaction/ReviewedInformationNotice.cs')),'private const string LatestHighlights = "([^"\r\n]*)";')
 Assert-Value $true {$sourceSummary.Success -and [regex]::Unescape($sourceSummary.Groups[1].Value) -ceq $latestHighlights} 'current product summary matches the reviewed body'
 Assert-Value $true {$reviewSummary.Success -and [regex]::Unescape($reviewSummary.Groups[1].Value) -ceq $latestHighlights} 'interaction policy matches the reviewed current body'
-foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4')){
- $highlights=if($version -cin @('dev_edition','1.6.0-pre-4')){$latestHighlights}elseif($version -ceq '1.6.0-pre-3'){$thirdWpfPreviewHighlights}elseif($version -ceq '1.6.0-pre-2'){$secondWpfPreviewHighlights}elseif($version -ceq '1.6.0-pre-1'){$firstWpfPreviewHighlights}elseif($version -ceq '1.5.1'){$version151Highlights}elseif($version -ceq '1.5.0'){$version150Highlights}elseif($version -ceq '1.4.3'){$releaseHighlights}elseif($version -ceq '1.4.2-pre-1'){$newHighlights}elseif($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
+foreach($version in @('dev_edition','1.4.0-pre-4','1.4.0','1.4.1','1.4.2-pre-1','1.4.3','1.5.0','1.5.1','1.6.0-pre-1','1.6.0-pre-2','1.6.0-pre-3','1.6.0-pre-4','1.6.0')){
+ $highlights=if($version -cin @('dev_edition','1.6.0')){$latestHighlights}elseif($version -ceq '1.6.0-pre-4'){$preview4Highlights}elseif($version -ceq '1.6.0-pre-3'){$thirdWpfPreviewHighlights}elseif($version -ceq '1.6.0-pre-2'){$secondWpfPreviewHighlights}elseif($version -ceq '1.6.0-pre-1'){$firstWpfPreviewHighlights}elseif($version -ceq '1.5.1'){$version151Highlights}elseif($version -ceq '1.5.0'){$version150Highlights}elseif($version -ceq '1.4.3'){$releaseHighlights}elseif($version -ceq '1.4.2-pre-1'){$newHighlights}elseif($version -ceq '1.4.0-pre-4'){$legacyHighlights}elseif($version -ceq '1.4.0'){$previousHighlights}else{$currentHighlights}
  $script:nativeProof=[pscustomobject]@{versionBaseName=$version;displayName='PCL Living Fork';buildType=50;startupNoticeStyle='plain';startupNoticeSource='local';startupNoticeTitle=('PCL Living Fork '+$version+' 版本说明')}
  $script:newNotice='PCL Living Fork '+$version+' 版本说明'
  if((& $titleExpression $nativeProof) -cne $newNotice){throw 'Actual native title assignment ignored plain metadata.'};$count++
@@ -109,6 +110,7 @@ foreach($route in @(
  @{Version='1.6.0-pre-2';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
  @{Version='1.6.0-pre-3';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
  @{Version='1.6.0-pre-4';Style='markdown-suppress';Source='local';Local='以下为当前版本的本地简述。'},
+ @{Version='1.6.0';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
  @{Version='1.5.1';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
  @{Version='1.5.1';Style='markdown';Source='published-or-local';Local='暂未读取到当前版本的完整发布说明，以下为本地简述。'},
  @{Version='1.5.0';Style='markdown-suppress';Source='published-or-local';Local='以下为当前版本的本地简述。'},
@@ -128,6 +130,7 @@ foreach($route in @(
  $rich=Message-Log $newNotice $caption
  Assert-Value $true {& $readyExpression ($stageLog+$rich) ([pscustomobject]@{Owned=$true}) $newNotice $nativeProof $newNotice} 'actual rich readiness'
  Check-Log $rich $newNotice -RequireComplete
+ Check-Log $rich.Replace('[MessageDialogController]','[GlassMessageDialog]') $newNotice -RequireComplete
  Assert-LfNormalClose -1 ($rich+$closeLog) $newNotice;$count++
  $partial=Message-Log $newNotice '基于 PCL 官方开源版的第三方版本。'
  Assert-Value $false {& $readyExpression ($stageLog+$partial) ([pscustomobject]@{Owned=$true}) $newNotice $nativeProof $newNotice} 'rich caption prefix pending'

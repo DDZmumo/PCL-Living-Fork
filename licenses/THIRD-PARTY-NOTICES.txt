@@ -26,6 +26,13 @@ runtime and adapted WPF sources
 来源：https://github.com/Meloong-Git/MeloongCore/tree/c774ae4c85fd94e0eaa171db21e78a65870df19b
 
 
+fNbt
+BSD-3-Clause
+1.0.0
+runtime NBT reader for schematic previews
+来源：https://github.com/mstefarov/fNbt
+
+
 Markdig
 BSD-2-Clause
 1.6.0
@@ -789,16 +796,29 @@ PCLCS/Application/AccountApplicationService.cs
 PCLCS/Application/ApplicationSnapshots.cs
 PCLCS/Application/InstanceSelectionApplicationService.cs
 PCLCS/Application/LaunchApplicationService.cs
+PCLCS/Application/LocalSkinServiceProcess.cs
+PCLCS/Application/LocalYggdrasilServer.cs
+PCLCS/Application/SkinLibraryStore.cs
 PCLCS/Application/TaskApplicationService.cs
 modern/Main/Application/LauncherApplicationServices.cs
+modern/Main/Application/LauncherEntryPoint.cs
+modern/Main/Application/JavaRuntimeDownloads.cs
+modern/Main/Application/LocalSkinLaunchSupport.cs
+modern/Main/Application/SkinLibraryApplicationService.cs
 tests/PCLLF.Migration.Tests/ApplicationServiceTests.cs
 tests/PCLLF.Native.Facade.Tests/ApplicationServiceChecks.cs
+tests/PCLLF.Native.Facade.Tests/SkinLibraryChecks.cs
 PCLLF.WPF.Core/Glass/BlockCurveLoader.cs
 PCLLF.WPF.Core/Glass/GlassCompositionHost.cs
+PCLLF.WPF.Core/Glass/VideoWallpaperSampler.cs
+PCLLF.WPF.Core/Glass/LiveVideoFrost.cs
+PCLLF.WPF.Core/Glass/MediaFoundationVideoReader.cs
+PCLLF.WPF.Core/Glass/VideoWallpaperPlayback.cs
 PCLLF.WPF.Core/Glass/GlassDesktopComposition.cs
 PCLLF.WPF.Core/Glass/GlassMaterial.cs
 PCLLF.WPF.Core/Glass/GlassSurface.cs
 PCLLF.WPF.Core/Glass/ScrollEdgeFade.cs
+PCLLF.WPF.Core/Glass/TrackDragSlider.cs
 PCLLF.WPF.Core/Glass/GlassWindowBackdrop.cs
 PCLLF.WPF.Core/Glass/GlassWindowRegionClip.cs
 PCLLF.WPF.Core/Motion/MotionAssemblyInfo.cs
@@ -831,15 +851,28 @@ modern/Main/Glass/GlassModalState.cs
 modern/Main/Glass/GlassActionMenu.cs
 modern/Main/Glass/GlassCommandChrome.cs
 modern/Main/Glass/GlassExtraButtonAdapter.cs
+modern/Main/Glass/GlassSceneFrost.cs
 modern/Main/Glass/GlassPresentation.Controls.cs
+modern/Main/Glass/GlassPresentation.Music.cs
 modern/Main/Glass/GlassPresentation.Documents.cs
 modern/Main/Glass/GlassPresentation.Layout.cs
 modern/Main/Glass/GlassPresentation.Memory.cs
 modern/Main/Glass/GlassPresentation.Resources.cs
 modern/Main/Glass/GlassPresentation.Tasks.cs
+modern/Main/Glass/GlassPresentation.Update.cs
 modern/Main/Glass/GlassResourceInfo.cs
 modern/Main/Glass/GlassAccountWorkspace.cs
 modern/Main/Glass/GlassSkinHead.cs
+modern/Main/Glass/GlassTideProgress.cs
+modern/Main/Glass/GlassStartupPreload.cs
+modern/Main/Glass/GlassSkinSites.cs
+modern/Main/Glass/GlassVideoWallpaper.cs
+modern/Main/Glass/GlassSkinLibrary.cs
+modern/Main/Glass/GlassSkinRender.cs
+modern/Main/Glass/GlassCrashBanner.cs
+modern/Main/Glass/GlassStatusGlyph.cs
+modern/Main/Glass/GlassAudioVisualizer.cs
+modern/Main/Glass/GlassMusicCapsule.cs
 modern/Main/Glass/GlassPresentation.cs
 modern/Main/Glass/GlassPresentationResources.xaml
 modern/Main/Glass/GlassToastHost.cs
@@ -861,6 +894,15 @@ modern/Java/ModKeybindPatch/src/Agent.java
 modern/Java/ModKeybindPatch/src/SaveTransformer.java
 modern/Java/ModKeybindPatch/src/KeybindWriter.java
 modern/Java/ModKeybindPatch/tests/KeybindWriterTest.java
+PCLCS/Launch/LegacyServerAddress.cs
+PCLCS/Minecraft/LegacyJavaLaunchIdentity.cs
+modern/Main/Application/TerracottaComponent.cs
+modern/Main/Application/TerracottaConnection.cs
+modern/Main/Application/TerracottaUpdates.cs
+modern/Main/Glass/GlassPresentation.Lobby.cs
+modern/Main/Glass/GlassPresentation.LobbyUpdates.cs
+modern/Main/Glass/TerracottaLobbyPage.cs
+tests/PCLLF.Native.Facade.Tests/TerracottaLobbyChecks.cs
 
 
 ========================================================================
@@ -1470,6 +1512,38 @@ licenses/texts/MeloongCore-Apache-2.0.txt
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+
+========================================================================
+licenses/texts/fNbt-BSD-3-Clause.txt
+========================================================================
+
+Copyright (c) 2012-2025, Matvei "fragmer" Stefarov <me@matvei.org>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+3. Neither the name of fNbt nor the names of its contributors may be used to
+    endorse or promote products derived from this software without specific
+    prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 
 
 ========================================================================

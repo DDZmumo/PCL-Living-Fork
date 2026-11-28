@@ -45,7 +45,7 @@ internal static class MmcLegacyAdoptionUiChecks {
         Put("PCL/Setup.ini", "VersionArgumentIndie:1\nVersionArgumentIndieV2:True\nVersionAdvanceJvm:\n"); Put("config/user.cfg", "personal config"); Put("saves/world/level.dat", "player progress");
         string before = Tree(source); var instance = new ModMinecraft.McInstance(source);
         var type = Native.Type("PCL.MmcLegacyAdoptionUi"); var factory = Native.Property(type, "ServicesFactory"); object? oldFactory = factory.GetValue(null);
-        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, MyLoading.MyLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
+        var scheduler = (LegacyLoaderHost<ModLoader.LoaderBase, ModBase.LoadState, LauncherLoadingState>)Native.Field(typeof(ModLoader), "NativeLoaderHost").GetValue(null)!;
         Action refresh = scheduler.RefreshExtraDownload;
         using HttpClient client = new(new NoNetwork()); ModLoader.LoaderCombo<string>? actual = null; MmcLegacyAdoptionResult? published = null;
         bool confirmed = false, decidedFault = false, cancelCopy = false; string selectedName = "managed-copy"; int uiThread = Environment.CurrentManagedThreadId;
@@ -68,9 +68,9 @@ internal static class MmcLegacyAdoptionUiChecks {
                 RegisterTask = task => { actual = task; ModLoader.LoaderTaskbar.Add(task); }, Published = result => published = result,
                 DownloadCreated = _ => throw new IOException("This cache-hit Main acceptance must not start network managers.")
             }));
-            var previousPage = PageInstanceLeft.Instance;
+            var previousPage = LauncherInstanceContext.Instance;
             try {
-                PageInstanceLeft.Instance = instance; var page = new PageInstanceOverall();
+                LauncherInstanceContext.Instance = instance; var page = new PageInstanceOverall();
                 Native.Call(page.GetType(), "RefreshMmcActions", page);
                 var create = (FrameworkElement)page.FindName("BtnMmcLegacyAdoption");
                 Native.Check(create.Visibility == Visibility.Visible &&
@@ -79,7 +79,7 @@ internal static class MmcLegacyAdoptionUiChecks {
                     page.FindName("BtnMmcComponents") is null && page.FindName("BtnMmcPlatformOrigin") is null,
                     "An ordinary instance lost its explicit copy entry or retained duplicate overview buttons.");
                 Native.Call(page.GetType(), "BtnMmcLegacyAdoption_Click", page, create, null);
-            } finally { PageInstanceLeft.Instance = previousPage; }
+            } finally { LauncherInstanceContext.Instance = previousPage; }
             var deadline = DateTime.UtcNow.AddSeconds(45);
             while (actual is null || actual.State == ModBase.LoadState.Loading || (bool)Native.Property(type, "HasActiveOperation").GetValue(null)!) {
                 Native.Call(typeof(FileTaskScope), "DrainPostedUi", null, deadline); if (DateTime.UtcNow >= deadline) throw new TimeoutException("Actual managed-copy Main task did not finish."); Thread.Sleep(5);
@@ -104,7 +104,7 @@ internal static class MmcLegacyAdoptionUiChecks {
             Native.Call(typeof(FileTaskScope), "FinishActualTasks", files); InstanceConfigProviders.FlushAndDisposeWithin(root);
             Native.Check(Path.GetFullPath(source).StartsWith(Path.GetFullPath(files.Root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "Owned legacy fixture cleanup escaped its root.");
             Directory.Delete(source, true); ModMinecraft.McInstanceList = [];
-            var selection = new PageSelectRight(); var controller = Native.Property(selection.GetType(), "Service").GetValue(selection)!;
+            var selection = new GlassInstanceSelectionPage(FileTaskShell.Install()); var controller = Native.Get(selection, "_controller")!;
             Native.Call(controller.GetType(), "Render", controller);
             Native.Check(selection.FindName("BtnMmcLegacyRecovery") is null && selection.FindName("BtnMmcImportRecovery") is null && selection.FindName("BtnMmcRecovery") is null &&
                 ((FrameworkElement)selection.FindName("PanEmpty")).Visibility == Visibility.Visible, "The actual empty-list BAML retained a manual MMC recovery button.");

@@ -1,181 +1,237 @@
-using System.Buffers.Binary;
-using System.Collections;
+// SPDX-License-Identifier: MPL-2.0
 using System.IO.Compression;
-using System.Text;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using PCL;
 using PCLCS;
-using static PCLLF.Native.Facade.Tests.BackupResourceChecks;
+using Controller = PCLCS.ResourcePageController<PCL.ModMinecraft.McInstance, PCL.InstanceResourceEntry, PCL.InstanceResourceOnlineInfo>;
+using View = PCLCS.ResourcePageView<PCL.ModMinecraft.McInstance, PCL.InstanceResourceEntry, PCL.InstanceResourceOnlineInfo>;
 
 namespace PCLLF.Native.Facade.Tests;
 
-// Actual C# Main pages, events, catalog and controller; no replacement sort algorithm.
 internal static class ResourceSortChecks
 {
-    internal static void Run(string parent)
+    internal static void Run(FixtureEnvironment environment)
     {
-        string root = Path.Combine(parent, "sort-pages"); Directory.CreateDirectory(root);
-        foreach (string kind in new[] { "ResourcePacks", "ShaderPacks" }) CheckPackages(root, kind);
-        CheckWorlds(root);
-        CheckScreenshots(root);
-        Console.WriteLine("PASS native resource-sort: compact right-aligned vector/text buttons, real clicks/filter/search/selection, default LastPlayed worlds and unknowns, screenshots and default sorting.");
-    }
-    private static void CheckPackages(string root, string kind)
-    {
-        string folder = Path.Combine(root, kind); Directory.CreateDirectory(folder);
-        string newer = Path.Combine(folder, "needle-newer.zip"), older = Path.Combine(folder, "needle-older.zip"), middle = Path.Combine(folder, "folder-pack");
-        foreach (string file in new[] { newer, older }) {
-            using ZipArchive archive = ZipFile.Open(file, ZipArchiveMode.Create);
-            using StreamWriter text = new(archive.CreateEntry(kind == "ResourcePacks" ? "pack.mcmeta" : "shaders/fixture.vsh").Open());
-            text.Write(kind == "ResourcePacks" ? "{\"pack\":{\"pack_format\":46,\"description\":\"sort fixture\"}}" : "// fixture");
-        }
-        Directory.CreateDirectory(middle);
-        if (kind == "ResourcePacks") File.WriteAllText(Path.Combine(middle, "pack.mcmeta"), "{\"pack\":{\"pack_format\":46,\"description\":\"folder\"}}");
-        else Directory.CreateDirectory(Path.Combine(middle, "shaders"));
-        File.SetCreationTimeUtc(older, Time(2001)); Directory.SetCreationTimeUtc(middle, Time(2002)); File.SetCreationTimeUtc(newer, Time(2003));
-        IList entries = Scan(folder, kind);
-        var page = Page(kind); Show(page, folder, entries);
-        MyIconTextButton sort = Part<MyIconTextButton>(page, "BtnSort");
-        Native.Check(page.FindName("ComboSort") is null && Mode(page) == 1 && sort.Text == "添加时间 · 倒序", "Resources must start with the compact descending addition-time action.");
-        string[] original = entries.Cast<InstanceResourceEntryData>().Select(entry => entry.Name!).ToArray();
-        MyLocalModItem selected = Part<Panel>(page, "PanList").Children.OfType<MyLocalModItem>().First(); selected.Checked = true;
-        object entry = Native.Get(selected, "ResourceEntry")!;
-        SetSort(page, 1);
-        Order(page, "PanList", "needle-newer.zip", "folder-pack", "needle-older.zip");
-        Native.Check(((HashSet<string>)Native.Get(Controller(page), "SelectedPaths")!).Contains(((InstanceResourceEntryData)entry).FullPath!) && selected.Checked,
-            "Resource sorting lost the actual selected row or path.");
-        SetSort(page, 2); Order(page, "PanList", "needle-older.zip", "folder-pack", "needle-newer.zip");
-        Part<MyRadioButton>(page, "BtnFilterFolders").Checked = true; Order(page, "PanList", "folder-pack");
-        Part<MyRadioButton>(page, "BtnFilterAll").Checked = true;
-        MySearchBox search = Part<MySearchBox>(page, "SearchBox"); search.Text = "needle";
-        Native.Call(Controller(page).GetType(), "SearchChanged", Controller(page));
-        Order(page, "PanList", "needle-older.zip", "needle-newer.zip");
-        SetSort(page, 1); Order(page, "PanList", "needle-newer.zip", "needle-older.zip");
-        search.Text = ""; Native.Call(Controller(page).GetType(), "SearchChanged", Controller(page));
-        Show(page, folder, Scan(folder, kind));
-        Order(page, "PanList", "needle-newer.zip", "folder-pack", "needle-older.zip");
-        Native.Check(Mode(page) == 1 && sort.Text == "添加时间 · 倒序", "Reloading resource results reset its selected sort mode or label.");
-        ClickSort(page); Native.Check(Mode(page) == 2 && sort.Text == "添加时间 · 正序", "Addition-time action failed to expose its ascending direction.");
-        ClickSort(page); Native.Check(Mode(page) == 1, "Addition-time action cycled outside its two directions.");
-        Native.Check(entries.Cast<InstanceResourceEntryData>().Select(entry => entry.Name!).SequenceEqual(original), "Sorting mutated the source catalog.");
-        Render(page, Path.Combine(folder, "compact-header.png"), () =>
-        {
-            Panel list = Part<Panel>(page, "PanResourceList");
-            Native.Check(page.IsAncestorOf(sort) && page.IsAncestorOf(list), "Compact resources were not attached to the real page.");
-            Rect comboBounds = sort.TransformToAncestor(page).TransformBounds(new Rect(sort.RenderSize));
-            Rect listBounds = list.TransformToAncestor(page).TransformBounds(new Rect(list.RenderSize));
-            Native.Check(comboBounds.Height > 0 && comboBounds.Right <= page.ActualWidth + 1 && comboBounds.Bottom <= listBounds.Top + 1,
-                "Compact resource header clipped the sort action or overlapped content.");
-            CheckButtonLayout(page);
-        });
-        Native.Check(sort.IsEnabled, "Resource sorting must remain enabled.");
-    }
-    private static void CheckWorlds(string root)
-    {
-        string folder = Path.Combine(root, "Saves"); Directory.CreateDirectory(folder);
-        string older = World(folder, "older-play", Time(2017)), newer = World(folder, "newer-play", Time(2019)), unknown = World(folder, "unknown-play", null);
-        Directory.SetLastWriteTimeUtc(newer, Time(2001)); Directory.SetLastWriteTimeUtc(older, Time(2025)); Directory.SetLastWriteTimeUtc(unknown, Time(2026));
-        IList worlds = Scan(folder, "Saves");
-        Native.Check(worlds.Count == 3 && worlds.Cast<InstanceResourceEntryData>().Single(entry => entry.Name == "unknown-play").LastPlayedUtc is null,
-            "Missing world metadata vanished or acquired a made-up play time.");
-        FrameworkElement page = Page("Saves");
-        object host = Native.Get(Controller(page), "Host")!;
-        Native.Set(host, "QuickPlaySupported", new Func<ModMinecraft.McInstance, bool>(_ => false));
-        Show(page, folder, worlds);
-        MyIconTextButton sort = Part<MyIconTextButton>(page, "BtnSort");
-        Native.Check(page.FindName("ComboSort") is null && Mode(page) == 3 && sort.Text == "最后游玩 · 倒序", "Worlds must default to recent LastPlayed and expose only the compact play-time toggle.");
-        Order(page, "PanWorlds", "newer-play", "older-play", "unknown-play");
-        string recentIcon = sort.Logo;
-        ClickSort(page); Order(page, "PanWorlds", "older-play", "newer-play", "unknown-play");
-        Native.Check(Mode(page) == 4 && sort.Text == "最后游玩 · 正序" && sort.Logo != recentIcon, "Clicking the world action did not change its direction, label and vector icon together.");
-        Native.Call(Controller(page).GetType(), "SearchChanged", Controller(page));
-        Order(page, "PanWorlds", "older-play", "newer-play", "unknown-play");
-        Show(page, folder, worlds);
-        Native.Check(Mode(page) == 4 && sort.Text == "最后游玩 · 正序", "World refresh reset the play-time direction.");
-        ClickSort(page); Order(page, "PanWorlds", "newer-play", "older-play", "unknown-play");
-        Native.Check(Mode(page) == 3, "World clicks exposed a non-play-time sort mode.");
-        Render(page, Path.Combine(folder, "compact-world-header.png"), () => CheckButtonLayout(page));
-        Native.Check(Directory.GetLastWriteTimeUtc(newer) == Time(2001), "Sorting wrote the world folder or used its modification time as LastPlayed.");
-    }
-    private static void CheckScreenshots(string root)
-    {
-        string folder = Path.Combine(root, "Screenshots"); Directory.CreateDirectory(folder);
-        foreach (var value in new[] { ("old.png", 2001), ("new.png", 2003) }) {
-            string file = Path.Combine(folder, value.Item1);
-            BitmapSource source = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { 10, 20, 30, 255 }, 4);
-            PngBitmapEncoder encoder = new(); encoder.Frames.Add(BitmapFrame.Create(source)); using (FileStream stream = File.Create(file)) encoder.Save(stream);
-            File.SetCreationTimeUtc(file, Time(value.Item2));
-        }
-        FrameworkElement page = Page("Screenshots"); Show(page, folder, Scan(folder, "Screenshots"));
-        SetSort(page, 1);
-        Order(page, "PanScreenshots", "new.png", "old.png"); SetSort(page, 2);
-        Order(page, "PanScreenshots", "old.png", "new.png");
-    }
-    private static FrameworkElement Page(string kind) => (FrameworkElement)New("PCL.PageInstanceResources", Kind(kind));
-    private static object Controller(FrameworkElement page) => Native.Get(page, "Controller")!;
-    internal static int Mode(FrameworkElement page) {
-        bool mods = page is PageInstanceMod;
-        object controller = Native.Get(page, mods ? "Native" : "Controller")!;
-        return Convert.ToInt32(Native.Property(controller.GetType(), mods ? "SortOrder" : "SortMode").GetValue(controller));
-    }
-    internal static void ClickSort(FrameworkElement page) {
-        MyIconTextButton button = Part<MyIconTextButton>(page, "BtnSort");
-        foreach (RoutedEvent action in new[] { UIElement.MouseLeftButtonDownEvent, UIElement.MouseLeftButtonUpEvent })
-            button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = action });
-    }
-    internal static void SetSort(FrameworkElement page, int value) {
-        for (int clicks = 0; clicks < 3 && Mode(page) != value; clicks++) ClickSort(page);
-        Native.Check(Mode(page) == value, "The actual sort-button clicks did not reach the intended mode.");
-    }
-    internal static void CheckButtonLayout(FrameworkElement page) {
-        MyIconTextButton button = Part<MyIconTextButton>(page, "BtnSort");
-        FrameworkElement header = Part<FrameworkElement>(page, "PanSortHeader"), filters = Part<FrameworkElement>(page, "PanFilter");
-        Rect action = button.TransformToAncestor(page).TransformBounds(new Rect(button.RenderSize));
-        Rect bounds = header.TransformToAncestor(page).TransformBounds(new Rect(header.RenderSize));
-        Rect filter = filters.TransformToAncestor(page).TransformBounds(new Rect(filters.RenderSize));
-        Native.Check(Math.Abs(action.Right - bounds.Right) <= 1 && (filter.Right <= action.Left + 1 || action.Bottom <= filter.Top + 1) && action.Bottom <= bounds.Bottom + 1,
-            "The sort action is not aligned to the header's right edge or overlaps wrapped filters.");
-        Native.Check(button.LabText.FontSize < 14 && button.ShapeLogo.Data is not null && button.ShapeLogo.MaxWidth <= 14 && button.Focusable,
-            "Sorting lost the small text/vector appearance or keyboard focus.");
-    }
-    internal static void SavePreview(string file) {
-        string? output = Environment.GetEnvironmentVariable("PCLLF_SORT_PREVIEW_DIR");
-        if (string.IsNullOrWhiteSpace(output)) return;
-        Directory.CreateDirectory(output);
-        File.Copy(file, Path.Combine(output, Path.GetFileName(Path.GetDirectoryName(file)) + "-" + Path.GetFileName(file)), true);
-    }
-    private static void Show(FrameworkElement page, string root, IList entries) => Native.Call(page.GetType(), "ShowResources", page, root, root, entries);
-    private static string[] Names(FrameworkElement page, string part) => Part<Panel>(page, part).Children.Cast<FrameworkElement>().Select(element => {
-        if (part == "PanWorlds" && element is Panel panel) element = panel.Children.OfType<MyLocalModItem>().First();
-        object entry = Native.Get(element, part == "PanScreenshots" ? "Entry" : "ResourceEntry")!;
-        return ((InstanceResourceEntryData)entry).Name!;
-    }).ToArray();
-    private static void Order(FrameworkElement page, string part, params string[] expected) => Native.Check(Names(page, part).SequenceEqual(expected),
-        "Real " + part + " order differs: " + string.Join(",", Names(page, part)));
-    private static DateTime Time(int year) => new(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-    private static string World(string root, string name, DateTime? played) {
-        string folder = Path.Combine(root, name); Directory.CreateDirectory(folder);
-        if (played is null) { File.WriteAllText(Path.Combine(folder, "level.dat"), "damaged world metadata"); return folder; }
-        using FileStream file = File.Create(Path.Combine(folder, "level.dat")); using GZipStream zip = new(file, CompressionMode.Compress);
-        Tag(10, ""); Tag(10, "Data"); Tag(4, "LastPlayed");
-        Span<byte> time = stackalloc byte[8]; BinaryPrimitives.WriteInt64BigEndian(time, new DateTimeOffset(played.Value).ToUnixTimeMilliseconds()); zip.Write(time);
-        zip.WriteByte(0); zip.WriteByte(0); return folder;
-        void Tag(byte kind, string value) { zip.WriteByte(kind); byte[] text = Encoding.UTF8.GetBytes(value); zip.WriteByte((byte)(text.Length >> 8)); zip.WriteByte((byte)text.Length); zip.Write(text); }
-    }
-    private static void Render(FrameworkElement page, string file, Action verifyLayout) {
-        Part<FrameworkElement>(page, "PanAllBack").Visibility = Visibility.Visible;
-        Grid host = new(); host.Children.Add(page);
+        string root = Path.Combine(environment.Data, "resource-sort");
+        var owner = FileTaskShell.Install();
         try {
-            host.Measure(new Size(470, 650)); host.Arrange(new Rect(0, 0, 470, 650)); host.UpdateLayout();
-            verifyLayout();
-            RenderTargetBitmap pixels = new(470, 650, 96, 96, PixelFormats.Pbgra32); pixels.Render(host);
-            PngBitmapEncoder png = new(); png.Frames.Add(BitmapFrame.Create(pixels));
-            using (FileStream target = File.Create(file)) png.Save(target);
-            SavePreview(file);
-        } finally { host.Children.Clear(); }
+            foreach (var kind in new[] { InstanceResourceKind.ResourcePacks, InstanceResourceKind.ShaderPacks })
+                CheckPackageOrdering(owner, root, kind);
+            CheckWorldOrdering(owner, root);
+            CheckScreenshotOrdering(owner, root);
+        } finally { FileTaskShell.CloseUnshownHosts(); }
+        Console.WriteLine("PASS instance resource sorting: native buttons, order, selection, reload, filters and search on the Glass resource pages.");
+    }
+
+    private static void CheckPackageOrdering(FormMain owner, string root, InstanceResourceKind kind)
+    {
+        string folder = Path.Combine(root, kind.ToString());
+        Directory.CreateDirectory(folder);
+        const string newest = "match-newer.zip", middle = "folder-pack", oldest = "match-older.zip";
+        bool resourcePack = kind == InstanceResourceKind.ResourcePacks;
+        const string metadata = """{"pack":{"pack_format":46,"description":"sorting fixture"}}""";
+        foreach (string name in new[] { newest, oldest }) {
+            using var archive = ZipFile.Open(Path.Combine(folder, name), ZipArchiveMode.Create);
+            using var writer = new StreamWriter(archive.CreateEntry(resourcePack ? "pack.mcmeta" : "shaders/fixture.vsh").Open());
+            writer.Write(resourcePack ? metadata : "// fixture");
+        }
+        Directory.CreateDirectory(Path.Combine(folder, middle));
+        if (resourcePack) File.WriteAllText(Path.Combine(folder, middle, "pack.mcmeta"), metadata);
+        else Directory.CreateDirectory(Path.Combine(folder, middle, "shaders"));
+        File.SetCreationTimeUtc(Path.Combine(folder, newest), Time(2020));
+        Directory.SetCreationTimeUtc(Path.Combine(folder, middle), Time(2019));
+        File.SetCreationTimeUtc(Path.Combine(folder, oldest), Time(2018));
+
+        using var page = new GlassLocalResourcesPage(owner, kind);
+        var (controller, view, sort) = Parts(page);
+        var scanned = InstanceResourceStore.Scan(folder, folder, kind, default);
+        string?[] scanOrder = scanned.Select(entry => entry.Name).ToArray();
+        controller.ShowResources(folder, folder, scanned);
+        AssertOrder(view.PanList, newest, middle, oldest);
+        AssertSort(sort, "添加时间 · 倒序", 1, controller);
+        string descendingGlyph = SortGlyph(sort);
+        Select(view.PanList.Children.OfType<GlassLocalResourceRow>().First());
+
+        SelectSort(page, sort, "添加时间 · 最早在前");
+        AssertSort(sort, "添加时间 · 正序", 2, controller);
+        Native.Check(SortGlyph(sort) != descendingGlyph, "The resource sort glyph did not change direction.");
+        AssertOrder(view.PanList, oldest, middle, newest);
+        AssertSelection(view.PanList, controller, Path.Combine(folder, newest));
+
+        controller.ShowResources(folder, folder, InstanceResourceStore.Scan(folder, folder, kind, default));
+        AssertSort(sort, "添加时间 · 正序", 2, controller);
+        AssertOrder(view.PanList, oldest, middle, newest);
+        AssertSelection(view.PanList, controller, Path.Combine(folder, newest));
+
+        Click((ButtonBase)view.FilterFolders.Element);
+        AssertOrder(view.PanList, middle);
+        Click((ButtonBase)view.FilterAll.Element);
+        view.SetSearch("match");
+        AssertOrder(view.PanList, oldest, newest);
+        SelectSort(page, sort, "添加时间 · 最近在前");
+        AssertSort(sort, "添加时间 · 倒序", 1, controller);
+        AssertOrder(view.PanList, newest, oldest);
+        view.SetSearch("");
+        AssertOrder(view.PanList, newest, middle, oldest);
+        Native.Check(scanned.Select(entry => entry.Name).SequenceEqual(scanOrder), "Sorting reordered the scanned source catalog.");
+    }
+
+    private static void CheckWorldOrdering(FormMain owner, string root)
+    {
+        string folder = Path.Combine(root, "saves");
+        const string newest = "newer-play", oldest = "older-play", unknown = "unknown-play";
+        WriteWorld(folder, newest, Time(2020), Time(2018));
+        WriteWorld(folder, oldest, Time(2019), Time(2021));
+        WriteWorld(folder, unknown, null, Time(2022));
+        using var page = new GlassLocalResourcesPage(owner, InstanceResourceKind.Saves);
+        var (controller, view, sort) = Parts(page);
+        void Reload() => controller.ShowResources(folder, folder, InstanceResourceStore.Scan(folder, folder, InstanceResourceKind.Saves, default));
+        Reload();
+        Native.Check(controller.Entries.Single(entry => entry.Name == unknown).LastPlayedUtc is null,
+            "A world without LastPlayed gained a fabricated play time.");
+        AssertSort(sort, "最后游玩 · 倒序", 3, controller);
+        AssertOrder(view.PanWorlds, newest, oldest, unknown);
+        string descendingGlyph = SortGlyph(sort);
+        Select(view.PanWorlds.Children.OfType<StackPanel>()
+            .SelectMany(host => host.Children.OfType<GlassLocalResourceRow>())
+            .Single(row => row.Entry.Name == newest));
+        SelectSort(page, sort, "最后游玩 · 最早在前");
+        AssertSort(sort, "最后游玩 · 正序", 4, controller);
+        AssertOrder(view.PanWorlds, oldest, newest, unknown);
+        Native.Check(SortGlyph(sort) != descendingGlyph, "The world sort glyph did not change direction.");
+        Reload();
+        AssertSort(sort, "最后游玩 · 正序", 4, controller);
+        AssertOrder(view.PanWorlds, oldest, newest, unknown);
+        AssertSelection(view.PanWorlds, controller, Path.Combine(folder, newest));
+        SelectSort(page, sort, "最后游玩 · 最近在前");
+        AssertOrder(view.PanWorlds, newest, oldest, unknown);
+        Native.Check(Directory.GetLastWriteTimeUtc(Path.Combine(folder, newest)) == Time(2018),
+            "World sorting rewrote a directory timestamp.");
+    }
+
+    private static void CheckScreenshotOrdering(FormMain owner, string root)
+    {
+        string folder = Directory.CreateDirectory(Path.Combine(root, "screenshots")).FullName;
+        const string newest = "new.png", oldest = "old.png";
+        foreach (var (name, year) in new[] { (newest, 2020), (oldest, 2018) }) {
+            string file = Path.Combine(folder, name);
+            var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { 10, 20, 30, 255 }, 4);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var stream = File.Create(file)) encoder.Save(stream);
+            File.SetCreationTimeUtc(file, Time(year));
+        }
+        using var page = new GlassLocalResourcesPage(owner, InstanceResourceKind.Screenshots);
+        var (controller, view, sort) = Parts(page);
+        void Reload() => controller.ShowResources(folder, folder, InstanceResourceStore.Scan(folder, folder, InstanceResourceKind.Screenshots, default));
+        Reload();
+        AssertOrder(view.PanScreenshots, newest, oldest);
+        Select(view.PanScreenshots.Children.OfType<GlassResourceScreenshot>().First());
+        AssertSelection(view.PanScreenshots, controller, Path.Combine(folder, newest));
+        SelectSort(page, sort, "添加时间 · 最早在前");
+        Reload();
+        AssertSort(sort, "添加时间 · 正序", 2, controller);
+        AssertOrder(view.PanScreenshots, oldest, newest);
+        AssertSelection(view.PanScreenshots, controller, Path.Combine(folder, newest));
+    }
+
+    private static (Controller, View, Button) Parts(GlassLocalResourcesPage page)
+    {
+        // Open the real page, then supply local scan results at the normal render boundary.
+        page.Open(loadData: false);
+        var controller = (Controller)Native.Get(page, "_controller")!;
+        var view = (View)Native.Get(controller, "View")!;
+        var sort = view.SortControl as Button ?? throw new InvalidOperationException("The Glass page has no sort button.");
+        return (controller, view, sort);
+    }
+
+    private static void Click(ButtonBase control)
+    {
+        Native.Check(control.IsEnabled, "The resource test action is disabled.");
+        if (control is Button button) {
+            ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)!).Invoke();
+            VisualAssetChecks.Drain();
+        } else control.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, control));
+    }
+
+    private static void SelectSort(GlassLocalResourcesPage page, Button anchor, string label)
+    {
+        var window = new Window { Content = page, Width = 800, Height = 540, Left = -30000, Top = -30000,
+            ShowActivated = false, ShowInTaskbar = false };
+        try {
+            window.Show();
+            VisualAssetChecks.Pump(() => anchor.IsLoaded && anchor.IsVisible, "load the resource sort button");
+            Click(anchor);
+            Popup popup = GlassChoicePopup.Current(anchor) ?? throw new InvalidOperationException("The sort menu did not open.");
+            var option = GlassFeedbackChecks.Visuals(popup.Child).OfType<UIElement>()
+                .Single(element => AutomationProperties.GetName(element) == label);
+            var keyboard = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(option), Environment.TickCount, Key.Enter) {
+                RoutedEvent = Keyboard.KeyDownEvent
+            };
+            option.RaiseEvent(keyboard);
+            Native.Check(!popup.IsOpen, "Selecting a sort mode did not close the menu.");
+        } finally { window.Content = null; window.Close(); VisualAssetChecks.Drain(); }
+    }
+
+    private static void Select(Panel row)
+    {
+        var selector = row.Children.OfType<CheckBox>().Single();
+        // The click toggles the actual checkbox and runs its selection callback.
+        Native.Call(selector.GetType(), "OnClick", selector);
+    }
+
+    private static void AssertSort(Button sort, string text, int mode, Controller controller) =>
+        Native.Check(controller.SortMode == mode && AutomationProperties.GetName(sort) == text &&
+            ((StackPanel)sort.Content).Children.OfType<TextBlock>().Single().Text == text,
+            "The native resource sort action and controller disagree about the current sort.");
+
+    private static string SortGlyph(Button sort) =>
+        ((StackPanel)sort.Content).Children.OfType<System.Windows.Shapes.Path>().Single().Data.ToString();
+
+    private static IEnumerable<(InstanceResourceEntry Entry, bool Selected)> Rows(Panel panel)
+    {
+        foreach (var child in panel.Children) {
+            if (child is GlassLocalResourceRow row) yield return (row.Entry, row.Checked);
+            else if (child is GlassResourceScreenshot screenshot) yield return (screenshot.Entry, screenshot.Checked);
+            else if (child is Panel host)
+                foreach (var nested in Rows(host)) yield return nested;
+        }
+    }
+
+    private static void AssertOrder(Panel panel, params string[] expected)
+    {
+        var actual = Rows(panel).Select(row => row.Entry.Name).ToArray();
+        Native.Check(actual.SequenceEqual(expected),
+            $"Expected resource order [{string.Join(", ", expected)}], got [{string.Join(", ", actual)}].");
+    }
+
+    private static void AssertSelection(Panel panel, Controller controller, string path) =>
+        Native.Check(controller.SelectedPaths.SetEquals([path]) &&
+            Rows(panel).Where(row => row.Selected).Select(row => row.Entry.FullPath).SequenceEqual([path], StringComparer.OrdinalIgnoreCase),
+            "Sorting or reloading lost the resource selected by path.");
+
+    private static DateTime Time(int year) => new(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static void WriteWorld(string root, string name, DateTime? lastPlayed, DateTime modified)
+    {
+        string folder = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+        using (var output = File.Create(Path.Combine(folder, "level.dat")))
+        using (var zip = new GZipStream(output, CompressionMode.Compress)) {
+            WorldChecks.Header(zip, 10, "");
+            WorldChecks.Header(zip, 10, "Data");
+            WorldChecks.Text(zip, "LevelName", name);
+            if (lastPlayed is DateTime date) WorldChecks.Number(zip, 4, "LastPlayed", new DateTimeOffset(date).ToUnixTimeMilliseconds());
+            zip.WriteByte(0);
+            zip.WriteByte(0);
+        }
+        Directory.SetLastWriteTimeUtc(folder, modified);
     }
 }

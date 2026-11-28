@@ -58,9 +58,8 @@ internal static class MmcLifecycleUi {
                         string folder;
                         if (SelectMoveFolder is not null) folder = SelectMoveFolder(available.Select(value => value.Location).ToArray());
                         else {
-                            int? index = ModMain.MyMsgBoxSelect(available.Select(value => (IMyRadio)new MyRadioBox {
-                                Text = value.Name, ToolTip = value.Location
-                            }), "选择移动目标游戏文件夹", "下一步", "取消");
+                            int? index = ModMain.SelectChoice(available.Select(value => new DialogChoice(value.Name, value.Location)),
+                                "选择移动目标游戏文件夹", "下一步", "取消");
                             if (index is null || index < 0 || index >= available.Length) return;
                             folder = available[index.Value].Location;
                         }
@@ -139,7 +138,7 @@ internal static class MmcLifecycleUi {
         var combo = new MmcOperationCombo<string>(fence, action + " MMC 实例：" + instance.Name, [worker]);
         try {
             if (RegisterTask is not null) RegisterTask(combo);
-            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.BtnExtraDownload.ShowRefresh()); }
+            else { ModLoader.LoaderTaskbarAdd(combo); ModBase.RunInUi(() => ModMain.FrmMain?.RefreshTaskButton()); }
             combo.Start(request.SourceRoot); return combo;
         } catch { fence.AbandonUnstarted(); throw; }
     }

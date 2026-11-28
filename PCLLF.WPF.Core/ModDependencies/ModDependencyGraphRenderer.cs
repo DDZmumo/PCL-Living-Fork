@@ -32,10 +32,13 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
     where TOnlineDependency : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.OnlineDependencyData, new()
     where TOnlineFile : ModDependencyInspection<TContext, TMod, TDependency, TEdge, TIssue, TImpact, TReport, TOnlineProject, TOnlineDependency, TOnlineFile>.OnlineFileData, new()
     where TNode : ModDependencyGraphNodeData, new() {
+    // Layout: up to three lanes - mods that depend on this one, this mod (with its embedded mods and conflicts below),
+    // and what it needs. Each lane has a soft background and a plain-language title so the direction reads at a glance.
+    private const double LaneTop = 40, LanePad = 10, ColumnGap = 64;
     private void RenderGraph(TReport report, List<TNode> leftNodes, List<TNode> rightNodes, List<TNode> embeddedNodes, List<TNode> conflictNodes,
         TMod? primary, string fullPath, bool useLocal, bool hasPlatform, int neededCount) {
-        double centerX = leftNodes.Count == 0 ? 4.0 : 232.0, rightX = centerX + 228;
-        GraphCanvas.Width = rightX + NodeWidth + 4;
+        double leftX = LanePad + 4, centerX = leftNodes.Count == 0 ? leftX : leftX + NodeWidth + ColumnGap, rightX = centerX + NodeWidth + ColumnGap;
+        GraphCanvas.Width = rightX + NodeWidth + LanePad + 4;
         TNode center = new() { Title = primary?.Name ?? System.IO.Path.GetFileName(fullPath),
             Condition = primary is null ? "未识别本地声明" : (primary.Enabled ? "" : "已禁用 · ") + primary.Version, IsCandidate = primary is not null && !primary.Enabled,
             FileName = primary?.RootPath, IconPath = primary?.IconPath };
@@ -52,65 +55,111 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
         foreach (TNode node in leftNodes.Concat(rightNodes).Concat(embeddedNodes).Concat(conflictNodes).Concat(new[] { center })) {
             Grid content = NodeContent(node);
             content.Measure(new Size(NodeWidth - 20, double.PositiveInfinity));
-            node.Height = Math.Max(50, Math.Ceiling(content.DesiredSize.Height) + 16);
+            node.Height = Math.Max(52, Math.Ceiling(content.DesiredSize.Height) + 18);
         }
         double leftHeight = StackHeight(leftNodes), rightHeight = StackHeight(rightNodes);
-        double middle = 34 + Math.Max(0, Math.Min(100, (Math.Max(leftHeight, rightHeight) - center.Height) / 2));
-        double leftTop = Math.Max(34, middle + center.Height / 2 - leftHeight / 2);
-        if (leftNodes.Count > 0) Header(leftNodes.Any(item => item.IsCandidate) ? "被这些模组依赖（含候选）" : "被这些模组依赖", 4, leftTop - 25);
-        Header("当前模组", centerX, middle - 25);
-        Header(useLocal ? "需要的依赖（本地参考）" : "需要的依赖（平台声明）", rightX, 9);
+        double middle = LaneTop + Math.Max(0, Math.Min(100, (Math.Max(leftHeight, rightHeight) - center.Height) / 2));
+        double leftTop = Math.Max(LaneTop, middle + center.Height / 2 - leftHeight / 2);
         double y = leftTop;
+        var lanes = new List<(double X, string Title)>();
+        if (leftNodes.Count > 0) lanes.Add((leftX, leftNodes.Any(item => item.IsCandidate) ? "依赖它的模组（含待确认）" : "依赖它的模组"));
+        lanes.Add((centerX, "当前模组"));
+        lanes.Add((rightX, useLocal ? "它需要的前置" : "它需要的前置（平台声明）"));
         foreach (TNode node in leftNodes) {
-            Connector(new Point(4 + NodeWidth, y + node.Height / 2), new Point(centerX, middle + center.Height / 2), false, node.IsCandidate);
-            AddNode(node, 4, y); y += node.Height + RowGap;
+            Connector(new Point(leftX + NodeWidth, y + node.Height / 2), new Point(centerX, middle + center.Height / 2), false, node.IsCandidate);
+            AddNode(node, leftX, y); y += node.Height + RowGap;
         }
-        y = 34;
+        y = LaneTop;
         foreach (TNode node in rightNodes) {
             Connector(new Point(centerX + NodeWidth, middle + center.Height / 2), new Point(rightX, y + node.Height / 2), false, node.IsCandidate);
             AddNode(node, rightX, y); y += node.Height + RowGap;
         }
-        double conflictTop = middle + center.Height + (leftNodes.Count == 0 ? 44 : 22);
+        double conflictTop = middle + center.Height + (leftNodes.Count == 0 ? 44 : 26);
         if (embeddedNodes.Count > 0) {
-            double embeddedTop = middle + center.Height + 32;
+            double embeddedTop = middle + center.Height + 34;
             Connector(new Point(centerX + NodeWidth / 2, middle + center.Height), new Point(centerX + NodeWidth / 2, embeddedTop - 6), false, down: true);
-            Header("已内嵌模组（" + embeddedNodes.Count + "）", centerX, embeddedTop);
-            y = embeddedTop + 25;
+            Header("内嵌在其中（" + embeddedNodes.Count + "）", centerX + 4, embeddedTop);
+            y = embeddedTop + 24;
             foreach (TNode node in embeddedNodes) { AddNode(node, centerX, y); y += node.Height + RowGap; }
-            conflictTop = y + 12;
+            conflictTop = y + 14;
         }
-        Header("存在冲突", centerX, conflictTop);
-        y = conflictTop + 25;
+        Header(conflictNodes.Count == 0 ? "冲突" : "与它冲突（" + conflictNodes.Count + "）", centerX + 4, conflictTop);
+        y = conflictTop + 24;
         foreach (TNode node in conflictNodes) {
             Connector(new Point(centerX + NodeWidth, middle + center.Height / 2), new Point(centerX + NodeWidth, y + node.Height / 2), true);
             AddNode(node, centerX, y); y += node.Height + RowGap;
         }
         AddNode(center, centerX, middle, true);
-        if (leftNodes.Count == 0 && embeddedNodes.Count == 0) EmptyLabel("被依赖：暂无", centerX, middle + center.Height + 10);
-        if (rightNodes.Count == 0) EmptyLabel("暂无", rightX, 34);
-        if (conflictNodes.Count == 0) EmptyLabel("未发现", centerX, conflictTop + 25);
-        GraphCanvas.Height = Math.Max(Math.Max(leftTop + leftHeight, 34 + rightHeight), conflictTop + 25 + Math.Max(20, StackHeight(conflictNodes))) + 12;
-        view.Height = Math.Min(480, GraphCanvas.Height + 55);
+        if (leftNodes.Count == 0 && embeddedNodes.Count == 0) EmptyLabel("没有模组依赖它", centerX + 4, middle + center.Height + 10);
+        if (rightNodes.Count == 0) EmptyLabel("不需要额外前置", rightX + 4, LaneTop + 4);
+        if (conflictNodes.Count == 0) EmptyLabel("未发现冲突", centerX + 4, conflictTop + 24);
+        GraphCanvas.Height = Math.Max(Math.Max(leftTop + leftHeight, LaneTop + rightHeight), conflictTop + 24 + Math.Max(20, StackHeight(conflictNodes))) + 16;
+        // Lanes go behind everything else: soft rounded columns with their title at the top.
+        int laneIndex = 0;
+        foreach (var lane in lanes) {
+            Rectangle background = new() { Width = NodeWidth + LanePad * 2, Height = GraphCanvas.Height - 8, RadiusX = 12, RadiusY = 12, Opacity = .55, IsHitTestVisible = false };
+            background.SetResourceReference(Shape.FillProperty, "GlassPresentationField");
+            Canvas.SetLeft(background, lane.X - LanePad); Canvas.SetTop(background, 4);
+            GraphCanvas.Children.Insert(laneIndex++, background);
+            Header(lane.Title, lane.X + 4, 13);
+        }
+        view.Height = Math.Min(680, Math.Max(480, GraphCanvas.Height + 190));
+
+        // Lead above the graph: what this mod needs, who needs it, and whether anything conflicts.
         int candidateCount = leftNodes.Count(item => item.IsCandidate);
-        TextBlock summary = new() { FontSize = 12, Foreground = ModDependencyVisualTheme.Brush("ColorBrushGray2"), Margin = new Thickness(4, 8, 4, 0), TextWrapping = TextWrapping.Wrap,
-            Text = "需要 " + neededCount + " 项 · 被依赖 " + (leftNodes.Count - candidateCount) + " 项 · 冲突 " + conflictNodes.Count + " 项" };
-        if (candidateCount > 0) summary.Text += " · 候选关联 " + candidateCount + " 项";
-        if (embeddedNodes.Count > 0) summary.Text += " · 已内嵌 " + embeddedNodes.Count + " 项";
-        if (alternatives.Count > 0) summary.Text += "\r\n此文件已禁用，当前可用：" + string.Join("、", alternatives);
-        if (candidateCount > 0 || rightNodes.Any(item => item.IsCandidate)) summary.Text += "\r\n灰色虚线表示提供方待确认。";
-        if (rightNodes.Any(item => item.IsPlatformRequirement)) summary.Text += "\r\n依赖是否满足按本地加载声明核对，平台信息作为补充。";
-        if (report.OnlineAttempted && !hasPlatform) summary.Text += "\r\n未查到精确的平台声明，当前以本地声明作为参考。";
-        if (report.OnlineTimedOut) summary.Text += "\r\n网络查询超时，当前以本地声明作为主要参考。";
-        if (report.OnlineTimedOut || report.OnlineCancelled) summary.Text += "\r\n平台查询未完成，已显示的结果可能不全。";
-        Grid.SetRow(summary, 1); view.Children.Add(summary);
+        int attention = rightNodes.Count(item => item.NeedsAttention);
+        ModDependencyTone tone = conflictNodes.Count > 0 ? ModDependencyTone.Danger : attention > 0 ? ModDependencyTone.Caution : ModDependencyTone.Accent;
+        string headline = conflictNodes.Count > 0 ? "与 " + conflictNodes.Count + " 个模组冲突" :
+            attention > 0 ? attention + " 个前置已禁用，需要启用" : "依赖关系一览";
+        var chips = new List<Border> {
+            ModDependencyVisuals.Chip("需要 " + neededCount + " 个前置", neededCount > 0 ? ModDependencyTone.Accent : ModDependencyTone.Neutral),
+            ModDependencyVisuals.Chip("被 " + (leftNodes.Count - candidateCount) + " 个模组依赖", ModDependencyTone.Neutral)
+        };
+        if (candidateCount > 0) chips.Add(ModDependencyVisuals.Chip(candidateCount + " 个关联待确认", ModDependencyTone.Neutral));
+        if (embeddedNodes.Count > 0) chips.Add(ModDependencyVisuals.Chip("内嵌 " + embeddedNodes.Count + " 个", ModDependencyTone.Neutral));
+        chips.Add(ModDependencyVisuals.Chip(conflictNodes.Count == 0 ? "无冲突" : "冲突 " + conflictNodes.Count, conflictNodes.Count > 0 ? ModDependencyTone.Danger : ModDependencyTone.Neutral));
+        Border lead = ModDependencyVisuals.Lead(conflictNodes.Count > 0 ? "✕" : attention > 0 ? "!" : "⇄", tone, headline, chips);
+        lead.Margin = new Thickness(0, 0, 0, 10);
+        StackPanel top = new() { Children = { lead, Legend() } };
+
+        List<string> notes = new();
+        if (alternatives.Count > 0) notes.Add("此文件已禁用，当前可用：" + string.Join("、", alternatives));
+        if (rightNodes.Any(item => item.IsPlatformRequirement)) notes.Add("依赖是否满足按本地加载声明核对，平台信息作为补充。");
+        if (report.OnlineAttempted && !hasPlatform) notes.Add("未查到精确的平台声明，当前以本地声明作为参考。");
+        if (report.OnlineTimedOut) notes.Add("网络查询超时，当前以本地声明作为主要参考。");
+        if (report.OnlineTimedOut || report.OnlineCancelled) notes.Add("平台查询未完成，已显示的结果可能不全。");
+        TextBlock summary = ModDependencyVisuals.Text(string.Join("\r\n", notes), 12, false, "GlassPresentationSecondary");
+        summary.Margin = new Thickness(4, notes.Count == 0 ? 0 : 8, 4, 0);
+        // The notes stay the view's second child (hosts read it); the lead follows.
+        Grid.SetRow(summary, 2); view.Children.Add(summary);
+        Grid.SetRow(top, 0); view.Children.Add(top);
+    }
+
+    // What the lines mean, shown once above the graph instead of explained in the notes.
+    private static WrapPanel Legend() {
+        WrapPanel legend = new() { Margin = new Thickness(4, 0, 0, 8) };
+        void Item(string caption, string key, bool dashed) {
+            Line sample = new() { X1 = 0, Y1 = 6, X2 = 22, Y2 = 6, StrokeThickness = 2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+            sample.SetResourceReference(Shape.StrokeProperty, key);
+            if (dashed) sample.StrokeDashArray = new DoubleCollection(new[] { 3.0, 2.0 });
+            TextBlock text = ModDependencyVisuals.Text(caption, 12, false, "GlassPresentationSecondary");
+            text.VerticalAlignment = VerticalAlignment.Center;
+            legend.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 18, 0), Children = { sample, text } });
+        }
+        Item("已确认的依赖", "GlassPresentationAccent", false);
+        Item("提供方待确认", "GlassPresentationSecondary", true);
+        Item("冲突", "GlassPresentationDangerText", true);
+        return legend;
     }
     private static double StackHeight(List<TNode> nodes) => nodes.Count == 0 ? 0 : nodes.Sum(item => item.Height) + (nodes.Count - 1) * RowGap;
     private void Header(string text, double x, double y) {
-        TextBlock label = new() { Text = text, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = ModDependencyVisualTheme.Brush("ColorBrushGray2") };
+        TextBlock label = new() { Text = text, FontSize = 12.5, FontWeight = FontWeights.SemiBold };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationText");
         Canvas.SetLeft(label, x); Canvas.SetTop(label, y); GraphCanvas.Children.Add(label);
     }
     private void EmptyLabel(string text, double x, double y) {
-        TextBlock label = new() { Text = text, FontSize = 12, Foreground = ModDependencyVisualTheme.Brush("ColorBrushGray2") };
+        TextBlock label = new() { Text = text, FontSize = 12 };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
         Canvas.SetLeft(label, x); Canvas.SetTop(label, y); GraphCanvas.Children.Add(label);
     }
     private static Brush Accent(bool conflict, bool possible = false) {
@@ -118,28 +167,44 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
         if (possible) return ModDependencyVisualTheme.Brush("ColorBrushGray3");
         return Application.Current.TryFindResource("ColorBrush3") as Brush ?? Brushes.RoyalBlue;
     }
+    // Status of a node as a badge: conflict ✕, disabled prerequisite !, unconfirmed ?, otherwise none.
+    private static (string Glyph, ModDependencyTone Tone)? Status(TNode node) =>
+        node.IsConflict ? ("✕", ModDependencyTone.Danger) :
+        node.NeedsAttention ? ("!", ModDependencyTone.Caution) :
+        node.IsCandidate ? ("?", ModDependencyTone.Neutral) : null;
+    // Provenance prefixes stay in the data and tooltip; the node itself shows only what differs between nodes.
+    private static string? ShownCondition(string? condition) => condition?.Replace("本地参考 · ", "").Replace("平台前置 · ", "平台 · ");
     private ImageSource DefaultIcon(TNode node) {
         string name = node.Identity switch { "mod:minecraft" => "Blocks/Grass.png", "mod:fabricloader" => "Blocks/Fabric.png", "mod:forge" => "Blocks/Anvil.png", "mod:neoforge" => "Blocks/NeoForge.png", _ => "Icons/NoIcon.png" };
         return host.DefaultIcon(name);
     }
     private Grid NodeContent(TNode node) {
         Grid content = new();
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(9) });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Image icon = new() { Source = DefaultIcon(node), Width = 28, Height = 28, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center,
-            Clip = new RectangleGeometry(new Rect(0, 0, 28, 28), 5, 5) };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Image icon = new() { Source = DefaultIcon(node), Width = 30, Height = 30, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center,
+            Clip = new RectangleGeometry(new Rect(0, 0, 30, 30), 6, 6) };
         RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality); content.Children.Add(icon);
         StackPanel text = new() { VerticalAlignment = VerticalAlignment.Center };
+        string? shown = ShownCondition(node.Condition);
         text.Children.Add(new TextBlock { Text = node.Title, FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Foreground = ModDependencyVisualTheme.Brush("ColorBrushTextSecondary") });
-        text.Children.Add(new TextBlock { Tag = node, Text = node.Condition, FontSize = 11, Foreground = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate),
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), Visibility = SameText(node.Condition, "") ? Visibility.Collapsed : Visibility.Visible });
-        Grid.SetColumn(text, 2); content.Children.Add(text); return content;
+        text.Children.Add(new TextBlock { Tag = node, Text = shown, FontSize = 11.5, Foreground = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate),
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), Visibility = SameText(shown, "") ? Visibility.Collapsed : Visibility.Visible });
+        Grid.SetColumn(text, 2); content.Children.Add(text);
+        if (Status(node) is { } status) {
+            Grid badge = ModDependencyVisuals.Badge(status.Glyph, status.Tone, 18);
+            badge.Margin = new Thickness(6, 0, 0, 0);
+            badge.VerticalAlignment = VerticalAlignment.Top;
+            Grid.SetColumn(badge, 3); content.Children.Add(badge);
+        }
+        return content;
     }
     private void AddNode(TNode node, double x, double y, bool focus = false) {
         Grid content = NodeContent(node);
-        Border box = new() { Width = NodeWidth, Height = node.Height, CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(focus ? 2 : 1),
-            BorderBrush = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate), Background = ModDependencyVisualTheme.Brush("ColorBrushWhite"), Padding = new Thickness(8, 5, 8, 5), Tag = node,
+        Border box = new() { Width = NodeWidth, Height = node.Height, CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(focus ? 2 : 1),
+            BorderBrush = Accent(node.IsConflict || node.NeedsAttention, node.IsCandidate), Background = ModDependencyVisualTheme.Brush("ColorBrushWhite"), Padding = new Thickness(9, 7, 9, 7), Tag = node,
             ToolTip = node.Title + (SameText(node.Condition, "") ? "" : "\r\n" + node.Condition) + (string.IsNullOrEmpty(node.Details) ? "" : "\r\n" + node.Details), Child = content };
         if (focus) box.SetResourceReference(Border.BackgroundProperty, "ColorBrush8");
         Canvas.SetLeft(box, x); Canvas.SetTop(box, y); GraphCanvas.Children.Add(box);
@@ -185,8 +250,9 @@ public partial class ModDependencyGraphController<TContext, TMod, TDependency, T
         ModDependencyGraphRelation relation = conflict ? ModDependencyGraphRelation.Conflict :
             possible ? ModDependencyGraphRelation.Candidate : ModDependencyGraphRelation.Confirmed;
         Brush brush = Accent(conflict, possible);
-        System.Windows.Shapes.Path line = new() { Tag = relation, Data = new PathGeometry(new[] { figure }), Stroke = brush, StrokeThickness = 1.5, IsHitTestVisible = false };
-        if (conflict || possible) line.StrokeDashArray = new DoubleCollection(new[] { 4.0, 3.0 });
+        System.Windows.Shapes.Path line = new() { Tag = relation, Data = new PathGeometry(new[] { figure }), Stroke = brush, StrokeThickness = 2, IsHitTestVisible = false,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Opacity = possible ? .7 : 1 };
+        if (conflict || possible) line.StrokeDashArray = new DoubleCollection(new[] { 3.0, 2.5 });
         GraphCanvas.Children.Add(line);
         GraphCanvas.Children.Add(new Polygon { Points = new PointCollection(down ? new[] { target, new Point(target.X - 4, target.Y - 6), new Point(target.X + 4, target.Y - 6) } : new[] { target, new Point(target.X + (conflict ? 6 : -6), target.Y - 4), new Point(target.X + (conflict ? 6 : -6), target.Y + 4) }),
             Tag = relation, Fill = brush, IsHitTestVisible = false });

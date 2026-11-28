@@ -11,28 +11,43 @@ using System.Windows.Controls;
 using MeloongCore;
 using Newtonsoft.Json.Linq;
 using PCLCS;
+using PCLLF.Wpf.Glass;
+using PCLLF.Wpf.Motion;
 
 namespace PCL;
 
-public partial class PageSetupPersonal : MyPageRight {
+public partial class PageSetupPersonal : GlassWorkspacePage {
+    private readonly Button BtnClearBinding, BtnCancelBinding;
+
     private bool refreshing;
     private readonly Dictionary<string, bool> collapsed = new(StringComparer.Ordinal);
     internal PersonalOptionsPreview CurrentPreview;
     private JObject globalValues = new();
     private string importedSourceName;
     internal bool IsInstanceContext;
-    internal ModMinecraft.McInstance Target => IsInstanceContext ? PageInstanceLeft.Instance : ModMinecraft.McInstanceSelected;
+    internal ModMinecraft.McInstance Target => IsInstanceContext ? LauncherInstanceContext.Instance : ModMinecraft.McInstanceSelected;
     internal Func<string, string, bool> Confirm = (text, title) => ModMain.MyMsgBox(text, title, "继续", "取消", IsWarn: true) == 1;
     internal Action<string> Notify = text => ModMain.Hint(text);
     public PageSetupPersonal() {
         InitializeComponent();
+        CardCapture.SetBackdropSource(PanBack);
+        (BtnClearBinding, BtnCancelBinding) = CardCapture.AddKeyCaptureCommands(this, "BtnClearBinding", "BtnCancelBinding");
+        var placeholder = Theme.Note("搜索基础按键、鼠标、视场角或音量设置", 13);
+        placeholder.IsHitTestVisible = false;
+        placeholder.VerticalAlignment = VerticalAlignment.Center;
+        placeholder.Margin = new Thickness(12, 0, 12, 0);
+        GlassPageResources.BindTextPlaceholder(TextSearch, placeholder);
+        SearchHost.Children.Add(placeholder);
+        AttachScroll(PanBack);
         InitializeEditors();
-        CheckEnabled.Change += (_, user) => {
-            if (refreshing || !user) return;
+        void EnabledChanged(object sender, RoutedEventArgs args) {
+            if (refreshing) return;
             Execute(() => {
-                StageSetting("LaunchPersonalOptionsSync", CheckEnabled.Checked); RefreshPage();
+                StageSetting("LaunchPersonalOptionsSync", CheckEnabled.IsChecked == true); RefreshPage();
             });
-        };
+        }
+        CheckEnabled.Checked += EnabledChanged;
+        CheckEnabled.Unchecked += EnabledChanged;
         ComboPolicy.SelectionChanged += (_, _) => {
             var instance = Target;
             if (refreshing || !IsInstanceContext || instance is null || ComboPolicy.SelectedIndex < 0) return;
@@ -47,8 +62,6 @@ public partial class PageSetupPersonal : MyPageRight {
         BtnSyncFromGlobal.Click += (_, _) => Execute(() => ResumeSync(false));
         BtnRefresh.Click += (_, _) => DiscardDraft();
         Loaded += (_, _) => {
-            if (IsInstanceContext) ModMain.FrmInstanceLeft?.SyncSelection(FormMain.PageSubType.InstancePersonal);
-            else ModMain.FrmSetupLeft?.ItemPersonal.SetChecked(true, false, false);
             PersonalGameSettings.Changed += ProfileChanged;
             ModMinecraft.InstanceSelectionChanged += InstanceSelectionChanged;
             AttachEditors();
@@ -60,6 +73,8 @@ public partial class PageSetupPersonal : MyPageRight {
             DetachEditors();
         };
     }
+
+
     private void ProfileChanged() {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => { if (IsLoaded) RefreshPage(); })); return; }
         if (IsLoaded && !refreshing) RefreshPage();
@@ -86,13 +101,13 @@ public partial class PageSetupPersonal : MyPageRight {
             BtnApply.Visibility = detail; BtnRefresh.Visibility = Visibility.Visible;
             BtnSaveGlobal.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             CardSearch.Visibility = Visibility.Visible; PanGroups.Visibility = Visibility.Visible; LabEditScope.Visibility = Visibility.Visible;
-            CardSearch.Title = IsInstanceContext ? "本版本设置与全局设置对照" : "当前版本与全局设置对照";
+            LabSearchTitle.Text = IsInstanceContext ? "本版本设置与全局设置对照" : "当前版本与全局设置对照";
             BtnImport.Visibility = IsInstanceContext ? Visibility.Collapsed : Visibility.Visible;
             PanGroups.IsEnabled = true;
             LabInstance.Text = instance?.Name ?? "尚未选择游戏版本";
             LabInstance.Tag = instance;
             LabInstance.ToolTip = instance?.PathVersion;
-            CheckEnabled.Checked = PageSetting<bool>("LaunchPersonalOptionsSync");
+            CheckEnabled.IsChecked = PageSetting<bool>("LaunchPersonalOptionsSync");
             ComboPolicy.IsEnabled = instance is not null && !ModMinecraft.McInstanceLock.IsLocked(instance);
             ComboPolicy.SelectedIndex = Target is null ? -1 : Settings.Get<int>("VersionPersonalOptionsSync", Instance: Target);
             LabEditScope.Text = !IsInstanceContext ? "右侧编辑共用方案，保存后供参与同步的版本在启动时使用。"
@@ -111,7 +126,7 @@ public partial class PageSetupPersonal : MyPageRight {
             int saved = PersonalOptionsCatalog.Items.Count(item => PageSetting<bool>(item.Setting) && !excluded.Contains(item.Key) && CurrentPreview?.Saved[item.Key] is not null);
             int conflicts = (profile["conflicts"] as JObject)?.Properties().Count(item => PersonalOptionsCatalog.Contains(item.Name)) ?? 0;
             int applicable = CurrentPreview is null ? 0 : PersonalOptionsCatalog.Items.Count(item => PageSetting<bool>(item.Setting) && !excluded.Contains(item.Key) && CurrentPreview.Saved[item.Key] is not null && CurrentPreview.Current[item.Key] is not null);
-            string state = !CheckEnabled.Checked ? "全局同步已关闭。导入并开启后，其他版本将在下次启动时应用。"
+            string state = CheckEnabled.IsChecked != true ? "全局同步已关闭。导入并开启后，其他版本将在下次启动时应用。"
                 : Target is null ? IsInstanceContext ? "请先打开一个版本的设置。" : "请先在主界面选择一个游戏版本。"
                 : ComboPolicy.SelectedIndex == 1 ? "此版本已单独关闭同步，其他版本不受影响。"
                 : !CurrentPreview.HasProfile ? "尚未建立个人方案，请先从一个已运行过的版本导入。"
@@ -123,10 +138,10 @@ public partial class PageSetupPersonal : MyPageRight {
                 : ModWatcher.HasRunningMinecraft ? "游戏正在运行，退出后可查看此实例的同步状态。"
                 : CurrentPreview.Changed.Count == 0 ? "此版本的所选设置已与个人方案一致。"
                 : $"下次启动将应用 {CurrentPreview.Changed.Count} 项全局设置。";
-            HintStatus.Text = state;
-            if (!IsInstanceContext) HintStatus.Text = !PersonalGameSettings.HasProfile() ? "尚未建立全局设置，请从已运行过的版本导入。"
-                : CheckEnabled.Checked ? "个人同步已开启，各版本将在启动前应用共用设置。" : "全局设置已保存，个人同步当前已关闭。";
-            if (HasDraft) HintStatus.Text = IsInstanceContext
+            LabStatus.Text = state;
+            if (!IsInstanceContext) LabStatus.Text = !PersonalGameSettings.HasProfile() ? "尚未建立全局设置，请从已运行过的版本导入。"
+                : CheckEnabled.IsChecked == true ? "个人同步已开启，各版本将在启动前应用共用设置。" : "全局设置已保存，个人同步当前已关闭。";
+            if (HasDraft) LabStatus.Text = IsInstanceContext
                 ? ComboPolicy.SelectedIndex == 0 ? "有未保存修改。请选择不同步后保存，或放弃修改。" : "此版本有未保存修改，请点击“保存此版本个人设置”。"
                 : "全局设置有未保存修改，请点击“保存全局设置”。";
             string updated = (string)profile["updatedUtc"];
@@ -142,7 +157,7 @@ public partial class PageSetupPersonal : MyPageRight {
             BtnImport.IsEnabled = idle && CurrentPreview?.HasFile == true && CurrentPreview.Current.Properties().Any(value => PersonalOptionsCatalog.Contains(value.Name));
             BtnSaveGlobal.IsEnabled = !IsInstanceContext && HasDraft && !ModWatcher.HasRunningMinecraft;
             BtnApply.IsEnabled = CanEditLocal && stagedValues.Count > 0;
-            BtnRefresh.Text = HasDraft ? "放弃修改" : "刷新";
+            BtnRefresh.Content = HasDraft ? "放弃修改" : "刷新";
             BtnRefresh.IsEnabled = true;
             if (IsInstanceContext) { BuildGroups(excluded); CardConflicts.Visibility = Visibility.Collapsed; }
             else { BuildGlobalPreview(globalValues, excluded); BuildConflicts(profile["conflicts"] as JObject); }
@@ -153,7 +168,7 @@ public partial class PageSetupPersonal : MyPageRight {
             LabSummary.Text = string.Empty;
             LabUpdated.Visibility = Visibility.Collapsed;
             LabEditScope.Visibility = Visibility.Collapsed;
-            HintStatus.Text = "无法读取同步资料：" + error.Message;
+            LabStatus.Text = "无法读取同步资料：" + error.Message;
         } finally { refreshing = false; }
     }
     private static string ValueText(string key, JToken value) {
@@ -171,7 +186,8 @@ public partial class PageSetupPersonal : MyPageRight {
     }
     private void BuildGroups(HashSet<string> excluded) {
         double offset = PanBack.VerticalOffset;
-        foreach (MyCard card in PanGroups.Children) if (card.Tag is string category) collapsed[category] = card.IsSwapped;
+        foreach (GlassSurface frame in PanGroups.Children)
+            if (frame.Child is Expander { Tag: string category } group) collapsed[category] = !group.IsExpanded;
         PanGroups.Children.Clear();
         profileKeyButtons.Clear();
         string query = (TextSearch.Text ?? "").Trim();
@@ -179,12 +195,12 @@ public partial class PageSetupPersonal : MyPageRight {
             var visible = group.Where(item => (item.Title + " " + item.Key + " " + item.Category).Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 (query == "视野" && item.Key.StartsWith("fov", StringComparison.Ordinal))).ToList();
             if (visible.Count == 0) continue;
-            var panel = new StackPanel { Margin = new Thickness(25, 40, 25, 18) };
+            var panel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             bool Selected(PersonalOptionDefinition item) => PageSetting<bool>(item.Setting) && !excluded.Contains(item.Key);
             var category = new TextBlock { Text = group.All(Selected) ? "全局已启用" : "按全局选择同步",
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 11, 44, 0), Tag = "sync-state:" + group.Key };
-            category.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2");
+                Margin = new Thickness(12, 0, 0, 0), Tag = "sync-state:" + group.Key };
+            category.SetResourceReference(TextBlock.ForegroundProperty, "GlassPresentationSecondary");
             var headings = EditorRow();
             AddEditorText(headings, "此版本", 1);
             AddEditorText(headings, "全局设置（只读）", 2);
@@ -198,49 +214,70 @@ public partial class PageSetupPersonal : MyPageRight {
                 AddReadOnlyValue(row, definition, (string)globalValues[definition.Key], 2, "global-value:", "未保存");
                 panel.Children.Add(row);
             }
-            var card = new MyCard { Title = group.Key, Tag = group.Key, CanSwap = true,
-                IsSwapped = query.Length == 0 && (!collapsed.TryGetValue(group.Key, out bool swap) || swap), Margin = new Thickness(0, 0, 0, 15) };
-            card.Children.Add(panel); card.Children.Add(category); _ = card.MainTextBlock; PanGroups.Children.Add(card);
+            AddGroup(group.Key, panel, category, query.Length > 0 || collapsed.TryGetValue(group.Key, out bool swap) && !swap);
         }
         PanBack.ScrollToVerticalOffset(offset);
     }
     private void BuildGlobalPreview(JObject values, HashSet<string> excluded) {
         double offset = PanBack.VerticalOffset;
-        foreach (MyCard card in PanGroups.Children) if (card.Tag is string category) collapsed[category] = card.IsSwapped;
+        foreach (GlassSurface frame in PanGroups.Children)
+            if (frame.Child is Expander { Tag: string category } group) collapsed[category] = !group.IsExpanded;
         PanGroups.Children.Clear(); profileKeyButtons.Clear();
         string query = (TextSearch.Text ?? "").Trim();
         foreach (var group in PersonalOptionsCatalog.Items.GroupBy(item => item.Category)) {
             var items = group.Where(item => (item.Title + " " + item.Key + " " + item.Category).Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 (query == "视野" && item.Key.StartsWith("fov", StringComparison.Ordinal))).ToArray();
             if (items.Length == 0) continue;
-            var panel = new StackPanel { Margin = new Thickness(25, 40, 25, 18) };
+            var panel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             bool Selected(PersonalOptionDefinition item) => PageSetting<bool>(item.Setting) && !excluded.Contains(item.Key);
-            var categoryToggle = new MyCheckBox { Text = "同步此分类", Checked = group.All(Selected), Height = 22,
+            var categoryToggle = new CheckBox { Style = Theme.Style("GlassPresentationCheckBox"), Content = "同步此分类", IsChecked = group.All(Selected), Height = 22,
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 9, 44, 0), Tag = "sync-category:" + group.Key };
-            ProtectHeaderToggle(categoryToggle);
-            categoryToggle.Change += (_, user) => { if (user && !refreshing) SelectOptions(group, categoryToggle.Checked); };
+                Margin = new Thickness(12, 0, 0, 0), Tag = "sync-category:" + group.Key };
+            void CategoryChanged(object sender, RoutedEventArgs args) {
+                if (categoryToggle.IsLoaded && !refreshing) SelectOptions(group, categoryToggle.IsChecked == true);
+            }
+            categoryToggle.Checked += CategoryChanged;
+            categoryToggle.Unchecked += CategoryChanged;
             var headings = EditorRow();
             AddEditorText(headings, "当前版本：" + (Target?.Name ?? "未选择"), 1);
             AddEditorText(headings, "全局方案：" + (string.IsNullOrWhiteSpace(importedSourceName) ? "来源未记录" : importedSourceName), 2);
             panel.Children.Add(headings);
             foreach (var definition in items) {
                 var row = EditorRow(); row.MinHeight = 44;
-                var label = new MyCheckBox { Text = definition.Title, Checked = Selected(definition), Tag = definition.Key, Height = 24, VerticalAlignment = VerticalAlignment.Center };
-                label.Change += (_, user) => { if (user && !refreshing) SelectOptions(new[] { definition }, label.Checked); };
+                var label = new CheckBox { Style = Theme.Style("GlassPresentationCheckBox"), Content = definition.Title, IsChecked = Selected(definition), Tag = definition.Key, Height = 24, VerticalAlignment = VerticalAlignment.Center };
+                void ChoiceChanged(object sender, RoutedEventArgs args) {
+                    if (label.IsLoaded && !refreshing) SelectOptions(new[] { definition }, label.IsChecked == true);
+                }
+                label.Checked += ChoiceChanged;
+                label.Unchecked += ChoiceChanged;
                 row.Children.Add(label);
                 AddCurrentValue(row, definition, Target is null ? "未选择版本" : "此版本未提供");
                 FrameworkElement editor = CreateValueEditor(definition, Selected(definition));
                 Grid.SetColumn(editor, 2); row.Children.Add(editor);
                 panel.Children.Add(row);
             }
-            var preview = new MyCard { Title = group.Key, Tag = group.Key, CanSwap = true,
-                IsSwapped = query.Length == 0 && (collapsed.TryGetValue(group.Key, out bool swap) ? swap : group.Key.Contains("按键绑定", StringComparison.Ordinal)),
-                Margin = new Thickness(0, 0, 0, 15) };
-            preview.Children.Add(panel); preview.Children.Add(categoryToggle); _ = preview.MainTextBlock; PanGroups.Children.Add(preview);
+            bool startExpanded = query.Length > 0 || !(collapsed.TryGetValue(group.Key, out bool swap) ? swap : group.Key.Contains("按键绑定", StringComparison.Ordinal));
+            AddGroup(group.Key, panel, categoryToggle, startExpanded);
         }
         PanBack.ScrollToVerticalOffset(offset);
     }
+    private void AddGroup(string name, StackPanel content, FrameworkElement summary, bool expanded) {
+        Grid.SetIsSharedSizeScope(content, true);
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var title = Theme.Text(name);
+        title.FontWeight = FontWeights.SemiBold;
+        title.VerticalAlignment = VerticalAlignment.Center;
+        header.Children.Add(title);
+        Grid.SetColumn(summary, 1);
+        summary.VerticalAlignment = VerticalAlignment.Center;
+        header.Children.Add(summary);
+        var group = new Expander { Header = header, Content = content, Tag = name,
+            IsExpanded = expanded, Style = Theme.Style("GlassPresentationExpander") };
+        PanGroups.Children.Add(GlassPageResources.FormPlate(group));
+    }
+
     internal void SelectOptions(IEnumerable<PersonalOptionDefinition> definitions, bool enabled) {
         if (IsInstanceContext) throw new InvalidOperationException("请在全局设置页调整同步项目。");
         var chosen = definitions.ToArray();
@@ -268,7 +305,7 @@ public partial class PageSetupPersonal : MyPageRight {
             PanConflicts.Children.Add(label);
             var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 15) };
             foreach (bool game in new[] { false, true }) {
-                var button = new MyButton { Text = game ? "采用游戏修改" : "保留个人方案", Height = 30, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(0, 0, 12, 0), IsEnabled = !ModWatcher.HasRunningMinecraft };
+                var button = new Button { Style = Theme.Style("GlassPresentationButton"), Content = game ? "采用游戏修改" : "保留个人方案", Height = 30, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(0, 0, 12, 0), IsEnabled = !ModWatcher.HasRunningMinecraft };
                 button.ToolTip = "选择后点击“保存全局设置”才会生效。";
                 button.Click += (_, _) => Execute(() => StageConflict(entry.Name, game, expected));
                 actions.Children.Add(button);

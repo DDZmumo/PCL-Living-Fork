@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -24,8 +25,8 @@ internal static class JavaLocalManagementChecks {
             VendorMarks();
             ManagementView();
             environment.AssertNoForbiddenIo();
-            Console.WriteLine("PASS local Java management: discovered home/PATH entries and real-path aliases, reused and invalidated the probe cache, preserved isolated validation, and filtered the projected list.");
-        } finally { ConfigProviders.Default = previous; }
+            Console.WriteLine("PASS local Java management: discovery, cached probes, launch validation and native priority menu ordering.");
+        } finally { try { ConfigProviders.Default.Save(); } finally { ConfigProviders.Default = previous; } }
     }
 
     private static void Discovery(string root) {
@@ -133,7 +134,7 @@ internal static class JavaLocalManagementChecks {
 
     private static void VendorMarks() {
         DrawingImage Mark(string identity) {
-            object vendor = Native.Call(typeof(GlassPresentationSession), "VendorOf", null, identity)!;
+            object vendor = Native.Call(typeof(GlassJavaGraphics), "VendorOf", null, identity)!;
             return (DrawingImage)Native.Property(vendor.GetType(), "Logo").GetValue(vendor)!;
         }
         DrawingImage unknown = Mark("Unrecognized fixture distributor");
@@ -145,70 +146,21 @@ internal static class JavaLocalManagementChecks {
         }
     }
 
-    private static void ManagementView() {
-        var page = new PageSetupLaunch();
-        var javaPage = (PageSetupJava)Native.Property(typeof(PageSetupLaunch), "JavaPage").GetValue(page)!;
-        var pane = (StackPanel)page.FindName("PanJavaManagement");
-        var rows = (StackPanel)page.FindName("PanJavaRows");
-        var sourceFilter = (MyTextBox)page.FindName("TextJavaFilter");
-        Native.Check(!Descendants(page).Contains(pane) && Descendants(javaPage).Contains(pane),
-            "Java management still belongs to the general launch settings view.");
-        CheckNavigation(page, javaPage);
-        Native.Call(typeof(PageSetupLaunch), "RefreshJavaManagement", page);
-        using GlassPresentationSession session = GlassPresentation.Create(javaPage);
-        Window window = new() { Content = session.View, Width = 900, Height = 680, Left = -30000, Top = -30000,
-            ShowActivated = false, ShowInTaskbar = false };
-        try {
-            window.Show();
-            window.UpdateLayout();
-            VisualAssetChecks.Drain();
-            Native.Check(pane.Visibility == Visibility.Visible && rows.Children.Count == 2,
-                "The standalone Java page did not display the installed catalogue.");
-            var filter = Descendants(session.View).OfType<TextBox>().Single(input =>
-                ReferenceEquals(BindingOperations.GetBinding(input, TextBox.TextProperty)?.Source, sourceFilter));
-            filter.Text = "Temurin x64";
-            VisualAssetChecks.Pump(() => rows.Children.OfType<MyListItem>().Count(row => row.Visibility == Visibility.Visible) == 1,
-                "filter the projected Java list");
-            var matching = rows.Children.OfType<MyListItem>().Single(row => row.Visibility == Visibility.Visible);
-            Native.Check(matching.Title.Contains("Temurin", StringComparison.Ordinal) && matching.Title.Contains("HotSpot", StringComparison.Ordinal),
-                "The Java management filter omitted the matching runtime metadata.");
-            Native.Check(!page.IsLoaded && !window.IsActive, "The Java fixture activated another window or the source page workflow.");
-        } finally {
-            window.Content = null;
-            window.Close();
-            VisualAssetChecks.Drain();
-        }
-    }
-
-    private static void CheckNavigation(PageSetupLaunch settings, PageSetupJava expected) {
-        var previousSettings = ModMain.FrmSetupLaunch;
-        var previousInstanceSettings = ModMain.FrmInstanceSetup;
-        var previousSidebar = ModMain.FrmSetupLeft;
-        try {
-            ModMain.FrmSetupLaunch = settings;
-            var launchSidebar = new PageSetupLeft();
-            ModMain.FrmSetupLeft = launchSidebar;
-            var settingsPort = (LegacyMainLeftPage)Native.Call(typeof(FormMain), "LeftPagePort", null, (int)FormMain.PageType.Setup)!;
-            Native.Check(launchSidebar.FindName("ItemJava") is MyListItem { Title: "Java" } &&
-                ReferenceEquals(settingsPort.Item((int)FormMain.PageSubType.SetupJava), launchSidebar.FindName("ItemJava")) &&
-                ReferenceEquals(settingsPort.Item((int)FormMain.PageSubType.SetupUI), launchSidebar.FindName("ItemUI")) &&
-                ReferenceEquals(launchSidebar.PageGet(FormMain.PageSubType.SetupJava), expected),
-                "The settings sidebar did not route to the standalone Java page.");
-
-            var instanceSettings = new PageInstanceSetup();
-            ModMain.FrmInstanceSetup = instanceSettings;
-            var instanceJava = (PageSetupJava)Native.Property(typeof(PageInstanceSetup), "JavaPage").GetValue(instanceSettings)!;
-            var selector = (MyComboBox)instanceSettings.FindName("ComboArgumentJava");
-            var instanceSidebar = new PageInstanceLeft();
-            Native.Check(instanceSidebar.FindName("ItemJava") is MyListItem { Title: "Java" } &&
-                ReferenceEquals(instanceSidebar.PageGet(FormMain.PageSubType.InstanceJava), instanceJava) &&
-                Descendants(instanceJava).Contains(selector) && !Descendants(instanceSettings).Contains(selector),
-                "The instance sidebar did not route to the standalone Java selector.");
-        } finally {
-            ModMain.FrmSetupLaunch = previousSettings;
-            ModMain.FrmInstanceSetup = previousInstanceSettings;
-            ModMain.FrmSetupLeft = previousSidebar;
-        }
+    private static void ManagementView()
+    {
+        var page = new GlassJavaManagementPage(() => { });
+        page.Open(loadData: true);
+        Native.Check(Descendants(page).OfType<Button>().Any(button => Equals(button.Content, "下载 Java")),
+            "The native Java page lost its catalogue entry.");
+        var combo = Descendants(page).OfType<ComboBox>().Single(control => AutomationProperties.GetName(control) == "启动优先级");
+        Native.Call(page.GetType(), "RenderPriority", page);
+        var first = (ComboBoxItem)combo.Items[0];
+        var runtime = (Java)first.Tag;
+        var up = Descendants(first).OfType<Button>().Single(action => AutomationProperties.GetName(action) == "提高优先级");
+        var down = Descendants(first).OfType<Button>().Single(action => AutomationProperties.GetName(action) == "降低优先级");
+        Native.Check(!up.IsEnabled && down.IsEnabled && combo.SelectedIndex == -1, "Invalid boundary actions or retained Java selection.");
+        down.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Native.Check(Configs.JavaList.Get()!.ElementAt(1).Folder == runtime.Folder, "The menu command did not persist the new runtime order.");
     }
 
     private static Type DiscoveryType() => typeof(Java).Assembly.GetType("PCLCS.WindowsJavaDiscovery", throwOnError: true)!;

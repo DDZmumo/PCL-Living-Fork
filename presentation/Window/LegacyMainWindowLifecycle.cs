@@ -20,7 +20,7 @@ namespace PCLLF.Presentation.Windowing;
 
 public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnimation>
     where TStack : class, ILegacyMainPageStack, new() where TInstance : class where TAnimation : struct {
-    private const string ForkReleaseHighlights = "- 新增 Java 管理和下载页，支持更多发行版及 32 位 Java\r\n- 修复首次启动的中文与个人设置，让游戏内修改保留在当前实例\r\n- 优化资源分页、动态壁纸、启动等待和滑轨拖动，压缩更新下载包\r\n- Windows x64 预发布版需 .NET 10 Desktop Runtime";
+    private const string ForkReleaseHighlights = "- 新版 WPF 工作台正式上线，支持深浅外观、动态壁纸与背景音乐\r\n- 改进资源排序和收藏备注，新增带贴图的 3D 投影预览\r\n- 完善 Java 管理、可选陶瓦联机和自定义主页兼容\r\n- Windows x64 正式版需 .NET 10 Desktop Runtime";
     // The updater shares the completion of the session's one automatic release notice.
     private TaskCompletionSource<bool>? automaticUpdateLog;
     public bool ShouldAutoShowUpdateLog() => LegacyUpdateLogPrompt.ShouldShow(host.ReadString, host.UpdateLogIdentity());
@@ -34,7 +34,7 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         return closed.Task;
     }
     public void ConstructBeforeXaml() {
-        host.WriteStartTick(host.Clock()); host.AssignGlobalWindow(); host.CreateLaunchLeft(); host.CreateLaunchRight();
+        host.WriteStartTick(host.Clock()); host.AssignGlobalWindow();
         int last = host.ReadInteger("SystemLastVersionReg");
         if (last < host.VersionCode) UpgradeCore(last, showUpdateLog: false); else if (last > host.VersionCode) Downgrade(last);
         if (!host.HasSaved("LaunchArgumentIndieV2")) {
@@ -50,30 +50,22 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         Window.AddHandler(DragDrop.DragEnterEvent, host.DragHandler, true); Window.AddHandler(DragDrop.DragOverEvent, host.DragHandler, true);
     }
     public void ConstructAfterXaml() {
-        host.ApplyPackVisibility(Window); if (host.PackEnabled()) UpdateTitleBar(); Window.Opacity = view.UsesGlassShell?.Invoke() == true ? 1 : 0;
+        host.ApplyPackVisibility(Window);
         if (host.IsAdmin()) {
             LegacyMainDragHelperPort helper = host.CreateDragHelper();
             Window.SourceInitialized += (_, _) => { WindowInteropHelper window = new(Window); helper.SetSource(HwndSource.FromHwnd(window.Handle)); helper.AddHook(); };
             Window.Closing += (_, _) => helper.RemoveHook(); helper.ConnectDrop(() => FileDrag(helper.Files()));
         }
-        MyPageLeftView left = host.LeftPage((int)LegacyMainPage.Launch).Element;
-        MyPageRightView right = host.RightPage((int)LegacyMainPage.Launch);
-        if (left.Parent is not null) left.SetValue(ContentPresenter.ContentProperty, null);
-        if (right.Parent is not null) right.SetValue(ContentPresenter.ContentProperty, null);
-        view.PanMainLeft().Child = left; PageLeft = left; view.PanMainRight().Child = right; PageRight = right; right.NativePageState = MyPageRightView.PageStates.ContentStay;
         if (host.BuildType == 100) Hint("[开发者模式] PCL 正以开发者模式运行，这可能会造成严重的性能下降，请务必立即向开发者反馈此问题！", LegacyMainHint.Red);
         if (host.IsDebug()) Hint("[调试模式] PCL 正以调试模式运行，这可能会导致性能下降，若无必要请不要开启！");
         host.StartFolderLoader(); Logger.Info($"第二阶段加载用时：{checked(host.Clock() - host.StartTick())} ms");
     }
     public void Loaded() {
         host.WriteStartTick(host.Clock()); host.WriteHandle(new WindowInteropHelper(Window).Handle);
-        if (host.ReadInteger("UiBackgroundMode") == 1) UpdateBackgroundAndTitleBar();
         host.RefreshHidden(); host.RefreshBackground(false, true); host.RefreshMusic(false, true);
-        view.ExtraDownload().SetShowCheck(DownloadShowCheck); view.ExtraBack().SetShowCheck(BackShowCheck); view.ExtraApril().SetShowCheck(AprilShowCheck); view.ExtraShutdown().SetShowCheck(ShutdownShowCheck); view.ExtraApril().ShowRefresh();
         WindowResizer resizer = host.CreateResizer(Window);
         resizer.addResizerDown(view.Resizer(0)); resizer.addResizerLeft(view.Resizer(1)); resizer.addResizerLeftDown(view.Resizer(2)); resizer.addResizerLeftUp(view.Resizer(3));
         resizer.addResizerRight(view.Resizer(4)); resizer.addResizerRightDown(view.Resizer(5)); resizer.addResizerRightUp(view.Resizer(6)); resizer.addResizerUp(view.Resizer(7));
-        if (host.RandomInteger(1, 1000) == 233) view.ShapeTitleLogo().Data = (Geometry)new GeometryConverter().ConvertFromString("M26,29 v-25 h6 a7,7 180 0 1 0,14 h-6 M83,6.5 a10,11.5 180 1 0 0,18 M48,2.5 v24.5 h13.5")!;
         host.ThemeRefreshMain();
         try { Window.Height = host.ReadInteger("WindowHeight"); Window.Width = host.ReadInteger("WindowWidth"); }
         catch (Exception ex) { Logger.Error(ex, "读取窗口默认大小失败", LogBehavior.Toast); Window.Height = Window.MinHeight + 100; Window.Width = Window.MinWidth + 100; }
@@ -83,11 +75,11 @@ public sealed partial class LegacyMainWindowController<TStack, TInstance, TAnima
         host.WriteSizeSaveable(true); ShowWindowToTop();
         HwndSource source = (HwndSource)PresentationSource.FromVisual(Window); source.AddHook(host.WindowHook);
         AniStart([
-            AaCode(() => AniControlEnabled = checked(AniControlEnabled - 1), 50),
-            AaOpacity(view.UsesGlassShell?.Invoke() == true ? view.PanBack() : (UIElement)Window, host.ReadInteger("UiLauncherTransparent") / 1000d + 0.4, 250, 100),
-            AaDouble(i => view.TransformPos().Y += i, -view.TransformPos().Y, 600, 100, Back(AnimationEasePower.Weak)),
-            AaDouble(i => view.TransformRotate().Angle += i, -view.TransformRotate().Angle, 500, 100, Back(AnimationEasePower.Weak)),
-            AaCode(() => { view.PanBack().RenderTransform = null; host.WriteLoaded(true); Logger.Info($"DPI：{host.Dpi()}，系统版本：{Environment.OSVersion.VersionString}，PCL 位置：{host.ExecutablePath()}"); }, after: true)
+            AaCode(() => {
+                AniControlEnabled = checked(AniControlEnabled - 1);
+                host.WriteLoaded(true);
+                Logger.Info($"DPI：{host.Dpi()}，系统版本：{Environment.OSVersion.VersionString}，PCL 位置：{host.ExecutablePath()}");
+            }, 50)
         ], "Form Show");
         host.StartAnimationLoop(); host.StartMainTimer();
         RunThread(() => {

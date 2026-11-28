@@ -28,8 +28,8 @@ using Microsoft.VisualBasic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PCLCS;
-using OverallController = global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
-using OverallHost = global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
+using OverallController = global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
+using OverallHost = global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>>;
 using ThrottleDebounce;
 
 namespace PCL
@@ -37,11 +37,11 @@ namespace PCL
     public partial class PageInstanceOverall
     {
         private global::System.Boolean IsLoad;
-        public global::PCL.MyListItem InstanceHeaderItem;
+        internal global::PCL.GlassInstanceHeader InstanceHeaderItem;
         private global::System.String OriginalHeaderInfo;
-        private readonly global::PCLCS.InstanceOverallPageView<global::PCL.MyListItem> OverallView;
-        private global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>> PageController;
-        private global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>> Controller
+        private readonly global::PCLCS.InstanceOverallPageView<global::PCL.GlassInstanceHeader> OverallView;
+        private global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>> PageController;
+        private global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>> Controller
         {
             get
             {
@@ -53,29 +53,29 @@ namespace PCL
                 this.OverallView.FolderMods = this.BtnFolderMods;
                 this.OverallView.Installed = this.PanInstalledComponents;
                 this.OverallView.HeaderPanel = this.PanDisplayItem;
-                this.OverallView.ScrollHome = new Action(() => this.PanBack.ScrollToHome());
-                this.OverallView.ResizeDisplay = new Action(() => this.PanDisplay.TriggerForceResize());
-                this.OverallView.SetStarText = new Action<global::System.String>(Text => this.BtnDisplayStar.Text = Text);
-                this.OverallView.Header = new Func<global::PCL.MyListItem>(() => this.InstanceHeaderItem);
-                this.OverallView.SetHeader = new Action<global::PCL.MyListItem>(Value => this.InstanceHeaderItem = Value);
-                this.OverallView.HeaderInfo = new Func<global::PCL.MyListItem, global::System.String>(Item => Item.Info);
-                this.OverallView.SetHeaderInfo = new Action<global::PCL.MyListItem, global::System.String>((Item, Text) => Item.Info = Text);
+                this.OverallView.ScrollHome = new Action(() => this.PanBack.ScrollToTop());
+                this.OverallView.ResizeDisplay = new Action(() => this.PanDisplay.InvalidateMeasure());
+                this.OverallView.SetStarText = new Action<global::System.String>(Text => this.BtnDisplayStar.Content = Text);
+                this.OverallView.Header = new Func<global::PCL.GlassInstanceHeader>(() => this.InstanceHeaderItem);
+                this.OverallView.SetHeader = new Action<global::PCL.GlassInstanceHeader>(Value => this.InstanceHeaderItem = Value);
+                this.OverallView.HeaderInfo = new Func<global::PCL.GlassInstanceHeader, global::System.String>(Item => Item.Info);
+                this.OverallView.SetHeaderInfo = new Action<global::PCL.GlassInstanceHeader, global::System.String>((Item, Text) => Item.Info = Text);
                 this.OverallView.IsLoaded = new Func<global::System.Boolean>(() => this.IsLoad);
                 this.OverallView.SetLoaded = new Action<global::System.Boolean>(Value => this.IsLoad = Value);
                 this.OverallView.OriginalHeaderInfo = new Func<global::System.String>(() => this.OriginalHeaderInfo);
                 this.OverallView.SetOriginalHeaderInfo = new Action<global::System.String>(Value => this.OriginalHeaderInfo = Value);
                 if (this.PageController is null)
-                    this.PageController = new global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>>(this.OverallView, this.CreateHost(), Value => global::PCL.ModAnimation.AniControlEnabled += Value, () => global::PCL.ModAnimation.AniControlEnabled);
+                    this.PageController = new global::PCLCS.InstanceOverallPageController<global::PCL.ModMinecraft.McInstance, global::PCL.ModMinecraft.McInstance.McInstanceState, global::PCL.ModMinecraft.McInstanceCardType, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>>(this.OverallView, this.CreateHost(), Value => global::PCL.ModAnimation.AniControlEnabled += Value, () => global::PCL.ModAnimation.AniControlEnabled);
                 return this.PageController;
             }
         }
 
-        private global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>> CreateHost()
+        private global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>> CreateHost()
         {
-            return new global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.MyListItem, global::PCL.ModLoader.LoaderCombo<global::System.String>>()
+            return new global::PCLCS.InstanceOverallPageHost<global::PCL.ModMinecraft.McInstance, global::PCL.GlassInstanceHeader, global::PCL.ModLoader.LoaderCombo<global::System.String>>()
             {
-                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.PageInstanceLeft.Instance),
-                SetInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.PageInstanceLeft.Instance = Value),
+                Instance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.LauncherInstanceContext.Instance),
+                SetInstance = new Action<global::PCL.ModMinecraft.McInstance>(Value => global::PCL.LauncherInstanceContext.Instance = Value),
                 SelectedInstance = new Func<global::PCL.ModMinecraft.McInstance>(() => global::PCL.ModMinecraft.McInstanceSelected),
                 MinecraftFolder = new Func<global::System.String>(() => global::PCL.ModMinecraft.McFolderSelected),
                 ModpackEnabled = new Func<global::System.Boolean>(() => global::PCL.ModModpackMode.Enabled),
@@ -87,16 +87,16 @@ namespace PCL
                 ForceListRefresh = new Action(() => global::PCL.ModMinecraft.McInstanceListForceRefresh = true),
                 Locked = global::PCL.ModMinecraft.McInstanceLock.IsLocked,
                 IgnoreFileCheck = Target => Microsoft.VisualBasic.CompilerServices.Conversions.ToBoolean(global::PCL.ModMinecraft.ShouldIgnoreFileCheck(Target)),
-                CreateHeader = new Func<global::PCL.ModMinecraft.McInstance, global::PCL.MyListItem>(Target => Target.ToListItem().Init()),
+                CreateHeader = new Func<global::PCL.ModMinecraft.McInstance, global::PCL.GlassInstanceHeader>(Target => new global::PCL.GlassInstanceHeader(Target)),
                 RefreshInstalled = this.RefreshInstalledComponents,
-                RefreshModDisabled = new Action(() => global::PCL.ModMain.FrmInstanceLeft.RefreshModDisabled()),
-                RefreshPageName = new Action(() => global::PCL.ModMain.FrmMain.PageNameRefresh()),
+                RefreshModDisabled = () => LauncherInstanceContext.SyncInstanceContextIfLoaded(),
+                RefreshPageName = new Action(() => global::PCL.ModMain.FrmMain?.PageNameRefresh()),
                 RefreshInstanceList = new Action(() => global::PCL.ModLoader.LoaderFolderRun(global::PCL.ModMinecraft.McInstanceListLoader, global::PCL.ModMinecraft.McFolderSelected, global::PCL.ModLoader.LoaderFolderRunType.ForceRun, MaxDepth: 1, ExtraPath: @"versions\")),
                 LoadInstance = new Func<global::System.String, global::PCL.ModMinecraft.McInstance>(Name => new global::PCL.ModMinecraft.McInstance(Name).Load()),
                 Rename = new Func<global::PCL.ModMinecraft.McInstance, global::System.String, global::PCL.ModMinecraft.McInstance>((Target, Name) => Target.Rename(Name)),
                 BeginManagedRename = Target => MmcLifecycleUi.PromptRename(Target, renamed => {
-                    if (!ReferenceEquals(PageInstanceLeft.Instance, Target)) return;
-                    PageInstanceLeft.Instance = renamed; Controller.Reload();
+                    if (!ReferenceEquals(LauncherInstanceContext.Instance, Target)) return;
+                    LauncherInstanceContext.Instance = renamed; Controller.Reload();
                 }),
                 BeginManagedRepair = MmcRepairUi.Prompt,
                 ReadIni = new Func<global::System.String, global::System.String, global::System.String, global::System.String>((Path, Key, DefaultValue) => global::PCL.ModBase.ReadIni(Path, Key, DefaultValue)),
@@ -121,8 +121,8 @@ namespace PCL
                 LoaderError = new Func<global::PCL.ModLoader.LoaderCombo<global::System.String>, global::System.String>(Loader => Loader.Error.GetDisplay(false)),
                 StartLoader = new Action<global::PCL.ModLoader.LoaderCombo<global::System.String>, global::System.String>((Loader, Input) => Loader.Start(Input)),
                 TaskbarAdd = global::PCL.ModLoader.LoaderTaskbarAdd,
-                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.ShowRefresh()),
-                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.BtnExtraDownload.Ribble()),
+                RefreshDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton()),
+                RibbleDownload = new Action(() => global::PCL.ModMain.FrmMain.RefreshTaskButton(pulse: true)),
                 PageBack = new Action(() => global::PCL.ModMain.FrmMain.PageBack()),
                 Hint = new Action<global::System.String>(Text => global::PCL.ModMain.Hint(Text)),
                 HintRed = new Action<global::System.String>(Text => global::PCL.ModMain.Hint(Text, global::PCL.ModMain.HintType.Red)),
@@ -132,9 +132,9 @@ namespace PCL
                 Error = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text)),
                 ErrorAlert = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Error(Err, Text, global::MeloongCore.LogBehavior.Alert)),
                 Warn = new Action<global::System.Exception, global::System.String>((Err, Text) => global::MeloongCore.Logger.Warn(Err, Text)),
-                DeleteConfirmed = PageSelectRight.DeleteInstanceInBackground,
+                DeleteConfirmed = LauncherInstanceDeletion.Start,
                 BeginManagedDelete = MmcDeleteUi.PromptDelete,
-                IsCurrentPage = () => ReferenceEquals(ModMain.FrmMain?.PageRight, this)
+                IsCurrentPage = () => ModMain.FrmMain is { } window && (ReferenceEquals(window.PageRight, this) || window.IsCurrentGlassPage(this))
             };
         }
 
@@ -154,6 +154,7 @@ namespace PCL
         {
             this.Controller.Reload();
             RefreshMmcActions();
+            RefreshStats();
         }
 
         private void ComboDisplayType_SelectionChanged(global::System.Object sender, global::System.Windows.Controls.SelectionChangedEventArgs e)
@@ -183,7 +184,7 @@ namespace PCL
 
         private void BtnFolderVersion_Click()
         {
-            global::PCL.PageInstanceOverall.OpenInstanceFolder(global::PCL.PageInstanceLeft.Instance);
+            global::PCL.PageInstanceOverall.OpenInstanceFolder(global::PCL.LauncherInstanceContext.Instance);
         }
 
         public static void OpenInstanceFolder(global::PCL.ModMinecraft.McInstance Instance)
@@ -201,7 +202,7 @@ namespace PCL
             this.Controller.OpenGameFolder("mods");
         }
 
-        private void BtnFolderScreen_Click(global::System.Object sender, global::System.Windows.Input.MouseButtonEventArgs e)
+        private void BtnFolderScreen_Click(global::System.Object sender, global::System.Windows.RoutedEventArgs e)
         {
             this.Controller.OpenGameFolder("screenshots");
         }
