@@ -53,7 +53,9 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         try{
             if(host.Output()!.Any()){view.Back().Visibility=Visibility.Visible;view.Empty().Visibility=Visibility.Collapsed;}
             else{view.Empty().Visibility=Visibility.Visible;view.Back().Visibility=Visibility.Collapsed;view.SetEmptyTitle(EmptyTitleDefault);view.SetEmptyHint(EmptyHintDefault);return;}
-            host.Items().Clear();foreach(TMod entry in host.Output()!)host.Items()[entry.StorageKey]=MakeItem(entry);
+            host.Items().Clear();
+            foreach (TMod entry in host.Output()!.DistinctBy(mod => mod.StorageKey, StringComparer.Ordinal))
+                host.Items()[entry.StorageKey] = MakeItem(entry);
             Filter=LegacyModFilter.All;view.SetSearch("");RefreshUI();ListRebuildSerial++;
         }catch(Exception error){Logger.Error(error,"加载 Mod 列表 UI 失败");}
     }
@@ -114,7 +116,8 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         host.SetButtons(item,new[]{info,dependencies,open,toggle,delete});
     }
     public bool IsSearching=>!string.IsNullOrWhiteSpace(view.Search());
-    private IEnumerable<TMod> Current=>IsSearching?(searchResult??new List<TMod>()):(host.Output()??new List<TMod>());
+    private IEnumerable<TMod> Current =>
+        ((IsSearching ? searchResult : host.Output()) ?? []).DistinctBy(mod => mod.StorageKey, StringComparer.Ordinal);
     public LocalResourceSortOrder SortOrder {
         get=>sortOrder;
         set {
@@ -124,11 +127,35 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
         }
     }
     public void SortChanged(int value){if(value>=0)SortOrder=(LocalResourceSortOrder)value;}
-    public void RefreshUI(){
-        if(view.List() is null)return;RefreshDuplicates();IReadOnlyList<TMod> showing=LocalResourceSort.Order(Current.Where(mod=>CanPassFilter(mod)),sortOrder,mod=>mod.File);host.ChangeAnimationControl(1);
-        if(showing.Any()){view.List()!.Visibility=Visibility.Visible;view.List()!.Items.Clear();foreach(TMod mod in showing){if(!host.Items().TryGetValue(mod.StorageKey,out TItem? item))continue;host.SetChecked(item,host.Selected().Contains(mod.StorageKey));view.List()!.Items.Add(item);}view.Empty().Visibility=Visibility.Collapsed;}
-        else{view.List()!.Visibility=Visibility.Collapsed;if(!(host.Output()?.Any()??false)){view.Empty().Visibility=Visibility.Visible;view.SetEmptyTitle(EmptyTitleDefault);view.SetEmptyHint(EmptyHintDefault);}else view.Empty().Visibility=Visibility.Collapsed;}
-        host.ChangeAnimationControl(-1);host.SetSelected(host.Selected().Where(name=>showing.Any(mod=>Same(mod.StorageKey,name))).ToList());RefreshBars();
+    public void RefreshUI() {
+        if (view.List() is not { } list) return;
+        RefreshDuplicates();
+        var showing = LocalResourceSort.Order(Current.Where(CanPassFilter), sortOrder, mod => mod.File);
+        var selected = host.Selected().ToHashSet(StringComparer.Ordinal);
+        var visible = new HashSet<string>(StringComparer.Ordinal);
+        var items = host.Items();
+        host.ChangeAnimationControl(1);
+        try {
+            list.Items.Clear();
+            foreach (TMod mod in showing) {
+                string path = mod.StorageKey;
+                if (!items.TryGetValue(path, out TItem? row)) continue;
+                host.SetChecked(row, selected.Contains(path));
+                list.Items.Add(row);
+                visible.Add(path);
+            }
+            list.Visibility = visible.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            bool empty = !(host.Output()?.Any() ?? false);
+            view.Empty().Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            if (empty) {
+                view.SetEmptyTitle(EmptyTitleDefault);
+                view.SetEmptyHint(EmptyHintDefault);
+            }
+        } finally {
+            host.ChangeAnimationControl(-1);
+        }
+        host.SetSelected(host.Selected().Where(visible.Contains).ToList());
+        RefreshBars();
     }
     public void RefreshBars(){
         RefreshDuplicates();
@@ -207,21 +234,78 @@ public sealed partial class LegacyModPage<TMod,TProject,TVersion,TItem,TInstance
     public void FilterChanged(int value){Filter=Enum.IsDefined(typeof(LegacyModFilter),value)&&value<view.Filters().Length?(LegacyModFilter)value:LegacyModFilter.All;}
     public void SelectED(bool enable){EDMods(host.Output()!.Where(mod=>host.Selected().Contains(mod.StorageKey)),enable);ChangeAllSelected(false);}
     private void EDMods(IEnumerable<TMod> mods,bool enable){List<TMod> frozen=mods.ToList();if(enable)ApplyModState(frozen,true);else BeginDependencyMutation(frozen.Where(mod=>mod.IsEnabled).Select(mod=>mod.File.FullName!),"禁用",()=>ApplyModState(frozen,false));}
-    private void ApplyModState(IEnumerable<TMod> mods,bool enable){
-        if(!AllowModWrite(host))return;
-        bool success=true;foreach(TMod mod in mods.ToList()){
-            string target;if(mod.IsEnabled&&!enable)target=PathUtils.RemoveExtendedPrefix(mod.File.FullName!)+(FileUtils.Exists(mod.File.FullName+".old")?".old":".disabled");else if(!mod.IsEnabled&&enable)target=mod.EnabledFullName;else continue;
-            try{
-                if(FileUtils.Exists(target)){if(FileUtils.Exists(mod.File.FullName!)){if(CryptographyUtils.ComputeFileHash(mod.File.FullName!)!=CryptographyUtils.ComputeFileHash(target)){host.Message($"目前同时存在启用和禁用的两个 Mod 文件：\r\n - {PathUtils.GetLastPart(target)}\r\n - {mod.File.Name}\r\n\r\n注意，这两个文件的内容并不相同。\r\n在手动删除或重命名其中一个文件后，才能继续操作。","存在文件冲突","确定","",false);continue;}}else{Logger.Warn("Mod 的状态已被切换");continue;}}
-                FileUtils.Move(mod.File.FullName!,target);
-            }catch(FileNotFoundException error){Logger.Error(error,$"未找到需要重命名的 Mod（{mod.File.FullName??"null"}）");ReloadModList(true);return;}catch(Exception error){Logger.Warn(error,$"重命名 Mod 失败（{mod.File.FullName??"null"}）");success=false;}
-            TMod replacement=host.NewMod(target);replacement.FromJson(mod.ToJson());
-            if(host.Output()!.Contains(mod)){int index=host.Output()!.IndexOf(mod);host.Output()!.RemoveAt(index);host.Output()!.Insert(index,replacement);}
-            if(searchResult is not null&&searchResult.Contains(mod)){int index=searchResult.IndexOf(mod);searchResult.Remove(mod);searchResult.Insert(index,replacement);}
-            replacement.DeclaredModIds=mod.DeclaredModIds;if(host.Selected().Remove(mod.StorageKey))host.Selected().Add(replacement.StorageKey);host.Items().TryRemove(mod.StorageKey,out _);TItem newItem=MakeItem(replacement);host.Items()[replacement.StorageKey]=newItem;
-            int ui=view.List()!.Items.IndexOf(view.List()!.Items.OfType<TItem>().FirstOrDefault(item=>ReferenceEquals(host.Entry(item),mod)));if(ui==-1)continue;view.List()!.Items.RemoveAt(ui);view.List()!.Items.Insert(ui,newItem);if(view.List()!.IsVisible)newItem.UpdateLayout();
+    private void ApplyModState(IEnumerable<TMod> mods, bool enable) {
+        if (!AllowModWrite(host)) return;
+        bool success = true, changed = false;
+        foreach (TMod mod in mods.ToList()) {
+            if (mod.IsEnabled == enable) continue;
+            string source = mod.StorageKey;
+            string target = enable ? mod.EnabledFullName : source + (FileUtils.Exists(source + ".old") ? ".old" : ".disabled");
+            bool replacesIdenticalFile = false;
+            try {
+                if (FileUtils.Exists(target)) {
+                    if (!FileUtils.Exists(source)) {
+                        Logger.Warn("Mod 的状态已被切换");
+                        continue;
+                    }
+                    if (CryptographyUtils.ComputeFileHash(source) != CryptographyUtils.ComputeFileHash(target)) {
+                        host.Message($"目前同时存在启用和禁用的两个 Mod 文件：\r\n - {PathUtils.GetLastPart(target)}\r\n - {mod.File.Name}\r\n\r\n注意，这两个文件的内容并不相同。\r\n在手动删除或重命名其中一个文件后，才能继续操作。",
+                            "存在文件冲突", "确定", "", false);
+                        continue;
+                    }
+                    replacesIdenticalFile = true;
+                }
+                FileUtils.Move(source, target);
+            } catch (FileNotFoundException error) {
+                Logger.Error(error, $"未找到需要重命名的 Mod（{source}）");
+                ReloadModList(true);
+                return;
+            } catch (Exception error) {
+                Logger.Warn(error, $"重命名 Mod 失败（{source}）");
+                success = false;
+                continue;
+            }
+            var output = host.Output();
+            TMod replacement = host.NewMod(target);
+            TMod? existing = replacesIdenticalFile ? output?.Find(entry => Same(entry.StorageKey, replacement.StorageKey)) : null;
+            if (existing is not null) replacement = existing;
+            else {
+                replacement.FromJson(mod.ToJson());
+                replacement.DeclaredModIds = mod.DeclaredModIds;
+            }
+            ReplaceMovedMod(output, source, replacement);
+            ReplaceMovedMod(searchResult, source, replacement);
+            var selected = host.Selected();
+            if (selected.Remove(source) && !selected.Contains(replacement.StorageKey))
+                selected.Add(replacement.StorageKey);
+            var items = host.Items();
+            items.TryRemove(source, out _);
+            if (!items.TryGetValue(replacement.StorageKey, out TItem? row) || !ReferenceEquals(host.Entry(row), replacement))
+                items[replacement.StorageKey] = MakeItem(replacement);
+            changed = true;
         }
-        if(success)RefreshBars();else{host.Hint("由于文件被占用，Mod 的状态切换失败，请尝试关闭正在运行的游戏后再试！",1,true);ReloadModList(true);}host.LoaderRun(2);
+        if (changed) RefreshUI();
+        else if (success) RefreshBars();
+        if (!success) {
+            host.Hint("由于文件被占用，Mod 的状态切换失败，请尝试关闭正在运行的游戏后再试！", 1, true);
+            ReloadModList(true);
+        }
+        host.LoaderRun(2);
+    }
+
+    private static void ReplaceMovedMod(List<TMod>? mods, string previousPath, TMod replacement) {
+        if (mods is null) return;
+        string path = replacement.StorageKey;
+        int index = mods.FindIndex(mod => Same(mod.StorageKey, previousPath));
+        if (index < 0) index = mods.FindIndex(mod => Same(mod.StorageKey, path));
+        if (index < 0) return;
+        // The move can legally replace an identical file that already had a row.
+        mods[index] = replacement;
+        for (int i = mods.Count - 1; i >= 0; i--) {
+            if (i == index) continue;
+            string entryPath = mods[i].StorageKey;
+            if (Same(entryPath, path) || Same(entryPath, previousPath)) mods.RemoveAt(i);
+        }
     }
     public void UpdateSelected(){List<TMod> updates=host.Output()!.Where(mod=>host.Selected().Contains(mod.StorageKey)&&mod.HasUpdate).ToList();if(!updates.Any())return;if(!host.ConfirmMode("更新 Mod"))return;UpdateMods(updates,true);ChangeAllSelected(false);}
     public void DeleteSelected(){DeleteMods(host.Output()!.Where(mod=>host.Selected().Contains(mod.StorageKey)));ChangeAllSelected(false);}
