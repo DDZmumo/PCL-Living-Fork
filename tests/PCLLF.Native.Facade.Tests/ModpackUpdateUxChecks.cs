@@ -15,6 +15,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using PCL;
 using PCLCS;
+using PCLLF.Wpf.Motion;
 using static PCLLF.Native.Facade.Tests.ModpackUpdateChecks;
 
 namespace PCLLF.Native.Facade.Tests;
@@ -398,9 +399,18 @@ internal static class ModpackUpdateUxChecks
             for (; ancestor is not null && ancestor != modal; ancestor = VisualTreeHelper.GetParent(ancestor))
                 Native.Check(ancestor is not ScrollViewer, "An outer scroll viewer can intercept the preview list's mouse wheel.");
             Native.Check(ancestor == modal, "The preview list was not presented inside the production modal.");
-            MouseWheelEventArgs wheel = new(Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = UIElement.PreviewMouseWheelEvent };
+            var previewWheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120)
+                { RoutedEvent = UIElement.PreviewMouseWheelEvent };
+            scroll.RaiseEvent(previewWheel);
+            Native.Check(previewWheel.Handled == (MotionPreferences.AllowsAnimation && Keyboard.Modifiers == ModifierKeys.None),
+                "The preview wheel did not respect the current motion preference.");
+            SmoothScroll.Stop(scroll);
+            // Check the bubbling fallback even on machines where smooth scrolling is enabled.
+            double previousOffset = scroll.VerticalOffset;
+            var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -120) { RoutedEvent = UIElement.MouseWheelEvent };
             scroll.RaiseEvent(wheel);
-            Native.Check(wheel.Handled, "The genuine native preview list did not accept the mouse wheel.");
+            modal.UpdateLayout();
+            Native.Check(wheel.Handled && scroll.VerticalOffset > previousOffset, "The native wheel fallback did not scroll the file list.");
         });
         Console.WriteLine("PASS large modpack preview: bounded compact header, collapsed/expanded evidence in one scroll viewport, reachable final file, real modal footer and mouse-wheel routing.");
     }

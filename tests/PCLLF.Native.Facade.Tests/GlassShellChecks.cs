@@ -1476,8 +1476,12 @@ internal static class GlassShellChecks
                 ReferenceEquals(Part<Image>(view, "RecentWorldImage").Source, image), "The view replaced supplied actual images.");
             Click(Part<Button>(view, "ExpandButton"));
             VisualAssetChecks.Drain();
+            var autoFillCheckbox = Part<CheckBox>(view, "AutoFillCheckBox");
             Toggle(Part<CheckBox>(view, "DependencyCheckBox"));
-            Toggle(Part<CheckBox>(view, "AutoFillCheckBox"));
+            Native.Check(!autoFillCheckbox.IsVisible, "Disabling launch dependency checks left the auto-fill control visible.");
+            view.SetState(State(image, dependency: true, autoFill: false));
+            VisualAssetChecks.Drain();
+            Toggle(autoFillCheckbox);
             Native.Check(dependency.SequenceEqual(new[] { false }) && autoFill.SequenceEqual(new[] { true }),
                 "Actual checkbox automation did not forward the toggled values exactly once.");
             view.SetState(State(image, dependency: true, autoFill: false));
