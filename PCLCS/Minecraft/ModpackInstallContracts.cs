@@ -46,7 +46,7 @@ public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TI
     public Action<string> ClearIniCache = null!;
     public Func<ZipArchive, string, TIsolation?> ReadIsolation = null!;
     public Func<string, string, TIsolation?, string> GameFolder = null!;
-    public Action<string, TIsolation> ConfigureIsolation = null!;
+    public Action<string, bool, CancellationToken> SaveModrinthIsolation = null!;
     public Action<string, string, string, TIsolation> CopyIsolatedOverrides = null!;
     public Func<string, string, string, TIsolation, string> OverrideTarget = null!;
     public Func<string, HttpMethod?, string?, string?, JToken?> ModRequest = null!;
@@ -65,6 +65,7 @@ public sealed class ModpackInstallHost<TLoader, TNetFile, TVersion, TProject, TI
     public Func<string, List<TNetFile>, MinecraftDownloadLoaderSettings, TLoader> Download = null!;
     public Func<TLoader, double> Weight = null!;
     public Func<string, string, McComponents, List<TLoader>> InstallGame = null!;
+    public Func<string, string, McComponents, MinecraftInstallPlan<TLoader>> PlanModrinthGame = null!;
     // The sole MMC / MultiMC / Prism installer. Missing services fail explicitly.
     public Func<ModpackMmcInstallRequest, TLoader> InstallManagedMmc = null!;
     public Func<IEnumerable<string>> TaskbarNames = null!;

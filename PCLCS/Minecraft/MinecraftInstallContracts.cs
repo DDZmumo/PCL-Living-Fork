@@ -20,6 +20,9 @@ public class MinecraftInstallRequestData<TForge, TNeo, TResource, TLite>
     public bool IsIntermediateOutput;
     public string? MinecraftFolder;
 }
+public sealed record MinecraftInstallPlan<TLoader>(TLoader PrepareDirectory, List<TLoader> GameLoaders, TLoader? FinishDirectory)
+    where TLoader : class;
+
 /// <summary>Live accessors for the native LoaderTask. No input/output/progress/state is copied.</summary>
 public sealed class MinecraftInstallTask<TInput, TOutput, TLoader> {
     public TLoader Native = default!;
@@ -103,4 +106,5 @@ public sealed class MinecraftInstallHost<TLoader, TNetFile, TInstance, TForge, T
     public Func<object, int> CleanupState = null!;
     public Func<object, string> CleanupInput = null!;
     public Func<object, IEnumerable<object>> CleanupTasks = _ => Array.Empty<object>();
+    public Action<IReadOnlyList<object>> DrainOwnedInstall = _ => throw new InvalidOperationException("普通安装缺少文件工作清理入口。");
 }

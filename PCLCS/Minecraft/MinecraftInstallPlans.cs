@@ -10,6 +10,16 @@ namespace PCLCS;
 
 public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance, TState, TCard, TOptiFine, TForgeLike, TForge, TNeo, TLite, TLib, TResource, TRequest> {
     public List<TLoader> McInstallLoadersGet(TRequest request) {
+        var plan = BuildInstallPlan(request, exclusiveDirectory: false);
+        List<TLoader> loaders = [plan.PrepareDirectory, ..plan.GameLoaders];
+        if (plan.FinishDirectory is { } finish) loaders.Add(finish);
+        return loaders;
+    }
+
+    public MinecraftInstallPlan<TLoader> CreateModrinthGamePlan(TRequest request) =>
+        BuildInstallPlan(request, exclusiveDirectory: true);
+
+    private MinecraftInstallPlan<TLoader> BuildInstallPlan(TRequest request, bool exclusiveDirectory) {
         MmcInstanceCapabilities.RequireLegacy(request.InstanceFolder, "普通组件安装");
         string temp = host.RequestTempFolder(request.Components.OptiFineEntry is not null || request.Components.ModLoaderVersions.ContainsKey(ModLoaders.Forge) || request.Components.ModLoaderVersions.ContainsKey(ModLoaders.NeoForge));
         TOptiFine? optiFine = request.Components.OptiFineEntry?.ToObject<TOptiFine>();
@@ -36,9 +46,12 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
         if (FileUtils.Exists(versionFolder + request.NewInstanceName + ".json")) { Hint("版本 " + request.NewInstanceName + " 已经存在！", 1); throw new OperationCanceledException(); }
         List<TLoader> loaders = new();
         Dictionary<string, string> managedSources = new();
-        TLoader ignore = Task<int, int>("添加忽略标识", task => OrdinaryInstallCleanupProof.WriteMarker(task.Native, versionFolder), show: false);
-        OrdinaryInstallCleanupProof.Register(ignore, versionFolder, request.NewInstanceName);
-        loaders.Add(ignore);
+        TLoader ignore = Task<int, int>("添加忽略标识", task => {
+            if (exclusiveDirectory) task.Cancellation().ThrowIfCancellationRequested();
+            OrdinaryInstallCleanupProof.WriteMarker(task.Native, versionFolder);
+        }, show: false);
+        if (exclusiveDirectory) OrdinaryInstallCleanupProof.RegisterExclusive(ignore, versionFolder, request.NewInstanceName);
+        else OrdinaryInstallCleanupProof.Register(ignore, versionFolder, request.NewInstanceName);
         if (request.Components.FabricApiVersion is not null) {
             TNetFile file = host.ResourceNetFile(request.FabricApi!, modsTemp, request.Components.MinecraftVersion, ModLoaders.Fabric);
             managedSources.Add("FabricApi", host.LocalPath(file)); loaders.Add(Download("下载 Fabric API", new() { file }, 3, true, false));
@@ -87,8 +100,14 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
             IInstanceConfigProvider config = host.NewInstance(versionFolder).Config;
             Configs.McInstallManifest.Set(new McInstallManifest(Versions.McInstallManifestVersion, target, DateTime.UtcNow, managed), config); config.Save();
         }, show: false));
-        if (!request.IsIntermediateOutput) loaders.Add(Task<int, int>("删除忽略标识", _ => FileUtils.Delete(versionFolder + ".pclignore"), show: false));
-        return loaders;
+        TLoader? finish = request.IsIntermediateOutput ? null : Task<int, int>("删除忽略标识", task => {
+            if (exclusiveDirectory) {
+                task.Cancellation().ThrowIfCancellationRequested();
+                OrdinaryInstallCleanupProof.AssertOwned(ignore);
+            }
+            FileUtils.Delete(versionFolder + ".pclignore");
+        }, show: false);
+        return new(ignore, loaders, finish);
     }
     public void MergeJson(string versionFolder, string? optiFolder, bool optiAsMod, string? forgeFolder, string? neoFolder, string? fabricFolder, string? liteFolder) {
         List<(string Name, string Folder)> sources = new() { ("Minecraft", versionFolder) };

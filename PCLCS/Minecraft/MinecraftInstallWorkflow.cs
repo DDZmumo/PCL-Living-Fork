@@ -105,8 +105,10 @@ public sealed partial class MinecraftInstallEngine<TLoader, TNetFile, TInstance,
             try {
                 Thread.Sleep(1000);
                 string folder = host.CleanupInput(loader);
+                var tasks = host.CleanupTasks(loader).ToArray();
+                if (OrdinaryInstallCleanupProof.HasExclusiveClaim(tasks)) host.DrainOwnedInstall(tasks);
                 MmcInstanceInspection management = MmcInstanceInspector.Read(folder);
-                bool known = OrdinaryInstallCleanupProof.TryAuthorize(host.CleanupTasks(loader), folder, out bool hasProof, out string? refusal);
+                bool known = OrdinaryInstallCleanupProof.TryAuthorize(tasks, folder, out bool hasProof, out string? refusal);
                 if (hasProof ? !known : !management.IsLegacy || !management.Management.CanUseLegacyBackend) {
                     Logger.Warn("保留 MMC 或尚未确认归属的安装现场，等待其专用恢复流程：" + folder);
                     if (refusal is not null) Logger.Warn(refusal);

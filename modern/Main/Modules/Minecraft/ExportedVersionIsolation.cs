@@ -6,6 +6,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Compression;
+using System.IO;
+using System.Threading;
 using System.Xml.Linq;
 using MeloongCore;
 using MeloongCore.Extensions;
@@ -44,6 +46,18 @@ namespace PCL
         internal static void ConfigureTarget(string VersionFolder, Choice Policy)
         {
             Service.ConfigureTarget(VersionFolder, Policy);
+        }
+        internal static void SaveModrinthIsolation(string versionFolder, bool enabled, CancellationToken token)
+        {
+            string setup = Path.Combine(versionFolder, "PCL", "Setup.ini");
+            ModBase.UpdateIniValues(setup, new Dictionary<string, string> {
+                ["VersionArgumentIndie"] = enabled ? "1" : "2",
+                ["VersionArgumentIndieV2"] = enabled.ToString(),
+                ["IsStar"] = "False"
+            }, token);
+            string folder = PathUtils.AddSlashSuffix(versionFolder);
+            foreach (string key in new[] { "VersionArgumentIndie", "VersionArgumentIndieV2" })
+                Settings.Entries[key].ValueCache.Remove(folder);
         }
         internal static string GameFolder(string VersionFolder, string MinecraftFolder, Choice Policy)
         {

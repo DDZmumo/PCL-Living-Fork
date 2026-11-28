@@ -112,7 +112,8 @@ namespace PCL
                 CaptureEnvironment = new Action<global::PCL.ModMinecraft.McInstance, global::System.String, global::System.Threading.CancellationToken>((Instance, Reason, Token) => global::PCL.EnvironmentHistory.CaptureAutomatic(Instance, Reason, Token)),
                 CleanupState = new Func<global::System.Object, global::System.Int32>(Loader => Conversions.ToInteger(((dynamic)Loader).State)),
                 CleanupInput = new Func<global::System.Object, global::System.String>(Loader => Conversions.ToString(((dynamic)Loader).Input)),
-                CleanupTasks = InstallCleanupTasks
+                CleanupTasks = InstallCleanupTasks,
+                DrainOwnedInstall = DrainOwnedInstall
             };
         }
         private static IEnumerable<object> InstallCleanupTasks(object loader)
@@ -124,6 +125,18 @@ namespace PCL
             // Cleanup needs the actual hidden marker task at every nesting level.
             foreach (ModLoader.LoaderBase child in (IEnumerable<ModLoader.LoaderBase>)((dynamic)loader).Loaders)
                 foreach (object nested in InstallCleanupTasks(child)) yield return nested;
+        }
+
+        private static void DrainOwnedInstall(IReadOnlyList<object> tasks)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var loaders = tasks.OfType<ModLoader.LoaderBase>().ToArray();
+            while (loaders.Any(loader => loader.State == ModBase.LoadState.Loading || loader.HasActiveWorkload == true)) {
+                timeout.Token.ThrowIfCancellationRequested();
+                Thread.Sleep(20);
+            }
+            var downloads = loaders.OfType<ModNet.LoaderDownload>().Where(loader => loader.State != ModBase.LoadState.Waiting);
+            System.Threading.Tasks.Task.WhenAll(downloads.Select(MmcDownloads.DrainAsync)).WaitAsync(timeout.Token).GetAwaiter().GetResult();
         }
         private static void InstallHint(global::System.String Text, global::System.Int32 Kind)
         {
@@ -328,6 +341,9 @@ namespace PCL
         {
             return global::PCL.ModDownloadLib.Service.McInstallLoadersGet(Request);
         }
+
+        internal static MinecraftInstallPlan<ModLoader.LoaderBase> CreateModrinthGamePlan(string name, string folder, McComponents components)
+            => Service.CreateModrinthGamePlan(new McInstallRequest { NewInstanceName = name, InstanceFolder = folder, Components = components });
         private static void MergeJson(global::System.String VersionFolder, global::System.String OptiFineFolder, global::System.Boolean OptiFineAsMod, global::System.String ForgeFolder, global::System.String NeoForgeFolder, global::System.String FabricFolder, global::System.String LiteLoaderFolder)
         {
             global::PCL.ModDownloadLib.Service.MergeJson(VersionFolder, OptiFineFolder, OptiFineAsMod, ForgeFolder, NeoForgeFolder, FabricFolder, LiteLoaderFolder);

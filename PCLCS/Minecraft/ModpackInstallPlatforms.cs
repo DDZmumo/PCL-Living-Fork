@@ -121,14 +121,40 @@ public sealed partial class ModpackInstallEngine<TLoader, TNetFile, TVersion, TP
             }
         }
         if (instanceName is null) instanceName = SelectName((string?)(json["name"] ?? new JValue("")));
-        string versionFolder = Path.Combine(host.MinecraftFolder(), "versions", instanceName!) + "\\";
-        string installTemp = host.RequestTempFolder(), gameFolder = host.GameFolder(versionFolder, host.MinecraftFolder(), isolation);
-        List<TLoader> installLoaders = new() { host.TextIntTask("解压整合包文件", task => {
-            ExtractModpackFiles(installTemp, fileAddress, task.Cancellation(), task.ProgressProvider(0.5));
-            CopyOverrideDirectory(installTemp + archiveBaseFolder + "overrides", versionFolder, null!, isolation, gameFolder);
-            CopyOverrideDirectory(installTemp + archiveBaseFolder + "client-overrides", versionFolder, null!, isolation, gameFolder);
-        }, new MinecraftDownloadLoaderSettings { ProgressWeight = ExtractWeight(fileAddress), Block = false }) };
-        List<TNetFile> fileList = new();
+        string minecraftFolder = host.MinecraftFolder();
+        string versions = Path.Combine(minecraftFolder, "versions");
+        string versionRoot = Path.GetFullPath(Path.Combine(versions, instanceName!));
+        if (!PathUtils.IsSame(Path.GetDirectoryName(versionRoot), versions))
+            throw new InvalidDataException("安装目标必须是 versions 下的新实例目录。");
+        string versionFolder = PathUtils.AddSlashSuffix(PathUtils.ForCompare(versionRoot));
+        string installTemp = host.RequestTempFolder(), gameFolder = host.GameFolder(versionFolder, minecraftFolder, isolation);
+        bool isolated = isolation?.Enabled ?? true;
+        string marker = Path.Combine(versionFolder, ".pclignore");
+        string Target(string relative) {
+            relative = InstanceCloneExportIsolationRules.NormalizeRelative(relative);
+            string target = isolation is null ? Path.Combine(gameFolder, relative) : host.OverrideTarget(relative, versionFolder, gameFolder, isolation);
+            if (!PathUtils.IsParentOf(gameFolder, target) && !PathUtils.IsParentOf(versionFolder, target))
+                throw new InvalidDataException("整合包的文件路径超出了游戏文件夹。");
+            if (PathUtils.IsParentOf(marker, target))
+                throw new InvalidDataException("整合包不能覆盖安装任务的忽略标识。");
+            return PathUtils.ForCompare(target);
+        }
+        var overrides = new List<(string Source, string Target)>();
+        var overrideFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var overrideDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string layer in new[] { "overrides/", "client-overrides/" }) {
+            string prefix = archiveBaseFolder + layer;
+            foreach (var entry in archive.Entries) {
+                string entryName = entry.FullName.Replace('\\', '/');
+                if (entry.Name.Length == 0 || !entryName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                string target = Target(entryName[prefix.Length..]);
+                overrides.Add((Path.Combine(installTemp, entryName), target));
+                overrideFiles.Add(target);
+                for (string? parent = Path.GetDirectoryName(target); parent is not null && overrideDirectories.Add(parent); parent = Path.GetDirectoryName(parent)) { }
+            }
+        }
+        List<TNetFile> preparationFiles = new(), parallelFiles = new();
+        var downloads = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (JToken file in Values(json["files"])) {
             if (file["env"] is not null) {
                 switch (file["env"]!["client"]!.ToString()) {
@@ -140,22 +166,78 @@ public sealed partial class ModpackInstallEngine<TLoader, TNetFile, TVersion, TP
             urls.AddRange(urls.Select(host.ModMirror).ToList());
             urls = host.TrackUrls(urls, targetVersion.VanillaName, targetVersion.ModLoaders).ToList();
             urls = urls.Distinct().ToList();
-            string targetPath = Path.Combine(gameFolder, file["path"]!.ToString().TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            if (isolation is not null) targetPath = host.OverrideTarget(file["path"]!.ToString(), versionFolder, gameFolder, isolation);
-            if (!PathUtils.IsParentOf(gameFolder, targetPath) && !PathUtils.IsParentOf(versionFolder, targetPath)) {
-                Message("整合包的文件路径超出了游戏文件夹，请向整合包作者反馈此问题！\r\n目标：" + Path.GetFullPath(targetPath) + "\r\n错误的文件：" + targetPath, "文件路径校验失败", warn: true);
-                throw new OperationCanceledException();
+            string targetPath = Target(file["path"]!.ToString());
+            string hash = file["hashes"]!["sha1"]!.ToString();
+            if (!downloads.TryAdd(targetPath, hash)) {
+                if (!string.Equals(downloads[targetPath], hash, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("整合包为同一文件声明了互相冲突的下载内容。");
+                continue;
             }
             // LF intentionally verifies the hash, without using Modrinth's declared file size.
-            fileList.Add(host.NetFile(urls, targetPath, file["hashes"]!["sha1"]!.ToString()));
+            var pending = host.NetFile(urls, targetPath, hash);
+            if (isolated && CanDownloadWhileInstalling(targetPath, versionFolder, overrideFiles, overrideDirectories)) parallelFiles.Add(pending);
+            else preparationFiles.Add(pending);
         }
-        if (fileList.Any()) installLoaders.Add(host.Download("下载额外文件", fileList, new MinecraftDownloadLoaderSettings { ProgressWeight = fileList.Count * 1.5 }));
-        List<TLoader> mergeLoaders = host.InstallGame(instanceName!, versionFolder, new McComponents(targetVersion.VanillaName, targetVersion.ModLoaderVersions));
-        List<TLoader> loaders = new();
-        if (isolation is not null) loaders.Add(host.TextIntTask("设置版本隔离", _ => host.ConfigureIsolation(versionFolder, isolation), new MinecraftDownloadLoaderSettings { Show = false }));
-        loaders.Add(PackCombo(installLoaders, isolation is not null && !isolation.Enabled)); loaders.Add(GameCombo(mergeLoaders));
-        loaders.Add(host.TextTextTask("最终整理文件", _ => { SetLogo(logo, versionFolder); DeleteOriginalPacks(fileAddress, versionFolder); }, new MinecraftDownloadLoaderSettings { ProgressWeight = 0.1, Show = false }));
-        loaders.Insert(loaders.Count - 1, host.TextTextTask("记录整合包文件", _ => host.RecordInstalled(fileAddress, versionFolder, source), new MinecraftDownloadLoaderSettings { Show = false }));
+        var game = host.PlanModrinthGame(instanceName!, versionFolder, new McComponents(targetVersion.VanillaName, targetVersion.ModLoaderVersions));
+        var finish = game.FinishDirectory ?? throw new InvalidOperationException("整合包安装缺少目录发布任务。");
+
+        // Files that can affect the instance configuration or be replaced by an override belong to the preparation chain.
+        List<TLoader> prepareAndInstall = [];
+        if (preparationFiles.Count > 0)
+            prepareAndInstall.Add(host.Download("准备整合包文件", preparationFiles, new MinecraftDownloadLoaderSettings { ProgressWeight = preparationFiles.Count * 1.5, Block = true }));
+        prepareAndInstall.Add(host.TextIntTask("应用整合包设置", task => {
+            var token = task.Cancellation();
+            token.ThrowIfCancellationRequested();
+            OrdinaryInstallCleanupProof.AssertOwned(game.PrepareDirectory);
+            MmcInstanceCapabilities.RequireLegacy(versionFolder, "普通整合包文件覆盖");
+            MmcInstanceCapabilities.RequireLegacyContainingInstance(gameFolder, "普通整合包文件覆盖");
+            if (overrides.Count > 0) {
+                ExtractModpackFiles(installTemp, fileAddress, token, task.ProgressProvider(0.5));
+                OrdinaryInstallCleanupProof.AssertOwned(game.PrepareDirectory);
+                foreach (var file in overrides) {
+                    token.ThrowIfCancellationRequested();
+                    FileUtils.Copy(file.Source, file.Target);
+                }
+            }
+            token.ThrowIfCancellationRequested();
+            OrdinaryInstallCleanupProof.AssertOwned(game.PrepareDirectory);
+            host.SaveModrinthIsolation(versionFolder, isolated, token);
+        }, new MinecraftDownloadLoaderSettings { ProgressWeight = ExtractWeight(fileAddress), Block = true }));
+        prepareAndInstall.Add(GameCombo(game.GameLoaders));
+        List<TLoader> installation = [];
+        if (parallelFiles.Count > 0)
+            installation.Add(host.Download("下载额外文件", parallelFiles, new MinecraftDownloadLoaderSettings { ProgressWeight = parallelFiles.Count * 1.5, Block = false }));
+        installation.Add(host.TextCombo("准备并安装游戏", prepareAndInstall, new MinecraftDownloadLoaderSettings {
+            Block = false, Show = false, ProgressWeight = prepareAndInstall.Sum(host.Weight)
+        }));
+        List<TLoader> loaders = [
+            game.PrepareDirectory,
+            host.TextCombo("整合包安装", installation, new MinecraftDownloadLoaderSettings { Block = true, Show = false, ProgressWeight = installation.Sum(host.Weight) }),
+            host.TextTextTask("记录整合包文件", task => {
+                task.Cancellation().ThrowIfCancellationRequested();
+                OrdinaryInstallCleanupProof.AssertOwned(game.PrepareDirectory);
+                host.RecordInstalled(fileAddress, versionFolder, source);
+            }, new MinecraftDownloadLoaderSettings { Show = false }),
+            host.TextTextTask("最终整理文件", task => {
+                task.Cancellation().ThrowIfCancellationRequested();
+                OrdinaryInstallCleanupProof.AssertOwned(game.PrepareDirectory);
+                SetLogo(logo, versionFolder);
+                task.Cancellation().ThrowIfCancellationRequested();
+                DeleteOriginalPacks(fileAddress, versionFolder);
+            }, new MinecraftDownloadLoaderSettings { ProgressWeight = 0.1, Show = false }),
+            finish
+        ];
         return Start("Modrinth 整合包安装：" + instanceName + " ", loaders, versionFolder);
+    }
+
+    private static bool CanDownloadWhileInstalling(string target, string versionFolder, HashSet<string> overrideFiles, HashSet<string> overrideDirectories) {
+        // These directories have independent file payloads. Game installation only creates their containers.
+        if (!target.StartsWith(versionFolder + "mods\\", StringComparison.OrdinalIgnoreCase) &&
+            !target.StartsWith(versionFolder + "resourcepacks\\", StringComparison.OrdinalIgnoreCase) &&
+            !target.StartsWith(versionFolder + "shaderpacks\\", StringComparison.OrdinalIgnoreCase)) return false;
+        if (overrideFiles.Contains(target) || overrideDirectories.Contains(target)) return false;
+        for (string? parent = Path.GetDirectoryName(target); parent is not null; parent = Path.GetDirectoryName(parent))
+            if (overrideFiles.Contains(parent)) return false;
+        return true;
     }
 }
